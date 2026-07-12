@@ -371,6 +371,177 @@ export class FpaBudgetCycleService {
     return FpaBudgetCycleService.get(cycleId);
   }
 
+  static budgetCyclePath(cycleId: string) {
+    return `/forecasting/budget?cycleId=${encodeURIComponent(cycleId)}`;
+  }
+
+  /** Users with CFO role (+ optional CFO_EMAIL env). */
+  static async resolveCfoUsers(): Promise<Array<{ id: string; email: string; firstName: string; lastName: string }>> {
+    const users = await prisma.user.findMany({
+      where: {
+        OR: [
+          { roleCode: "CFO" },
+          { role: { name: "Chief Financial Officer" } },
+          { role: { name: "CFO" } },
+        ],
+      },
+      select: { id: true, email: true, firstName: true, lastName: true },
+    });
+    const byEmail = new Map(users.filter((u) => u.email).map((u) => [u.email.trim().toLowerCase(), u]));
+    const envCfo = process.env.CFO_EMAIL;
+    if (envCfo) {
+      for (const raw of envCfo.split(/[,;]/)) {
+        const email = raw.trim();
+        if (!email || byEmail.has(email.toLowerCase())) continue;
+        const row = await prisma.user.findFirst({
+          where: { email },
+          select: { id: true, email: true, firstName: true, lastName: true },
+        });
+        if (row?.email) byEmail.set(row.email.trim().toLowerCase(), row);
+      }
+    }
+    return [...byEmail.values()];
+  }
+
+  /** FP&A / finance managers who review budget submissions. */
+  static async resolveFpaManagerUsers(): Promise<
+    Array<{ id: string; email: string; firstName: string; lastName: string }>
+  > {
+    const codes = [
+      "FIN_MGR",
+      "FIN_MANAGER",
+      "FINANCE_MANAGER",
+      "FPA",
+      "FPA_MANAGER",
+      "FPA_MGR",
+      "FP_A",
+      "SYSADMIN",
+      "ADMIN",
+      "SUPER_ADMIN",
+      "SYSTEM_ADMIN",
+    ];
+    return prisma.user.findMany({
+      where: {
+        OR: [
+          { roleCode: { in: codes } },
+          { role: { name: { contains: "FP&A" } } },
+          { role: { name: { contains: "Finance Manager" } } },
+          { role: { name: { contains: "Financial Planning" } } },
+          { role: { name: { contains: "System Admin" } } },
+          { role: { name: { contains: "Administrator" } } },
+        ],
+      },
+      select: { id: true, email: true, firstName: true, lastName: true },
+    });
+  }
+
+  static async resolveOwnerUsers(
+    cycleId: string,
+    departmentIds?: string[] | null
+  ): Promise<Array<{ id: string; email: string; firstName: string; lastName: string; departmentId: string }>> {
+    const owners = await prisma.planningBudgetCycleOwner.findMany({ where: { cycleId } });
+    const targets = departmentIds?.length
+      ? owners.filter((o) => departmentIds.includes(o.departmentId))
+      : owners;
+    const assigneeIds = [...new Set(targets.map((o) => o.assigneeId).filter(Boolean).map(String))];
+    if (!assigneeIds.length) return [];
+    const users = await prisma.user.findMany({
+      where: { id: { in: assigneeIds } },
+      select: { id: true, email: true, firstName: true, lastName: true },
+    });
+    const byId = Object.fromEntries(users.map((u) => [u.id, u]));
+    const out: Array<{ id: string; email: string; firstName: string; lastName: string; departmentId: string }> = [];
+    const seen = new Set<string>();
+    for (const o of targets) {
+      if (!o.assigneeId || !byId[o.assigneeId]?.email) continue;
+      const key = `${o.assigneeId}:${o.departmentId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const u = byId[o.assigneeId];
+      out.push({ ...u, departmentId: o.departmentId });
+    }
+    return out;
+  }
+
+  /**
+   * Fan-out in-app + email + realtime. Non-fatal.
+   */
+  static async notifyUsers(opts: {
+    users: Array<{ id: string; email?: string | null; firstName?: string | null; lastName?: string | null }>;
+    excludeUserId?: string | null;
+    type: string;
+    title: string;
+    message: string;
+    cycleId: string;
+    relatedEntity?: string;
+    data?: Record<string, any>;
+    email: {
+      subject: string;
+      heading: string;
+      preheader: string;
+      bodyInnerHtml: (name: string) => string;
+      ctaLabel?: string;
+    };
+  }) {
+    const path = FpaBudgetCycleService.budgetCyclePath(opts.cycleId);
+    const base = String(process.env.FRONTEND_URL || "http://app.kyntaro.com").replace(/\/+$/, "");
+    const seen = new Set<string>();
+    const recipientIds: string[] = [];
+
+    for (const u of opts.users) {
+      if (!u?.id || !u.email) continue;
+      if (opts.excludeUserId && u.id === opts.excludeUserId) continue;
+      if (seen.has(u.id)) continue;
+      seen.add(u.id);
+      recipientIds.push(u.id);
+      const name = [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.email;
+
+      try {
+        await prisma.notification.create({
+          data: {
+            title: opts.title,
+            message: opts.message,
+            type: opts.type,
+            userId: u.id,
+            relatedEntity: opts.relatedEntity || "PlanningBudgetCycle",
+            relatedEntityId: opts.cycleId,
+            data: { cycleId: opts.cycleId, path, url: `${base}${path}`, ...(opts.data || {}) },
+          },
+        });
+      } catch (e) {
+        console.error(`Budget notify in-app failed (${opts.type}):`, e);
+      }
+
+      try {
+        await EmailNotificationService.sendFpaBudgetLifecycleEmail({
+          recipientName: name,
+          recipientEmail: u.email,
+          subject: opts.email.subject,
+          heading: opts.email.heading,
+          preheader: opts.email.preheader,
+          bodyInnerHtml: opts.email.bodyInnerHtml(name),
+          cycleId: opts.cycleId,
+          ctaLabel: opts.email.ctaLabel,
+          path,
+        });
+      } catch (e) {
+        console.error(`Budget notify email failed (${opts.type}):`, e);
+      }
+    }
+
+    if (recipientIds.length) {
+      try {
+        emitToUsers(recipientIds, "notification_created", {
+          type: opts.type,
+          cycleId: opts.cycleId,
+          path,
+        });
+      } catch (e) {
+        console.error(`Budget notify realtime failed (${opts.type}):`, e);
+      }
+    }
+  }
+
   /**
    * In-app notification + email for each owner with an assigneeId.
    * Non-fatal: failures are logged and do not roll back the cycle.
@@ -403,7 +574,7 @@ export class FpaBudgetCycleService {
     const deptById = Object.fromEntries(depts.map((d) => [d.id, d]));
     const taskById = Object.fromEntries(tasks.map((t) => [t.id, t]));
     const base = String(process.env.FRONTEND_URL || "http://app.kyntaro.com").replace(/\/+$/, "");
-    const path = `/forecasting/budget?cycleId=${encodeURIComponent(cycle.id)}`;
+    const path = FpaBudgetCycleService.budgetCyclePath(cycle.id);
 
     const notified = new Set<string>();
     for (const owner of cycle.owners) {
@@ -471,6 +642,211 @@ export class FpaBudgetCycleService {
     } catch (e) {
       console.error("Budget owner realtime emit failed:", e);
     }
+  }
+
+  /** Cycle submitted for FP&A review — notify FPA managers and CFO. */
+  static async notifySubmittedForReview(cycleId: string, actorId?: string | null, comment?: string | null) {
+    const cycle = await FpaBudgetCycleService.assertCycle(cycleId);
+    const [fpa, cfo] = await Promise.all([
+      FpaBudgetCycleService.resolveFpaManagerUsers(),
+      FpaBudgetCycleService.resolveCfoUsers(),
+    ]);
+    const users = [...fpa, ...cfo];
+    const esc = (s: string) =>
+      String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    await FpaBudgetCycleService.notifyUsers({
+      users,
+      excludeUserId: actorId,
+      type: "BUDGET_SUBMITTED_FOR_REVIEW",
+      title: "Budget submitted for review",
+      message: `"${cycle.name}" (FY${cycle.fiscalYear}) was submitted and needs FP&A / CFO review.`,
+      cycleId,
+      email: {
+        subject: `Budget submitted for review — ${cycle.name}`,
+        heading: "Budget submitted for review",
+        preheader: `${cycle.name} is ready for review`,
+        bodyInnerHtml: (name) => `
+            <p>Dear ${esc(name)},</p>
+            <p>The annual budget cycle <strong>${esc(cycle.name)}</strong> (FY${cycle.fiscalYear}) has been submitted for review.</p>
+            ${comment ? `<p><strong>Comment:</strong> ${esc(comment)}</p>` : ""}
+            <p>Please open the Budgeting workspace to review and accept or return.</p>`,
+        ctaLabel: "Review budget cycle",
+      },
+    });
+  }
+
+  /** FP&A accepted → pending CFO — notify CFO. */
+  static async notifyPendingCfoReview(cycleId: string, actorId?: string | null, comment?: string | null) {
+    const cycle = await FpaBudgetCycleService.assertCycle(cycleId);
+    const cfo = await FpaBudgetCycleService.resolveCfoUsers();
+    const esc = (s: string) =>
+      String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    await FpaBudgetCycleService.notifyUsers({
+      users: cfo,
+      excludeUserId: actorId,
+      type: "BUDGET_PENDING_CFO_REVIEW",
+      title: "Budget awaiting CFO approval",
+      message: `"${cycle.name}" (FY${cycle.fiscalYear}) passed FP&A review and needs your approval.`,
+      cycleId,
+      email: {
+        subject: `CFO approval needed — ${cycle.name}`,
+        heading: "Budget awaiting CFO approval",
+        preheader: `${cycle.name} needs CFO approval`,
+        bodyInnerHtml: (name) => `
+            <p>Dear ${esc(name)},</p>
+            <p>FP&A has accepted <strong>${esc(cycle.name)}</strong> (FY${cycle.fiscalYear}). Your CFO approval is required.</p>
+            ${comment ? `<p><strong>Comment:</strong> ${esc(comment)}</p>` : ""}
+            <p>Please review and approve or return for correction.</p>`,
+        ctaLabel: "Review as CFO",
+      },
+    });
+  }
+
+  /** Return for correction — notify affected owners. */
+  static async notifyOwnersReturned(
+    cycleId: string,
+    opts: { departmentIds?: string[] | null; comment: string; actorId?: string | null; source: string }
+  ) {
+    const cycle = await FpaBudgetCycleService.assertCycle(cycleId);
+    const owners = await FpaBudgetCycleService.resolveOwnerUsers(cycleId, opts.departmentIds);
+    const esc = (s: string) =>
+      String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    await FpaBudgetCycleService.notifyUsers({
+      users: owners,
+      excludeUserId: opts.actorId,
+      type: "BUDGET_RETURNED_FOR_CORRECTION",
+      title: "Budget returned for correction",
+      message: `"${cycle.name}" was returned for correction: ${opts.comment}`,
+      cycleId,
+      data: { source: opts.source, comment: opts.comment },
+      email: {
+        subject: `Budget returned for correction — ${cycle.name}`,
+        heading: "Budget returned for correction",
+        preheader: `Action required on ${cycle.name}`,
+        bodyInnerHtml: (name) => `
+            <p>Dear ${esc(name)},</p>
+            <p>Your budget input for <strong>${esc(cycle.name)}</strong> (FY${cycle.fiscalYear}) was returned for correction.</p>
+            <p><strong>Feedback:</strong> ${esc(opts.comment)}</p>
+            <p>Please update your lines and resubmit.</p>`,
+        ctaLabel: "Fix budget input",
+      },
+    });
+  }
+
+  /** CFO approved — notify owners + cycle creator + FPA managers. */
+  static async notifyCfoApproved(cycleId: string, actorId?: string | null, comment?: string | null) {
+    const cycle = await FpaBudgetCycleService.assertCycle(cycleId);
+    const [owners, fpa, creator] = await Promise.all([
+      FpaBudgetCycleService.resolveOwnerUsers(cycleId),
+      FpaBudgetCycleService.resolveFpaManagerUsers(),
+      prisma.user.findUnique({
+        where: { id: cycle.createdById },
+        select: { id: true, email: true, firstName: true, lastName: true },
+      }),
+    ]);
+    const users = [...owners, ...fpa, ...(creator ? [creator] : [])];
+    const esc = (s: string) =>
+      String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    await FpaBudgetCycleService.notifyUsers({
+      users,
+      excludeUserId: actorId,
+      type: "BUDGET_CFO_APPROVED",
+      title: "Budget approved by CFO",
+      message: `"${cycle.name}" (FY${cycle.fiscalYear}) was approved by the CFO.`,
+      cycleId,
+      email: {
+        subject: `Budget approved — ${cycle.name}`,
+        heading: "Budget approved by CFO",
+        preheader: `${cycle.name} was approved`,
+        bodyInnerHtml: (name) => `
+            <p>Dear ${esc(name)},</p>
+            <p><strong>${esc(cycle.name)}</strong> (FY${cycle.fiscalYear}) has been approved by the CFO.</p>
+            ${comment ? `<p><strong>Comment:</strong> ${esc(comment)}</p>` : ""}
+            <p>The cycle can now be locked and a board pack generated.</p>`,
+      },
+    });
+  }
+
+  /** Cycle locked — notify owners + creator. */
+  static async notifyLocked(cycleId: string, actorId?: string | null) {
+    const cycle = await FpaBudgetCycleService.assertCycle(cycleId);
+    const [owners, creator] = await Promise.all([
+      FpaBudgetCycleService.resolveOwnerUsers(cycleId),
+      prisma.user.findUnique({
+        where: { id: cycle.createdById },
+        select: { id: true, email: true, firstName: true, lastName: true },
+      }),
+    ]);
+    const esc = (s: string) =>
+      String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    await FpaBudgetCycleService.notifyUsers({
+      users: [...owners, ...(creator ? [creator] : [])],
+      excludeUserId: actorId,
+      type: "BUDGET_CYCLE_LOCKED",
+      title: "Budget cycle locked",
+      message: `"${cycle.name}" (FY${cycle.fiscalYear}) has been locked.`,
+      cycleId,
+      email: {
+        subject: `Budget locked — ${cycle.name}`,
+        heading: "Budget cycle locked",
+        preheader: `${cycle.name} is locked`,
+        bodyInnerHtml: (name) => `
+            <p>Dear ${esc(name)},</p>
+            <p>The approved budget <strong>${esc(cycle.name)}</strong> (FY${cycle.fiscalYear}) has been locked. Planning figures for this version are frozen.</p>`,
+      },
+    });
+  }
+
+  /** Board pack ready — notify owners, creator, CFO. */
+  static async notifyBoardPackReady(cycleId: string, actorId?: string | null, url?: string | null) {
+    const cycle = await FpaBudgetCycleService.assertCycle(cycleId);
+    const [owners, cfo, creator] = await Promise.all([
+      FpaBudgetCycleService.resolveOwnerUsers(cycleId),
+      FpaBudgetCycleService.resolveCfoUsers(),
+      prisma.user.findUnique({
+        where: { id: cycle.createdById },
+        select: { id: true, email: true, firstName: true, lastName: true },
+      }),
+    ]);
+    const esc = (s: string) =>
+      String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    await FpaBudgetCycleService.notifyUsers({
+      users: [...owners, ...cfo, ...(creator ? [creator] : [])],
+      excludeUserId: actorId,
+      type: "BUDGET_BOARD_PACK_READY",
+      title: "Board pack ready",
+      message: `Board pack for "${cycle.name}" is ready.`,
+      cycleId,
+      data: { boardPackUrl: url || null },
+      email: {
+        subject: `Board pack ready — ${cycle.name}`,
+        heading: "Board pack ready",
+        preheader: `Board pack for ${cycle.name}`,
+        bodyInnerHtml: (name) => `
+            <p>Dear ${esc(name)},</p>
+            <p>The board pack for <strong>${esc(cycle.name)}</strong> (FY${cycle.fiscalYear}) is ready.</p>
+            ${url ? `<p>Download: ${esc(url)}</p>` : ""}`,
+        ctaLabel: "Open budget cycle",
+      },
+    });
   }
 
   static async loadActuals(cycleId: string, input: any, user: any, ip?: string) {
@@ -676,6 +1052,7 @@ export class FpaBudgetCycleService {
       reason: input?.comment,
       ip,
     });
+    await FpaBudgetCycleService.notifySubmittedForReview(cycleId, user.id, input?.comment || null);
     return FpaBudgetCycleService.serialize(updated);
   }
 
@@ -702,6 +1079,7 @@ export class FpaBudgetCycleService {
       include: { owners: true },
     });
     await FpaAuditService.log("BUDGET_CYCLE_FPA_ACCEPT", user.id, { modelId: cycle.modelId, ip });
+    await FpaBudgetCycleService.notifyPendingCfoReview(cycleId, user.id, input?.comment || null);
     return FpaBudgetCycleService.serialize(updated);
   }
 
@@ -724,6 +1102,12 @@ export class FpaBudgetCycleService {
       modelId: cycle.modelId,
       reason: comment,
       ip,
+    });
+    await FpaBudgetCycleService.notifyOwnersReturned(cycleId, {
+      departmentIds,
+      comment,
+      actorId: user.id,
+      source: "FPA_RETURN",
     });
     return FpaBudgetCycleService.serialize(updated);
   }
@@ -756,6 +1140,7 @@ export class FpaBudgetCycleService {
       include: { owners: true },
     });
     await FpaAuditService.log("BUDGET_CYCLE_CFO_APPROVE", user.id, { modelId: cycle.modelId, ip });
+    await FpaBudgetCycleService.notifyCfoApproved(cycleId, user.id, input?.comment || null);
     return FpaBudgetCycleService.serialize(updated);
   }
 
@@ -777,6 +1162,12 @@ export class FpaBudgetCycleService {
       modelId: cycle.modelId,
       reason: comment,
       ip,
+    });
+    await FpaBudgetCycleService.notifyOwnersReturned(cycleId, {
+      departmentIds: null,
+      comment,
+      actorId: user.id,
+      source: "CFO_RETURN",
     });
     return FpaBudgetCycleService.serialize(updated);
   }
@@ -810,6 +1201,7 @@ export class FpaBudgetCycleService {
       });
     }
     await FpaAuditService.log("BUDGET_CYCLE_LOCK", user.id, { modelId: cycle.modelId, ip });
+    await FpaBudgetCycleService.notifyLocked(cycleId, user.id);
     return FpaBudgetCycleService.serialize(updated);
   }
 
@@ -849,6 +1241,7 @@ export class FpaBudgetCycleService {
       }
     }
     await FpaAuditService.log("BUDGET_CYCLE_BOARD_PACK", user.id, { modelId: cycle.modelId, ip });
+    await FpaBudgetCycleService.notifyBoardPackReady(cycleId, user.id, url);
     return { url, cycle: await FpaBudgetCycleService.serialize(updated), exportJobId: job.id };
   }
 

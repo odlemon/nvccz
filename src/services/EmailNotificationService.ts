@@ -267,6 +267,56 @@ export class EmailNotificationService {
   }
 
   /**
+   * Generic FP&A budget-cycle lifecycle email (submit / review / return / approve / lock).
+   */
+  static async sendFpaBudgetLifecycleEmail(data: {
+    recipientName: string;
+    recipientEmail: string;
+    subject: string;
+    heading: string;
+    preheader: string;
+    bodyInnerHtml: string;
+    cycleId: string;
+    ctaLabel?: string;
+    path?: string | null;
+  }): Promise<void> {
+    try {
+      const branding = await getEmailBrandingCached();
+      const base = String(process.env.FRONTEND_URL || "http://app.kyntaro.com").replace(/\/+$/, "");
+      const budgetPath =
+        data.path || `/forecasting/budget?cycleId=${encodeURIComponent(data.cycleId)}`;
+      const link = budgetPath.startsWith("http") ? budgetPath : `${base}${budgetPath}`;
+      const cta = data.ctaLabel || "Open budget cycle";
+      const bodyInnerHtml = `
+            ${data.bodyInnerHtml}
+            <p><a href="${escapeAttrForEmail(link)}" target="_blank" style="display:inline-block;padding:10px 16px;background:#1e40af;color:#fff;text-decoration:none;border-radius:4px;">${escapeHtmlForEmail(cta)}</a></p>
+            <p style="font-size:12px;color:#64748b;">Or go to: ${escapeHtmlForEmail(link)}</p>`;
+
+      const htmlContent = EmailNotificationService.composeNewsletterTransactionalHtml({
+        branding,
+        pageTitle: data.subject,
+        preheader: data.preheader,
+        emailHeading: data.heading,
+        headerTagline: "FP&A Budgeting",
+        bodyInnerHtml,
+        teamLabel: "FP&A Team",
+      });
+
+      const from = getFromAddress("platform");
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.recipientName}" <${data.recipientEmail}>`,
+        subject: data.subject,
+        html: htmlContent,
+      });
+      console.log(`FP&A budget email sent to ${data.recipientEmail}: ${data.subject}`);
+    } catch (error) {
+      console.error("Error sending FP&A budget lifecycle email:", error);
+      throw error;
+    }
+  }
+
+  /**
    * HR / cycle trigger: remind reviewees that a manager-created review exists
    * and they have not yet completed the self-assessment portion.
    */

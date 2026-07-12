@@ -3,6 +3,14 @@ import { prisma } from "../../utils/database";
 import { FpaError } from "./FpaError";
 import { FpaAccessService } from "./FpaAccessService";
 import { FpaAuditService } from "./FpaAuditService";
+import { FpaBudgetCycleService } from "./FpaBudgetCycleService";
+
+function esc(s: string) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 
 export class FpaWorkflowService {
   static async createWorkflow(input: any, userId: string, ip?: string) {
@@ -104,6 +112,120 @@ export class FpaWorkflowService {
     });
   }
 
+  static async cycleForWorkflow(workflowId: string) {
+    return prisma.planningBudgetCycle.findFirst({
+      where: { workflowId },
+      select: { id: true, name: true, fiscalYear: true },
+    });
+  }
+
+  /** Notify assignee on reassign / return / approve; notify FPA+CFO on owner task submit. */
+  static async notifyTaskEvent(opts: {
+    task: { id: string; title: string; assigneeId?: string | null; workflowId: string };
+    actorId?: string | null;
+    type: "TASK_REASSIGNED" | "TASK_SUBMITTED" | "TASK_RETURNED" | "TASK_APPROVED";
+    comment?: string | null;
+    targetUserId?: string | null;
+  }) {
+    try {
+      const cycle = await FpaWorkflowService.cycleForWorkflow(opts.task.workflowId);
+      const cycleId = cycle?.id || opts.task.workflowId;
+      const cycleLabel = cycle ? `${cycle.name} (FY${cycle.fiscalYear})` : opts.task.title;
+
+      if (opts.type === "TASK_SUBMITTED") {
+        const [fpa, cfo] = await Promise.all([
+          FpaBudgetCycleService.resolveFpaManagerUsers(),
+          FpaBudgetCycleService.resolveCfoUsers(),
+        ]);
+        await FpaBudgetCycleService.notifyUsers({
+          users: [...fpa, ...cfo],
+          excludeUserId: opts.actorId,
+          type: "BUDGET_TASK_SUBMITTED",
+          title: "Budget task submitted",
+          message: `"${opts.task.title}" was submitted for ${cycleLabel}.`,
+          cycleId: cycle?.id || cycleId,
+          data: { taskId: opts.task.id },
+          email: {
+            subject: `Budget task submitted — ${opts.task.title}`,
+            heading: "Budget task submitted",
+            preheader: opts.task.title,
+            bodyInnerHtml: (name) => `
+            <p>Dear ${esc(name)},</p>
+            <p>Budget task <strong>${esc(opts.task.title)}</strong> was submitted${cycle ? ` for <strong>${esc(cycle.name)}</strong>` : ""}.</p>
+            ${opts.comment ? `<p><strong>Comment:</strong> ${esc(opts.comment)}</p>` : ""}
+            <p>Please review in the Budgeting workspace.</p>`,
+            ctaLabel: "Review task",
+          },
+        });
+        return;
+      }
+
+      const userId = opts.targetUserId || opts.task.assigneeId;
+      if (!userId || userId === opts.actorId) return;
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, firstName: true, lastName: true },
+      });
+      if (!user?.email) return;
+
+      const map = {
+        TASK_REASSIGNED: {
+          title: "Budget task assigned",
+          message: `You were assigned budget task "${opts.task.title}".`,
+          heading: "Budget task assigned",
+          subject: `Budget task assigned — ${opts.task.title}`,
+          body: (name: string) => `
+            <p>Dear ${esc(name)},</p>
+            <p>You have been assigned budget task <strong>${esc(opts.task.title)}</strong>${cycle ? ` on <strong>${esc(cycle.name)}</strong>` : ""}.</p>
+            ${opts.comment ? `<p><strong>Note:</strong> ${esc(opts.comment)}</p>` : ""}`,
+        },
+        TASK_RETURNED: {
+          title: "Budget task returned",
+          message: `Budget task "${opts.task.title}" was returned for correction.`,
+          heading: "Budget task returned",
+          subject: `Budget task returned — ${opts.task.title}`,
+          body: (name: string) => `
+            <p>Dear ${esc(name)},</p>
+            <p>Budget task <strong>${esc(opts.task.title)}</strong> was returned for correction.</p>
+            ${opts.comment ? `<p><strong>Feedback:</strong> ${esc(opts.comment)}</p>` : ""}
+            <p>Please update and resubmit.</p>`,
+        },
+        TASK_APPROVED: {
+          title: "Budget task approved",
+          message: `Budget task "${opts.task.title}" was approved.`,
+          heading: "Budget task approved",
+          subject: `Budget task approved — ${opts.task.title}`,
+          body: (name: string) => `
+            <p>Dear ${esc(name)},</p>
+            <p>Budget task <strong>${esc(opts.task.title)}</strong> was approved.</p>
+            ${opts.comment ? `<p><strong>Comment:</strong> ${esc(opts.comment)}</p>` : ""}`,
+        },
+      } as const;
+
+      const meta = map[opts.type];
+      if (!meta) return;
+
+      await FpaBudgetCycleService.notifyUsers({
+        users: [user],
+        excludeUserId: opts.actorId,
+        type: opts.type === "TASK_REASSIGNED" ? "BUDGET_TASK_ASSIGNED" : opts.type === "TASK_RETURNED" ? "BUDGET_TASK_RETURNED" : "BUDGET_TASK_APPROVED",
+        title: meta.title,
+        message: meta.message,
+        cycleId: cycle?.id || cycleId,
+        relatedEntity: "PlanningTask",
+        data: { taskId: opts.task.id },
+        email: {
+          subject: meta.subject,
+          heading: meta.heading,
+          preheader: opts.task.title,
+          bodyInnerHtml: meta.body,
+        },
+      });
+    } catch (e) {
+      console.error("FPA task notification failed:", e);
+    }
+  }
+
   static async reassign(taskId: string, input: any, user: any, ip?: string) {
     FpaAccessService.assertCanApprove(user);
     const task = await prisma.planningTask.findUnique({ where: { id: taskId }, include: { workflow: true } });
@@ -132,6 +254,15 @@ export class FpaWorkflowService {
       newValue: assigneeId ? String(assigneeId) : null,
       ip,
     });
+    if (assigneeId) {
+      await FpaWorkflowService.notifyTaskEvent({
+        task: updated,
+        actorId: user.id,
+        type: "TASK_REASSIGNED",
+        comment: input.comment || null,
+        targetUserId: String(assigneeId),
+      });
+    }
     return updated;
   }
 
@@ -155,6 +286,12 @@ export class FpaWorkflowService {
       },
     });
     await FpaAuditService.log("TASK_SUBMIT", user.id, { modelId: task.workflow.modelId, reason: comment, ip });
+    await FpaWorkflowService.notifyTaskEvent({
+      task: updated,
+      actorId: user.id,
+      type: "TASK_SUBMITTED",
+      comment: comment || null,
+    });
     return updated;
   }
 
@@ -176,6 +313,13 @@ export class FpaWorkflowService {
       },
     });
     await FpaAuditService.log("TASK_RETURN", user.id, { modelId: task.workflow.modelId, reason: comment, ip });
+    await FpaWorkflowService.notifyTaskEvent({
+      task: updated,
+      actorId: user.id,
+      type: "TASK_RETURNED",
+      comment: comment || null,
+      targetUserId: updated.assigneeId,
+    });
     return updated;
   }
 
@@ -206,6 +350,13 @@ export class FpaWorkflowService {
       },
     });
     await FpaAuditService.log("TASK_APPROVE", user.id, { modelId: task.workflow.modelId, reason: comment, ip });
+    await FpaWorkflowService.notifyTaskEvent({
+      task: updated,
+      actorId: user.id,
+      type: "TASK_APPROVED",
+      comment: comment || null,
+      targetUserId: updated.assigneeId,
+    });
     return updated;
   }
 }

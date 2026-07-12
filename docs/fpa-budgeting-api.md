@@ -64,7 +64,20 @@ Creates cycle + BUDGET workflow + owner tasks. Optionally loads prior actuals an
 **Required:** `modelId`, `name`, `fiscalYear`, `owners` (≥ 1).  
 **409** if an unlocked cycle already exists for the same `modelId` + `fiscalYear`.
 
-**Side effects:** for each owner with `assigneeId`, Arcus creates an in-app notification (`BUDGET_OWNER_ASSIGNED`) and sends an assignment email (non-fatal if mail fails). Same on `PUT …/owners` when assignees are set/updated.
+**Side effects (notifications + email):** every user-affecting budget action creates an in-app notification and sends email (non-fatal if mail fails). Recipients:
+
+| Action | Recipients | Type |
+|--------|------------|------|
+| Create / `PUT …/owners` | Assignees | `BUDGET_OWNER_ASSIGNED` |
+| `POST …/submit-fpa` | FP&A managers + CFO | `BUDGET_SUBMITTED_FOR_REVIEW` |
+| `POST …/fpa-accept` | CFO | `BUDGET_PENDING_CFO_REVIEW` |
+| `POST …/fpa-return` · `…/cfo-return` | Affected owners | `BUDGET_RETURNED_FOR_CORRECTION` |
+| `POST …/cfo-approve` | Owners + FP&A + cycle creator | `BUDGET_CFO_APPROVED` |
+| `POST …/lock` | Owners + cycle creator | `BUDGET_CYCLE_LOCKED` |
+| `POST …/board-pack` | Owners + CFO + creator | `BUDGET_BOARD_PACK_READY` |
+| Task submit / return / approve / reassign | FPA+CFO or assignee | `BUDGET_TASK_*` |
+
+CFO resolution: users with role `CFO` / “Chief Financial Officer”, plus optional `CFO_EMAIL` env. FP&A: `FIN_MGR` / `FINANCE_MANAGER` / `FPA_*` / admin role codes.
 
 **Response `data`**
 
