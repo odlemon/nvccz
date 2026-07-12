@@ -66,6 +66,11 @@ import {
   FUNDRAISING_LP_PIPELINE_TAG_DEFINITION,
 } from './fundraising-lp-pipeline-swagger-paths';
 import {
+  fundraisingIrSwaggerPaths,
+  FUNDRAISING_IR_TAG,
+  FUNDRAISING_IR_TAG_DEFINITION,
+} from './fundraising-ir-swagger-paths';
+import {
   quarterlyClientStatementsSwaggerPaths,
   QUARTERLY_CLIENT_STATEMENTS_TAG,
   QUARTERLY_CLIENT_STATEMENTS_TAG_DEFINITION,
@@ -9795,6 +9800,11 @@ specs = applyProtectedSwaggerModules(specs, [
     paths: fundraisingLpPipelineSwaggerPaths,
     tagName: FUNDRAISING_LP_PIPELINE_TAG,
     tagDefinition: FUNDRAISING_LP_PIPELINE_TAG_DEFINITION,
+  },
+  {
+    paths: fundraisingIrSwaggerPaths,
+    tagName: FUNDRAISING_IR_TAG,
+    tagDefinition: FUNDRAISING_IR_TAG_DEFINITION,
   },
   {
     paths: quarterlyClientStatementsSwaggerPaths,

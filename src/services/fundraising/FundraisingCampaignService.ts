@@ -52,6 +52,7 @@ export class FundraisingCampaignService {
         const campaign = await tx.fundraisingCampaign.create({
           data: {
             fundId: body.fundId,
+            campaignType: "PE_FUNDRAISE",
             name: body.name,
             targetCapital: body.targetCapital,
             primaryCurrency: currency,
@@ -59,6 +60,8 @@ export class FundraisingCampaignService {
             closeDate: new Date(body.closeDate),
             regionTags: body.regionTags ?? [],
             status: "ACTIVE",
+            approvalStatus: "APPROVED",
+            campaignOwnerId: userId,
             createdById: userId,
           },
         });

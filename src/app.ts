@@ -120,6 +120,8 @@ import lpPortalCronRoutes from "./routes/lpPortalCronRoutes"
 import investmentMemoRoutes from "./routes/investmentMemoRoutes"
 import capTableRoutes from "./routes/capTableRoutes"
 import fundraisingRoutes from "./routes/fundraisingRoutes"
+import fundraisingIrRoutes from "./routes/fundraisingIrRoutes"
+import investorIrRoutes from "./routes/investorIrRoutes"
 import quarterlyStatementRoutes from "./routes/quarterlyStatementRoutes"
 import dealExecutionPackRoutes from "./routes/dealExecutionPackRoutes"
 import taxReturnPackRoutes from "./routes/taxReturnPackRoutes"
@@ -689,6 +691,8 @@ app.use("/api/cron/lp-portal", lpPortalCronRoutes)
 app.use("/api/investment-memos", investmentMemoRoutes)
 app.use("/api/cap-table", capTableRoutes)
 app.use("/api/fundraising", fundraisingRoutes)
+app.use("/api/v1/fundraising", fundraisingIrRoutes)
+app.use("/api/v1/investors", investorIrRoutes)
 app.use("/api/quarterly-statements", quarterlyStatementRoutes)
 app.use("/api/deal-execution-packs", dealExecutionPackRoutes)
 app.use("/api/tax-return-packs", taxReturnPackRoutes)

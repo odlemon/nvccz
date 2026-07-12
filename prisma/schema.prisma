@@ -7265,33 +7265,45 @@ model CapTableOptionGrant {
 }
 
 model FundraisingCampaign {
-  id              String   @id @default(cuid())
-  fundId          String   @map("fund_id")
-  name            String   @db.VarChar(255)
-  targetCapital   Decimal  @map("target_capital") @db.Decimal(18, 2)
-  primaryCurrency String   @default("USD") @map("primary_currency") @db.VarChar(8)
-  startDate       DateTime @map("start_date") @db.Date
-  closeDate       DateTime @map("close_date") @db.Date
-  regionTags      Json?    @map("region_tags")
-  status          String   @default("ACTIVE") @db.VarChar(16)
-  createdById     String   @map("created_by_id")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id                   String    @id @default(cuid())
+  fundId               String?   @map("fund_id")
+  productId            String?   @map("product_id") @db.VarChar(64)
+  campaignType         String    @default("PE_FUNDRAISE") @map("campaign_type") @db.VarChar(64)
+  name                 String    @db.VarChar(255)
+  description          String?   @db.Text
+  targetCapital        Decimal   @map("target_capital") @db.Decimal(24, 6)
+  minimumTargetAmount  Decimal?  @map("minimum_target_amount") @db.Decimal(24, 6)
+  hardCapAmount        Decimal?  @map("hard_cap_amount") @db.Decimal(24, 6)
+  primaryCurrency      String    @default("USD") @map("primary_currency") @db.VarChar(8)
+  startDate            DateTime  @map("start_date") @db.Date
+  closeDate            DateTime  @map("close_date") @db.Date
+  firstCloseTargetDate DateTime? @map("first_close_target_date") @db.Date
+  finalCloseTargetDate DateTime? @map("final_close_target_date") @db.Date
+  regionTags           Json?     @map("region_tags")
+  investorSegments     Json?     @map("investor_segments")
+  status               String    @default("DRAFT") @db.VarChar(32)
+  approvalStatus       String    @default("PENDING") @map("approval_status") @db.VarChar(32)
+  campaignOwnerId      String?   @map("campaign_owner_id")
+  createdById          String    @map("created_by_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  fund      Fund                          @relation(fields: [fundId], references: [id], onDelete: Restrict)
-  stages    FundraisingPipelineStage[]
-  deals     FundraisingPipelineDeal[]
-  glMapping FundraisingCampaignGlMapping?
+  fund          Fund?                         @relation(fields: [fundId], references: [id], onDelete: Restrict)
+  stages        FundraisingPipelineStage[]
+  deals         FundraisingPipelineDeal[]
+  opportunities FundraisingOpportunity[]
+  glMapping     FundraisingCampaignGlMapping?
 
   @@index([fundId], map: "fundraising_campaigns_fund_idx")
   @@index([status], map: "fundraising_campaigns_status_idx")
+  @@index([campaignType], map: "fundraising_campaigns_type_idx")
   @@map("fundraising_campaigns")
 }
 
 model FundraisingPipelineStage {
   id                String   @id @default(cuid())
   campaignId        String   @map("campaign_id")
-  stageCode         String   @map("stage_code") @db.VarChar(32)
+  stageCode         String   @map("stage_code") @db.VarChar(64)
   stageName         String   @map("stage_name") @db.VarChar(128)
   sortOrder         Int      @map("sort_order")
   winProbabilityPct Decimal  @map("win_probability_pct") @db.Decimal(5, 2)
@@ -7302,6 +7314,7 @@ model FundraisingPipelineStage {
   campaign          FundraisingCampaign                 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   checklistTemplates FundraisingStageChecklistTemplate[]
   deals             FundraisingPipelineDeal[]
+  opportunities     FundraisingOpportunity[]
 
   @@unique([campaignId, stageCode], map: "fundraising_pipeline_stages_campaign_code_key")
   @@index([campaignId, sortOrder], map: "fundraising_pipeline_stages_campaign_sort_idx")
@@ -7423,6 +7436,157 @@ model FundraisingCampaignGlMapping {
   campaign FundraisingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   @@map("fundraising_campaign_gl_mappings")
+}
+
+
+/// IR SRD — Investor organisation (singular CRM entity; many opportunities/commitments).
+model InvestorOrganisation {
+  id                     String    @id @default(cuid())
+  legalName              String    @map("legal_name") @db.VarChar(255)
+  tradingName            String?   @map("trading_name") @db.VarChar(255)
+  investorType           String    @map("investor_type") @db.VarChar(100)
+  registrationNumber     String?   @map("registration_number") @db.VarChar(100)
+  countryCode            String?   @map("country_code") @db.VarChar(8)
+  jurisdiction           String?   @db.VarChar(100)
+  baseCurrency           String?   @default("USD") @map("base_currency") @db.VarChar(8)
+  estimatedAum           Decimal?  @map("estimated_aum") @db.Decimal(24, 6)
+  typicalMinimumTicket   Decimal?  @map("typical_minimum_ticket") @db.Decimal(24, 6)
+  typicalMaximumTicket   Decimal?  @map("typical_maximum_ticket") @db.Decimal(24, 6)
+  assetClassPreferences  Json?     @map("asset_class_preferences")
+  geographicInterests    Json?     @map("geographic_interests")
+  relationshipOwnerId    String?   @map("relationship_owner_id")
+  source                 String?   @db.VarChar(128)
+  status                 String    @default("ACTIVE") @db.VarChar(32)
+  kycStatus              String    @default("NOT_STARTED") @map("kyc_status") @db.VarChar(64)
+  sanctionsStatus        String    @default("NOT_SCREENED") @map("sanctions_status") @db.VarChar(64)
+  riskRating             String?   @map("risk_rating") @db.VarChar(32)
+  investorClassification String?   @map("investor_classification") @db.VarChar(64)
+  lastInteractionAt      DateTime? @map("last_interaction_at")
+  nextAction             String?   @map("next_action") @db.VarChar(512)
+  nextActionDate         DateTime? @map("next_action_date") @db.Date
+  notes                  String?   @db.Text
+  createdById            String    @map("created_by_id")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  contacts      InvestorContact[]
+  opportunities FundraisingOpportunity[]
+
+  @@index([legalName], map: "investor_organisations_legal_name_idx")
+  @@index([investorType], map: "investor_organisations_type_idx")
+  @@index([status], map: "investor_organisations_status_idx")
+  @@index([relationshipOwnerId], map: "investor_organisations_owner_idx")
+  @@map("investor_organisations")
+}
+
+model InvestorContact {
+  id                   String    @id @default(cuid())
+  investorId           String    @map("investor_id")
+  fullName             String    @map("full_name") @db.VarChar(255)
+  roleTitle            String?   @map("role_title") @db.VarChar(128)
+  department           String?   @db.VarChar(128)
+  email                String?   @db.VarChar(255)
+  phone                String?   @db.VarChar(64)
+  decisionInfluence    String?   @map("decision_influence") @db.VarChar(64)
+  communicationConsent Boolean   @default(true) @map("communication_consent")
+  isPrimary            Boolean   @default(false) @map("is_primary")
+  lastInteractionAt    DateTime? @map("last_interaction_at")
+  nextAction           String?   @map("next_action") @db.VarChar(512)
+  nextActionDate       DateTime? @map("next_action_date") @db.Date
+  status               String    @default("ACTIVE") @db.VarChar(32)
+  createdById          String    @map("created_by_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  investor InvestorOrganisation @relation(fields: [investorId], references: [id], onDelete: Cascade)
+
+  @@index([investorId], map: "investor_contacts_investor_idx")
+  @@index([email], map: "investor_contacts_email_idx")
+  @@map("investor_contacts")
+}
+
+/// IR SRD opportunity — multi-amount pipeline card (distinct from legacy FundraisingPipelineDeal).
+model FundraisingOpportunity {
+  id                   String    @id @default(cuid())
+  campaignId           String    @map("campaign_id")
+  investorId           String    @map("investor_id")
+  primaryContactId     String?   @map("primary_contact_id")
+  currentStageId       String    @map("current_stage_id")
+  opportunityType      String    @map("opportunity_type") @db.VarChar(64)
+  opportunityCurrency  String    @default("USD") @map("opportunity_currency") @db.VarChar(8)
+  indicativeAmount     Decimal?  @map("indicative_amount") @db.Decimal(24, 6)
+  qualifiedAmount      Decimal?  @map("qualified_amount") @db.Decimal(24, 6)
+  softCircleAmount     Decimal?  @map("soft_circle_amount") @db.Decimal(24, 6)
+  proposedAmount       Decimal?  @map("proposed_amount") @db.Decimal(24, 6)
+  signedAmount         Decimal?  @map("signed_amount") @db.Decimal(24, 6)
+  admittedAmount       Decimal?  @map("admitted_amount") @db.Decimal(24, 6)
+  fundedAmount         Decimal?  @default(0) @map("funded_amount") @db.Decimal(24, 6)
+  expectedAum          Decimal?  @map("expected_aum") @db.Decimal(24, 6)
+  activatedAum         Decimal?  @default(0) @map("activated_aum") @db.Decimal(24, 6)
+  stageProbability     Decimal?  @map("stage_probability") @db.Decimal(5, 2)
+  confidenceAdjustment Decimal   @default(1) @map("confidence_adjustment") @db.Decimal(5, 4)
+  expectedCloseDate    DateTime? @map("expected_close_date") @db.Date
+  opportunityOwnerId   String    @map("opportunity_owner_id")
+  priority             String    @default("MEDIUM") @db.VarChar(32)
+  status               String    @default("OPEN") @db.VarChar(32)
+  lostReason           String?   @map("lost_reason") @db.VarChar(255)
+  source               String?   @db.VarChar(128)
+  consultantName       String?   @map("consultant_name") @db.VarChar(255)
+  placementAgentName   String?   @map("placement_agent_name") @db.VarChar(255)
+  legacyDealId         String?   @unique @map("legacy_deal_id")
+  clientId             String?   @map("client_id")
+  notes                String?   @db.Text
+  createdById          String    @map("created_by_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  campaign      FundraisingCampaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  investor      InvestorOrganisation     @relation(fields: [investorId], references: [id], onDelete: Restrict)
+  currentStage  FundraisingPipelineStage @relation(fields: [currentStageId], references: [id], onDelete: Restrict)
+  amountHistory OpportunityAmountHistory[]
+  stageHistory  OpportunityStageHistory[]
+
+  @@index([campaignId], map: "fundraising_opportunities_campaign_idx")
+  @@index([investorId], map: "fundraising_opportunities_investor_idx")
+  @@index([currentStageId], map: "fundraising_opportunities_stage_idx")
+  @@index([status], map: "fundraising_opportunities_status_idx")
+  @@index([opportunityOwnerId], map: "fundraising_opportunities_owner_idx")
+  @@map("fundraising_opportunities")
+}
+
+model OpportunityAmountHistory {
+  id            String   @id @default(cuid())
+  opportunityId String   @map("opportunity_id")
+  amountType    String   @map("amount_type") @db.VarChar(64)
+  oldValue      Decimal? @map("old_value") @db.Decimal(24, 6)
+  newValue      Decimal? @map("new_value") @db.Decimal(24, 6)
+  currency      String?  @db.VarChar(8)
+  reason        String?  @db.VarChar(512)
+  changedById   String   @map("changed_by_id")
+  changedAt     DateTime @default(now()) @map("changed_at")
+
+  opportunity FundraisingOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId, changedAt], map: "opportunity_amount_history_opp_idx")
+  @@map("opportunity_amount_history")
+}
+
+model OpportunityStageHistory {
+  id            String   @id @default(cuid())
+  opportunityId String   @map("opportunity_id")
+  fromStageId   String?  @map("from_stage_id")
+  toStageId     String   @map("to_stage_id")
+  fromStageCode String?  @map("from_stage_code") @db.VarChar(64)
+  toStageCode   String   @map("to_stage_code") @db.VarChar(64)
+  reason        String?  @db.VarChar(512)
+  changedById   String   @map("changed_by_id")
+  changedAt     DateTime @default(now()) @map("changed_at")
+  gateResult    Json?    @map("gate_result")
+
+  opportunity FundraisingOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId, changedAt], map: "opportunity_stage_history_opp_idx")
+  @@map("opportunity_stage_history")
 }
 
 model QuarterlyStatementRun {
