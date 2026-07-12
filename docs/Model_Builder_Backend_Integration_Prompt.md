@@ -7,7 +7,7 @@
 
 This document is the FE contract for Model Builder. Full UI action catalog (IDs A–K) lives with the frontend team; this file records **backend obligations**, path aliases, and acceptance gates.
 
-**Related:** [fpa-model-builder-api.md](./fpa-model-builder-api.md) · [fpa-model-builder-list-create-navigation.md](./fpa-model-builder-list-create-navigation.md)
+**Related:** [fpa-model-builder-api.md](./fpa-model-builder-api.md) (full req/res bodies) · [fpa-model-builder-list-create-navigation.md](./fpa-model-builder-list-create-navigation.md)
 
 ---
 
