@@ -18,6 +18,8 @@ import { FpaFormulaEngine } from "../services/fpa/FpaFormulaEngine";
 import { FpaModelSetupService } from "../services/fpa/FpaModelSetupService";
 import { FpaBudgetCycleService } from "../services/fpa/FpaBudgetCycleService";
 import { FpaWorkflowCollabService } from "../services/fpa/FpaWorkflowCollabService";
+import { FpaModuleService } from "../services/fpa/FpaModuleService";
+import { FpaAuditService } from "../services/fpa/FpaAuditService";
 import fs from "fs";
 
 function ipOf(req: Request) {
@@ -97,7 +99,79 @@ export class FpaController {
 
   static async validateModel(req: Request, res: Response) {
     try {
-      const data = await FpaModelSetupService.validate(req.params.modelId);
+      const data = await FpaModuleService.enrichedValidate(req.params.modelId);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async validationSummary(req: Request, res: Response) {
+    try {
+      const data = await FpaModuleService.validationSummary(req.params.modelId, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listModelModules(req: Request, res: Response) {
+    try {
+      const data = await FpaModuleService.listModules(req.params.modelId, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async createModelModule(req: Request, res: Response) {
+    try {
+      const data = await FpaModuleService.createModule(req.params.modelId, req.body || {}, userOf(req), ipOf(req));
+      res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async updateModule(req: Request, res: Response) {
+    try {
+      const data = await FpaModuleService.updateModule(req.params.moduleId, req.body || {}, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async deleteModule(req: Request, res: Response) {
+    try {
+      const data = await FpaModuleService.deleteModule(req.params.moduleId, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async dependencyMap(req: Request, res: Response) {
+    try {
+      const data = await FpaModuleService.dependencyMap(req.params.modelId, req.query, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async publishModel(req: Request, res: Response) {
+    try {
+      const data = await FpaModuleService.publish(req.params.modelId, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listModelAuditLogs(req: Request, res: Response) {
+    try {
+      const data = await FpaAuditService.list(req.params.modelId, req.query);
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
@@ -913,7 +987,7 @@ export class FpaController {
   // Line items / drivers
   static async listLineItems(req: Request, res: Response) {
     try {
-      const data = await FpaLineItemService.list(req.params.modelId);
+      const data = await FpaLineItemService.list(req.params.modelId, req.query);
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
@@ -928,6 +1002,42 @@ export class FpaController {
         ipOf(req)
       );
       res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async updateLineItem(req: Request, res: Response) {
+    try {
+      const data = await FpaLineItemService.update(req.params.id, req.body || {}, userOf(req).id, ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async deleteLineItem(req: Request, res: Response) {
+    try {
+      const data = await FpaLineItemService.remove(req.params.id, userOf(req).id, ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async lineItemDependencies(req: Request, res: Response) {
+    try {
+      const data = await FpaLineItemService.dependencies(req.params.id);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async lineItemTrace(req: Request, res: Response) {
+    try {
+      const data = await FpaLineItemService.trace(req.params.id, req.query);
+      res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
     }

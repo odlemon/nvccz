@@ -51,19 +51,28 @@ Locked / actual cells: treat as read-only; API returns 403 if edited.
 
 ## B.3 Model Builder
 
-Technical modelling studio (structure, formulas, validate). Not the owner planning grid — see [fpa-model-planning-vs-builder.md](./fpa-model-planning-vs-builder.md).
+Technical modelling studio (structure, formulas, validate, **publish**). Not the owner planning grid — see [fpa-model-planning-vs-builder.md](./fpa-model-planning-vs-builder.md).  
+**Full Model Builder contracts:** [fpa-model-builder-api.md](./fpa-model-builder-api.md)
 
 | Screen element | Method | Path |
 |----------------|--------|------|
 | Create model (atomic setup) | POST | `/models/setup` |
 | Create model (simple fallback) | POST | `/models` |
 | Get / update / archive | GET/PUT `/models/{modelId}` ; POST `/models/{modelId}/archive` |
+| Modules tree | GET/POST | `/models/{modelId}/modules` |
+| Update / delete module | PUT/DELETE | `/modules/{moduleId}` |
+| Dependency map | GET | `/models/{modelId}/dependency-map?view=MODULE\|LINE` |
 | Scope (entities + depts) | PUT | `/models/{modelId}/scope` |
 | COA accounts | PUT | `/models/{modelId}/coa` |
 | Dimensions | PUT | `/models/{modelId}/dimensions` |
 | Baseline | POST | `/models/{modelId}/baseline` |
-| Validate | POST | `/models/{modelId}/validate` |
-| Line items | GET/POST | `/models/{modelId}/line-items` |
+| Validate (chips + issues) | POST | `/models/{modelId}/validate` |
+| Validation summary | GET | `/models/{modelId}/validation-summary` |
+| Publish | POST | `/models/{modelId}/publish` |
+| Audit / Change History | GET | `/models/{modelId}/audit-logs` |
+| Line items | GET/POST | `/models/{modelId}/line-items` (`?moduleId=`) |
+| Update / delete line item | PUT/DELETE | `/line-items/{id}` |
+| Line dependencies / trace | GET | `/line-items/{id}/dependencies` · `/line-items/{id}/trace` |
 | Bulk line items | POST | `/models/{modelId}/line-items/bulk` |
 | Dimension catalog | GET | `/dimensions` |
 | Drivers | GET/POST | `/models/{modelId}/drivers` or `/drivers` |

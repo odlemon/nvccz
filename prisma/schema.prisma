@@ -5726,6 +5726,8 @@ model PlanningModel {
   baselineMode              String?   @map("baseline_mode") @db.VarChar(32)
   baselineSourceVersionId   String?   @map("baseline_source_version_id")
   baselineSourceScenarioId  String?   @map("baseline_source_scenario_id")
+  publishedAt               DateTime? @map("published_at")
+  publishedById             String?   @map("published_by")
   createdById               String    @map("created_by")
   createdAt                 DateTime  @default(now()) @map("created_at")
   updatedById               String?   @map("updated_by")
@@ -5739,6 +5741,7 @@ model PlanningModel {
   modelEntities             PlanningModelEntity[]
   modelDepartments          PlanningModelDepartment[]
   modelAccounts             PlanningModelAccount[]
+  modules                   PlanningModule[]
   lineItems                 PlanningLineItem[]
   versions                  PlanningVersion[]
   scenarios                 PlanningScenario[]
@@ -5759,6 +5762,28 @@ model PlanningModel {
   @@index([status], map: "planning_models_status_idx")
   @@index([ownerUserId], map: "planning_models_owner_idx")
   @@map("planning_models")
+}
+
+model PlanningModule {
+  id          String   @id @default(cuid())
+  modelId     String   @map("model_id")
+  code        String   @db.VarChar(64)
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  parentId    String?  @map("parent_id")
+  calcOrder   Int      @default(0) @map("calc_order")
+  sortOrder   Int      @default(0) @map("sort_order")
+  status      String   @default("DRAFT") @db.VarChar(50)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  model       PlanningModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  lineItems   PlanningLineItem[]
+
+  @@unique([modelId, code], map: "planning_modules_model_code_key")
+  @@index([modelId], map: "planning_modules_model_idx")
+  @@index([parentId], map: "planning_modules_parent_idx")
+  @@map("planning_modules")
 }
 
 model PlanningModelEntity {
@@ -5863,6 +5888,7 @@ model PlanningModelDimension {
 model PlanningLineItem {
   id             String   @id @default(cuid())
   modelId        String   @map("model_id")
+  moduleId       String?  @map("module_id")
   code           String   @db.VarChar(64)
   name           String   @db.VarChar(255)
   lineItemType   String   @map("line_item_type") @db.VarChar(50)
@@ -5870,19 +5896,24 @@ model PlanningLineItem {
   dataType       String   @default("CURRENCY") @map("data_type") @db.VarChar(32)
   summaryMethod  String   @default("SUM") @map("summary_method") @db.VarChar(32)
   format         String?  @db.VarChar(32)
+  currencyCode   String?  @map("currency_code") @db.VarChar(3)
+  decimalPlaces  Int?     @map("decimal_places")
   isEditable     Boolean  @default(true) @map("is_editable")
   sortOrder      Int      @default(0) @map("sort_order")
   accountId      String?  @map("account_id")
+  updatedById    String?  @map("updated_by")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  model          PlanningModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  model          PlanningModel  @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  module         PlanningModule? @relation(fields: [moduleId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   cells          PlanningCell[]
   formulas       PlanningFormula[]
   varianceResults PlanningVarianceResult[]
 
   @@unique([modelId, code], map: "planning_line_items_model_code_key")
   @@index([modelId, category], map: "planning_line_items_model_cat_idx")
+  @@index([moduleId], map: "planning_line_items_module_idx")
   @@map("planning_line_items")
 }
 

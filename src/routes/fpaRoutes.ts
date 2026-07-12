@@ -25,7 +25,15 @@ router.put("/models/:modelId/coa", FpaController.setModelCoa);
 router.put("/models/:modelId/dimensions", FpaController.setModelDimensions);
 router.post("/models/:modelId/baseline", FpaController.setModelBaseline);
 router.post("/models/:modelId/validate", FpaController.validateModel);
+router.get("/models/:modelId/validation-summary", FpaController.validationSummary);
+router.post("/models/:modelId/publish", FpaController.publishModel);
+router.get("/models/:modelId/audit-logs", FpaController.listModelAuditLogs);
+router.get("/models/:modelId/modules", FpaController.listModelModules);
+router.post("/models/:modelId/modules", FpaController.createModelModule);
+router.get("/models/:modelId/dependency-map", FpaController.dependencyMap);
 router.post("/models/:modelId/line-items/bulk", FpaController.bulkLineItems);
+router.put("/modules/:moduleId", FpaController.updateModule);
+router.delete("/modules/:moduleId", FpaController.deleteModule);
 
 // Budget cycles (Annual Budget Cycle)
 router.get("/budget-cycles", FpaController.listBudgetCycles);
@@ -124,6 +132,10 @@ router.get("/home/dashboard", FpaController.homeDashboard);
 // Line items / drivers
 router.get("/models/:modelId/line-items", FpaController.listLineItems);
 router.post("/models/:modelId/line-items", FpaController.createLineItem);
+router.put("/line-items/:id", FpaController.updateLineItem);
+router.delete("/line-items/:id", FpaController.deleteLineItem);
+router.get("/line-items/:id/dependencies", FpaController.lineItemDependencies);
+router.get("/line-items/:id/trace", FpaController.lineItemTrace);
 router.get("/models/:modelId/drivers", FpaController.listDrivers);
 router.post("/models/:modelId/drivers", FpaController.createDriver);
 router.get("/drivers", FpaController.listDrivers);

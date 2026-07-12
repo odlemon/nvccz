@@ -30,4 +30,46 @@ export class FpaAuditService {
       },
     });
   }
+
+  static async list(modelId: string, query: any = {}) {
+    const where: any = { modelId };
+    if (query.actionType || query.action) where.actionType = String(query.actionType || query.action);
+    if (query.userId) where.userId = String(query.userId);
+    if (query.from || query.to) {
+      where.createdAt = {};
+      if (query.from) where.createdAt.gte = new Date(String(query.from));
+      if (query.to) where.createdAt.lte = new Date(String(query.to));
+    }
+    const take = Math.min(Number(query.limit || query.pageSize || 50), 200);
+    const skip = query.page ? (Math.max(1, Number(query.page)) - 1) * take : Number(query.offset || 0);
+
+    const rows = await prisma.planningAuditLog.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take,
+      skip,
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
+    });
+
+    return rows.map((r) => {
+      const u = r.user;
+      const name = u ? [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.email : null;
+      return {
+        id: r.id,
+        time: r.createdAt,
+        createdAt: r.createdAt,
+        userId: r.userId,
+        userName: name,
+        action: r.actionType,
+        actionType: r.actionType,
+        details: r.reason || r.newValue || r.oldValue || null,
+        oldValue: r.oldValue,
+        newValue: r.newValue,
+        versionId: r.versionId,
+        cellId: r.cellId,
+      };
+    });
+  }
 }

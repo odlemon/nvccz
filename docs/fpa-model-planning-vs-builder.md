@@ -174,9 +174,9 @@ But for the *product to be correct*, Publish must exist. Without it, Planning is
 | Planning grid + cell edits | There |
 | Scenario compare + home KPIs | There |
 | Annual budget cycle + Workflow cockpit | There |
-| First-class **Modules** | Not really (categories only) |
-| Explicit **Publish** + history | Missing |
-| Full dependency map / data-mapping board | Missing / thin |
+| First-class **Modules** | **Shipped** — `GET/POST /models/{id}/modules` |
+| Explicit **Publish** + history | **Shipped** — `POST /models/{id}/publish` + `publishedAt`; audit via `GET …/audit-logs` |
+| Full dependency map / data-mapping board | **Map shipped** (`…/dependency-map`); data-mapping board still follow-up |
 | Planning waterfall / material driver approval | Missing |
 
 So: you are not starting from zero. You are finishing Builder’s “publishable model” story, then hardening Planning around it.
