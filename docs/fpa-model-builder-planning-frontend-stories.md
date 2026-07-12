@@ -4,6 +4,7 @@
 **Audience:** Frontend / design agents  
 **Product:** Arcus FP&A  
 **Companion:** [fpa-model-planning-vs-builder.md](./fpa-model-planning-vs-builder.md)  
+**List → Create modal → Detail navigation:** [fpa-model-builder-list-create-navigation.md](./fpa-model-builder-list-create-navigation.md)  
 **API map (non-budget):** [fpa-api-by-ui-section.md](./fpa-api-by-ui-section.md) § B.2–B.4  
 
 ---

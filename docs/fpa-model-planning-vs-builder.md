@@ -4,7 +4,9 @@
 It is the final decision on how Arcus FP&A’s two tabs work, how they connect to Budgeting/Workflow, and what we build in what order.
 
 **Frontend build brief (Builder + Planning only, no Budget):**  
-[fpa-model-builder-planning-frontend-stories.md](./fpa-model-builder-planning-frontend-stories.md)
+[fpa-model-builder-planning-frontend-stories.md](./fpa-model-builder-planning-frontend-stories.md)  
+**List / create / detail navigation (why + how):**  
+[fpa-model-builder-list-create-navigation.md](./fpa-model-builder-list-create-navigation.md)
 
 ---
 
