@@ -1,193 +1,228 @@
-# FP&A — Model Planning vs Model Builder (combined)
+# What is going on: Model Builder vs Model Planning
 
-**Audience:** product, FE, API  
-**Sources:** SRD PDF · UI screenshots A.1–A.4 · user-story backlog (MB-*/MP-*) · screen backend requirements · existing `/api/v1/fpa` APIs  
-**Related:** [fpa-user-flow.md](./fpa-user-flow.md) · [fpa-api-by-ui-section.md](./fpa-api-by-ui-section.md) · [fpa-workflow-approvals-api.md](./fpa-workflow-approvals-api.md) · [fpa-budgeting-api.md](./fpa-budgeting-api.md)
-
-This is the **canonical mental model**. It reconciles earlier “Planning first” pragmatism with the product rule that **Model Planning cannot operate without a published model**.
+**Read this if you only want one document.**  
+It is the final decision on how Arcus FP&A’s two tabs work, how they connect to Budgeting/Workflow, and what we build in what order.
 
 ---
 
-## One-sentence rule
+## The short version
 
-> **Model Builder defines the logic; Model Planning operates the plan.**
+Think of a **calculator you design once**, then **everyone uses**.
 
-A department manager changes **Headcount** or **Marketing Spend** — not `=[Units Sold]*[Price]` and not a dependency DAG.
+| Tab | Job | Who uses it |
+|-----|-----|-------------|
+| **Model Builder** | Design the calculator (rows, formulas, where data comes from) | FP&A admin |
+| **Model Planning** | Use the calculator (type assumptions, see results, compare what-ifs) | Budget owners, finance, CFO |
 
----
+**Rule:** Builder defines the logic. Planning operates the plan.
 
-## Three systems — do not conflate
-
-| System | What it is | Who | Already in this repo? |
-|--------|------------|-----|------------------------|
-| **Model Builder** | Authoring studio: modules, line items, formulas, dimensions, mappings, validate, **publish** | FP&A admin | Partial (setup, line items, drivers, formulas, validate). Missing: first-class modules, publish gate, dependency-map UI API, data-mapping board, impact-preview, allocation rules |
-| **Model Planning** | Operational workspace: version + cycle + scenario → KPIs, grid, drivers, compare, comments, slim workflow | Owners, finance, CFO | Partial (home KPIs, grid, scenarios compare, drivers, tasks). Missing: cycle-scoped planning aggregate, trend chart, waterfall bridge, concurrency `record_version`, material driver approval |
-| **Budget Planning** | One *use case* of planning: annual budget cycle submit → FP&A → CFO → lock → board pack | Same as Workflow tab | **Largely shipped** (`/budget-cycles/*`, workflow cockpit) |
+A marketing manager should change **Headcount** or **Marketing Spend**.  
+They should never edit `=[Units Sold] * [Price]` or stare at a dependency graph.
 
 ```text
-MODEL BUILDER  →  publish model  →  MODEL PLANNING  →  runs a cycle
-                                                      (e.g. Annual Budget = Budget Planning)
+  Model Builder          Publish              Model Planning
+  (design machine)  →  (freeze recipe)  →  (enter assumptions)
+                                                 ↓
+                                          Numbers recalculate
+                                                 ↓
+                                    Review / approve / lock / report
 ```
 
-**Budget Planning runs inside Model Planning’s grid**, but Model Planning is broader (forecasts, rolling, scenario modelling). The Workflow tab is the full control room; Planning screens show a compact tracker.
+Until a model is **published**, Planning has nothing solid to run. That is why **Builder comes before Planning** for backend completeness.
 
 ---
 
-## Shared objects
+## There are three things, not two
 
-| Concept | Meaning | Example |
-|---------|---------|---------|
-| Model | Whole financial machine | FY2026 Corporate Financial Model |
-| Module | Pack inside a model | Revenue Planning, Workforce |
-| Line item | Row (INPUT / CALCULATED / IMPORTED / …) | Units Sold, Revenue, EBITDA |
-| Formula | Bracket syntax for CALCULATED rows | `=[Units Sold]*[Price]` |
-| Driver | Assumption knob (often INPUT + library) | Volume Growth, FX rate |
-| Dimension | Slice | Time × Dept × Product × Version × Scenario |
-| Version | Snapshot of structure/numbers | v3.2 Working → published → Locked |
-| Scenario | What-if overlay | Budget, Best Case, Downside |
-| Cell | One value at an intersection | Revenue · Jan · Sales · Budget · Working |
-| Planning cycle | Time-boxed process | FY2026 Budget |
+People mix these up. They are related but not the same:
 
-**Product rule:** Builder edits must never silently rewrite an approved plan. Gate: **Validate → Test → Publish**. Live cycles move to a new published version only via **explicit migrate** (MB-25).
+### 1. Model Builder
+The **factory**. You create:
 
----
+- the model (e.g. “FY2026 Financial Model”)
+- modules (Revenue, Workforce, Opex…)
+- line items (Units Sold, Price, Revenue…)
+- formulas (`Revenue = Units × Price`)
+- dimensions (Time, Department, Product…)
+- data mappings (NetSuite → Starting ARR)
+- validation, then **Publish**
 
-## Screens ↔ systems
+Screens: **A.3** (modules + dependency map) and **A.4** (formula trace, mapping, validation).
 
-| Screen | System | Story epics |
-|--------|--------|-------------|
-| A.3 Modules / dependency map | Model Builder | MB-09–17 |
-| A.4 Formula trace / mapping / validation | Model Builder | MB-14–22 |
-| A.1 Planning Workspace | Model Planning | MP-05–14 |
-| A.2 Scenario Comparison | Model Planning | MP-15–20 |
-| `/forecasting/workflow` | Budget Planning (control room) | already shipped |
+### 2. Model Planning
+The **operating room**. You pick:
 
----
+- which **model version** (e.g. v3.2 Working / published)
+- which **planning cycle** (e.g. FY2026 Budget)
+- which **scenario** (Budget, Forecast, Best Case, Downside)
 
-## Build order (locked)
+Then you:
 
-**Logical / product order (authoritative):** finish **Model Builder through MB-23 Publish** before treating Model Planning as complete. Planning has nothing governed to consume without a published model.
+- watch KPI cards
+- edit the planning grid
+- tweak drivers
+- compare scenarios
+- comment / track small tasks
+- see a slim workflow strip (Draft → Submitted → Under Review → Approved)
+
+Screens: **A.1** (workspace) and **A.2** (scenario comparison).
+
+### 3. Budget Planning / Workflow
+One **special use** of Planning: the annual budget process (assign owners → submit → FP&A accept → CFO approve → lock → board pack).
+
+That is mostly the **Workflow** tab you already shipped.  
+Model Planning shows a *compact* status strip; Workflow is the *full control room*.
 
 ```text
-PART 1 — MODEL BUILDER (first)
-  MB-01..03  Model foundation
-  MB-04..08  Dimensions (+ hierarchy, aggregation)
-  MB-09..10  Modules + dimensionality
-  MB-11..15  Line items + formulas + dependencies
-  MB-16..18  Circular check, dependency map, allocations
-  MB-19      Data mapping
-  MB-20..22  Full validate, test-calculate, impact-preview
-  MB-23..26  Publish, audit, migrate cycle, security
-
-PART 2 — MODEL PLANNING (after MB-23 works)
-  MP-01..04  Cycle setup / validate / open / baseline
-  MP-05..14  Workspace (selectors, KPIs, grid, drivers, rail)
-  MP-15..20  Scenarios, compare, waterfall, sync status
-  MP-21..26  Submit → review → consolidate → lock → roll-forward
+Builder builds the model
+        ↓
+Publish freezes that recipe
+        ↓
+Planning uses it for any cycle type
+        ↓
+Budget Workflow is the annual-budget process on top
 ```
-
-**What that means for *this* codebase (pragmatic):**
-
-- Much of **grid / KPIs / scenarios / budget-cycle workflow** already exists and can keep serving FE while Builder gaps close.
-- Do **not** invent a second cycle system for Model Planning — reuse `/budget-cycles` (MP-01 = same object; `planning_type` differentiates). Prefer `/budget-cycles` over a dual `/planning-cycles` surface unless product forces rename with aliases.
-- Do **not** rebuild the grid three times — one grid component with modes: builder preview | planning edit | budgeting worksheet.
-- **Correct the earlier recommendation** that said “Planning first, Builder second.” That was FE-wiring pragmatism. Product dependency is **Builder → Publish → Planning**. Incremental FE polish on Planning is fine in parallel; backend epic priority is Builder through Publish.
 
 ---
 
-## End-to-end flow
+## Everyday objects (same words both tabs use)
+
+| Word | Plain meaning | Example |
+|------|---------------|---------|
+| **Model** | The whole machine | FY2026 Corporate Financial Model |
+| **Module** | A section of the machine | Revenue Planning |
+| **Line item** | A row | Units Sold, Revenue, EBITDA |
+| **Formula** | How a calculated row is made | `=[Units Sold]*[Price]` |
+| **Driver** | A knob planners are allowed to turn | Volume growth %, FX rate |
+| **Dimension** | How you slice a number | Department, Month, Scenario |
+| **Version** | A snapshot of the recipe/numbers | Working draft → Published → Locked |
+| **Scenario** | A what-if | Budget, Best Case, Downside |
+| **Cell** | One number at one intersection | Revenue · Jan · Sales · Budget |
+| **Planning cycle** | A time-boxed process | FY2026 Budget with deadlines |
+
+**Important:** Changing Builder after people already approved a plan must **not** silently rewrite their numbers. Publish freezes the recipe. Moving a live cycle to a new published recipe needs an **explicit migration**, not an automatic sneak update.
+
+---
+
+## How a year actually flows
+
+1. **FP&A opens Model Builder**  
+   Creates the model, modules, line items, formulas, mappings.  
+   Runs Validate → Test calculation → **Publish**.
+
+2. **FP&A opens a planning cycle** (often Annual Budget)  
+   Points it at the **published** model version.  
+   Loads actuals / baseline. Assigns department owners.
+
+3. **Owners open Model Planning**  
+   Choose version + cycle + scenario.  
+   Enter drivers and input cells.  
+   The engine recalculates Revenue, Opex, EBITDA, cash, etc.  
+   They comment, finish tasks, **Submit**.
+
+4. **FP&A / CFO review**  
+   In Planning (compare scenarios) and/or Workflow (full approvals).  
+   Return or approve → **Lock** → board pack / reports.
+
+**Analogy:**  
+Builder = designing the Excel template with named formulas.  
+Planning = filling that template.  
+Workflow = signing it off.
+
+---
+
+## What each screenshot is
+
+| Screenshot | Tab | What you are looking at |
+|------------|-----|-------------------------|
+| **A.1** | Model Planning | Main workspace: KPIs + dept×month grid + drivers + comments/tasks + slim workflow |
+| **A.2** | Model Planning | Scenario comparison: multi-scenario table + waterfall + assumption sliders |
+| **A.3** | Model Builder | Modules tree, line-item formulas, dependency map, properties panel |
+| **A.4** | Model Builder | Formula trace, ERP mappings, audit log, exceptions, validation donut, what-if impact |
+
+---
+
+## Decision: what we build first
+
+**Product / backend order (final):**
+
+1. **Model Builder through Publish** — so Planning has a real published model to consume.  
+2. **Model Planning** — workspace, compare, submit path on top of that.  
+3. **Budget Workflow** — already largely done; keep using `/budget-cycles`, do not invent a second cycle system.
+
+**Why not “Planning first”?**  
+We already have a grid, KPIs, and scenarios, so FE can polish Planning screens early. That is fine as *UI wiring*.  
+But for the *product to be correct*, Publish must exist. Without it, Planning is running on draft structure that can change under people’s feet.
+
+**Do not:**
+
+- Treat Planning as “Builder with a nicer grid”
+- Duplicate Budget cycles under a new `/planning-cycles` API if `/budget-cycles` already is the cycle
+- Let owners edit formulas from Planning
+- Silently recalculate locked/approved plans when someone republishes a model
+
+---
+
+## What is already true in our backend (roughly)
+
+| Piece | Status |
+|-------|--------|
+| Create model, line items, some formulas, drivers | Mostly there |
+| Planning grid + cell edits | There |
+| Scenario compare + home KPIs | There |
+| Annual budget cycle + Workflow cockpit | There |
+| First-class **Modules** | Not really (categories only) |
+| Explicit **Publish** + history | Missing |
+| Full dependency map / data-mapping board | Missing / thin |
+| Planning waterfall / material driver approval | Missing |
+
+So: you are not starting from zero. You are finishing Builder’s “publishable model” story, then hardening Planning around it.
+
+---
+
+## Two naming traps (working answers)
+
+**“Driver” vs “INPUT”**  
+In Builder screens some rows say Driver. In the schema we mostly say INPUT / CALCULATED.  
+**Working answer:** a “Driver” row is an INPUT line item that also lives in the Driver Library (with optional approval when the change is big). Not a third conflicting type — unless product later says otherwise.
+
+**“Workspace” (Builder) vs “Planning Cycle” (Planning)**  
+Both screens may show “Budget 2026”.  
+**Working answer:** same *label*, not necessarily the same *ID*.  
+Workspace ≈ which draft/published **model version** you are editing in Builder.  
+Planning Cycle ≈ the **process** (owners, deadlines, submissions).
+
+---
+
+## One picture to remember
 
 ```text
-1. FP&A — Model Builder
-   create model → dimensions → modules → line items → formulas
-   map sources → validate → test calc → publish (immutable published version)
-
-2. FP&A — Planning cycle (Budget or other type)
-   pick published model + version → validate setup → open
-   load actuals/baseline → assign owners
-
-3. Owners — Model Planning
-   select version + cycle + scenario
-   edit INPUT cells / drivers → engine recalculates
-   comment / tasks → submit
-
-4. FP&A / CFO — Planning strip or Workflow
-   compare scenarios → return/approve → lock → board pack / reports
+┌─────────────────────┐
+│   MODEL BUILDER     │  Design modules, formulas, mappings
+│   (A.3 / A.4)       │  Validate → Publish
+└──────────┬──────────┘
+           │ published model version
+           ▼
+┌─────────────────────┐
+│   MODEL PLANNING    │  Pick version + cycle + scenario
+│   (A.1 / A.2)       │  Edit drivers/inputs → see KPIs/grid
+└──────────┬──────────┘
+           │ submit / compare
+           ▼
+┌─────────────────────┐
+│ BUDGET / WORKFLOW   │  Approvals, lock, board pack
+│ (already mostly     │  (full cockpit; Planning shows a slim strip)
+│  shipped)           │
+└─────────────────────┘
 ```
 
-**Analogy:** Builder = named formulas + sheet design. Planning = fill the locked template. Budget Planning / Workflow = who submitted and who signed off.
-
 ---
 
-## Driver vs INPUT (open, but working stance)
+## Bottom line
 
-UI A.4 labels some rows **Driver** and others **Calculated**. Schema elsewhere uses `INPUT | CALCULATED | IMPORTED | …` plus a separate **Driver Library**.
+- **Two tabs, one model.** Builder designs it; Planning uses it.  
+- **Budget/Workflow** is the approval process for (usually) the annual budget — already largely built.  
+- **Build Builder → Publish next**, then finish Planning features that need that published model.  
+- Owners touch assumptions. Admins touch formulas. Approved plans stay frozen unless someone deliberately migrates.
 
-**Working stance until product confirms:**  
-`Driver` in the Builder grid = an **INPUT** line item that is also registered (or registerable) in the Driver Library / materiality approval path — not a third conflicting enum. Confirm before freezing schema.
-
----
-
-## Workspace vs Planning Cycle (open, but working stance)
-
-Builder header shows **Workspace: Budget 2026**. Planning shows **Planning Cycle: FY2026 Budget**.
-
-**Working stance:**  
-- **Planning Cycle** = `PlanningBudgetCycle` (process: owners, deadlines, status).  
-- **Workspace** in Builder = working **model version / draft copy** used for structure preview (not necessarily the same ID as the cycle). Same *display name* does not imply same ID. Confirm with product before joining tables.
-
----
-
-## Open product items (block precise schema)
-
-1. Variance bridge config schema (MP-18)
-2. Driver slider min/max (MP-16)
-3. Driver vs INPUT taxonomy (above)
-4. `updated_by` / `updated_at` on line items / formulas
-5. Impact-preview contract (MB-22)
-6. Validation result `impact` High/Medium/Low (MB-20)
-7. Scenario Notes / Planning Narrative object (A.2.5)
-8. Data sync status states (MP-20)
-9. Builder Workspace vs Planning Cycle ID space (above)
-10. Publish dropdown submenu options (MB-23)
-
----
-
-## Already shipped vs still to build (high level)
-
-| Area | Status |
-|------|--------|
-| Model create/setup, list/get/update | Exists (`POST /models`, `/models/setup`) |
-| Line items, formulas validate/circular/impact-map | Partial |
-| Drivers CRUD (no delete / no materiality approval) | Partial |
-| Grid + cell edit + spread/growth | Exists |
-| Scenarios create/copy/compare/promote | Exists |
-| Home KPIs | Exists |
-| Budget cycles + workflow cockpit | Exists |
-| First-class Modules API | **Missing** |
-| `POST …/publish` + publish history | **Missing** |
-| Module dependency-map API | **Missing** |
-| Data mappings board + % mapped | **Missing** |
-| Sandboxed impact-preview | **Missing** |
-| Planning trend / waterfall / kpi-summary by cycle | **Missing or composed** |
-| Cell optimistic concurrency (`record_version`) | **Missing** |
-
----
-
-## Confusion to avoid
-
-1. Model Planning ≠ Model Builder with a prettier grid.  
-2. Model Planning ≠ Budget Workflow cockpit (slim strip vs full page).  
-3. Scenarios: defined/available in Builder context; switched/compared in Planning.  
-4. Drivers vs cells: knobs vs detailed grid; formulas bind them.  
-5. Do not dual-ship `/planning-cycles` if `/budget-cycles` already is the cycle object.
-
----
-
-## Acceptance (this combined view)
-
-- [x] Three systems distinguished (Builder / Planning / Budget Planning)
-- [x] Screens A.1–A.4 mapped
-- [x] Build order locked: **Builder through Publish (MB-23), then Planning**
-- [x] Prior “Planning first” recommendation superseded for backend epic order
-- [x] Open product questions listed with working stances
+That is the whole story.
