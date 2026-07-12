@@ -167,9 +167,11 @@ Creates a Working version, BASE scenario, default seed line items, and empty cel
       {
         "id": "ver…",
         "name": "Working",
-        "status": "DRAFT",
-        "publishedAt": null,
-        "checksum": null
+        "status": "LOCKED",
+        "publishedAt": "2026-07-12T18:00:00.000Z",
+        "publishedById": "user…",
+        "publishedByName": "Sarah Delgado",
+        "checksum": "a1b2…"
       }
     ],
     "scenarios": [
@@ -935,7 +937,12 @@ Preferred: version publish (enables FE Publish button).
 
 Gates: any `severity=ERROR` or `circular=true`. Warnings do **not** block.
 
+Setup codes are always **ERROR** when present and block publish: `MISSING_SCOPE`, `MISSING_COA`, `MISSING_DIMENSION`, `MISSING_NAME`, `NO_LINE_ITEMS`, `MISSING_VERSION`.  
+`MISSING_FORMULA` is a **WARNING** and does not block.
+
 Side effects: version → `LOCKED` + `publishedAt` / `checksum`; model → `PUBLISHED` + `publishedAt` / `publishedById`; cells locked.
+
+**FE display:** use `publishedByName` on the model and on each `versions[]` entry — never render `publishedById` as the name.
 
 ### 6.2 Publish model (alias)
 

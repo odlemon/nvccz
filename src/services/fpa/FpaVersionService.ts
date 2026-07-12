@@ -289,12 +289,27 @@ export class FpaVersionService {
 
     const { FpaModuleService } = await import("./FpaModuleService");
     const validation = await FpaModuleService.enrichedValidate(version.modelId);
-    if (!validation.passed || validation.circular) {
+    const blocking = (validation.errors || []).filter((i: any) => String(i.severity || "ERROR").toUpperCase() === "ERROR");
+    // Explicit setup codes always block publish for Model Builder → Planning handoff
+    const SETUP_BLOCK = new Set([
+      "MISSING_SCOPE",
+      "MISSING_COA",
+      "MISSING_DIMENSION",
+      "MISSING_NAME",
+      "NO_LINE_ITEMS",
+      "MISSING_VERSION",
+      "CIRCULAR_REFERENCE",
+      "INVALID_FORMULA",
+      "UNKNOWN_LINE_REF",
+    ]);
+    const setupBlocks = (validation.issues || []).filter((i: any) => SETUP_BLOCK.has(String(i.code)));
+    if (!validation.passed || validation.circular || blocking.length || setupBlocks.some((i: any) => String(i.severity).toUpperCase() === "ERROR")) {
+      const errList = blocking.length ? blocking : setupBlocks.filter((i: any) => String(i.severity).toUpperCase() === "ERROR");
       throw new FpaError(
         409,
         "PUBLISH_BLOCKED",
         "Fix validation errors before publishing",
-        (validation.errors || []).map((i: any) => ({ code: i.code, message: i.message, step: i.category || i.type }))
+        errList.map((i: any) => ({ code: i.code, message: i.message, step: i.category || i.type }))
       );
     }
 

@@ -190,16 +190,35 @@ export class FpaModelService {
       },
     });
     if (!model) throw new FpaError(404, "NOT_FOUND", "Planning model not found");
-    let publishedByName = null;
-    if (model.publishedById) {
-      const pub = await prisma.user.findUnique({
-        where: { id: model.publishedById },
-        select: { firstName: true, lastName: true, email: true },
-      });
-      publishedByName = pub ? [pub.firstName, pub.lastName].filter(Boolean).join(" ").trim() || pub.email : null;
-    }
+
+    const publisherIds = [
+      model.publishedById,
+      ...model.versions.map((v) => v.publishedById).filter(Boolean),
+    ].filter(Boolean);
+    const uniquePublisherIds = [...new Set(publisherIds.map(String))];
+    const publishers =
+      uniquePublisherIds.length > 0
+        ? await prisma.user.findMany({
+            where: { id: { in: uniquePublisherIds } },
+            select: { id: true, firstName: true, lastName: true, email: true },
+          })
+        : [];
+    const nameById = Object.fromEntries(
+      publishers.map((u) => {
+        const name = [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.email || null;
+        return [u.id, name];
+      })
+    );
+
+    const publishedByName = model.publishedById ? nameById[model.publishedById] || null : null;
+    const versions = model.versions.map((v) => ({
+      ...v,
+      publishedByName: v.publishedById ? nameById[v.publishedById] || null : null,
+    }));
+
     return {
       ...model,
+      versions,
       publishedByName,
       entityIds: model.modelEntities.map((e) => e.entityId),
       departmentIds: model.modelDepartments.map((d) => d.departmentId),
@@ -210,7 +229,7 @@ export class FpaModelService {
         valueIds: model.modelDimensionMembers.filter((m) => m.dimensionId === l.dimensionId).map((m) => m.memberId),
       })),
       defaultScenarioId: model.scenarios.find((s) => s.isOfficial)?.id || model.scenarios[0]?.id || null,
-      defaultVersionId: model.versions.find((v) => String(v.status).toUpperCase() !== "ARCHIVED")?.id || model.versions[0]?.id || null,
+      defaultVersionId: versions.find((v) => String(v.status).toUpperCase() !== "ARCHIVED")?.id || versions[0]?.id || null,
     };
   }
 

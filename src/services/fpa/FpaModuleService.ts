@@ -631,15 +631,27 @@ export class FpaModuleService {
 
     const issues: any[] = (base.errors || []).map((e: any) => ({
       severity: "ERROR",
-      impact: e.code === "INVALID_FORMULA" || e.code === "UNKNOWN_LINE_REF" ? "HIGH" : "MEDIUM",
+      impact:
+        e.code === "INVALID_FORMULA" ||
+        e.code === "UNKNOWN_LINE_REF" ||
+        e.code === "MISSING_SCOPE" ||
+        e.code === "MISSING_COA"
+          ? "HIGH"
+          : "MEDIUM",
       code: e.code,
       type: e.step || "SETUP",
-      category: issueCategory(e.step || e.code),
+      category:
+        e.code === "MISSING_SCOPE" || e.code === "MISSING_COA" || e.code === "MISSING_DIMENSION"
+          ? e.code === "MISSING_DIMENSION"
+            ? "DIMENSION"
+            : "DATA_TYPE"
+          : issueCategory(e.step || e.code),
       message: e.message,
       lineItemId: null,
       moduleId: null,
       field: null,
       step: e.step,
+      blocksPublish: true,
     }));
 
     const formulas = await prisma.planningFormula.findMany({
