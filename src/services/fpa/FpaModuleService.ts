@@ -675,7 +675,11 @@ export class FpaModuleService {
       where: { modelId },
       include: { lineItem: { select: { id: true, code: true, name: true, moduleId: true } } },
     });
-    const codeSet = new Set(lineItems.map((l) => l.code));
+    const allLines = lineItems;
+    const byCode = Object.fromEntries(
+      allLines.map((l) => [String(l.code || "").toUpperCase(), l])
+    );
+    const codeSet = new Set(lineItems.map((l) => String(l.code || "").toUpperCase()));
 
     const depGraph: Record<string, string[]> = {};
     for (const f of formulas) {
@@ -685,7 +689,12 @@ export class FpaModuleService {
         .map((k) => {
           const src =
             byCode[String(k).toUpperCase()] ||
-            allLines.find((l) => l.name.toLowerCase() === String(k).toLowerCase());
+            allLines.find((l) => l.name.toLowerCase() === String(k).toLowerCase()) ||
+            allLines.find(
+              (l) =>
+                String(l.code || "").toUpperCase() ===
+                String(k).toUpperCase().replace(/\s+/g, "_")
+            );
           return src?.code;
         })
         .filter(Boolean);

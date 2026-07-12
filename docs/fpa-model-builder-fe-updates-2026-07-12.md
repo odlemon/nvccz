@@ -161,6 +161,28 @@ Use `publishedByName` on **model** and on each **`versions[]`** entry. Do not re
 
 ---
 
+### 6. Validate 500 (`byCode is not defined`) — fixed
+
+`POST /models/:id/validate` was throwing **500** because `enrichedValidate` referenced `byCode` / `allLines` without defining them.
+
+**Now:** validate builds those maps from the model’s line items and returns the normal `{ passed, errors, warnings, issues, … }` payload. FE can finish the validate modal again.
+
+---
+
+### 7. After publish → auto DRAFT working copy
+
+Publish still locks the published version (`status: LOCKED`). The API **also creates a new `DRAFT` working copy** (cells cloned, unlocked) and returns:
+
+| Field | Use |
+|-------|-----|
+| `publishedVersionId` / `versionId` | The LOCKED published snapshot |
+| `workingCopyVersionId` | **Switch Builder here** for further edits |
+| `workingCopy` | Full DRAFT version row |
+
+**FE:** On publish success, set active version to `data.workingCopyVersionId` (do not leave the user on the locked published version).
+
+---
+
 ## Suggested FE checklist
 
 - [ ] Point env at `dev-api.arcus.co.zw` or `:3009`
@@ -169,6 +191,8 @@ Use `publishedByName` on **model** and on each **`versions[]`** entry. Do not re
 - [ ] Optional: `POST /models/:id/seed-defaults` for legacy models before validate
 - [ ] Header “Last Published by …” → `publishedByName`
 - [ ] Confirm validate no longer shows Gross Profit / EBITDA `MISSING_FORMULA` after seed
+- [ ] Confirm `POST …/validate` returns 200 (not 500)
+- [ ] On publish success: switch active version to `workingCopyVersionId`
 
 ---
 
@@ -182,4 +206,5 @@ GET  /v1/fpa/models/{id}/dependency-graph
 POST /v1/fpa/models/{id}/validate
 GET  /v1/fpa/models/{id}/dimensions
 PUT  /v1/fpa/models/{id}/dimensions
+POST /v1/fpa/versions/{versionId}/publish
 ```

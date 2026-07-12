@@ -895,12 +895,18 @@ Preferred: version publish (enables FE Publish button).
 
 **Response `200`**
 
+After publish the published version is `LOCKED`. The API **also creates a new `DRAFT` working copy** and returns its id so Builder can switch immediately (do not leave the UI on the locked version).
+
 ```json
 {
   "success": true,
   "data": {
     "modelId": "cm…",
     "versionId": "ver…",
+    "publishedVersionId": "ver…",
+    "workingCopyVersionId": "ver-working…",
+    "workingCopy": { "id": "ver-working…", "status": "DRAFT", "name": "… (working)" },
+    "message": "Published version is LOCKED. Switch Builder to workingCopyVersionId (new DRAFT) for further edits.",
     "publishedBy": "user…",
     "publishedById": "user…",
     "publishedByName": "Sarah Delgado",

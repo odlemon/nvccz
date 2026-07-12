@@ -360,9 +360,23 @@ export class FpaVersionService {
       ? [publisher.firstName, publisher.lastName].filter(Boolean).join(" ").trim() || publisher.email
       : null;
 
+    // Always open a fresh DRAFT working copy so Builder is not stuck on the locked published version.
+    const working = await FpaVersionService.createWorkingCopyFromLocked(
+      updatedVersion.id,
+      user,
+      {
+        name: `${version.name || "Version"} (working)`,
+        reason: notes || "Auto working copy after publish",
+      },
+      ip
+    );
+
     return {
       modelId: version.modelId,
       versionId: updatedVersion.id,
+      publishedVersionId: updatedVersion.id,
+      workingCopyVersionId: working.workingCopyVersionId,
+      workingCopy: working.workingCopy,
       publishedBy: user.id,
       publishedById: user.id,
       publishedByName,
@@ -380,6 +394,73 @@ export class FpaVersionService {
       formulaChanges: [],
       mappingChanges: [],
       notes,
+      message:
+        "Published version is LOCKED. Switch Builder to workingCopyVersionId (new DRAFT) for further edits.",
+    };
+  }
+
+  /**
+   * Clone cells from a LOCKED (or any) version into a new DRAFT working copy.
+   * Used by request-reopen and post-publish so FE can keep editing.
+   */
+  static async createWorkingCopyFromLocked(
+    sourceVersionId: string,
+    user: any,
+    opts: { name?: string; reason?: string } = {},
+    ip?: string
+  ) {
+    const version = await prisma.planningVersion.findUnique({ where: { id: sourceVersionId } });
+    if (!version) throw new FpaError(404, "NOT_FOUND", "Version not found");
+
+    const copy = await prisma.planningVersion.create({
+      data: {
+        modelId: version.modelId,
+        name:
+          opts.name ||
+          `${version.name} (working ${new Date().toISOString().slice(0, 10)})`,
+        status: "DRAFT",
+        createdById: user.id,
+      },
+    });
+
+    const sourceCells = await prisma.planningCell.findMany({ where: { versionId: sourceVersionId } });
+    const rows = sourceCells.map((c) => ({
+      modelId: c.modelId,
+      scenarioId: c.scenarioId,
+      versionId: copy.id,
+      lineItemId: c.lineItemId,
+      periodDate: c.periodDate,
+      departmentId: c.departmentId,
+      entityId: c.entityId,
+      currencyCode: c.currencyCode,
+      value: c.value,
+      valueType: c.valueType,
+      sourceType: c.sourceType,
+      formulaId: c.formulaId,
+      driverId: c.driverId,
+      isEditable: true,
+      isLocked: false,
+      recordVersion: BigInt(1),
+    }));
+    if (rows.length) {
+      for (let i = 0; i < rows.length; i += 500) {
+        await prisma.planningCell.createMany({ data: rows.slice(i, i + 500), skipDuplicates: true });
+      }
+    }
+
+    await FpaAuditService.log("VERSION_WORKING_COPY", user.id, {
+      modelId: version.modelId,
+      versionId: sourceVersionId,
+      reason: opts.reason || "Working copy created",
+      newValue: copy.id,
+      ip,
+    });
+
+    return {
+      sourceVersionId,
+      workingCopyVersionId: copy.id,
+      workingCopy: copy,
+      cellsCopied: rows.length,
     };
   }
 
