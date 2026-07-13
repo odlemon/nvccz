@@ -54,7 +54,7 @@ export class FpaWorkflowService {
     const where: any = {};
     if (query.modelId) where.modelId = String(query.modelId);
     if (query.status) where.status = String(query.status);
-    return prisma.planningWorkflow.findMany({
+    const rows = await prisma.planningWorkflow.findMany({
       where,
       include: {
         tasks: {
@@ -73,6 +73,26 @@ export class FpaWorkflowService {
       },
       orderBy: { createdAt: "desc" },
     });
+
+    const deptIds = [
+      ...new Set(rows.flatMap((w) => w.tasks.map((t) => t.departmentId).filter(Boolean))),
+    ] as string[];
+    const depts = deptIds.length
+      ? await prisma.department.findMany({
+          where: { id: { in: deptIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const deptName = Object.fromEntries(depts.map((d) => [d.id, d.name]));
+
+    return rows.map((w) => ({
+      ...w,
+      tasks: w.tasks.map((t) => ({
+        ...t,
+        departmentName: t.departmentId ? deptName[t.departmentId] || null : null,
+        department: t.departmentId ? deptName[t.departmentId] || null : null,
+      })),
+    }));
   }
 
   static async getWorkflow(id: string) {
@@ -84,7 +104,37 @@ export class FpaWorkflowService {
       },
     });
     if (!wf) throw new FpaError(404, "NOT_FOUND", "Workflow not found");
-    return wf;
+
+    const deptIds = [...new Set(wf.tasks.map((t) => t.departmentId).filter(Boolean))] as string[];
+    const userIds = [
+      ...new Set(wf.tasks.flatMap((t) => [t.assigneeId, t.reviewerId]).filter(Boolean).map(String)),
+    ];
+    const [depts, users] = await Promise.all([
+      deptIds.length
+        ? prisma.department.findMany({ where: { id: { in: deptIds } }, select: { id: true, name: true } })
+        : [],
+      userIds.length
+        ? prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, firstName: true, lastName: true, email: true },
+          })
+        : [],
+    ]);
+    const deptName = Object.fromEntries(depts.map((d) => [d.id, d.name]));
+    const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+    const display = (u: any) =>
+      u ? [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.email || null : null;
+
+    return {
+      ...wf,
+      tasks: wf.tasks.map((t) => ({
+        ...t,
+        departmentName: t.departmentId ? deptName[t.departmentId] || null : null,
+        department: t.departmentId ? deptName[t.departmentId] || null : null,
+        assigneeName: display(userMap[t.assigneeId]),
+        reviewerName: display(userMap[t.reviewerId]),
+      })),
+    };
   }
 
   /**
@@ -118,13 +168,38 @@ export class FpaWorkflowService {
       }
     }
 
-    return prisma.planningTask.findMany({
+    const tasks = await prisma.planningTask.findMany({
       where,
       include: {
         workflow: { select: { id: true, modelId: true, name: true, stage: true, status: true } },
         assignee: { select: { id: true, firstName: true, lastName: true, email: true } },
       },
       orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+    });
+
+    const deptIds = [...new Set(tasks.map((t) => t.departmentId).filter(Boolean))] as string[];
+    const depts = deptIds.length
+      ? await prisma.department.findMany({
+          where: { id: { in: deptIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const deptName = Object.fromEntries(depts.map((d) => [d.id, d.name]));
+
+    return tasks.map((t) => {
+      const assignee = t.assignee;
+      const assigneeName = assignee
+        ? [assignee.firstName, assignee.lastName].filter(Boolean).join(" ").trim() ||
+          assignee.email ||
+          null
+        : null;
+      return {
+        ...t,
+        departmentName: t.departmentId ? deptName[t.departmentId] || null : null,
+        assigneeName,
+        // FE-friendly aliases (some screens bind `department` / `assignee`)
+        department: t.departmentId ? deptName[t.departmentId] || null : null,
+      };
     });
   }
 

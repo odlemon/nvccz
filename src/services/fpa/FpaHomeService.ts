@@ -137,7 +137,7 @@ export class FpaHomeService {
       };
     });
 
-    const openTasks = await prisma.planningTask.findMany({
+    const openTasksRaw = await prisma.planningTask.findMany({
       where: {
         workflow: { modelId: model.id },
         status: { in: ["PENDING", "RETURNED", "SUBMITTED"] },
@@ -150,6 +150,22 @@ export class FpaHomeService {
         workflow: { select: { id: true, name: true, stage: true } },
       },
     });
+    const openDeptIds = [
+      ...new Set(openTasksRaw.map((t) => t.departmentId).filter(Boolean)),
+    ] as string[];
+    const openDepts = openDeptIds.length
+      ? await prisma.department.findMany({
+          where: { id: { in: openDeptIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const openDeptName = Object.fromEntries(openDepts.map((d) => [d.id, d.name]));
+    const openTasks = openTasksRaw.map((t) => ({
+      ...t,
+      departmentName: t.departmentId ? openDeptName[t.departmentId] || null : null,
+      department: t.departmentId ? openDeptName[t.departmentId] || null : null,
+      assigneeName: userDisplayName(t.assignee),
+    }));
 
     const scenarios = await prisma.planningScenario.findMany({
       where: { modelId: model.id },

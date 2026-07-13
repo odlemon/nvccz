@@ -168,6 +168,7 @@ export class FpaWorkflowCollabService {
       priority: mapTaskPriority(t.priority),
       departmentId: t.departmentId,
       departmentName: t.departmentId ? deptName[t.departmentId] || null : null,
+      department: t.departmentId ? deptName[t.departmentId] || null : null,
       assigneeId: t.assigneeId,
       assigneeName: userDisplayName(userMap[t.assigneeId]),
       reviewerId: t.reviewerId,
