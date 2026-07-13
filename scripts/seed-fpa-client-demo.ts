@@ -1196,6 +1196,86 @@ async function seedBudgetCycles(
   const cycleIds: Record<string, string> = {};
   const now = new Date();
 
+  // Dedicated historical version so closed FY2025 is NOT bound to the FY2026 LOCKED publish.
+  // Otherwise Planning sheets that resolve cycle-by-version land on the wrong worksheet.
+  const fy2025VersionId = cuid();
+  await prisma.planningVersion.create({
+    data: {
+      id: fy2025VersionId,
+      modelId: primary.modelId,
+      name: "FY2025 Final (Locked)",
+      status: "LOCKED",
+      lockedAt: new Date("2024-12-20T00:00:00.000Z"),
+      lockedById: adminId,
+      publishedAt: new Date("2024-12-15T00:00:00.000Z"),
+      publishedById: adminId,
+      publishNotes: "Historical closed FY2025 budget book",
+      createdById: adminId,
+    },
+  });
+
+  const fy2025Lines = await prisma.planningLineItem.findMany({
+    where: { modelId: primary.modelId },
+    select: { id: true, code: true, lineItemType: true },
+  });
+  const fy2025Cells: Record<string, unknown>[] = [];
+  const months = withCashChain(Array.from({ length: 12 }, (_, m) => computeMonthValues(m)));
+  const byCodeVal = (m: number) => {
+    const v = months[m];
+    return {
+      UNITS: v.units,
+      PRICE: v.price,
+      GROSS_REVENUE: v.grossRevenue,
+      DISCOUNTS: v.discounts,
+      NET_REVENUE: v.netRevenue,
+      COGS: v.cogs,
+      GROSS_PROFIT: v.grossProfit,
+      HEADCOUNT: v.headcount,
+      AVG_SALARY: v.avgSalary,
+      SALARIES: v.salaries,
+      RENT: v.rent,
+      MARKETING: v.marketing,
+      GA: v.ga,
+      EBITDA: v.ebitda,
+      OPENING_CASH: v.openingCash,
+      CLOSING_CASH: v.closingCash,
+    } as Record<string, number>;
+  };
+  for (let m = 0; m < 12; m++) {
+    const vals = byCodeVal(m);
+    const periodDate = monthDate(2025, m);
+    for (const li of fy2025Lines) {
+      if (vals[li.code] == null) continue;
+      const calc = ["CALC", "CALCULATED"].includes(String(li.lineItemType).toUpperCase());
+      fy2025Cells.push({
+        id: cuid(),
+        modelId: primary.modelId,
+        scenarioId: primary.scenarioIds.BASE,
+        versionId: fy2025VersionId,
+        lineItemId: li.id,
+        periodDate,
+        currencyCode: "USD",
+        value: d(vals[li.code] * 0.88),
+        valueType: "MANUAL",
+        sourceType: calc ? "FORMULA" : "INPUT",
+        isEditable: !calc,
+        isLocked: true,
+        lastUpdatedById: adminId,
+        lastUpdatedAt: now,
+        recordVersion: 1n,
+      });
+    }
+  }
+  await createManyBatched("planning_cells (fy2025 closed)", fy2025Cells, 500, (chunk) =>
+    prisma.planningCell.createMany({ data: chunk as never, skipDuplicates: true })
+  );
+
+  const ownerCategorySets: string[][] = [
+    ["REVENUE", "OPERATING_EXPENSES"],
+    ["PAYROLL"],
+    ["OPERATING_EXPENSES"],
+  ];
+
   const cycleDefs = [
     {
       key: "FY2025 Annual Budget (Closed)",
@@ -1204,7 +1284,7 @@ async function seedBudgetCycles(
       status: "LOCKED",
       currentStage: "LOCK",
       planningType: "ANNUAL_BUDGET",
-      versionId: primary.publishedVersionId,
+      versionId: fy2025VersionId,
       scenarioId: primary.scenarioIds.BASE,
       openedAt: new Date("2024-09-01T00:00:00.000Z"),
       approvedAt: new Date("2024-12-15T00:00:00.000Z"),
@@ -1362,7 +1442,7 @@ async function seedBudgetCycles(
             departmentId: dept.id,
             assigneeId: adminId,
             taskId,
-            categoriesJson: ["REVENUE", "OPEX"],
+            categoriesJson: ownerCategorySets[i] ?? ["REVENUE", "OPERATING_EXPENSES"],
             baselineMethod: "PRIOR_YEAR_BUDGET",
             status: def.ownerStatuses[i] ?? "PENDING",
           },
@@ -1370,7 +1450,6 @@ async function seedBudgetCycles(
       }
     }
 
-    // Approvals
     if (taskIds[0]) {
       await prisma.planningApproval.create({
         data: {
@@ -1399,7 +1478,6 @@ async function seedBudgetCycles(
       });
     }
 
-    // Optional comments on open / returned cycles
     if (def.status === "OPEN_FOR_INPUT" || def.status === "RETURNED_FOR_CORRECTION") {
       await prisma.planningComment.create({
         data: {

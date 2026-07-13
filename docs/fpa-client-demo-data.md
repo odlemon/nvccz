@@ -59,6 +59,13 @@ Primary model includes:
 
 Owners/tasks mix `PENDING` / `SUBMITTED` / `RETURNED` / `APPROVED` with comments and approval history.
 
+## Known wiring (why version matters)
+
+- **Open / Returned** cycles use the **DRAFT working version**.
+- **Board Review** uses the **LOCKED published** FY2026 version (read-only review).
+- **FY2025 Closed** uses its own **FY2025 Final (Locked)** version — not the FY2026 publish — so Planning sheets that resolve by `versionId` do not open the wrong year.
+- Model `defaultVersionId` prefers **DRAFT** over LOCKED so sheets opened from the model land on the editable working copy.
+
 ## Key IDs (`nts` / dev-api after last reset)
 
 Re-run prints a fresh SUMMARY JSON; IDs change each wipe. Latest `nts` snapshot:

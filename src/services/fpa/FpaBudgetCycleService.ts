@@ -29,8 +29,10 @@ const OWNER_EDITABLE = new Set(["DRAFT", "OPEN_FOR_INPUT", "RETURNED_FOR_CORRECT
 const CATEGORY_LINE_MATCH: Record<string, { categories?: string[]; codes?: string[]; types?: string[] }> = {
   REVENUE: { categories: ["REVENUE"], types: ["REVENUE"] },
   COST_OF_SALES: { categories: ["EXPENSE", "COST_OF_SALES"], codes: ["COGS", "COST_OF_SALES"] },
-  PAYROLL: { categories: ["WORKFORCE", "PAYROLL"], codes: ["SALARIES", "HEADCOUNT", "PAYROLL"] },
-  OPERATING_EXPENSES: { categories: ["EXPENSE", "OPERATING_EXPENSES"], codes: ["RENT", "MARKETING"] },
+  PAYROLL: { categories: ["WORKFORCE", "PAYROLL"], codes: ["SALARIES", "HEADCOUNT", "PAYROLL", "AVG_SALARY"] },
+  OPERATING_EXPENSES: { categories: ["EXPENSE", "OPERATING_EXPENSES"], codes: ["RENT", "MARKETING", "GA"] },
+  /** Alias used by some FE / seed payloads */
+  OPEX: { categories: ["EXPENSE", "OPERATING_EXPENSES"], codes: ["RENT", "MARKETING", "GA"] },
   DEPARTMENTAL: { categories: ["EXPENSE", "DEPARTMENTAL", "GENERAL"] },
   PROJECT: { categories: ["PROJECT"], codes: ["PROJECT"] },
   CAPEX: { categories: ["CAPEX"], codes: ["CAPEX"] },
@@ -2011,17 +2013,38 @@ export class FpaBudgetCycleService {
       }
     }
 
-    const submitCheck = await FpaBudgetCycleService.validateOwnerSubmission(cycleId, user, {
-      departmentIds: myOwners.map((o) => o.departmentId),
-    });
+    const submitCheck =
+      ["LOCKED", "APPROVED"].includes(String(cycle.status).toUpperCase())
+        ? {
+            passed: false,
+            errors: [
+              {
+                code: "CYCLE_LOCKED",
+                message: "This budget cycle is locked — worksheets are read-only.",
+                severity: "INFO",
+              },
+            ],
+          }
+        : await FpaBudgetCycleService.validateOwnerSubmission(cycleId, user, {
+            departmentIds: myOwners.map((o) => o.departmentId),
+          });
 
     const areaComplete = planningAreas.filter((a) => a.status === "COMPLETE").length;
     const progressPct = planningAreas.length
       ? Math.round((areaComplete / planningAreas.length) * 100)
       : 0;
 
+    const version = await prisma.planningVersion.findUnique({
+      where: { id: cycle.versionId },
+      select: { id: true, name: true, status: true },
+    });
+
     return {
-      cycle: await FpaBudgetCycleService.serialize(cycle),
+      cycle: {
+        ...(await FpaBudgetCycleService.serialize(cycle)),
+        versionStatus: version?.status || null,
+        versionName: version?.name || null,
+      },
       budgetProgress: { percent: progressPct, trend: null },
       submissionDue: {
         date: deadline,
@@ -2041,6 +2064,7 @@ export class FpaBudgetCycleService {
       departmentBudgetRegister: register,
       canSubmit: submitCheck.passed,
       unmetRequirements: submitCheck.errors,
+      readOnly: ["LOCKED", "APPROVED"].includes(String(cycle.status).toUpperCase()),
     };
   }
 

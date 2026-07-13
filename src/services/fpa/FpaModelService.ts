@@ -32,6 +32,19 @@ const DEFAULT_MODULES: Array<{ code: string; name: string; categories: string[] 
   { code: "CASH", name: "Cash", categories: ["CASH"] },
 ];
 
+/** Prefer DRAFT working copy so sheets don't default onto a LOCKED published snapshot. */
+function pickDefaultVersionId(versions: Array<{ id: string; status: string }>): string | null {
+  if (!versions?.length) return null;
+  const statusOf = (v: { status: string }) => String(v.status).toUpperCase();
+  const draft = versions.find((v) => statusOf(v) === "DRAFT");
+  if (draft) return draft.id;
+  const editable = versions.find((v) => !["ARCHIVED", "LOCKED"].includes(statusOf(v)));
+  if (editable) return editable.id;
+  const locked = versions.find((v) => statusOf(v) === "LOCKED");
+  if (locked) return locked.id;
+  return versions.find((v) => statusOf(v) !== "ARCHIVED")?.id || versions[0]?.id || null;
+}
+
 function monthStarts(start: Date, end: Date): Date[] {
   const out: Date[] = [];
   const cur = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
@@ -378,7 +391,11 @@ export class FpaModelService {
         valueIds: model.modelDimensionMembers.filter((m) => m.dimensionId === l.dimensionId).map((m) => m.memberId),
       })),
       defaultScenarioId: model.scenarios.find((s) => s.isOfficial)?.id || model.scenarios[0]?.id || null,
-      defaultVersionId: versions.find((v) => String(v.status).toUpperCase() !== "ARCHIVED")?.id || versions[0]?.id || null,
+      // Prefer editable working copy over published LOCKED snapshot so Budget/Planning
+      // sheets opened from the model land on the open cycle's version, not a closed book.
+      defaultVersionId: pickDefaultVersionId(versions),
+      workingVersionId:
+        versions.find((v) => String(v.status).toUpperCase() === "DRAFT")?.id || null,
     };
   }
 
