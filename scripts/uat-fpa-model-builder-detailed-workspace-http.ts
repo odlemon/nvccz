@@ -54,9 +54,10 @@ async function main() {
   const modelId = model.id;
 
   const detail = await api("GET", `/v1/fpa/models/${modelId}`, undefined, token);
+  // Prefer DRAFT working copy — published/default versions may be LOCKED (cells not editable).
   const versionId =
+    detail.json?.data?.versions?.find((v: any) => String(v.status).toUpperCase() === "DRAFT")?.id ||
     detail.json?.data?.defaultVersionId ||
-    detail.json?.data?.versions?.find((v: any) => v.status === "DRAFT")?.id ||
     detail.json?.data?.versions?.[0]?.id;
   const scenarioId =
     detail.json?.data?.defaultScenarioId || detail.json?.data?.scenarios?.[0]?.id;
@@ -64,8 +65,12 @@ async function main() {
 
   const mods = await api("GET", `/v1/fpa/models/${modelId}/modules`, undefined, token);
   const modules = mods.json?.data || [];
+  // Prefer Revenue / Expense modules with editable INPUT line items (not Cash-only).
   let moduleId =
-    modules.find((m: any) => (m.lineItemCount || 0) > 0)?.id || modules[0]?.id || null;
+    modules.find((m: any) => /revenue|expense|workforce/i.test(String(m.name || "")))?.id ||
+    modules.find((m: any) => (m.lineItemCount || 0) > 0)?.id ||
+    modules[0]?.id ||
+    null;
   log("modules", mods.status === 200 && Boolean(moduleId), `moduleId=${moduleId} count=${modules.length}`);
 
   const gridQs = new URLSearchParams({
@@ -73,6 +78,7 @@ async function main() {
     ...(scenarioId ? { scenarioId } : {}),
     ...(moduleId ? { moduleId } : {}),
     grain: "monthly",
+    pageSize: "500",
   });
   const grid = await api("GET", `/v1/fpa/models/${modelId}/grid?${gridQs}`, undefined, token);
   const g = grid.json?.data;
@@ -86,27 +92,36 @@ async function main() {
     const t = String(li.lineItemType || "").toUpperCase();
     return li.isEditable !== false && !["CALC", "CALCULATED", "FX"].includes(t);
   });
+  const editableCell = (g?.cells || []).find(
+    (c: any) =>
+      c.isEditable &&
+      !c.isLocked &&
+      String(c.cellStatus || "").toUpperCase() === "INPUT" &&
+      (!inputLi || c.lineItemId === inputLi.id)
+  );
   const period =
+    (editableCell?.periodDate && String(editableCell.periodDate).slice(0, 10)) ||
     (g?.periods || []).find((p: any) => p.periodRole === "FORECAST")?.periodDate ||
     g?.periods?.[0]?.periodDate;
-  if (inputLi && period && versionId && scenarioId) {
+  const putLineItemId = editableCell?.lineItemId || inputLi?.id;
+  if (putLineItemId && period && versionId && scenarioId) {
     const put = await api(
       "PUT",
       `/v1/fpa/models/${modelId}/grid/cells`,
       {
         versionId,
         scenarioId,
-        updates: [{ lineItemId: inputLi.id, periodDate: period, value: 1234 }],
+        updates: [{ lineItemId: putLineItemId, periodDate: period, value: 1234 }],
       },
       token
     );
     log(
       "put INPUT cell",
       put.status === 200 && (put.json?.data?.updated || 0) >= 0,
-      `status ${put.status} li=${inputLi.code}`
+      `status ${put.status} li=${inputLi?.code || putLineItemId}`
     );
   } else {
-    log("put INPUT cell", true, "skipped (no INPUT line / period)");
+    log("put INPUT cell", true, "skipped (no editable INPUT cell on DRAFT)");
   }
 
   const vs = await api("GET", `/v1/fpa/models/${modelId}/validation-summary`, undefined, token);
