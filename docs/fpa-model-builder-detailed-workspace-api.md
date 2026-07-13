@@ -132,7 +132,7 @@ Writable end-to-end for Detailed workspace **Add Mapping** / **Seed catalog** / 
 
 ```json
 {
-  "sourceSystem": "NetSuite GL",
+  "sourceSystem": "Accounting GL",
   "sourceField": "GL_ACCOUNT.4000",
   "targetLineItemId": "<line item uuid>",
   "status": "MAPPED",
@@ -148,6 +148,7 @@ Writable end-to-end for Detailed workspace **Add Mapping** / **Seed catalog** / 
 - Unique on `(modelId, sourceSystem, sourceField)` → **409** `MAPPING_EXISTS` with `existingId` / `existing` when duplicate
 - Writes audit `MAPPING_CREATE` with human `summary` and `lineItemId`
 - After create, `GET …/data-mappings` includes the row
+- `sourceSystem` is free-text / FE select (Arcus labels preferred; any string accepted)
 
 ### Seed catalog (P0)
 
@@ -155,11 +156,19 @@ Writable end-to-end for Detailed workspace **Add Mapping** / **Seed catalog** / 
 
 ```json
 {
-  "systems": ["NetSuite GL", "Salesforce", "Workday HR", "Plaid (Bank)"],
+  "systems": [
+    "Custom / CSV", "Excel", "API", "Manual",
+    "Procurement", "Fixed Assets", "Stock", "Portfolio",
+    "Accounting GL", "Payroll", "CRM", "Banking", "Loan"
+  ],
   "moduleId": "<optional>",
   "replaceExisting": false
 }
 ```
+
+Default (empty / omitted `systems`) = that Arcus-owned list. **Does not** seed NetSuite / Salesforce / Workday / Plaid / ADP. Legacy SaaS names in the request are ignored (or remapped on refresh to Accounting GL / CRM / Payroll / Banking).
+
+Sample field prefixes: `CSV.*`, `XLS.*`, `API.*`, `MANUAL.*`, `PROC.*`, `FA.*`, `INV.*`, `PF.*`, `GL_ACCOUNT.*`, `PR.*`, `CRM.*`, `BANK.*`, `LOAN.*`.
 
 ```json
 {
@@ -169,7 +178,7 @@ Writable end-to-end for Detailed workspace **Add Mapping** / **Seed catalog** / 
 }
 ```
 
-Demo fields: NetSuite `GL_ACCOUNT.4000…4090` / `6000…6090`, Salesforce `CRM_*`, Workday `HR_*`, Plaid `BANK_*`. Fuzzy-maps to line items when confidence is high.
+Fuzzy-maps to line items when confidence is high.
 
 ### Refresh
 
@@ -177,7 +186,9 @@ Demo fields: NetSuite `GL_ACCOUNT.4000…4090` / `6000…6090`, Salesforce `CRM_
 
 Body optional: `{ "replaceExisting": false }`.
 
-Ensures **NetSuite GL**, creates `GL_ACCOUNT.{accountNo}` from model COA. Does **not** wipe manual `MAPPED` rows when `replaceExisting` is false (default).
+Ensures **Accounting GL** (renames legacy NetSuite GL rows), creates `GL_ACCOUNT.{accountNo}` from model COA. Does **not** wipe manual `MAPPED` rows when `replaceExisting` is false (default).
+
+**Note:** CSV / Excel file ingest endpoints are not shipped yet — `sourceSystem` labels only for now.
 
 ### List
 
@@ -192,7 +203,7 @@ Ensures **NetSuite GL**, creates `GL_ACCOUNT.{accountNo}` from model COA. Does *
       {
         "id": "cm…",
         "sourceField": "GL_ACCOUNT.4000",
-        "sourceSystem": "NetSuite GL",
+        "sourceSystem": "Accounting GL",
         "targetLineItemId": "cm…",
         "targetLineItemName": "Revenue",
         "status": "MAPPED",
@@ -352,8 +363,9 @@ Entries include `lineItemId`, `moduleId`, `entityType`, and human-readable `summ
 - [ ] `validation-checks` returns 11 fixed keys with PASSED/WARNING/ERROR
 - [ ] `exceptions` includes unmapped mappings as HIGH
 - [ ] **Add Mapping** `POST …/data-mappings` → row in list with `MAPPED`
+- [ ] **Seed catalog** default / FE systems list creates Arcus sources only (not NetSuite/Salesforce/Workday/Plaid/ADP)
 - [ ] **Seed catalog** → `summary.total > 0` on draft
-- [ ] **Refresh** after seed does not wipe manual `MAPPED` (`replaceExisting=false`)
+- [ ] **Refresh** uses Accounting GL (not NetSuite); does not wipe manual `MAPPED` (`replaceExisting=false`)
 - [ ] `POST …/seed-cells` on DRAFT with sparse cells fills missing (no 409)
 - [ ] `sensitivity-analysis` returns impacts or explicit `message`
 - [ ] Audit shows human `summary` + `lineItemId` for mapping/cell events

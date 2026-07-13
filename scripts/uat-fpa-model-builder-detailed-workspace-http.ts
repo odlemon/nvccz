@@ -180,7 +180,24 @@ async function main() {
   const seed = await api(
     "POST",
     `/v1/fpa/models/${modelId}/data-mappings/seed-catalog`,
-    { systems: ["NetSuite GL", "Salesforce", "Workday HR", "Plaid (Bank)"], replaceExisting: false },
+    {
+      systems: [
+        "Custom / CSV",
+        "Excel",
+        "API",
+        "Manual",
+        "Procurement",
+        "Fixed Assets",
+        "Stock",
+        "Portfolio",
+        "Accounting GL",
+        "Payroll",
+        "CRM",
+        "Banking",
+        "Loan",
+      ],
+      replaceExisting: false,
+    },
     token
   );
   log(
@@ -205,7 +222,7 @@ async function main() {
       "POST",
       `/v1/fpa/models/${modelId}/data-mappings`,
       {
-        sourceSystem: "NetSuite GL",
+        sourceSystem: "Accounting GL",
         sourceField: `GL_ACCOUNT.UAT_${Date.now().toString(36).slice(-6).toUpperCase()}`,
         targetLineItemId: targetLi.id,
         status: "MAPPED",

@@ -6,17 +6,57 @@ import { FpaAuditService } from "./FpaAuditService";
 
 const MAPPING_STATUSES = new Set(["MAPPED", "UNMAPPED", "SUGGESTED", "TYPE_MISMATCH", "STALE"]);
 
+/** Arcus-owned source systems (FE select). Do not default-seed SaaS connectors. */
+export const DEFAULT_SEED_SYSTEMS = [
+  "Custom / CSV",
+  "Excel",
+  "API",
+  "Manual",
+  "Procurement",
+  "Fixed Assets",
+  "Stock",
+  "Portfolio",
+  "Accounting GL",
+  "Payroll",
+  "CRM",
+  "Banking",
+  "Loan",
+];
+
 const SYSTEM_ALIASES: Record<string, { systemCode: string; name: string }> = {
-  "NETSUITE GL": { systemCode: "NETSUITE_GL", name: "NetSuite GL" },
-  NETSUITE_GL: { systemCode: "NETSUITE_GL", name: "NetSuite GL" },
-  ACCOUNTING: { systemCode: "NETSUITE_GL", name: "NetSuite GL" },
-  SALESFORCE: { systemCode: "SALESFORCE", name: "Salesforce" },
-  "WORKDAY HR": { systemCode: "WORKDAY_HR", name: "Workday HR" },
-  WORKDAY_HR: { systemCode: "WORKDAY_HR", name: "Workday HR" },
-  WORKDAY: { systemCode: "WORKDAY_HR", name: "Workday HR" },
-  "PLAID (BANK)": { systemCode: "PLAID_BANK", name: "Plaid (Bank)" },
-  PLAID_BANK: { systemCode: "PLAID_BANK", name: "Plaid (Bank)" },
-  PLAID: { systemCode: "PLAID_BANK", name: "Plaid (Bank)" },
+  // Arcus labels (current FE)
+  "CUSTOM / CSV": { systemCode: "CUSTOM_CSV", name: "Custom / CSV" },
+  CUSTOM_CSV: { systemCode: "CUSTOM_CSV", name: "Custom / CSV" },
+  CUSTOM: { systemCode: "CUSTOM_CSV", name: "Custom / CSV" },
+  CSV: { systemCode: "CUSTOM_CSV", name: "Custom / CSV" },
+  EXCEL: { systemCode: "EXCEL", name: "Excel" },
+  API: { systemCode: "API", name: "API" },
+  MANUAL: { systemCode: "MANUAL", name: "Manual" },
+  PROCUREMENT: { systemCode: "PROCUREMENT", name: "Procurement" },
+  "FIXED ASSETS": { systemCode: "FIXED_ASSETS", name: "Fixed Assets" },
+  FIXED_ASSETS: { systemCode: "FIXED_ASSETS", name: "Fixed Assets" },
+  STOCK: { systemCode: "STOCK", name: "Stock" },
+  INVENTORY: { systemCode: "STOCK", name: "Stock" },
+  PORTFOLIO: { systemCode: "PORTFOLIO", name: "Portfolio" },
+  "ACCOUNTING GL": { systemCode: "ACCOUNTING_GL", name: "Accounting GL" },
+  ACCOUNTING_GL: { systemCode: "ACCOUNTING_GL", name: "Accounting GL" },
+  ACCOUNTING: { systemCode: "ACCOUNTING_GL", name: "Accounting GL" },
+  PAYROLL: { systemCode: "PAYROLL", name: "Payroll" },
+  CRM: { systemCode: "CRM", name: "CRM" },
+  BANKING: { systemCode: "BANKING", name: "Banking" },
+  LOAN: { systemCode: "LOAN", name: "Loan" },
+  // Legacy SaaS names → map create/read still works; seed will not recreate these by default
+  "NETSUITE GL": { systemCode: "ACCOUNTING_GL", name: "Accounting GL" },
+  NETSUITE_GL: { systemCode: "ACCOUNTING_GL", name: "Accounting GL" },
+  SALESFORCE: { systemCode: "CRM", name: "CRM" },
+  "WORKDAY HR": { systemCode: "PAYROLL", name: "Payroll" },
+  WORKDAY_HR: { systemCode: "PAYROLL", name: "Payroll" },
+  WORKDAY: { systemCode: "PAYROLL", name: "Payroll" },
+  "PLAID (BANK)": { systemCode: "BANKING", name: "Banking" },
+  PLAID_BANK: { systemCode: "BANKING", name: "Banking" },
+  PLAID: { systemCode: "BANKING", name: "Banking" },
+  "ADP PAYROLL": { systemCode: "PAYROLL", name: "Payroll" },
+  ADP: { systemCode: "PAYROLL", name: "Payroll" },
 };
 
 function normalizeSystem(raw: string): { systemCode: string; name: string } {
@@ -28,39 +68,115 @@ function normalizeSystem(raw: string): { systemCode: string; name: string } {
     .replace(/[^A-Z0-9]+/g, "_")
     .replace(/^_|_$/g, "")
     .slice(0, 64);
-  return { systemCode: code || "CUSTOM", name: key || "Custom" };
+  return { systemCode: code || "CUSTOM_CSV", name: key || "Custom / CSV" };
+}
+
+function glAccountRange(from: number, to: number, step = 10): Array<{ fieldKey: string; dataType: string }> {
+  const fields: Array<{ fieldKey: string; dataType: string }> = [];
+  for (let i = from; i <= to; i += step) fields.push({ fieldKey: `GL_ACCOUNT.${i}`, dataType: "CURRENCY" });
+  return fields;
 }
 
 function demoCatalogFields(systemCode: string): Array<{ fieldKey: string; dataType: string }> {
-  if (systemCode === "NETSUITE_GL" || systemCode === "ACCOUNTING") {
-    const fields: Array<{ fieldKey: string; dataType: string }> = [];
-    for (let i = 4000; i <= 4090; i += 10) fields.push({ fieldKey: `GL_ACCOUNT.${i}`, dataType: "CURRENCY" });
-    for (let i = 6000; i <= 6090; i += 10) fields.push({ fieldKey: `GL_ACCOUNT.${i}`, dataType: "CURRENCY" });
-    return fields;
+  switch (systemCode) {
+    case "CUSTOM_CSV":
+      return [
+        { fieldKey: "CSV.REVENUE", dataType: "CURRENCY" },
+        { fieldKey: "CSV.COGS", dataType: "CURRENCY" },
+        { fieldKey: "CSV.OPEX", dataType: "CURRENCY" },
+        { fieldKey: "CSV.HEADCOUNT", dataType: "NUMBER" },
+        { fieldKey: "CSV.UNITS", dataType: "NUMBER" },
+      ];
+    case "EXCEL":
+      return [
+        { fieldKey: "XLS.BUDGET_REVENUE", dataType: "CURRENCY" },
+        { fieldKey: "XLS.BUDGET_OPEX", dataType: "CURRENCY" },
+        { fieldKey: "XLS.FORECAST_UNITS", dataType: "NUMBER" },
+        { fieldKey: "XLS.ASSUMPTION_PRICE", dataType: "CURRENCY" },
+      ];
+    case "API":
+      return [
+        { fieldKey: "API.METRIC.REVENUE", dataType: "CURRENCY" },
+        { fieldKey: "API.METRIC.ARR", dataType: "CURRENCY" },
+        { fieldKey: "API.METRIC.CHURN", dataType: "PERCENT" },
+        { fieldKey: "API.METRIC.ACTIVE_USERS", dataType: "NUMBER" },
+      ];
+    case "MANUAL":
+      return [
+        { fieldKey: "MANUAL.DRIVER.UNITS", dataType: "NUMBER" },
+        { fieldKey: "MANUAL.DRIVER.PRICE", dataType: "CURRENCY" },
+        { fieldKey: "MANUAL.DRIVER.GROWTH_PCT", dataType: "PERCENT" },
+        { fieldKey: "MANUAL.ASSUMPTION.INFLATION", dataType: "PERCENT" },
+      ];
+    case "PROCUREMENT":
+      return [
+        { fieldKey: "PROC.PO_SPEND", dataType: "CURRENCY" },
+        { fieldKey: "PROC.RECEIPTS", dataType: "CURRENCY" },
+        { fieldKey: "PROC.OPEN_COMMITMENTS", dataType: "CURRENCY" },
+        { fieldKey: "PROC.VENDOR_COUNT", dataType: "NUMBER" },
+      ];
+    case "FIXED_ASSETS":
+      return [
+        { fieldKey: "FA.GROSS_BOOK", dataType: "CURRENCY" },
+        { fieldKey: "FA.ACCUM_DEPR", dataType: "CURRENCY" },
+        { fieldKey: "FA.NBV", dataType: "CURRENCY" },
+        { fieldKey: "FA.CAPEX", dataType: "CURRENCY" },
+        { fieldKey: "FA.DEPRECIATION", dataType: "CURRENCY" },
+      ];
+    case "STOCK":
+      return [
+        { fieldKey: "INV.ON_HAND", dataType: "NUMBER" },
+        { fieldKey: "INV.COGS", dataType: "CURRENCY" },
+        { fieldKey: "INV.STOCK_VALUE", dataType: "CURRENCY" },
+        { fieldKey: "INV.WRITE_OFF", dataType: "CURRENCY" },
+      ];
+    case "PORTFOLIO":
+      return [
+        { fieldKey: "PF.AUM", dataType: "CURRENCY" },
+        { fieldKey: "PF.NAV", dataType: "CURRENCY" },
+        { fieldKey: "PF.INVESTED_COST", dataType: "CURRENCY" },
+        { fieldKey: "PF.UNREALIZED_GAIN", dataType: "CURRENCY" },
+        { fieldKey: "PF.DISTRIBUTIONS", dataType: "CURRENCY" },
+      ];
+    case "ACCOUNTING_GL":
+    case "ACCOUNTING":
+    case "NETSUITE_GL":
+      return [...glAccountRange(4000, 4090), ...glAccountRange(6000, 6090)];
+    case "PAYROLL":
+    case "WORKDAY_HR":
+      return [
+        { fieldKey: "PR.HEADCOUNT", dataType: "NUMBER" },
+        { fieldKey: "PR.SALARY", dataType: "CURRENCY" },
+        { fieldKey: "PR.BENEFITS", dataType: "CURRENCY" },
+        { fieldKey: "PR.BONUS", dataType: "CURRENCY" },
+        { fieldKey: "PR.EMPLOYER_TAX", dataType: "CURRENCY" },
+      ];
+    case "CRM":
+    case "SALESFORCE":
+      return [
+        { fieldKey: "CRM.ARR", dataType: "CURRENCY" },
+        { fieldKey: "CRM.BOOKINGS", dataType: "CURRENCY" },
+        { fieldKey: "CRM.PIPELINE", dataType: "CURRENCY" },
+        { fieldKey: "CRM.CHURN", dataType: "PERCENT" },
+      ];
+    case "BANKING":
+    case "PLAID_BANK":
+      return [
+        { fieldKey: "BANK.CASH", dataType: "CURRENCY" },
+        { fieldKey: "BANK.BALANCE", dataType: "CURRENCY" },
+        { fieldKey: "BANK.INFLOW", dataType: "CURRENCY" },
+        { fieldKey: "BANK.OUTFLOW", dataType: "CURRENCY" },
+      ];
+    case "LOAN":
+      return [
+        { fieldKey: "LOAN.PRINCIPAL", dataType: "CURRENCY" },
+        { fieldKey: "LOAN.INTEREST", dataType: "CURRENCY" },
+        { fieldKey: "LOAN.DRAWDOWN", dataType: "CURRENCY" },
+        { fieldKey: "LOAN.REPAYMENT", dataType: "CURRENCY" },
+      ];
+    default:
+      return [];
   }
-  if (systemCode === "SALESFORCE") {
-    return [
-      { fieldKey: "CRM_ARR", dataType: "CURRENCY" },
-      { fieldKey: "CRM_BOOKINGS", dataType: "CURRENCY" },
-      { fieldKey: "CRM_PIPELINE", dataType: "CURRENCY" },
-      { fieldKey: "CRM_CHURN", dataType: "PERCENT" },
-    ];
-  }
-  if (systemCode === "WORKDAY_HR") {
-    return [
-      { fieldKey: "HR_HEADCOUNT", dataType: "NUMBER" },
-      { fieldKey: "HR_SALARY", dataType: "CURRENCY" },
-      { fieldKey: "HR_BENEFITS", dataType: "CURRENCY" },
-    ];
-  }
-  if (systemCode === "PLAID_BANK") {
-    return [
-      { fieldKey: "BANK_CASH", dataType: "CURRENCY" },
-      { fieldKey: "BANK_BALANCE", dataType: "CURRENCY" },
-      { fieldKey: "BANK_INFLOW", dataType: "CURRENCY" },
-    ];
-  }
-  return [];
 }
 
 function fuzzyMatchLineItem(
@@ -80,20 +196,56 @@ function fuzzyMatchLineItem(
     else if (code && token.includes(code)) score = 70;
     else if (name && (name.includes(token) || token.includes(name.slice(0, 6)))) score = 55;
     if (
-      /ARR|BOOKINGS|PIPELINE|REVENUE|SALES/.test(fieldKey.toUpperCase()) &&
+      /ARR|BOOKINGS|PIPELINE|REVENUE|SALES|CRM\./.test(fieldKey.toUpperCase()) &&
       /ARR|BOOKINGS|PIPELINE|REVENUE|SALES/.test(`${li.code} ${li.name}`.toUpperCase())
     ) {
       score = Math.max(score, 75);
     }
     if (
-      /HEADCOUNT|SALARY|PAYROLL|HR_/.test(fieldKey.toUpperCase()) &&
+      /HEADCOUNT|SALARY|PAYROLL|PR\.|HR_/.test(fieldKey.toUpperCase()) &&
       /HEADCOUNT|SALARY|PAYROLL|WAGE|HR/.test(`${li.code} ${li.name}`.toUpperCase())
     ) {
       score = Math.max(score, 75);
     }
     if (
-      /BANK_CASH|BANK_BALANCE|CASH/.test(fieldKey.toUpperCase()) &&
+      /BANK\.|BANK_CASH|BANK_BALANCE|CASH/.test(fieldKey.toUpperCase()) &&
       /CASH|BANK|BALANCE/.test(`${li.code} ${li.name}`.toUpperCase())
+    ) {
+      score = Math.max(score, 75);
+    }
+    if (
+      /PROC\.|PO_SPEND|COMMITMENT/.test(fieldKey.toUpperCase()) &&
+      /PROCURE|PURCHASE|VENDOR|SPEND/.test(`${li.code} ${li.name}`.toUpperCase())
+    ) {
+      score = Math.max(score, 75);
+    }
+    if (
+      /FA\.|DEPR|CAPEX|NBV/.test(fieldKey.toUpperCase()) &&
+      /ASSET|DEPR|CAPEX|PPE/.test(`${li.code} ${li.name}`.toUpperCase())
+    ) {
+      score = Math.max(score, 75);
+    }
+    if (
+      /INV\.|STOCK|COGS/.test(fieldKey.toUpperCase()) &&
+      /INVENTORY|STOCK|COGS/.test(`${li.code} ${li.name}`.toUpperCase())
+    ) {
+      score = Math.max(score, 75);
+    }
+    if (
+      /PF\.|AUM|NAV|PORTFOLIO/.test(fieldKey.toUpperCase()) &&
+      /AUM|NAV|PORTFOLIO|INVEST/.test(`${li.code} ${li.name}`.toUpperCase())
+    ) {
+      score = Math.max(score, 75);
+    }
+    if (
+      /LOAN\.|INTEREST|PRINCIPAL/.test(fieldKey.toUpperCase()) &&
+      /LOAN|INTEREST|DEBT|PRINCIPAL/.test(`${li.code} ${li.name}`.toUpperCase())
+    ) {
+      score = Math.max(score, 75);
+    }
+    if (
+      /MANUAL\.|UNITS|PRICE|GROWTH/.test(fieldKey.toUpperCase()) &&
+      /UNITS|PRICE|GROWTH|DRIVER/.test(`${li.code} ${li.name}`.toUpperCase())
     ) {
       score = Math.max(score, 75);
     }
@@ -136,11 +288,17 @@ export class FpaDataMappingService {
 
   static async ensureDataSource(modelId: string, sourceSystemRaw: string) {
     const { systemCode, name } = normalizeSystem(sourceSystemRaw);
+    const or: any[] = [{ systemCode }, { name }];
+    // Prefer Arcus GL source over legacy NetSuite-named rows
+    if (systemCode === "ACCOUNTING_GL") {
+      or.push({ systemCode: "ACCOUNTING" }, { systemCode: "NETSUITE_GL" }, { name: "NetSuite GL" });
+    }
+    if (systemCode === "CRM") or.push({ systemCode: "SALESFORCE" }, { name: "Salesforce" });
+    if (systemCode === "PAYROLL") or.push({ systemCode: "WORKDAY_HR" }, { name: "Workday HR" }, { systemCode: "ADP" }, { name: "ADP Payroll" });
+    if (systemCode === "BANKING") or.push({ systemCode: "PLAID_BANK" }, { name: "Plaid (Bank)" });
+
     let dataSource = await prisma.planningDataSource.findFirst({
-      where: {
-        modelId,
-        OR: [{ systemCode }, { name }, ...(systemCode === "NETSUITE_GL" ? [{ systemCode: "ACCOUNTING" }] : [])],
-      },
+      where: { modelId, OR: or },
     });
     if (!dataSource) {
       dataSource = await prisma.planningDataSource.create({
@@ -148,7 +306,30 @@ export class FpaDataMappingService {
           modelId,
           systemCode,
           name,
-          connectorConfig: { provider: systemCode, label: name, seeded: true },
+          connectorConfig: { provider: systemCode, label: name, seeded: true, arcusOwned: true },
+        },
+      });
+    } else if (
+      (systemCode === "ACCOUNTING_GL" && ["NETSUITE_GL", "ACCOUNTING"].includes(dataSource.systemCode)) ||
+      (systemCode === "CRM" && dataSource.systemCode === "SALESFORCE") ||
+      (systemCode === "PAYROLL" && ["WORKDAY_HR", "ADP"].includes(dataSource.systemCode)) ||
+      (systemCode === "BANKING" && dataSource.systemCode === "PLAID_BANK")
+    ) {
+      // Soft-rename legacy SaaS connector rows to Arcus labels (idempotent)
+      dataSource = await prisma.planningDataSource.update({
+        where: { id: dataSource.id },
+        data: {
+          systemCode,
+          name,
+          connectorConfig: {
+            ...(typeof dataSource.connectorConfig === "object" && dataSource.connectorConfig
+              ? dataSource.connectorConfig
+              : {}),
+            provider: systemCode,
+            label: name,
+            arcusOwned: true,
+            renamedFrom: dataSource.systemCode,
+          },
         },
       });
     }
@@ -162,15 +343,40 @@ export class FpaDataMappingService {
     const replaceExisting = body.replaceExisting === true || body.replaceExisting === "true";
 
     let dataSource = await prisma.planningDataSource.findFirst({
-      where: { modelId, OR: [{ systemCode: "ACCOUNTING" }, { systemCode: "NETSUITE_GL" }, { name: "NetSuite GL" }] },
+      where: {
+        modelId,
+        OR: [
+          { systemCode: "ACCOUNTING_GL" },
+          { systemCode: "ACCOUNTING" },
+          { systemCode: "NETSUITE_GL" },
+          { name: "Accounting GL" },
+          { name: "NetSuite GL" },
+        ],
+      },
     });
     if (!dataSource) {
       dataSource = await prisma.planningDataSource.create({
         data: {
           modelId,
-          systemCode: "NETSUITE_GL",
-          name: "NetSuite GL",
-          connectorConfig: { provider: "ACCOUNTING", label: "NetSuite GL" },
+          systemCode: "ACCOUNTING_GL",
+          name: "Accounting GL",
+          connectorConfig: { provider: "ACCOUNTING_GL", label: "Accounting GL", arcusOwned: true },
+        },
+      });
+    } else if (["NETSUITE_GL", "ACCOUNTING"].includes(dataSource.systemCode) || dataSource.name === "NetSuite GL") {
+      dataSource = await prisma.planningDataSource.update({
+        where: { id: dataSource.id },
+        data: {
+          systemCode: "ACCOUNTING_GL",
+          name: "Accounting GL",
+          connectorConfig: {
+            ...(typeof dataSource.connectorConfig === "object" && dataSource.connectorConfig
+              ? dataSource.connectorConfig
+              : {}),
+            provider: "ACCOUNTING_GL",
+            label: "Accounting GL",
+            arcusOwned: true,
+          },
         },
       });
     }
@@ -292,7 +498,25 @@ export class FpaDataMappingService {
     const moduleId = body.moduleId ? String(body.moduleId) : null;
     const systemsRaw = Array.isArray(body.systems) && body.systems.length
       ? body.systems.map(String)
-      : ["NetSuite GL", "Salesforce", "Workday HR", "Plaid (Bank)"];
+      : [...DEFAULT_SEED_SYSTEMS];
+
+    // Never seed third-party SaaS connector catalogs as new default systems
+    const BLOCKED_SEED = new Set([
+      "NETSUITE GL",
+      "NETSUITE_GL",
+      "SALESFORCE",
+      "WORKDAY HR",
+      "WORKDAY_HR",
+      "WORKDAY",
+      "PLAID (BANK)",
+      "PLAID_BANK",
+      "PLAID",
+      "ADP PAYROLL",
+      "ADP",
+    ]);
+    const systemsFiltered = systemsRaw.filter((s) => !BLOCKED_SEED.has(String(s).trim().toUpperCase()));
+    // If caller only sent blocked SaaS names, fall back to Arcus defaults
+    const systemsToSeed = systemsFiltered.length ? systemsFiltered : [...DEFAULT_SEED_SYSTEMS];
 
     const lineItems = await prisma.planningLineItem.findMany({
       where: { modelId, ...(moduleId ? { moduleId } : {}) },
@@ -303,7 +527,7 @@ export class FpaDataMappingService {
     let createdMappings = 0;
     const now = new Date();
 
-    for (const sys of systemsRaw) {
+    for (const sys of systemsToSeed) {
       const dataSource = await FpaDataMappingService.ensureDataSource(modelId, sys);
       if (replaceExisting) {
         const fields = await prisma.planningSourceField.findMany({
@@ -389,7 +613,8 @@ export class FpaDataMappingService {
       entityType: "mapping",
       summary: `Seeded connector catalog (${createdFields} fields, ${createdMappings} mappings)`,
       reason: JSON.stringify({
-        systems: systemsRaw,
+        systems: systemsToSeed,
+        blockedSkipped: systemsRaw.length - systemsToSeed.length,
         createdFields,
         createdMappings,
         replaceExisting,
@@ -535,7 +760,13 @@ export class FpaDataMappingService {
         return (
           code.includes(sys) ||
           name.includes(sys) ||
-          (sys === "NETSUITE" && (code === "ACCOUNTING" || code === "NETSUITE_GL" || name.includes("NETSUITE")))
+          (sys === "NETSUITE" &&
+            (code === "ACCOUNTING" ||
+              code === "ACCOUNTING_GL" ||
+              code === "NETSUITE_GL" ||
+              name.includes("NETSUITE") ||
+              name.includes("ACCOUNTING"))) ||
+          (sys === "ACCOUNTING" && (code.includes("ACCOUNTING") || name.includes("ACCOUNTING")))
         );
       });
     }

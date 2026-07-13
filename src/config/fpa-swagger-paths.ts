@@ -239,7 +239,7 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
           type: "object",
           required: ["sourceSystem", "sourceField"],
           properties: {
-            sourceSystem: { type: "string", example: "NetSuite GL" },
+            sourceSystem: { type: "string", example: "Accounting GL" },
             sourceField: { type: "string", example: "GL_ACCOUNT.4000" },
             targetLineItemId: { type: "string" },
             status: {
@@ -254,7 +254,7 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
     }),
   },
   "/v1/fpa/models/{modelId}/data-mappings/seed-catalog": {
-    post: op("Seed demo connector catalog (NetSuite / Salesforce / Workday / Plaid)", {
+    post: op("Seed Arcus-owned source catalog (Custom/CSV, Excel, API, Manual, Procurement, Fixed Assets, Stock, Portfolio, Accounting GL, Payroll, CRM, Banking, Loan)", {
       parameters: [modelId],
       requestBody: jsonRequestBody({
         schema: {
@@ -263,7 +263,21 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
             systems: {
               type: "array",
               items: { type: "string" },
-              example: ["NetSuite GL", "Salesforce", "Workday HR", "Plaid (Bank)"],
+              example: [
+                "Custom / CSV",
+                "Excel",
+                "API",
+                "Manual",
+                "Procurement",
+                "Fixed Assets",
+                "Stock",
+                "Portfolio",
+                "Accounting GL",
+                "Payroll",
+                "CRM",
+                "Banking",
+                "Loan",
+              ],
             },
             moduleId: { type: "string" },
             replaceExisting: { type: "boolean", default: false },
@@ -298,7 +312,7 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
     }),
   },
   "/v1/fpa/models/{modelId}/data-mappings/refresh": {
-    post: op("Refresh mappings from model COA (NetSuite GL / ACCOUNTING); does not wipe manual MAPPED rows", {
+    post: op("Refresh mappings from model COA (Accounting GL); does not wipe manual MAPPED rows", {
       parameters: [modelId],
       requestBody: jsonRequestBody({
         schema: {
