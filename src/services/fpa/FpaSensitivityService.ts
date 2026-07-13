@@ -2,6 +2,7 @@
 import { prisma } from "../../utils/database";
 import { FpaError } from "./FpaError";
 import { FpaFormulaEngine } from "./FpaFormulaEngine";
+import { pickCanonicalCells, periodKey } from "./FpaCellCanonical";
 
 function topoOrder(formulas: Array<{ lineItemId: string; code: string; expression: string }>): string[] {
   const deps: Record<string, string[]> = {};
@@ -32,6 +33,29 @@ function inRange(period: Date, from?: Date | null, to?: Date | null) {
   if (from && t < from.getTime()) return false;
   if (to && t > to.getTime()) return false;
   return true;
+}
+
+/** Collect all formula dependents (transitive) of a driver code. */
+function dependentCodesOf(
+  driverCode: string,
+  formulaRows: Array<{ code: string; expression: string }>
+): Set<string> {
+  const adj: Record<string, string[]> = {};
+  for (const f of formulaRows) {
+    const deps = FpaFormulaEngine.extractLineCodes(f.expression);
+    for (const d of deps) {
+      (adj[d] ||= []).push(f.code);
+    }
+  }
+  const out = new Set<string>();
+  const stack = [...(adj[driverCode] || [])];
+  while (stack.length) {
+    const n = stack.pop();
+    if (!n || out.has(n)) continue;
+    out.add(n);
+    for (const nxt of adj[n] || []) stack.push(nxt);
+  }
+  return out;
 }
 
 export class FpaSensitivityService {
@@ -81,12 +105,14 @@ export class FpaSensitivityService {
       }));
     const formulaByCode = Object.fromEntries(formulaRows.map((f) => [f.code, f]));
     const evalOrder = topoOrder(formulaRows);
+    const liByCode = Object.fromEntries(
+      lineItems.map((l) => [String(l.code || "").toUpperCase(), l])
+    );
 
     if (!targetIds.length) {
       const driverCode = String(driverLi.code || "").toUpperCase();
-      const dependentIds = formulaRows
-        .filter((f) => FpaFormulaEngine.extractLineCodes(f.expression).includes(driverCode))
-        .map((f) => f.lineItemId);
+      const depCodes = dependentCodesOf(driverCode, formulaRows);
+      const dependentIds = [...depCodes].map((c) => liByCode[c]?.id).filter(Boolean);
       const kpiIds = lineItems
         .filter((l) => {
           const code = String(l.code || "").toUpperCase();
@@ -94,25 +120,29 @@ export class FpaSensitivityService {
           return (
             code === "EBITDA" ||
             code.includes("CASH") ||
+            code.includes("GROSS") ||
+            code.includes("REVENUE") ||
             name.includes("CASH") ||
-            name.includes("EBITDA")
+            name.includes("EBITDA") ||
+            name.includes("GROSS")
           );
         })
         .map((l) => l.id);
       targetIds = [...new Set([...kpiIds, ...dependentIds])].filter((id) => id !== driverLineItemId);
     }
 
-    const cells = await prisma.planningCell.findMany({
+    const rawCells = await prisma.planningCell.findMany({
       where: { modelId, versionId, scenarioId },
       include: { lineItem: { select: { id: true, code: true, name: true } } },
       orderBy: { periodDate: "asc" },
     });
+    const cells = pickCanonicalCells(rawCells);
 
     const periodsSet = new Set<string>();
     const byPeriod: Record<string, typeof cells> = {};
     for (const c of cells) {
       if (!inRange(c.periodDate, periodFrom, periodTo)) continue;
-      const key = new Date(c.periodDate).toISOString().slice(0, 10);
+      const key = periodKey(c.periodDate);
       periodsSet.add(key);
       (byPeriod[key] ||= []).push(c);
     }
@@ -134,6 +164,8 @@ export class FpaSensitivityService {
       for (const c of periodCells) {
         const code = c.lineItem?.code ? String(c.lineItem.code).toUpperCase() : null;
         if (!code) continue;
+        // Canonical cells already prefer non-null; still never overwrite valued with null
+        if (lines[code] != null && c.value == null) continue;
         let val = c.value != null ? Number(c.value) : 0;
         if (shockDriver && c.lineItemId === driverLineItemId) {
           val = val * (1 + shockValue / 100);
@@ -168,7 +200,7 @@ export class FpaSensitivityService {
     }
 
     const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0);
-    const impacts = targetIds
+    const allImpacts = targetIds
       .map((id) => {
         const li = lineItems.find((l) => l.id === id);
         if (!li) return null;
@@ -188,18 +220,23 @@ export class FpaSensitivityService {
       })
       .filter(Boolean);
 
-    const seriesTargets = impacts.length ? impacts : [{ lineItemId: driverLineItemId, name: driverLi.name }];
-    const primary = seriesTargets[0];
+    // Do not return fake zero-delta "success" impacts — empty + message instead
+    const impacts = allImpacts.filter((i) => Math.abs(Number(i.deltaTotal || 0)) > 1e-9);
+    const driverHasValues = cells.some((c) => c.lineItemId === driverLineItemId && c.value != null);
+    const shockLabel = `${shockValue >= 0 ? "+" : ""}${shockValue}%`;
+
+    const seriesTargetId = impacts[0]?.lineItemId || driverLineItemId;
+    const seriesTargetName =
+      impacts[0]?.name || driverLi.name;
     const series = {
       periods,
-      baseCase: baseByLi[primary.lineItemId] || [],
-      shocked: shockedByLi[primary.lineItemId] || [],
+      baseCase: baseByLi[seriesTargetId] || [],
+      shocked: shockedByLi[seriesTargetId] || [],
       unit: "USD",
-      lineItemId: primary.lineItemId,
-      lineItemName: primary.name,
+      lineItemId: seriesTargetId,
+      lineItemName: seriesTargetName,
     };
 
-    const shockLabel = `${shockValue >= 0 ? "+" : ""}${shockValue}%`;
     const result: any = {
       driver: {
         lineItemId: driverLi.id,
@@ -215,8 +252,12 @@ export class FpaSensitivityService {
     };
 
     if (!impacts.length) {
-      result.message =
-        "No calculated dependents with values for this driver. Seed cells and formulas first.";
+      result.message = !driverHasValues
+        ? "No calculated dependents with values for this driver. Seed cells and formulas first."
+        : !formulaRows.length
+          ? "No formulas on this model. Seed formulas (e.g. GROSS_REVENUE) before sensitivity."
+          : "Shock did not move any calculated dependents. Check formulas reference this driver and periods have values.";
+      result.series = { periods: [], baseCase: [], shocked: [], unit: "USD" };
     }
 
     return result;

@@ -3,6 +3,7 @@ import { prisma } from "../../utils/database";
 import { FpaError } from "./FpaError";
 import { FpaAccessService } from "./FpaAccessService";
 import { FpaAuditService } from "./FpaAuditService";
+import { cellCoordKey } from "./FpaCellCanonical";
 
 export class FpaVersionService {
   static async listByModel(modelId: string) {
@@ -167,9 +168,29 @@ export class FpaVersionService {
       cursor.setUTCMonth(cursor.getUTCMonth() + 1);
     }
 
+    const existing = await prisma.planningCell.findMany({
+      where: { versionId, scenarioId: String(scenarioId) },
+      select: {
+        lineItemId: true,
+        periodDate: true,
+        entityId: true,
+        departmentId: true,
+        costCentreId: true,
+      },
+    });
+    const existingKeys = new Set(existing.map((c) => cellCoordKey(c)));
+
     const rows = [];
     for (const li of lineItems) {
       for (const periodDate of periods) {
+        const probe = {
+          lineItemId: li.id,
+          periodDate,
+          entityId: null,
+          departmentId: null,
+          costCentreId: null,
+        };
+        if (existingKeys.has(cellCoordKey(probe))) continue;
         rows.push({
           modelId: version.modelId,
           scenarioId: String(scenarioId),
@@ -189,7 +210,7 @@ export class FpaVersionService {
       await prisma.planningCell.createMany({ data: rows, skipDuplicates: true });
     }
     const total = await prisma.planningCell.count({ where: { versionId } });
-    const cellsSeeded = Math.max(0, total - existingCount);
+    const cellsSeeded = rows.length;
     await FpaAuditService.log("VERSION_SEED_CELLS", userId, {
       modelId: version.modelId,
       versionId,

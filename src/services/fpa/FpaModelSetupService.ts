@@ -715,20 +715,22 @@ export class FpaModelSetupService {
       }
     }
 
-    await FpaAuditService.log("MODEL_SEED_MINIMAL_SCOPE_COA", userId, {
-      modelId,
-      entityType: "model",
-      summary: `Seeded minimal scope/COA (scope=${seededScope}, coa=${seededCoa})`,
-      reason: JSON.stringify({
-        summary: `Seeded minimal scope/COA (scope=${seededScope}, coa=${seededCoa})`,
-        seededScope,
-        seededCoa,
-        entityCount: entityIds.length,
-        departmentCount: departmentIds.length,
-        accountCount: accountIds.length,
-      }),
-      ip,
-    });
+    if (seededScope || seededCoa) {
+      await FpaAuditService.log("MODEL_SEED_MINIMAL_SCOPE_COA", userId, {
+        modelId,
+        entityType: "model",
+        summary: `Seeded minimal scope/COA (scope=${seededScope}, coa=${seededCoa}; entities=${entityIds.length}, accounts=${accountIds.length})`,
+        reason: JSON.stringify({
+          summary: `Seeded minimal scope/COA (scope=${seededScope}, coa=${seededCoa}; entities=${entityIds.length}, accounts=${accountIds.length})`,
+          seededScope,
+          seededCoa,
+          entityCount: entityIds.length,
+          departmentCount: departmentIds.length,
+          accountCount: accountIds.length,
+        }),
+        ip,
+      });
+    }
 
     return {
       modelId,
@@ -737,6 +739,7 @@ export class FpaModelSetupService {
       entityIds,
       departmentIds,
       accountIds,
+      alreadyBound: !seededScope && !seededCoa,
     };
   }
 

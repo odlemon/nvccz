@@ -6007,6 +6007,8 @@ model PlanningCell {
   comments        PlanningComment[]
   auditLogs       PlanningAuditLog[]
 
+  /// Unique coord key is MySQL-only: (version_id, scenario_id, line_item_id, period_date, dim_key)
+  /// where dim_key is a STORED generated column — see db:migrate:fpa-cell-canonical.
   @@index([modelId, versionId, scenarioId], map: "planning_cells_mvs_idx")
   @@index([modelId, lineItemId, periodDate], map: "planning_cells_line_period_idx")
   @@index([versionId, isLocked], map: "planning_cells_version_locked_idx")

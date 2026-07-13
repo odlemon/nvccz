@@ -222,9 +222,24 @@ PUT accepts create-shaped fields (partial): `sourceSystem`, `sourceField`, `targ
 ```
 
 - Allowed on **DRAFT** (and any non-LOCKED) versions
-- If some cells already exist, **fills missing** `(lineItem × period)` with `skipDuplicates` — no longer **409** `CELLS_EXIST` by default
-- Legacy skip: `{ "force": true }` without `fillMissing` returns `{ skipped: true }` when cells already exist
+- Inserts **only missing** `(lineItem × period)` coords — never re-inserts duplicates
+- Unique key (DB): `(versionId, scenarioId, lineItemId, periodDate, dimKey)` where `dimKey` = `entity|department|costCentre`
+- Grid / exceptions / sensitivity / trace all use **canonical** cells (prefer non-null value)
 
+---
+
+## 4c. Demo structure seed (Detailed)
+
+`POST /models/{modelId}/seed-defaults` also runs `ensureDemoDetailedStructure`:
+
+| Code | Type | Notes |
+|------|------|--------|
+| `UNITS` | INPUT | Monthly values seeded (e.g. 1200) |
+| `PRICE` | INPUT | Monthly values seeded (e.g. 185) |
+| `GROSS_REVENUE` | CALCULATED | `LINE('UNITS')*LINE('PRICE')` |
+| `NET_REVENUE` | CALCULATED | `LINE('GROSS_REVENUE')` (promotes sparse draft DRIVER) |
+
+After seed: edit INPUT → Test Calc → Trace ≥3 nodes → Sensitivity +5% non-zero.
 ---
 
 ## 5. Sensitivity / impact analysis
@@ -350,5 +365,7 @@ Entries include `lineItemId`, `moduleId`, `entityType`, and human-readable `summ
 **Migrate:**  
 `npm run db:migrate:fpa-detailed-workspace`  
 `npm run db:migrate:fpa-data-mapping-crud`  
+`npm run db:migrate:fpa-cell-canonical`  
 
-**UAT:** `npm run uat:fpa:model-builder-detailed`
+**UAT:** `npm run uat:fpa:model-builder-detailed`  
+**Smoke:** `npm run smoke:fpa:a4-detailed-gaps`

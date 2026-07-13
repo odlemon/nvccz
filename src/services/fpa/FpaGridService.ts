@@ -4,6 +4,7 @@ import { FpaError } from "./FpaError";
 import { FpaAccessService } from "./FpaAccessService";
 import { FpaAuditService } from "./FpaAuditService";
 import { FpaFormulaEngine } from "./FpaFormulaEngine";
+import { pickCanonicalCells, mergeLineValuesByCode, periodKey } from "./FpaCellCanonical";
 
 function userDisplayName(u: any): string | null {
   if (!u) return null;
@@ -228,8 +229,9 @@ export class FpaGridService {
 
     const fyTotals: Record<string, number> = {};
     const monthlyByLi: Record<string, Array<{ period: string; value: number }>> = {};
-    for (const c of allCellsForTotals) {
-      const key = new Date(c.periodDate).toISOString().slice(0, 10);
+    const canonicalTotals = pickCanonicalCells(allCellsForTotals);
+    for (const c of canonicalTotals) {
+      const key = periodKey(c.periodDate);
       const val = c.value != null ? Number(c.value) : null;
       if (val == null) continue;
       (monthlyByLi[c.lineItemId] ||= []).push({ period: key, value: val });
@@ -241,7 +243,8 @@ export class FpaGridService {
       fyTotals[li.id] = summarizeValues(vals, methodByLi[li.id]);
     }
 
-    const enrichedCells = cells.map((c) => {
+    const canonicalPage = pickCanonicalCells(cells);
+    const enrichedCells = canonicalPage.map((c) => {
       const cellStatus = cellStatusOf(c);
       const periodRole = periodRoleFor(c.periodDate, actualCutoff, c.sourceType);
       return {
@@ -373,15 +376,19 @@ export class FpaGridService {
       ? await prisma.planningCell.findUnique({ where: { id: input.cellId || input.id } })
       : null;
     if (!cell && input.lineItemId && input.periodDate && input.versionId && input.scenarioId) {
-      cell = await prisma.planningCell.findFirst({
+      const candidates = await prisma.planningCell.findMany({
         where: {
           versionId: String(input.versionId),
           scenarioId: String(input.scenarioId),
           lineItemId: String(input.lineItemId),
           periodDate: new Date(input.periodDate),
           ...(modelId ? { modelId } : {}),
+          ...(input.departmentId ? { departmentId: String(input.departmentId) } : {}),
         },
+        orderBy: [{ updatedAt: "desc" }],
+        take: 20,
       });
+      cell = pickCanonicalCells(candidates)[0] || null;
     }
 
     // Upsert for empty DRAFT versions: create cell at coordinates then update
@@ -546,10 +553,10 @@ export class FpaGridService {
       },
       include: { lineItem: { select: { id: true, code: true } } },
     });
+    const canonicalPeriod = pickCanonicalCells(periodCells);
     const lines: Record<string, number> = {};
-    for (const c of periodCells) {
-      if (c.lineItem?.code) lines[String(c.lineItem.code).toUpperCase()] = Number(c.value || 0);
-    }
+    const merged = mergeLineValuesByCode(canonicalPeriod, { nullAsZero: true });
+    for (const [k, v] of Object.entries(merged)) lines[k] = v != null ? Number(v) : 0;
     const driversRows = await prisma.planningDriver.findMany({ where: { modelId: cell.modelId }, take: 200 });
     const drivers: Record<string, number> = {};
     for (const d of driversRows) drivers[String(d.code).toUpperCase()] = Number(d.value || 0);
@@ -560,7 +567,7 @@ export class FpaGridService {
       try {
         const value = FpaFormulaEngine.evaluate(f.expression, { lines, drivers });
         const target =
-          periodCells.find((c) => c.lineItemId === f.lineItemId) ||
+          canonicalPeriod.find((c) => c.lineItemId === f.lineItemId) ||
           (await prisma.planningCell.findFirst({
             where: {
               versionId: cell.versionId,
@@ -569,11 +576,17 @@ export class FpaGridService {
               periodDate: cell.periodDate,
               departmentId: cell.departmentId ?? null,
             },
+            orderBy: [{ updatedAt: "desc" }],
           }));
         if (!target || target.isLocked) continue;
-        const nextRv = BigInt(Number(target.recordVersion || 1) + 1);
+        // Prefer valued row if duplicates still exist
+        const valued =
+          target.value != null
+            ? target
+            : canonicalPeriod.find((c) => c.lineItemId === f.lineItemId && c.value != null) || target;
+        const nextRv = BigInt(Number(valued.recordVersion || 1) + 1);
         const updated = await prisma.planningCell.update({
-          where: { id: target.id },
+          where: { id: valued.id },
           data: {
             value,
             valueType: "CALCULATED",
@@ -875,11 +888,12 @@ export class FpaGridService {
     }> = [];
 
     const required = lineItems.filter((li) => li.isEditable !== false);
-    const cellKey = (lineItemId: string, period: Date) =>
-      `${lineItemId}|${new Date(period).toISOString().slice(0, 10)}`;
-    const byKey = new Map(cells.map((c) => [cellKey(c.lineItemId, c.periodDate), c]));
+    const canonical = pickCanonicalCells(cells);
+    const byKey = new Map(
+      canonical.map((c) => [`${c.lineItemId}|${periodKey(c.periodDate)}`, c])
+    );
 
-    const periods = [...new Set(cells.map((c) => new Date(c.periodDate).toISOString().slice(0, 10)))].sort();
+    const periods = [...new Set(canonical.map((c) => periodKey(c.periodDate)))].sort();
     if (!periods.length) {
       issues.push({
         severity: "WARNING",
@@ -923,7 +937,7 @@ export class FpaGridService {
       }
     }
 
-    const lockedEditable = cells.filter((c) => c.isLocked && c.isEditable);
+    const lockedEditable = canonical.filter((c) => c.isLocked && c.isEditable);
     if (lockedEditable.length) {
       issues.push({
         severity: "INFO",
@@ -1159,6 +1173,33 @@ export class FpaGridService {
     else if (cell.value == null && cell.isEditable) validationStatus = "EMPTY";
     else if (cell.isLocked) validationStatus = "LOCKED";
 
+    let formulaUpdatedByName = null;
+    if (cell.formulaId) {
+      const formulaUserId = cell.formula?.createdById || null;
+      if (formulaUserId) {
+        const fu = await prisma.user.findUnique({
+          where: { id: formulaUserId },
+          select: { firstName: true, lastName: true, email: true },
+        });
+        formulaUpdatedByName = userDisplayName(fu);
+      }
+      if (!formulaUpdatedByName) {
+        const audit = await prisma.planningAuditLog.findFirst({
+          where: {
+            modelId,
+            OR: [
+              { actionType: { contains: "FORMULA" } },
+              { entityType: { in: ["formula", "FORMULA"] } },
+            ],
+            lineItemId: cell.lineItemId,
+          },
+          orderBy: { createdAt: "desc" },
+          include: { user: { select: { firstName: true, lastName: true, email: true } } },
+        });
+        formulaUpdatedByName = userDisplayName(audit?.user) || userDisplayName(cell.lastUpdatedBy);
+      }
+    }
+
     return {
       id: cell.id,
       lineItem: cell.lineItem
@@ -1183,7 +1224,7 @@ export class FpaGridService {
       lastUpdatedAt: cell.lastUpdatedAt,
       lastCalculatedAt: cell.lastCalculatedAt || null,
       formulaUpdatedAt: cell.formula?.updatedAt || null,
-      formulaUpdatedByName: null,
+      formulaUpdatedByName,
       validationStatus,
       history,
       comments,
@@ -1231,9 +1272,14 @@ export class FpaGridService {
           include: { lineItem: { select: { id: true, code: true, name: true } } },
         })
       : [];
-    const valueByCode: Record<string, number | null> = {};
-    for (const c of periodCells) {
-      if (c.lineItem?.code) valueByCode[String(c.lineItem.code).toUpperCase()] = c.value != null ? Number(c.value) : null;
+    const canonicalPeriod = pickCanonicalCells(periodCells);
+    const valueByCode = mergeLineValuesByCode(canonicalPeriod);
+
+    // Dependent cell values for same period
+    const depValues: Record<string, number | null> = {};
+    for (const d of dependents) {
+      const hit = canonicalPeriod.find((c) => c.lineItemId === d.lineItemId);
+      depValues[d.lineItemId] = hit?.value != null ? Number(hit.value) : null;
     }
 
     const rootId = `cell:${cellId}`;
@@ -1263,7 +1309,7 @@ export class FpaGridService {
         id: `dep:${d.lineItemId}`,
         label: d.lineName || d.lineCode,
         kind: "DEPENDENT",
-        value: null,
+        value: depValues[d.lineItemId] ?? null,
         expression: d.expression,
       })),
     ];

@@ -280,7 +280,9 @@ export class FpaModelService {
     if (created.length) {
       await FpaAuditService.log("MODEL_SEED_FORMULAS", userId, {
         modelId,
-        reason: `Seeded ${created.length} default formula(s)`,
+        entityType: "formula",
+        summary: `Seeded ${created.length} default formula(s)`,
+        reason: JSON.stringify({ summary: `Seeded ${created.length} default formula(s)` }),
       });
     }
 
@@ -288,6 +290,264 @@ export class FpaModelService {
       modelId,
       formulasCreated: created.length,
       formulas: created,
+    };
+  }
+
+  /**
+   * Idempotent Detailed-demo structure for sparse drafts:
+   * UNITS + PRICE (INPUT with monthly values) → GROSS_REVENUE (CALC) → NET_REVENUE dependent.
+   */
+  static async ensureDemoDetailedStructure(modelId: string, userId: string, ip?: string) {
+    const model = await prisma.planningModel.findUnique({ where: { id: modelId } });
+    if (!model) throw new FpaError(404, "NOT_FOUND", "Planning model not found");
+
+    let module =
+      (await prisma.planningModule.findFirst({
+        where: { modelId, OR: [{ code: "REVENUE" }, { name: { contains: "Revenue" } }] },
+      })) ||
+      (await prisma.planningModule.findFirst({ where: { modelId }, orderBy: { sortOrder: "asc" } }));
+
+    if (!module) {
+      module = await prisma.planningModule.create({
+        data: {
+          modelId,
+          code: "REVENUE",
+          name: "Revenue Planning",
+          sortOrder: 10,
+          calcOrder: 10,
+          status: "DRAFT",
+        },
+      });
+    }
+
+    const wanted = [
+      {
+        code: "UNITS",
+        name: "Units Sold",
+        lineItemType: "INPUT",
+        category: "REVENUE",
+        dataType: "NUMBER",
+        isEditable: true,
+        sortOrder: 5,
+        monthly: 1200,
+      },
+      {
+        code: "PRICE",
+        name: "Average Price",
+        lineItemType: "INPUT",
+        category: "REVENUE",
+        dataType: "CURRENCY",
+        isEditable: true,
+        sortOrder: 6,
+        monthly: 185,
+      },
+      {
+        code: "GROSS_REVENUE",
+        name: "Gross Revenue",
+        lineItemType: "CALCULATED",
+        category: "REVENUE",
+        dataType: "CURRENCY",
+        isEditable: false,
+        sortOrder: 7,
+        expression: "LINE('UNITS')*LINE('PRICE')",
+      },
+      {
+        code: "NET_REVENUE",
+        name: "Net Revenue",
+        lineItemType: "CALCULATED",
+        category: "REVENUE",
+        dataType: "CURRENCY",
+        isEditable: false,
+        sortOrder: 8,
+        expression: "LINE('GROSS_REVENUE')",
+      },
+    ];
+
+    const existing = await prisma.planningLineItem.findMany({ where: { modelId } });
+    const byCode = Object.fromEntries(existing.map((l) => [String(l.code).toUpperCase(), l]));
+    const createdLis = [];
+    for (const w of wanted) {
+      if (byCode[w.code]) continue;
+      const li = await prisma.planningLineItem.create({
+        data: {
+          modelId,
+          moduleId: module.id,
+          code: w.code,
+          name: w.name,
+          lineItemType: w.lineItemType,
+          category: w.category,
+          dataType: w.dataType || "CURRENCY",
+          summaryMethod: "SUM",
+          isEditable: w.isEditable !== false,
+          sortOrder: w.sortOrder,
+        },
+      });
+      byCode[w.code] = li;
+      createdLis.push(li);
+    }
+
+    // Attach orphan INPUT NET_REVENUE-style draft driver to module if present without module
+    for (const li of existing) {
+      if (!li.moduleId && String(li.code).toUpperCase() === "NET_REVENUE") {
+        await prisma.planningLineItem.update({
+          where: { id: li.id },
+          data: { moduleId: module.id },
+        });
+      }
+    }
+
+    const formulasWanted = wanted.filter((w) => w.expression);
+    let formulasCreated = 0;
+    for (const w of formulasWanted) {
+      const li = byCode[w.code];
+      if (!li) continue;
+      const existingF = await prisma.planningFormula.findFirst({ where: { lineItemId: li.id } });
+      if (existingF) {
+        // Upgrade sparse DRIVER NET_REVENUE (no formula / wrong type) when we own GROSS_REVENUE
+        if (
+          String(li.code).toUpperCase() === "NET_REVENUE" &&
+          String(li.lineItemType).toUpperCase() === "DRIVER" &&
+          byCode.GROSS_REVENUE
+        ) {
+          await prisma.planningLineItem.update({
+            where: { id: li.id },
+            data: { lineItemType: "CALCULATED", isEditable: false, moduleId: module.id },
+          });
+          await prisma.planningFormula.update({
+            where: { id: existingF.id },
+            data: { expression: w.expression, isValid: true, validationMsg: null },
+          });
+        }
+        continue;
+      }
+      // If NET_REVENUE already exists as INPUT/DRIVER with no formula — promote
+      if (["INPUT", "DRIVER"].includes(String(li.lineItemType).toUpperCase()) && w.code === "NET_REVENUE") {
+        await prisma.planningLineItem.update({
+          where: { id: li.id },
+          data: { lineItemType: "CALCULATED", isEditable: false, moduleId: module.id },
+        });
+      }
+      await prisma.planningFormula.create({
+        data: {
+          modelId,
+          lineItemId: li.id,
+          expression: w.expression,
+          isValid: true,
+          validationMsg: null,
+          createdById: userId,
+        },
+      });
+      formulasCreated += 1;
+    }
+
+    await FpaModelService.ensureDefaultFormulas(modelId, userId);
+
+    const version =
+      (await prisma.planningVersion.findFirst({
+        where: { modelId, status: "DRAFT" },
+        orderBy: { createdAt: "asc" },
+      })) ||
+      (await prisma.planningVersion.findFirst({
+        where: { modelId, status: { not: "ARCHIVED" } },
+        orderBy: { createdAt: "asc" },
+      }));
+    const scenario =
+      (await prisma.planningScenario.findFirst({
+        where: { modelId, isOfficial: true },
+      })) || (await prisma.planningScenario.findFirst({ where: { modelId } }));
+
+    let cellsSeeded = 0;
+    let cellsValued = 0;
+    if (version && scenario) {
+      const { FpaVersionService } = await import("./FpaVersionService");
+      const seeded = await FpaVersionService.seedCells(
+        version.id,
+        { scenarioId: scenario.id, fillMissing: true },
+        userId,
+        ip
+      );
+      cellsSeeded = seeded.cellsSeeded || 0;
+
+      const periods = monthStarts(new Date(model.startPeriod), new Date(model.endPeriod));
+      for (const w of wanted) {
+        if (w.monthly == null) continue;
+        const li = byCode[w.code];
+        if (!li) continue;
+        for (const periodDate of periods) {
+          const cells = await prisma.planningCell.findMany({
+            where: {
+              versionId: version.id,
+              scenarioId: scenario.id,
+              lineItemId: li.id,
+              periodDate,
+            },
+            orderBy: { updatedAt: "desc" },
+          });
+          const keep = cells.find((c) => c.value != null) || cells[0];
+          if (!keep) continue;
+          if (keep.value == null) {
+            await prisma.planningCell.update({
+              where: { id: keep.id },
+              data: {
+                value: w.monthly,
+                valueType: "INPUT",
+                sourceType: "MANUAL",
+                lastUpdatedById: userId,
+                lastUpdatedAt: new Date(),
+              },
+            });
+            cellsValued += 1;
+          }
+          // Remove null duplicates for this coord
+          for (const c of cells) {
+            if (c.id !== keep.id && c.value == null) {
+              await prisma.planningCell.delete({ where: { id: c.id } }).catch(() => null);
+            }
+          }
+        }
+      }
+
+      // Run calc so GROSS_REVENUE / NET_REVENUE populate (two hops)
+      const { FpaGridService } = await import("./FpaGridService");
+      for (const code of ["UNITS", "PRICE", "GROSS_REVENUE"]) {
+        const li = byCode[code];
+        if (!li) continue;
+        const sample = await prisma.planningCell.findFirst({
+          where: {
+            versionId: version.id,
+            scenarioId: scenario.id,
+            lineItemId: li.id,
+            value: { not: null },
+          },
+        });
+        if (sample) await FpaGridService.recalculateDependents(sample, userId);
+      }
+    }
+
+    await FpaAuditService.log("MODEL_SEED_DEMO_STRUCTURE", userId, {
+      modelId,
+      moduleId: module.id,
+      entityType: "line_item",
+      summary: `Seeded Detailed demo structure (LIs=${createdLis.length}, formulas=${formulasCreated}, valued=${cellsValued})`,
+      reason: JSON.stringify({
+        summary: `Seeded Detailed demo structure (LIs=${createdLis.length}, formulas=${formulasCreated}, valued=${cellsValued})`,
+        lineItemsCreated: createdLis.map((l) => l.code),
+        formulasCreated,
+        cellsSeeded,
+        cellsValued,
+      }),
+      ip,
+    });
+
+    return {
+      modelId,
+      moduleId: module.id,
+      lineItemsCreated: createdLis.length,
+      formulasCreated,
+      cellsSeeded,
+      cellsValued,
+      versionId: version?.id || null,
+      scenarioId: scenario?.id || null,
     };
   }
 

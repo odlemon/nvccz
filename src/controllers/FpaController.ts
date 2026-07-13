@@ -114,7 +114,8 @@ export class FpaController {
         userId,
         ip
       );
-      res.json({ success: true, data: { formulas, scopeCoa } });
+      const demo = await FpaModelService.ensureDemoDetailedStructure(req.params.modelId, userId, ip);
+      res.json({ success: true, data: { formulas, scopeCoa, demo } });
     } catch (e) {
       handleError(res, e);
     }

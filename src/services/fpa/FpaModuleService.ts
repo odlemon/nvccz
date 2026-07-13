@@ -623,18 +623,40 @@ export class FpaModuleService {
             },
           ];
 
+    const filteredEdges = focusModuleId
+      ? edges.filter((e) => {
+          const s = byId[e.sourceLineItemId];
+          const t = byId[e.targetLineItemId];
+          return s?.moduleId === focusModuleId || t?.moduleId === focusModuleId;
+        })
+      : edges;
+
+    const nodeIds = new Set<string>();
+    for (const m of finalModules) {
+      for (const li of m.lineItems || []) nodeIds.add(li.id);
+    }
+    for (const e of filteredEdges) {
+      nodeIds.add(e.sourceLineItemId);
+      nodeIds.add(e.targetLineItemId);
+    }
+    const nodes = [...nodeIds]
+      .map((id) => byId[id])
+      .filter(Boolean)
+      .map((li) => ({
+        id: li.id,
+        code: li.code,
+        name: li.name,
+        moduleId: li.moduleId || null,
+        kind: liKind(li),
+      }));
+
     return {
       circular: !!circular.circular,
       circularPath: circular.circular ? circular.path || [] : [],
       view: lineItemView ? "line-item" : "module",
       modules: finalModules,
-      edges: focusModuleId
-        ? edges.filter((e) => {
-            const s = byId[e.sourceLineItemId];
-            const t = byId[e.targetLineItemId];
-            return s?.moduleId === focusModuleId || t?.moduleId === focusModuleId;
-          })
-        : edges,
+      nodes,
+      edges: filteredEdges,
     };
   }
 
@@ -869,13 +891,21 @@ export class FpaModuleService {
 
   static async validationSummary(modelId: string, user: any) {
     FpaModuleService.assertBuilder(user);
+    // Align donut counts with the fixed validation-checks catalog (not raw issue counts)
+    const checksPayload = await FpaModuleService.validationChecks(modelId, user);
     const full = await FpaModuleService.enrichedValidate(modelId);
     return {
-      ...full.summary,
+      total: checksPayload.summary.total,
+      passed: checksPayload.summary.passed,
+      warnings: checksPayload.summary.warnings,
+      errors: checksPayload.summary.errors,
+      infos: full.summary?.infos ?? 0,
+      checksPassed: checksPayload.passed,
       circularCheck: full.circularCheck,
       circular: full.circular,
       circularPath: full.circularPath,
-      passed: full.passed,
+      passed: checksPayload.passed,
+      issuesSummary: full.summary,
     };
   }
 
