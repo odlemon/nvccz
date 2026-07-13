@@ -233,6 +233,20 @@ export class FpaController {
     }
   }
 
+  static async importDataMappings(req: Request, res: Response) {
+    try {
+      const data = await FpaDataMappingService.importFile(
+        req.params.modelId,
+        (req as any).file || null,
+        { ...(req.body || {}) },
+        userOf(req)
+      );
+      res.status(201).json({ success: true, data, message: "Import completed" });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
   static async sensitivityAnalysis(req: Request, res: Response) {
     try {
       const data = await FpaSensitivityService.run(req.params.modelId, req.body || {}, userOf(req));

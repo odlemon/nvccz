@@ -17,7 +17,7 @@ Related: [fpa-model-builder-api.md](./fpa-model-builder-api.md) · [fpa-model-bu
 | Validation checklist / donut | `GET /models/:modelId/validation-checks` (draft scope/COA = WARNING) |
 | Seed defaults + minimal scope/COA | `POST /models/:modelId/seed-defaults` |
 | Exceptions panel | `GET /models/:modelId/exceptions` |
-| Data mapping board | `GET/POST/PUT/DELETE …/data-mappings`, `POST …/seed-catalog`, `POST …/refresh` |
+| Data mapping board | `GET/POST/PUT/DELETE …/data-mappings`, `POST …/seed-catalog`, `POST …/refresh`, `POST …/import` (multipart CSV/Excel) |
 | Seed / materialize draft cells | `POST /versions/:id/seed-cells` (fills missing; no 409 on partial grids) |
 | Nested versions / scenarios | `GET /models/:id/versions`, `GET /models/:id/scenarios` |
 | What-if impact | `POST /models/:modelId/sensitivity-analysis` |
@@ -365,6 +365,7 @@ Entries include `lineItemId`, `moduleId`, `entityType`, and human-readable `summ
 - [ ] **Add Mapping** `POST …/data-mappings` → row in list with `MAPPED`
 - [ ] **Seed catalog** default / FE systems list creates Arcus sources only (not NetSuite/Salesforce/Workday/Plaid/ADP)
 - [ ] **Seed catalog** → `summary.total > 0` on draft
+- [ ] **Import CSV/Excel** `POST …/data-mappings/import` → 201 with `createdFields` / `rowsImported`
 - [ ] **Refresh** uses Accounting GL (not NetSuite); does not wipe manual `MAPPED` (`replaceExisting=false`)
 - [ ] `POST …/seed-cells` on DRAFT with sparse cells fills missing (no 409)
 - [ ] `sensitivity-analysis` returns impacts or explicit `message`

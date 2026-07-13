@@ -206,6 +206,26 @@ async function main() {
     `status ${seed.status} total=${seed.json?.data?.summary?.total} createdFields=${seed.json?.data?.createdFields}`
   );
 
+  const csvBody =
+    "sourceField,code,notes\nCSV.UAT_REVENUE,REVENUE,uat import\nCSV.UAT_COGS,COGS,uat import\n";
+  const form = new FormData();
+  form.append("file", new Blob([csvBody], { type: "text/csv" }), "uat-mappings.csv");
+  form.append("sourceSystem", "Custom / CSV");
+  const impRes = await fetch(`${BASE}/v1/fpa/models/${modelId}/data-mappings/import`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const impJson = await impRes.json().catch(() => ({}));
+  log(
+    "data-mappings import",
+    impRes.status === 201 &&
+      ((impJson?.data?.createdFields ?? 0) > 0 ||
+        (impJson?.data?.createdMappings ?? 0) > 0 ||
+        (impJson?.data?.rowsImported ?? 0) > 0),
+    `status ${impRes.status} fields=${impJson?.data?.createdFields} rows=${impJson?.data?.rowsImported}`
+  );
+
   const maps = await api("GET", `/v1/fpa/models/${modelId}/data-mappings?limit=200`, undefined, token);
   log(
     "data-mappings list",

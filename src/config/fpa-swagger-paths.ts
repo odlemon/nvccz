@@ -286,6 +286,31 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
       }),
     }),
   },
+  "/v1/fpa/models/{modelId}/data-mappings/import": {
+    post: op("Import CSV/Excel source fields into data mappings (multipart)", {
+      parameters: [modelId],
+      requestBody: {
+        required: true,
+        content: {
+          "multipart/form-data": {
+            schema: {
+              type: "object",
+              required: ["file", "sourceSystem"],
+              properties: {
+                file: { type: "string", format: "binary", description: ".csv / .xlsx / .xls" },
+                sourceSystem: {
+                  type: "string",
+                  enum: ["Custom / CSV", "Excel"],
+                  example: "Custom / CSV",
+                },
+                moduleId: { type: "string" },
+              },
+            },
+          },
+        },
+      },
+    }),
+  },
   "/v1/fpa/models/{modelId}/data-mappings/{mappingId}": {
     put: op("Update a data mapping (target line item / status / notes)", {
       parameters: [modelId, pathParam("mappingId", "cuid")],

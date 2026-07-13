@@ -1,4 +1,5 @@
 // @ts-nocheck
+import XLSX from "xlsx";
 import { prisma } from "../../utils/database";
 import { FpaError } from "./FpaError";
 import { FpaAccessService } from "./FpaAccessService";
@@ -273,6 +274,131 @@ function toEntry(r: any) {
     mappedAt: r.mappedAt,
     lastSyncedAt: r.lastSyncedAt,
   };
+}
+
+function normalizeHeaderKey(h: string): string {
+  return String(h || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function sanitizeFieldKey(raw: string): string {
+  return String(raw || "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^\w.\-:/]/g, "")
+    .slice(0, 191);
+}
+
+function withSystemPrefix(fieldKey: string, systemCode: string): string {
+  const key = sanitizeFieldKey(fieldKey);
+  if (!key) return "";
+  if (key.includes(".")) return key;
+  if (systemCode === "EXCEL") return `XLS.${key}`;
+  if (systemCode === "CUSTOM_CSV") return `CSV.${key}`;
+  return key;
+}
+
+function pickCol(row: Record<string, any>, aliases: string[]): string | null {
+  const map: Record<string, string> = {};
+  for (const k of Object.keys(row || {})) map[normalizeHeaderKey(k)] = k;
+  for (const a of aliases) {
+    const real = map[a];
+    if (real != null && String(row[real]).trim() !== "") return String(row[real]).trim();
+  }
+  return null;
+}
+
+function parseTabularBuffer(buffer: Buffer, filename: string): Record<string, any>[] {
+  let wb;
+  try {
+    wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  } catch (e: any) {
+    throw new FpaError(400, "VALIDATION", `Could not parse file (${filename}): ${e?.message || "invalid"}`);
+  }
+  if (!wb?.SheetNames?.length) throw new FpaError(400, "VALIDATION", "File has no worksheets");
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false }) as Record<string, any>[];
+  if (!rows.length) {
+    const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false }) as any[][];
+    if (!matrix.length) throw new FpaError(400, "VALIDATION", "File is empty");
+    const headers = (matrix[0] || []).map((h) => String(h || "").trim()).filter(Boolean);
+    if (!headers.length) throw new FpaError(400, "VALIDATION", "File has no header row");
+    // Header-only file → synthesize one empty data row so headers become fields
+    const empty: Record<string, any> = {};
+    for (const h of headers) empty[h] = "";
+    return [empty];
+  }
+  return rows;
+}
+
+type ImportFieldSpec = {
+  fieldKey: string;
+  targetHint?: string | null;
+  notes?: string | null;
+  status?: string | null;
+};
+
+function extractImportSpecs(
+  rows: Record<string, any>[],
+  systemCode: string
+): { specs: ImportFieldSpec[]; mode: "mapping_table" | "headers" } {
+  const sample = rows[0] || {};
+  const headers = Object.keys(sample);
+  const normalized = headers.map(normalizeHeaderKey);
+  const hasFieldCol = normalized.some((h) =>
+    ["sourcefield", "fieldkey", "field", "source", "column", "sourcename", "sourcecolumn"].includes(h)
+  );
+  if (hasFieldCol) {
+    const specs: ImportFieldSpec[] = [];
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const rawField = pickCol(row, [
+        "sourcefield",
+        "fieldkey",
+        "field",
+        "source",
+        "column",
+        "sourcename",
+        "sourcecolumn",
+      ]);
+      if (!rawField) continue;
+      const fieldKey = withSystemPrefix(rawField, systemCode);
+      if (!fieldKey || seen.has(fieldKey)) continue;
+      seen.add(fieldKey);
+      const targetHint =
+        pickCol(row, [
+          "targetlineitemcode",
+          "lineitemcode",
+          "licode",
+          "targetcode",
+          "code",
+          "targetlineitemname",
+          "lineitemname",
+          "targetname",
+          "lineitem",
+          "name",
+        ]) || null;
+      const notes = pickCol(row, ["notes", "note", "comment"]) || null;
+      const status = pickCol(row, ["status", "mappingstatus"]) || null;
+      specs.push({ fieldKey, targetHint, notes, status });
+    }
+    if (!specs.length) throw new FpaError(400, "VALIDATION", "No sourceField values found in file");
+    return { specs, mode: "mapping_table" };
+  }
+
+  // Header-as-fields: each column header becomes a source field
+  const specs: ImportFieldSpec[] = [];
+  const seen = new Set<string>();
+  for (const h of headers) {
+    const fieldKey = withSystemPrefix(h, systemCode);
+    if (!fieldKey || seen.has(fieldKey)) continue;
+    seen.add(fieldKey);
+    specs.push({ fieldKey });
+  }
+  if (!specs.length) throw new FpaError(400, "VALIDATION", "No column headers found to import as fields");
+  return { specs, mode: "headers" };
 }
 
 export class FpaDataMappingService {
@@ -928,5 +1054,159 @@ export class FpaDataMappingService {
     });
 
     return { id: mappingId, deleted: true };
+  }
+
+  /**
+   * Multipart CSV/Excel ingest → source fields + optional fuzzy mappings.
+   * FE: Detailed → Import CSV / Excel → POST …/data-mappings/import
+   */
+  static async importFile(
+    modelId: string,
+    file: { buffer?: Buffer; originalname?: string; mimetype?: string; size?: number } | null,
+    body: any,
+    user: any
+  ) {
+    FpaDataMappingService.assertBuilder(user);
+    await FpaDataMappingService.assertModel(modelId);
+    if (!file?.buffer?.length) {
+      throw new FpaError(400, "VALIDATION", "file is required (multipart field: file)");
+    }
+    const filename = String(file.originalname || "upload").trim();
+    const lower = filename.toLowerCase();
+    if (!/\.(csv|xlsx|xls)$/.test(lower) && !String(file.mimetype || "").match(/csv|sheet|excel/i)) {
+      throw new FpaError(400, "VALIDATION", "file must be .csv, .xlsx, or .xls");
+    }
+
+    const sourceSystemRaw =
+      body?.sourceSystem != null ? String(body.sourceSystem).trim() : lower.endsWith(".csv") ? "Custom / CSV" : "Excel";
+    if (!sourceSystemRaw) throw new FpaError(400, "VALIDATION", "sourceSystem is required");
+    const moduleId = body?.moduleId != null && String(body.moduleId).trim() ? String(body.moduleId).trim() : null;
+    const { systemCode, name: systemName } = normalizeSystem(sourceSystemRaw);
+
+    const rows = parseTabularBuffer(Buffer.from(file.buffer), filename);
+    const { specs, mode } = extractImportSpecs(rows, systemCode);
+    const dataSource = await FpaDataMappingService.ensureDataSource(modelId, sourceSystemRaw);
+
+    const lineItems = await prisma.planningLineItem.findMany({
+      where: { modelId, ...(moduleId ? { moduleId } : {}) },
+      select: { id: true, code: true, name: true, moduleId: true },
+    });
+
+    let createdFields = 0;
+    let createdMappings = 0;
+    let updatedMappings = 0;
+    const now = new Date();
+    const userId = user?.id || null;
+
+    for (const spec of specs) {
+      let field = await prisma.planningSourceField.findFirst({
+        where: { dataSourceId: dataSource.id, fieldKey: spec.fieldKey },
+      });
+      if (!field) {
+        field = await prisma.planningSourceField.create({
+          data: {
+            dataSourceId: dataSource.id,
+            fieldKey: spec.fieldKey,
+            dataType: "CURRENCY",
+          },
+        });
+        createdFields += 1;
+      }
+
+      let match = null as null | { id: string; moduleId: string | null };
+      if (spec.targetHint) {
+        const hint = String(spec.targetHint).trim().toUpperCase();
+        const exact = lineItems.find(
+          (li) => String(li.code || "").toUpperCase() === hint || String(li.name || "").toUpperCase() === hint
+        );
+        match = exact || fuzzyMatchLineItem(spec.targetHint, lineItems) || fuzzyMatchLineItem(spec.fieldKey, lineItems);
+      } else {
+        match = fuzzyMatchLineItem(spec.fieldKey, lineItems);
+      }
+
+      let status = spec.status ? String(spec.status).toUpperCase() : null;
+      if (status && !MAPPING_STATUSES.has(status)) status = null;
+      if (!status) status = match ? "SUGGESTED" : "UNMAPPED";
+      if (match && status === "UNMAPPED") status = "SUGGESTED";
+
+      const existing = await prisma.planningLineItemMapping.findFirst({
+        where: { modelId, sourceFieldId: field.id },
+      });
+      if (existing) {
+        const canUpgrade =
+          !existing.lineItemId &&
+          match &&
+          ["UNMAPPED", "SUGGESTED"].includes(String(existing.status || "").toUpperCase());
+        if (canUpgrade) {
+          await prisma.planningLineItemMapping.update({
+            where: { id: existing.id },
+            data: {
+              lineItemId: match.id,
+              moduleId: match.moduleId || moduleId,
+              status,
+              notes: spec.notes ?? existing.notes,
+              mappedAt: status === "MAPPED" ? now : existing.mappedAt,
+              mappedById: status === "MAPPED" ? userId : existing.mappedById,
+              lastSyncedAt: now,
+            },
+          });
+          updatedMappings += 1;
+        } else {
+          await prisma.planningLineItemMapping.update({
+            where: { id: existing.id },
+            data: { lastSyncedAt: now, ...(spec.notes != null ? { notes: spec.notes } : {}) },
+          });
+        }
+        continue;
+      }
+
+      await prisma.planningLineItemMapping.create({
+        data: {
+          modelId,
+          sourceFieldId: field.id,
+          lineItemId: match?.id || null,
+          moduleId: match?.moduleId || moduleId,
+          status,
+          notes: spec.notes || `Imported from ${filename}`,
+          mappedAt: match && status === "MAPPED" ? now : null,
+          mappedById: match && status === "MAPPED" ? userId : null,
+          lastSyncedAt: now,
+        },
+      });
+      createdMappings += 1;
+    }
+
+    const list = await FpaDataMappingService.list(modelId, moduleId ? { moduleId } : {});
+    await FpaAuditService.log("DATA_MAPPING_IMPORT", userId, {
+      modelId,
+      moduleId,
+      entityType: "mapping",
+      summary: `Imported ${filename} → ${createdFields} fields, ${createdMappings} mappings (${systemName})`,
+      reason: JSON.stringify({
+        summary: `Imported ${filename} → ${createdFields} fields, ${createdMappings} mappings (${systemName})`,
+        filename,
+        sourceSystem: systemName,
+        systemCode,
+        mode,
+        rowsImported: rows.length,
+        specs: specs.length,
+        createdFields,
+        createdMappings,
+        updatedMappings,
+        summaryPct: list.summary,
+      }),
+    });
+
+    return {
+      createdFields,
+      createdMappings,
+      updatedMappings,
+      rowsImported: rows.length,
+      fieldsImported: specs.length,
+      mode,
+      sourceSystem: systemName,
+      filename,
+      summary: list.summary,
+    };
   }
 }

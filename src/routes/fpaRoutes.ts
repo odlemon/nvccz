@@ -44,6 +44,11 @@ router.get("/models/:modelId/data-mappings", FpaController.listDataMappings);
 router.post("/models/:modelId/data-mappings", FpaController.createDataMapping);
 router.post("/models/:modelId/data-mappings/seed-catalog", FpaController.seedDataMappingCatalog);
 router.post("/models/:modelId/data-mappings/refresh", FpaController.refreshDataMappings);
+router.post(
+  "/models/:modelId/data-mappings/import",
+  uploadAttachment.single("file"),
+  FpaController.importDataMappings
+);
 router.put("/models/:modelId/data-mappings/:mappingId", FpaController.updateDataMapping);
 router.delete("/models/:modelId/data-mappings/:mappingId", FpaController.deleteDataMapping);
 router.post("/models/:modelId/sensitivity-analysis", FpaController.sensitivityAnalysis);

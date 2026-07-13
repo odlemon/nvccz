@@ -660,7 +660,7 @@ export class FpaModelService {
   }
 
   static async update(modelId: string, input: any, userId: string, ip?: string) {
-    await FpaModelService.get(modelId);
+    const before = await FpaModelService.get(modelId);
     const { FpaModelSetupService } = await import("./FpaModelSetupService");
     const data: any = { updatedById: userId };
     if (input.name != null) data.name = String(input.name);
@@ -671,6 +671,18 @@ export class FpaModelService {
     if (input.startPeriod != null) data.startPeriod = new Date(input.startPeriod);
     if (input.endPeriod != null) data.endPeriod = new Date(input.endPeriod);
     if (input.timeGranularity != null) data.timeGranularity = String(input.timeGranularity);
+
+    const periodTouched =
+      input.startPeriod != null || input.endPeriod != null || input.timeGranularity != null;
+    const statusUpper = String(before.status || "").toUpperCase();
+    if (periodTouched && ["PUBLISHED", "ARCHIVED"].includes(statusUpper)) {
+      throw new FpaError(
+        409,
+        "MODEL_LOCKED",
+        "Cannot change calendar periods on a published/archived model"
+      );
+    }
+
     await prisma.planningModel.update({ where: { id: modelId }, data });
 
     // Scope + COA must round-trip on GET when sent on PUT (FE single-setup form).
@@ -694,6 +706,36 @@ export class FpaModelService {
         userId,
         ip
       );
+    }
+
+    // Extend draft version cells when calendar range grows (GET grid periods follow model dates).
+    if (periodTouched) {
+      try {
+        const { FpaVersionService } = await import("./FpaVersionService");
+        const drafts = await prisma.planningVersion.findMany({
+          where: { modelId, status: { in: ["DRAFT", "IN_REVIEW"] } },
+          select: { id: true },
+        });
+        const scenarios = await prisma.planningScenario.findMany({
+          where: { modelId },
+          select: { id: true, isOfficial: true },
+          orderBy: { createdAt: "asc" },
+        });
+        const scenarioId =
+          scenarios.find((s) => s.isOfficial)?.id || scenarios[0]?.id || null;
+        if (scenarioId) {
+          for (const v of drafts) {
+            await FpaVersionService.seedCells(
+              v.id,
+              { fillMissing: true, scenarioId },
+              userId,
+              ip
+            );
+          }
+        }
+      } catch (e) {
+        console.warn("[FPA] period extend seedCells skipped:", (e as any)?.message || e);
+      }
     }
 
     await FpaAuditService.log("MODEL_UPDATE", userId, { modelId, ip });
