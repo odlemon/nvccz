@@ -14,7 +14,8 @@ Related: [fpa-model-builder-api.md](./fpa-model-builder-api.md) · [fpa-model-bu
 | Capability | Endpoint |
 |------------|----------|
 | Module-scoped grid + grain + FY totals | `GET /models/:modelId/grid?moduleId=&grain=` |
-| Validation checklist / donut | `GET /models/:modelId/validation-checks` |
+| Validation checklist / donut | `GET /models/:modelId/validation-checks` (draft scope/COA = WARNING) |
+| Seed defaults + minimal scope/COA | `POST /models/:modelId/seed-defaults` |
 | Exceptions panel | `GET /models/:modelId/exceptions` |
 | Data mapping board | `GET/POST/PUT/DELETE …/data-mappings`, `POST …/seed-catalog`, `POST …/refresh` |
 | Seed / materialize draft cells | `POST /versions/:id/seed-cells` (fills missing; no 409 on partial grids) |
@@ -270,6 +271,40 @@ Default targets: `EBITDA` / `CASH` KPIs **plus** formula dependents of the drive
 `GET /models/{modelId}/scenarios` — same payload as `GET /scenarios?modelId=`
 
 Model detail still embeds versions/scenarios; these routes are for REST consistency.
+
+---
+
+## 5c. Soft scope / COA for Detailed drafts
+
+Draft / non-published models missing entities or COA no longer fail Detailed health as **ERROR**:
+
+| Surface | Behavior |
+|---------|----------|
+| `GET …/validation-checks` | `scope` / `coa` → **WARNING** while drafting; still **ERROR** if model is PUBLISHED |
+| `POST …/validate` / exceptions | `MISSING_SCOPE` / `MISSING_COA` → severity **WARNING**, `blocksPublish: true` |
+| Publish (`POST …/publish` or version publish) | Still **409** `PUBLISH_BLOCKED` until scope + COA are bound |
+
+Optional bootstrap (idempotent):
+
+`POST /models/{modelId}/seed-defaults`
+
+Also seeds minimal scope (default forecast entity + departments) and up to ~40 COA accounts when empty, plus default GP/EBITDA formulas.
+
+```json
+{
+  "formulas": { … },
+  "scopeCoa": {
+    "seededScope": true,
+    "seededCoa": true,
+    "entityIds": ["…"],
+    "departmentIds": ["…"],
+    "accountIds": ["…"]
+  }
+}
+```
+
+---
+
 ## 6. Cell detail / trace
 
 **Detail** adds: `lastCalculatedAt`, `formulaUpdatedAt`, `formulaUpdatedByName` (null if unavailable), `validationStatus`.
@@ -307,6 +342,8 @@ Entries include `lineItemId`, `moduleId`, `entityType`, and human-readable `summ
 - [ ] `POST …/seed-cells` on DRAFT with sparse cells fills missing (no 409)
 - [ ] `sensitivity-analysis` returns impacts or explicit `message`
 - [ ] Audit shows human `summary` + `lineItemId` for mapping/cell events
+- [ ] Draft missing scope/COA → validation-checks `WARNING` (not ERROR); publish still blocked until bound
+- [ ] `POST …/seed-defaults` seeds minimal scope/COA when empty (idempotent)
 - [ ] `GET …/versions` and `GET …/scenarios` return 200
 - [ ] Cell trace includes `root` / `nodes` / `edges`
 

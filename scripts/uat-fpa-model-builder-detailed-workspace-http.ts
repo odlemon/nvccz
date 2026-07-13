@@ -134,6 +134,26 @@ async function main() {
     vc.status === 200 && checks.length >= 10,
     `status ${vc.status} checks=${checks.length}`
   );
+  const scopeCheck = checks.find((c: any) => c.key === "scope");
+  const coaCheck = checks.find((c: any) => c.key === "coa");
+  const softOk =
+    !scopeCheck ||
+    scopeCheck.status === "PASSED" ||
+    scopeCheck.status === "WARNING";
+  const softCoaOk =
+    !coaCheck || coaCheck.status === "PASSED" || coaCheck.status === "WARNING";
+  log(
+    "soft scope/coa",
+    softOk && softCoaOk && scopeCheck?.status !== "ERROR" && coaCheck?.status !== "ERROR",
+    `scope=${scopeCheck?.status} coa=${coaCheck?.status}`
+  );
+
+  const seedDefaults = await api("POST", `/v1/fpa/models/${modelId}/seed-defaults`, {}, token);
+  log(
+    "seed-defaults scope/coa",
+    seedDefaults.status === 200,
+    `status ${seedDefaults.status} seededScope=${seedDefaults.json?.data?.scopeCoa?.seededScope} seededCoa=${seedDefaults.json?.data?.scopeCoa?.seededCoa}`
+  );
 
   const audit = await api("GET", `/v1/fpa/models/${modelId}/audit?format=fe&limit=10`, undefined, token);
   log(

@@ -106,8 +106,15 @@ export class FpaController {
 
   static async seedModelDefaults(req: Request, res: Response) {
     try {
-      const data = await FpaModelService.ensureDefaultFormulas(req.params.modelId, userOf(req).id);
-      res.json({ success: true, data });
+      const userId = userOf(req).id;
+      const ip = ipOf(req);
+      const formulas = await FpaModelService.ensureDefaultFormulas(req.params.modelId, userId);
+      const scopeCoa = await FpaModelSetupService.ensureMinimalScopeAndCoa(
+        req.params.modelId,
+        userId,
+        ip
+      );
+      res.json({ success: true, data: { formulas, scopeCoa } });
     } catch (e) {
       handleError(res, e);
     }

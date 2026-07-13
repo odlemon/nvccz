@@ -671,6 +671,28 @@ export class FpaModuleService {
       blocksPublish: true,
     }));
 
+    // Soft-validate for Detailed editing: missing scope/COA do not fail draft health,
+    // but still block publish via blocksPublish + SETUP_BLOCK.
+    const modelMeta = await prisma.planningModel.findUnique({
+      where: { id: modelId },
+      select: { status: true },
+    });
+    const status = String(modelMeta?.status || "").toUpperCase();
+    const softSetup = status !== "PUBLISHED" && status !== "LOCKED";
+    if (softSetup) {
+      for (const i of issues) {
+        if (i.code === "MISSING_SCOPE" || i.code === "MISSING_COA") {
+          i.severity = "WARNING";
+          i.impact = "MEDIUM";
+          i.blocksPublish = true;
+          i.message =
+            i.code === "MISSING_SCOPE"
+              ? "Scope not bound yet — required before publish (ok for Detailed draft editing)"
+              : "COA not bound yet — required before publish (ok for Detailed draft editing)";
+        }
+      }
+    }
+
     const formulas = await prisma.planningFormula.findMany({
       where: { modelId },
       include: { lineItem: { select: { id: true, code: true, name: true, moduleId: true } } },
@@ -801,10 +823,13 @@ export class FpaModuleService {
 
     const passed = errors.length === 0 && circular.circular !== true;
     const model = await prisma.planningModel.findUnique({ where: { id: modelId }, select: { status: true } });
+    // Avoid re-reading status for soft flags — already applied above on issues
     if (model?.status !== "ARCHIVED") {
       let next = passed ? "VALID" : "INVALID";
       if (passed && model?.status === "PUBLISHED") next = "PUBLISHED";
       if (!passed) next = "INVALID";
+      // Do not demote PUBLISHED solely from soft setup warnings (already excluded from errors)
+      if (model?.status === "PUBLISHED" && passed) next = "PUBLISHED";
       await prisma.planningModel.update({
         where: { id: modelId },
         data: { status: next },
@@ -895,6 +920,14 @@ export class FpaModuleService {
     const scopeOk =
       !!(model?.modelEntities?.length || model?.modelDepartments?.length) && !codes.has("MISSING_SCOPE");
     const coaOk = !!(model?.modelAccounts?.length) && !codes.has("MISSING_COA");
+    const modelStatus = String(model?.status || "").toUpperCase();
+    const softSetup = modelStatus !== "PUBLISHED" && modelStatus !== "LOCKED";
+    const scopeStatus: "PASSED" | "WARNING" | "ERROR" = scopeOk
+      ? "PASSED"
+      : softSetup
+        ? "WARNING"
+        : "ERROR";
+    const coaStatus: "PASSED" | "WARNING" | "ERROR" = coaOk ? "PASSED" : softSetup ? "WARNING" : "ERROR";
     const dimsOk = !codes.has("MISSING_DIMENSION");
     const modulesOk = !!(model?.modules?.length) && !codes.has("NO_MODULES");
     const lineItemsOk = !!(model?.lineItems?.length) && !codes.has("NO_LINE_ITEMS");
@@ -925,8 +958,26 @@ export class FpaModuleService {
         versionScenarioOk ? "PASSED" : "ERROR",
         versionScenarioOk ? null : "Working version / BASE scenario missing"
       ),
-      check("scope", "Entities / departments", scopeOk ? "PASSED" : "ERROR", scopeOk ? null : "Select scope"),
-      check("coa", "Chart of accounts", coaOk ? "PASSED" : "ERROR", coaOk ? null : "Bind COA accounts"),
+      check(
+        "scope",
+        "Entities / departments",
+        scopeStatus,
+        scopeOk
+          ? null
+          : softSetup
+            ? "Bind scope before publish (ok while drafting)"
+            : "Select scope"
+      ),
+      check(
+        "coa",
+        "Chart of accounts",
+        coaStatus,
+        coaOk
+          ? null
+          : softSetup
+            ? "Bind COA before publish (ok while drafting)"
+            : "Bind COA accounts"
+      ),
       check("dimensions", "Dimensions", dimsOk ? "PASSED" : "WARNING", dimsOk ? null : "Dimension values incomplete"),
       check("modules", "Modules", modulesOk ? "PASSED" : "WARNING", modulesOk ? null : "No modules yet"),
       check("line_items", "Line items", lineItemsOk ? "PASSED" : "ERROR", lineItemsOk ? null : "Add line items"),

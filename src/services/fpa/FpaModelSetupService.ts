@@ -632,6 +632,114 @@ export class FpaModelSetupService {
     };
   }
 
+  /**
+   * Idempotent: bind a default entity/department and a small COA set when a draft
+   * model has none — unblocks Detailed workspace / soft validation without wiping
+   * an existing explicit scope.
+   */
+  static async ensureMinimalScopeAndCoa(modelId: string, userId: string, ip?: string) {
+    await FpaModelSetupService.assertModel(modelId);
+    const scope = await FpaModelSetupService.getScope(modelId);
+    const existingAccounts = await prisma.planningModelAccount.findMany({
+      where: { modelId },
+      select: { accountId: true },
+    });
+
+    let seededScope = false;
+    let seededCoa = false;
+    let entityIds = scope.entityIds;
+    let departmentIds = scope.departmentIds;
+    let accountIds = existingAccounts.map((a) => a.accountId);
+
+    if (!entityIds.length && !departmentIds.length) {
+      const entity =
+        (await prisma.forecastEntity.findFirst({
+          where: { isActive: true, isDefault: true },
+          select: { id: true },
+        })) ||
+        (await prisma.forecastEntity.findFirst({
+          where: { isActive: true },
+          orderBy: { createdAt: "asc" },
+          select: { id: true },
+        }));
+      const departments = await prisma.department.findMany({
+        orderBy: { createdAt: "asc" },
+        take: 5,
+        select: { id: true },
+      });
+      entityIds = entity ? [entity.id] : [];
+      departmentIds = departments.map((d) => d.id);
+      if (entityIds.length || departmentIds.length) {
+        await FpaModelSetupService.setScope(modelId, { entityIds, departmentIds }, userId, ip);
+        seededScope = true;
+      }
+    }
+
+    if (!accountIds.length) {
+      const fromLineItems = await prisma.planningLineItem.findMany({
+        where: { modelId, accountId: { not: null } },
+        select: { accountId: true },
+        take: 50,
+      });
+      accountIds = [
+        ...new Set(fromLineItems.map((l) => l.accountId).filter(Boolean).map(String)),
+      ];
+
+      if (!accountIds.length && entityIds.length) {
+        const entityAccts = await prisma.entityChartOfAccount.findMany({
+          where: { entityId: entityIds[0] },
+          orderBy: { accountNo: "asc" },
+          take: 40,
+          select: { id: true },
+        });
+        accountIds = entityAccts.map((a) => a.id);
+      }
+
+      if (!accountIds.length) {
+        const global = await prisma.chartOfAccounts.findMany({
+          orderBy: { accountNo: "asc" },
+          take: 40,
+          select: { id: true },
+        });
+        accountIds = global.map((a) => a.id);
+      }
+
+      if (accountIds.length) {
+        await FpaModelSetupService.setCoa(
+          modelId,
+          { accountIds, entityId: entityIds[0] || null },
+          userId,
+          ip
+        );
+        seededCoa = true;
+      }
+    }
+
+    await FpaAuditService.log("MODEL_SEED_MINIMAL_SCOPE_COA", userId, {
+      modelId,
+      entityType: "model",
+      summary: `Seeded minimal scope/COA (scope=${seededScope}, coa=${seededCoa})`,
+      reason: JSON.stringify({
+        summary: `Seeded minimal scope/COA (scope=${seededScope}, coa=${seededCoa})`,
+        seededScope,
+        seededCoa,
+        entityCount: entityIds.length,
+        departmentCount: departmentIds.length,
+        accountCount: accountIds.length,
+      }),
+      ip,
+    });
+
+    return {
+      modelId,
+      seededScope,
+      seededCoa,
+      entityIds,
+      departmentIds,
+      accountIds,
+    };
+  }
+
   static async setCoa(modelId: string, input: any, userId: string, ip?: string) {
     await FpaModelSetupService.assertModel(modelId);
     const accountIds = Array.isArray(input.accountIds) ? [...new Set(input.accountIds.map(String))] : [];
