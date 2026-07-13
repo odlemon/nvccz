@@ -854,6 +854,118 @@ export class FpaModuleService {
     };
   }
 
+  /**
+   * Fixed catalog of validation checks for A.4 donut / checklist UI.
+   */
+  static async validationChecks(modelId: string, user: any) {
+    FpaModuleService.assertBuilder(user);
+    await FpaModuleService.assertModel(modelId);
+    const full = await FpaModuleService.enrichedValidate(modelId);
+    const codes = new Set((full.issues || []).map((i: any) => String(i.code || "")));
+    const hasIssue = (code: string, severity?: string) =>
+      (full.issues || []).some(
+        (i: any) => i.code === code && (!severity || String(i.severity).toUpperCase() === severity)
+      );
+
+    const model = await prisma.planningModel.findUnique({
+      where: { id: modelId },
+      include: {
+        versions: { take: 1 },
+        scenarios: { take: 1 },
+        modelEntities: { take: 1 },
+        modelDepartments: { take: 1 },
+        modelAccounts: { take: 1 },
+        modelDimensions: { take: 1 },
+        modules: { take: 1 },
+        lineItems: { select: { id: true, code: true } },
+        formulas: { select: { id: true, isValid: true, lineItemId: true } },
+      },
+    });
+
+    const check = (
+      key: string,
+      label: string,
+      state: "PASSED" | "WARNING" | "ERROR",
+      detail?: string
+    ) => ({ key, label, status: state, detail: detail || null });
+
+    const nameOk = !!model?.name?.trim() && !codes.has("MISSING_NAME");
+    const versionScenarioOk =
+      !!(model?.versions?.length && model?.scenarios?.length) && !codes.has("MISSING_VERSION");
+    const scopeOk =
+      !!(model?.modelEntities?.length || model?.modelDepartments?.length) && !codes.has("MISSING_SCOPE");
+    const coaOk = !!(model?.modelAccounts?.length) && !codes.has("MISSING_COA");
+    const dimsOk = !codes.has("MISSING_DIMENSION");
+    const modulesOk = !!(model?.modules?.length) && !codes.has("NO_MODULES");
+    const lineItemsOk = !!(model?.lineItems?.length) && !codes.has("NO_LINE_ITEMS");
+    const formulasValid = !hasIssue("INVALID_FORMULA", "ERROR") && !hasIssue("UNKNOWN_LINE_REF", "ERROR");
+    const circularOk = !full.circular;
+    const defaultCodes = new Set((model?.lineItems || []).map((l) => String(l.code || "").toUpperCase()));
+    const hasGp = defaultCodes.has("GROSS_PROFIT");
+    const hasEbitda = defaultCodes.has("EBITDA");
+    const gpFormula = (model?.formulas || []).some((f) => {
+      const li = (model?.lineItems || []).find((l) => l.id === f.lineItemId);
+      return li && String(li.code).toUpperCase() === "GROSS_PROFIT";
+    });
+    const ebitdaFormula = (model?.formulas || []).some((f) => {
+      const li = (model?.lineItems || []).find((l) => l.id === f.lineItemId);
+      return li && String(li.code).toUpperCase() === "EBITDA";
+    });
+    let defaultFormulasStatus: "PASSED" | "WARNING" | "ERROR" = "PASSED";
+    if ((hasGp && !gpFormula) || (hasEbitda && !ebitdaFormula) || hasIssue("MISSING_FORMULA")) {
+      defaultFormulasStatus = "WARNING";
+    }
+    const depOk = circularOk && formulasValid;
+
+    const checks = [
+      check("model_name", "Model name", nameOk ? "PASSED" : "ERROR", nameOk ? null : "Name is required"),
+      check(
+        "version_scenario",
+        "Version & scenario",
+        versionScenarioOk ? "PASSED" : "ERROR",
+        versionScenarioOk ? null : "Working version / BASE scenario missing"
+      ),
+      check("scope", "Entities / departments", scopeOk ? "PASSED" : "ERROR", scopeOk ? null : "Select scope"),
+      check("coa", "Chart of accounts", coaOk ? "PASSED" : "ERROR", coaOk ? null : "Bind COA accounts"),
+      check("dimensions", "Dimensions", dimsOk ? "PASSED" : "WARNING", dimsOk ? null : "Dimension values incomplete"),
+      check("modules", "Modules", modulesOk ? "PASSED" : "WARNING", modulesOk ? null : "No modules yet"),
+      check("line_items", "Line items", lineItemsOk ? "PASSED" : "ERROR", lineItemsOk ? null : "Add line items"),
+      check(
+        "formulas_valid",
+        "Formulas valid",
+        formulasValid ? "PASSED" : "ERROR",
+        formulasValid ? null : "Invalid or unknown formula refs"
+      ),
+      check(
+        "circular",
+        "No circular references",
+        circularOk ? "PASSED" : "ERROR",
+        circularOk ? null : (full.circularPath || []).join(" → ")
+      ),
+      check(
+        "default_formulas",
+        "Default formulas (GP / EBITDA)",
+        defaultFormulasStatus,
+        defaultFormulasStatus === "PASSED" ? null : "Seed Gross Profit / EBITDA formulas"
+      ),
+      check(
+        "dependency_graph",
+        "Dependency graph",
+        depOk ? "PASSED" : "ERROR",
+        depOk ? null : "Fix formula graph before publish"
+      ),
+    ];
+
+    const summary = {
+      total: checks.length,
+      passed: checks.filter((c) => c.status === "PASSED").length,
+      warnings: checks.filter((c) => c.status === "WARNING").length,
+      errors: checks.filter((c) => c.status === "ERROR").length,
+    };
+
+    return { modelId, summary, checks, passed: summary.errors === 0 };
+  }
+
   static async publish(modelId: string, user: any, ip?: string, body: any = {}) {
     FpaModuleService.assertBuilder(user);
     await FpaModuleService.assertModel(modelId);

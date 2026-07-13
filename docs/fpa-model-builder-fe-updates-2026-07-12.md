@@ -196,6 +196,23 @@ Publish still locks the published version (`status: LOCKED`). The API **also cre
 
 ---
 
+## A.4 Detailed workspace (2026-07-13)
+
+Backend for Formula Trace / Mapping / Validation / Exceptions / Impact panels.
+
+**Doc:** [fpa-model-builder-detailed-workspace-api.md](./fpa-model-builder-detailed-workspace-api.md)
+
+| FE need | Call |
+|---------|------|
+| Module grid + FY totals | `GET /models/:id/grid?moduleId=&versionId=&scenarioId=&grain=monthly` |
+| Validation donut checklist | `GET /models/:id/validation-checks` (+ existing `validation-summary`) |
+| Exceptions panel | `GET /models/:id/exceptions?versionId=` |
+| Mapping % + rows | `POST …/data-mappings/refresh` then `GET …/data-mappings` |
+| What-if +5% | `POST …/sensitivity-analysis` with `driverLineItemId` + `shock: { type: PERCENT, value: 5 }` |
+| Formula trace graph | Cell `…/trace` → use `root` / `nodes` / `edges` |
+
+---
+
 ## Deploy
 
 Shipped with Model Builder FE-gap fixes on `master` (nts + client1). Re-smoke:

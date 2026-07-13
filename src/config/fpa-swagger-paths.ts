@@ -190,6 +190,8 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
         modelId,
         queryParam("versionId", { type: "string" }),
         queryParam("scenarioId", { type: "string" }),
+        queryParam("moduleId", { type: "string" }),
+        queryParam("grain", { type: "string", enum: ["monthly", "quarterly", "annual"] }, "monthly"),
         queryParam("page", { type: "integer" }, "1"),
         queryParam("pageSize", { type: "integer" }, "100"),
       ],
@@ -201,7 +203,83 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
         modelId,
         queryParam("versionId", { type: "string" }),
         queryParam("scenarioId", { type: "string" }),
+        queryParam("moduleId", { type: "string" }),
       ],
+    }),
+  },
+  "/v1/fpa/models/{modelId}/validation-checks": {
+    get: op("Fixed catalog of Model Builder validation checks (A.4)", { parameters: [modelId] }),
+  },
+  "/v1/fpa/models/{modelId}/exceptions": {
+    get: op("Compose validation + grid + unmapped mapping exceptions", {
+      parameters: [
+        modelId,
+        queryParam("versionId", { type: "string" }),
+        queryParam("scenarioId", { type: "string" }),
+        queryParam("moduleId", { type: "string" }),
+      ],
+    }),
+  },
+  "/v1/fpa/models/{modelId}/data-mappings": {
+    get: op("List ERP / GL line-item mappings", {
+      parameters: [
+        modelId,
+        queryParam("moduleId", { type: "string" }),
+        queryParam("sourceSystem", { type: "string" }),
+        queryParam("q", { type: "string" }),
+        queryParam("unmappedOnly", { type: "boolean" }),
+        queryParam("limit", { type: "integer" }),
+        queryParam("cursor", { type: "string" }),
+      ],
+    }),
+  },
+  "/v1/fpa/models/{modelId}/data-mappings/{mappingId}": {
+    put: op("Update a data mapping (target line item / status)", {
+      parameters: [modelId, pathParam("mappingId", "cuid")],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          properties: {
+            lineItemId: { type: "string", nullable: true },
+            moduleId: { type: "string", nullable: true },
+            status: { type: "string", enum: ["MAPPED", "UNMAPPED", "TYPE_MISMATCH", "STALE"] },
+          },
+        },
+      }),
+    }),
+  },
+  "/v1/fpa/models/{modelId}/data-mappings/refresh": {
+    post: op("Refresh mappings from model COA (NetSuite GL / ACCOUNTING)", { parameters: [modelId] }),
+  },
+  "/v1/fpa/models/{modelId}/sensitivity-analysis": {
+    post: op("What-if sensitivity (PERCENT shock on driver line; no persisted scenario)", {
+      parameters: [modelId],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["versionId", "scenarioId", "driverLineItemId"],
+          properties: {
+            versionId: { type: "string" },
+            scenarioId: { type: "string" },
+            driverLineItemId: { type: "string" },
+            shock: {
+              type: "object",
+              properties: {
+                type: { type: "string", enum: ["PERCENT"], default: "PERCENT" },
+                value: { type: "number", example: 5 },
+              },
+            },
+            targetLineItemIds: { type: "array", items: { type: "string" } },
+            periodRange: {
+              type: "object",
+              properties: {
+                from: { type: "string", format: "date" },
+                to: { type: "string", format: "date" },
+              },
+            },
+          },
+        },
+      }),
     }),
   },
   "/v1/fpa/models/{modelId}/cells/update": {

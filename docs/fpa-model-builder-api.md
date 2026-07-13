@@ -9,9 +9,10 @@
 
 - Navigation brief: [fpa-model-builder-list-create-navigation.md](./fpa-model-builder-list-create-navigation.md)  
 - FE integration prompt: [Model_Builder_Backend_Integration_Prompt.md](./Model_Builder_Backend_Integration_Prompt.md)  
-- Mental model: [fpa-model-planning-vs-builder.md](./fpa-model-planning-vs-builder.md)
+- Mental model: [fpa-model-planning-vs-builder.md](./fpa-model-planning-vs-builder.md)  
+- **Detailed workspace (A.4):** [fpa-model-builder-detailed-workspace-api.md](./fpa-model-builder-detailed-workspace-api.md)
 
-**Out of scope here:** Budget cycles, Workflow approvals, IMPORTED mapping engine (P2).
+**Out of scope here:** Budget cycles, Workflow approvals.
 
 ---
 

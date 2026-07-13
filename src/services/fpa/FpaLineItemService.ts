@@ -133,6 +133,9 @@ export class FpaLineItemService {
     });
     await FpaAuditService.log("LINE_ITEM_CREATE", userId, {
       modelId: input.modelId,
+      lineItemId: li.id,
+      moduleId: li.moduleId || null,
+      entityType: "LINE_ITEM",
       newValue: li.id,
       reason: li.name,
       ip,
@@ -176,6 +179,9 @@ export class FpaLineItemService {
     });
     await FpaAuditService.log("LINE_ITEM_UPDATE", userId, {
       modelId: existing.modelId,
+      lineItemId,
+      moduleId: updated.moduleId || null,
+      entityType: "LINE_ITEM",
       newValue: lineItemId,
       reason: JSON.stringify({ before: { name: existing.name }, after: { name: updated.name } }),
       ip,
@@ -197,7 +203,14 @@ export class FpaLineItemService {
     const existing = await prisma.planningLineItem.findUnique({ where: { id: lineItemId } });
     if (!existing) throw new FpaError(404, "NOT_FOUND", "Line item not found");
     await prisma.planningLineItem.delete({ where: { id: lineItemId } });
-    await FpaAuditService.log("LINE_ITEM_DELETE", userId, { modelId: existing.modelId, oldValue: lineItemId, ip });
+    await FpaAuditService.log("LINE_ITEM_DELETE", userId, {
+      modelId: existing.modelId,
+      lineItemId,
+      moduleId: existing.moduleId || null,
+      entityType: "LINE_ITEM",
+      oldValue: lineItemId,
+      ip,
+    });
     return { deleted: true, id: lineItemId };
   }
 
@@ -296,6 +309,9 @@ export class FpaLineItemService {
 
     await FpaAuditService.log("FORMULA_CREATE", userId, {
       modelId: input.modelId,
+      lineItemId: formula.lineItemId,
+      moduleId: formula.lineItem?.moduleId || null,
+      entityType: "FORMULA",
       reason: JSON.stringify({ after: { expression: formula.expression, lineItemId: formula.lineItemId } }),
       ip,
     });
@@ -348,6 +364,9 @@ export class FpaLineItemService {
 
     await FpaAuditService.log("FORMULA_UPDATE", userId, {
       modelId: existing.modelId,
+      lineItemId: updated.lineItemId,
+      moduleId: updated.lineItem?.moduleId || null,
+      entityType: "FORMULA",
       reason: JSON.stringify({
         before: { expression: existing.expression },
         after: { expression },

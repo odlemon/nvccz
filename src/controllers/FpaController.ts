@@ -21,6 +21,9 @@ import { FpaWorkflowCollabService } from "../services/fpa/FpaWorkflowCollabServi
 import { FpaModuleService } from "../services/fpa/FpaModuleService";
 import { FpaAuditService } from "../services/fpa/FpaAuditService";
 import { FpaTemplateService } from "../services/fpa/FpaTemplateService";
+import { FpaDataMappingService } from "../services/fpa/FpaDataMappingService";
+import { FpaSensitivityService } from "../services/fpa/FpaSensitivityService";
+import { FpaExceptionsService } from "../services/fpa/FpaExceptionsService";
 import fs from "fs";
 
 function ipOf(req: Request) {
@@ -128,6 +131,73 @@ export class FpaController {
   static async validationSummary(req: Request, res: Response) {
     try {
       const data = await FpaModuleService.validationSummary(req.params.modelId, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async validationChecks(req: Request, res: Response) {
+    try {
+      const data = await FpaModuleService.validationChecks(req.params.modelId, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listExceptions(req: Request, res: Response) {
+    try {
+      const data = await FpaExceptionsService.list(
+        req.params.modelId,
+        {
+          versionId: req.query.versionId,
+          scenarioId: req.query.scenarioId,
+          moduleId: req.query.moduleId,
+        },
+        userOf(req)
+      );
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listDataMappings(req: Request, res: Response) {
+    try {
+      const data = await FpaDataMappingService.list(req.params.modelId, req.query || {});
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async updateDataMapping(req: Request, res: Response) {
+    try {
+      const data = await FpaDataMappingService.update(
+        req.params.modelId,
+        req.params.mappingId,
+        req.body || {},
+        userOf(req)
+      );
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async refreshDataMappings(req: Request, res: Response) {
+    try {
+      const data = await FpaDataMappingService.refresh(req.params.modelId, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async sensitivityAnalysis(req: Request, res: Response) {
+    try {
+      const data = await FpaSensitivityService.run(req.params.modelId, req.body || {}, userOf(req));
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
@@ -625,6 +695,8 @@ export class FpaController {
           page: req.query.page,
           pageSize: req.query.pageSize || req.query.page_size,
           lineItemId: req.query.lineItemId,
+          moduleId: req.query.moduleId,
+          grain: req.query.grain,
         },
         userOf(req)
       );
@@ -756,6 +828,7 @@ export class FpaController {
       const data = await FpaGridService.gridValidations(req.params.modelId, {
         versionId: req.query.versionId || req.body?.versionId,
         scenarioId: req.query.scenarioId || req.body?.scenarioId,
+        moduleId: req.query.moduleId || req.body?.moduleId,
       });
       res.json({ success: true, data });
     } catch (e) {

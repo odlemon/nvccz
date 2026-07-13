@@ -6,6 +6,9 @@ export type FpaAuditPayload = {
   scenarioId?: string | null;
   versionId?: string | null;
   cellId?: string | null;
+  lineItemId?: string | null;
+  moduleId?: string | null;
+  entityType?: string | null;
   oldValue?: string | number | null;
   newValue?: string | number | null;
   reason?: string | null;
@@ -23,6 +26,9 @@ export class FpaAuditService {
         scenarioId: payload.scenarioId || null,
         versionId: payload.versionId || null,
         cellId: payload.cellId || null,
+        lineItemId: payload.lineItemId || null,
+        moduleId: payload.moduleId || null,
+        entityType: payload.entityType || null,
         oldValue: payload.oldValue != null ? String(payload.oldValue) : null,
         newValue: payload.newValue != null ? String(payload.newValue) : null,
         reason: payload.reason || null,
@@ -36,6 +42,9 @@ export class FpaAuditService {
     const where: any = { modelId };
     if (query.actionType || query.action) where.actionType = String(query.actionType || query.action);
     if (query.userId) where.userId = String(query.userId);
+    if (query.moduleId) where.moduleId = String(query.moduleId);
+    if (query.lineItemId) where.lineItemId = String(query.lineItemId);
+    if (query.entityType) where.entityType = String(query.entityType);
     if (query.from || query.to) {
       where.createdAt = {};
       if (query.from) where.createdAt.gte = new Date(String(query.from));
@@ -63,7 +72,7 @@ export class FpaAuditService {
       const name = u ? [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.email : null;
       let before = null;
       let after = null;
-      let entityType = null;
+      let entityType = r.entityType || null;
       let entityId = null;
       let summary = r.reason || r.actionType;
       if (r.reason) {
@@ -72,7 +81,7 @@ export class FpaAuditService {
           if (parsed && typeof parsed === "object") {
             before = parsed.before ?? null;
             after = parsed.after ?? null;
-            entityType = parsed.entityType || null;
+            if (!entityType) entityType = parsed.entityType || null;
             entityId = parsed.entityId || null;
             if (parsed.summary) summary = parsed.summary;
           }
@@ -92,6 +101,8 @@ export class FpaAuditService {
         actionType: r.actionType,
         entityType,
         entityId,
+        lineItemId: r.lineItemId || null,
+        moduleId: r.moduleId || null,
         summary,
         before,
         after,

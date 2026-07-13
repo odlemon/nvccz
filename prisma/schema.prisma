@@ -5758,6 +5758,8 @@ model PlanningModel {
   locks                     PlanningLock[]
   aiForecasts               PlanningAiForecast[]
   budgetCycles              PlanningBudgetCycle[]
+  dataSources               PlanningDataSource[]
+  lineItemMappings          PlanningLineItemMapping[]
 
   @@index([status], map: "planning_models_status_idx")
   @@index([ownerUserId], map: "planning_models_owner_idx")
@@ -5913,6 +5915,7 @@ model PlanningLineItem {
   cells          PlanningCell[]
   formulas       PlanningFormula[]
   varianceResults PlanningVarianceResult[]
+  mappings       PlanningLineItemMapping[]
 
   @@unique([modelId, code], map: "planning_line_items_model_code_key")
   @@index([modelId, category], map: "planning_line_items_model_cat_idx")
@@ -5988,6 +5991,7 @@ model PlanningCell {
   driverId        String?   @map("driver_id")
   lastUpdatedById String?   @map("last_updated_by")
   lastUpdatedAt   DateTime? @map("last_updated_at")
+  lastCalculatedAt DateTime? @map("last_calculated_at")
   /// Optimistic concurrency counter (SRD budgeting §6)
   recordVersion   BigInt    @default(1) @map("record_version")
   createdAt       DateTime  @default(now()) @map("created_at")
@@ -6330,6 +6334,9 @@ model PlanningAuditLog {
   scenarioId String?  @map("scenario_id")
   versionId  String?  @map("version_id")
   cellId     String?  @map("cell_id")
+  lineItemId String?  @map("line_item_id")
+  moduleId   String?  @map("module_id")
+  entityType String?  @map("entity_type") @db.VarChar(64)
   userId     String   @map("user_id")
   actionType String   @map("action_type") @db.VarChar(100)
   oldValue   String?  @map("old_value") @db.Text
@@ -6346,7 +6353,62 @@ model PlanningAuditLog {
 
   @@index([modelId, createdAt], map: "planning_audit_model_created_idx")
   @@index([actionType], map: "planning_audit_action_idx")
+  @@index([moduleId], map: "planning_audit_module_idx")
+  @@index([lineItemId], map: "planning_audit_line_item_idx")
+  @@index([entityType], map: "planning_audit_entity_type_idx")
   @@map("planning_audit_logs")
+}
+
+model PlanningDataSource {
+  id              String   @id @default(cuid())
+  modelId         String   @map("model_id")
+  systemCode      String   @map("system_code") @db.VarChar(64)
+  name            String   @db.VarChar(255)
+  connectorConfig Json?    @map("connector_config")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  model  PlanningModel         @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  fields PlanningSourceField[]
+
+  @@unique([modelId, systemCode], map: "planning_data_sources_model_system_key")
+  @@map("planning_data_sources")
+}
+
+model PlanningSourceField {
+  id           String   @id @default(cuid())
+  dataSourceId String   @map("data_source_id")
+  fieldKey     String   @map("field_key") @db.VarChar(255)
+  dataType     String?  @map("data_type") @db.VarChar(64)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  dataSource PlanningDataSource         @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  mappings   PlanningLineItemMapping[]
+
+  @@unique([dataSourceId, fieldKey], map: "planning_source_fields_ds_key")
+  @@map("planning_source_fields")
+}
+
+model PlanningLineItemMapping {
+  id            String    @id @default(cuid())
+  modelId       String    @map("model_id")
+  sourceFieldId String    @map("source_field_id")
+  lineItemId    String?   @map("line_item_id")
+  moduleId      String?   @map("module_id")
+  status        String    @default("UNMAPPED") @db.VarChar(32)
+  mappedAt      DateTime? @map("mapped_at")
+  mappedById    String?   @map("mapped_by")
+  lastSyncedAt  DateTime? @map("last_synced_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  model       PlanningModel       @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  sourceField PlanningSourceField @relation(fields: [sourceFieldId], references: [id], onDelete: Cascade)
+  lineItem    PlanningLineItem?   @relation(fields: [lineItemId], references: [id], onDelete: SetNull)
+
+  @@index([modelId, moduleId], map: "planning_li_mappings_model_module_idx")
+  @@index([modelId, status], map: "planning_li_mappings_model_status_idx")
+  @@map("planning_line_item_mappings")
 }
 
 model PlanningLock {
