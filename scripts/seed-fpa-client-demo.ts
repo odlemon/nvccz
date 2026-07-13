@@ -12,6 +12,9 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+/** Lean seed for demo UI (non-scrollable lists): fewer models/cycles/owners/scenarios. */
+const LITE = process.env.FPA_DEMO_LITE === "1" || process.env.FPA_DEMO_LITE === "true";
+
 function cuid(): string {
   return `c${Date.now().toString(36)}${randomBytes(8).toString("hex")}`.slice(0, 25);
 }
@@ -569,12 +572,19 @@ async function seedPrimaryModel(adminId: string, depts: { id: string }[], accoun
     }
   }
 
+  const scenarioDefs = LITE
+    ? [
+        { key: "BASE", name: "Base Case", scenarioType: "BASE", isOfficial: true },
+        { key: "UPSIDE", name: "Upside", scenarioType: "UPSIDE", isOfficial: false },
+      ]
+    : [
+        { key: "BASE", name: "Base Case", scenarioType: "BASE", isOfficial: true },
+        { key: "UPSIDE", name: "Upside", scenarioType: "UPSIDE", isOfficial: false },
+        { key: "DOWNSIDE", name: "Downside", scenarioType: "DOWNSIDE", isOfficial: false },
+      ];
+
   const scenarioIds: Record<string, string> = {};
-  for (const s of [
-    { key: "BASE", name: "Base Case", scenarioType: "BASE", isOfficial: true },
-    { key: "UPSIDE", name: "Upside", scenarioType: "UPSIDE", isOfficial: false },
-    { key: "DOWNSIDE", name: "Downside", scenarioType: "DOWNSIDE", isOfficial: false },
-  ]) {
+  for (const s of scenarioDefs) {
     const id = cuid();
     scenarioIds[s.key] = id;
     await prisma.planningScenario.create({
@@ -628,12 +638,12 @@ async function seedPrimaryModel(adminId: string, depts: { id: string }[], accoun
   });
 
   // Scope: departments, accounts, dimensions
-  for (const dept of depts.slice(0, 2)) {
+  for (const dept of depts.slice(0, LITE ? 1 : 2)) {
     await prisma.planningModelDepartment.create({
       data: { id: cuid(), modelId, departmentId: dept.id },
     });
   }
-  for (const acct of accounts.slice(0, 8)) {
+  for (const acct of accounts.slice(0, LITE ? 4 : 8)) {
     await prisma.planningModelAccount.create({
       data: { id: cuid(), modelId, accountId: acct.id },
     });
@@ -665,17 +675,25 @@ async function seedPrimaryModel(adminId: string, depts: { id: string }[], accoun
 
   const cellRows: Record<string, unknown>[] = [];
   const driverRows: Record<string, unknown>[] = [];
-  const versions = [
-    { id: publishedVersionId, locked: true },
-    { id: workingVersionId, locked: false },
-  ];
+  // Lite: full grid on working copy only; published keeps BASE so sheets stay light.
+  const versions = LITE
+    ? [
+        { id: publishedVersionId, locked: true, scenarios: ["BASE"] },
+        { id: workingVersionId, locked: false, scenarios: Object.keys(scenarioIds) },
+      ]
+    : [
+        { id: publishedVersionId, locked: true, scenarios: Object.keys(scenarioIds) },
+        { id: workingVersionId, locked: false, scenarios: Object.keys(scenarioIds) },
+      ];
 
-  for (const [scenarioKey, scenarioId] of Object.entries(scenarioIds)) {
-    const months = withCashChain(
-      Array.from({ length: 12 }, (_, m) => computeMonthValues(m, scenarioOpts[scenarioKey]))
-    );
+  for (const ver of versions) {
+    for (const scenarioKey of ver.scenarios) {
+      const scenarioId = scenarioIds[scenarioKey];
+      if (!scenarioId) continue;
+      const months = withCashChain(
+        Array.from({ length: 12 }, (_, m) => computeMonthValues(m, scenarioOpts[scenarioKey] || {}))
+      );
 
-    for (const ver of versions) {
       for (let m = 0; m < 12; m++) {
         const v = months[m];
         const periodDate = monthDate(2026, m);
@@ -720,8 +738,7 @@ async function seedPrimaryModel(adminId: string, depts: { id: string }[], accoun
           });
         }
 
-        // Drivers for HEADCOUNT + PRICE on BASE (both versions)
-        if (scenarioKey === "BASE") {
+        if (scenarioKey === "BASE" && !ver.locked) {
           driverRows.push({
             id: cuid(),
             modelId,
@@ -1242,6 +1259,8 @@ async function seedBudgetCycles(
     } as Record<string, number>;
   };
   for (let m = 0; m < 12; m++) {
+    // Lite: only Jan/Apr/Jul/Oct so closed book is visible without flooding grids
+    if (LITE && ![0, 3, 6, 9].includes(m)) continue;
     const vals = byCodeVal(m);
     const periodDate = monthDate(2025, m);
     for (const li of fy2025Lines) {
@@ -1276,7 +1295,7 @@ async function seedBudgetCycles(
     ["OPERATING_EXPENSES"],
   ];
 
-  const cycleDefs = [
+  const cycleDefsAll = [
     {
       key: "FY2025 Annual Budget (Closed)",
       name: "FY2025 Annual Budget (Closed)",
@@ -1355,6 +1374,13 @@ async function seedBudgetCycles(
     },
   ];
 
+  // Lite: Open + Closed only (2 cards) so budgeting lists stay short
+  const cycleDefs = LITE
+    ? cycleDefsAll.filter((c) =>
+        ["FY2025 Annual Budget (Closed)", "FY2026 Annual Budget — Open"].includes(c.key)
+      )
+    : cycleDefsAll;
+
   for (const def of cycleDefs) {
     const workflowId = cuid();
     await prisma.planningWorkflow.create({
@@ -1406,7 +1432,7 @@ async function seedBudgetCycles(
       "Workforce input — HR",
       "Opex input — Operations",
     ];
-    const ownerDepts = depts.slice(0, 3);
+    const ownerDepts = depts.slice(0, LITE ? 2 : 3);
     const taskIds: string[] = [];
 
     for (let i = 0; i < Math.max(ownerDepts.length, 1); i++) {
@@ -1507,7 +1533,7 @@ async function main() {
 
   const dbName = (await prisma.$queryRawUnsafe<Array<{ d: string }>>(`SELECT DATABASE() AS d`))[0]
     ?.d;
-  console.log(`[seed-fpa] database=${dbName}`);
+  console.log(`[seed-fpa] database=${dbName} lite=${LITE}`);
   console.log("[seed-fpa] wipe is NOT performed — ensure clear-fpa-planning-data ran if needed");
 
   const admin = await resolveAdminUser();
@@ -1524,23 +1550,32 @@ async function main() {
   const primary = await seedPrimaryModel(admin.id, depts, accounts, dims);
   console.log(`[seed-fpa] primary model=${primary.modelId}`);
 
-  const board = await seedBoardPackModel(admin.id);
-  console.log(`[seed-fpa] board pack model=${board.modelId}`);
+  let boardPackModelId: string | null = null;
+  let draft2027ModelId: string | null = null;
+  if (!LITE) {
+    const board = await seedBoardPackModel(admin.id);
+    boardPackModelId = board.modelId;
+    console.log(`[seed-fpa] board pack model=${board.modelId}`);
 
-  const draft2027 = await seedDraft2027Model(admin.id);
-  console.log(`[seed-fpa] fy2027 draft model=${draft2027.modelId}`);
+    const draft2027 = await seedDraft2027Model(admin.id);
+    draft2027ModelId = draft2027.modelId;
+    console.log(`[seed-fpa] fy2027 draft model=${draft2027.modelId}`);
+  } else {
+    console.log("[seed-fpa] lite: skipping Board Pack + FY2027 draft models");
+  }
 
   const cycleIds = await seedBudgetCycles(admin.id, primary, depts);
   console.log(`[seed-fpa] budget cycles=${Object.keys(cycleIds).length}`);
 
   const summary = {
+    lite: LITE,
     primaryModelId: primary.modelId,
     publishedVersionId: primary.publishedVersionId,
     workingVersionId: primary.workingVersionId,
     scenarioIds: primary.scenarioIds,
     moduleIds: primary.moduleIds,
-    boardPackModelId: board.modelId,
-    draft2027ModelId: draft2027.modelId,
+    boardPackModelId,
+    draft2027ModelId,
     cycleIds,
     mappingSummary: primary.mappingSummary,
   };

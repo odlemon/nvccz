@@ -91,3 +91,13 @@ Re-run prints a fresh SUMMARY JSON; IDs change each wipe. Latest `nts` snapshot:
 
 - Clear/seed scripts refuse `client1_db` unless `ALLOW_CLIENT1_FPA_WIPE=1` / `ALLOW_CLIENT1_FPA_SEED=1`.
 - VPS helper only lists `nts` and `demo_env` URLs.
+
+### Lite seed (demo UI)
+
+For client demo hosts where some FE lists are not scrollable, use a smaller dataset:
+
+```bash
+FPA_DEMO_LITE=1 npm run db:reset:fpa-demo
+```
+
+Lite keeps **1 model**, **2 scenarios** (BASE/UPSIDE), **2 budget cycles** (Open + Closed), **2 owners**, and fewer cells — still enough for Model Builder / Planning / Budgeting walkthrough.
