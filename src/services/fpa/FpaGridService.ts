@@ -505,9 +505,13 @@ export class FpaGridService {
       cellId: cell.id,
       lineItemId: cell.lineItemId,
       moduleId: lineItemForEdit?.moduleId || null,
-      entityType: "CELL",
+      entityType: "cell",
+      entityId: cell.id,
       oldValue: oldValue != null ? String(oldValue) : null,
       newValue: newValue != null ? String(newValue) : null,
+      summary: `Updated ${lineItemForEdit?.name || lineItemForEdit?.code || "cell"} ${
+        cell.periodDate ? String(cell.periodDate).slice(0, 10) : ""
+      }: ${oldValue ?? "null"} → ${newValue ?? "null"}`.trim(),
       ip,
     });
 

@@ -4,7 +4,124 @@ import { FpaError } from "./FpaError";
 import { FpaAccessService } from "./FpaAccessService";
 import { FpaAuditService } from "./FpaAuditService";
 
-const MAPPING_STATUSES = new Set(["MAPPED", "UNMAPPED", "TYPE_MISMATCH", "STALE"]);
+const MAPPING_STATUSES = new Set(["MAPPED", "UNMAPPED", "SUGGESTED", "TYPE_MISMATCH", "STALE"]);
+
+const SYSTEM_ALIASES: Record<string, { systemCode: string; name: string }> = {
+  "NETSUITE GL": { systemCode: "NETSUITE_GL", name: "NetSuite GL" },
+  NETSUITE_GL: { systemCode: "NETSUITE_GL", name: "NetSuite GL" },
+  ACCOUNTING: { systemCode: "NETSUITE_GL", name: "NetSuite GL" },
+  SALESFORCE: { systemCode: "SALESFORCE", name: "Salesforce" },
+  "WORKDAY HR": { systemCode: "WORKDAY_HR", name: "Workday HR" },
+  WORKDAY_HR: { systemCode: "WORKDAY_HR", name: "Workday HR" },
+  WORKDAY: { systemCode: "WORKDAY_HR", name: "Workday HR" },
+  "PLAID (BANK)": { systemCode: "PLAID_BANK", name: "Plaid (Bank)" },
+  PLAID_BANK: { systemCode: "PLAID_BANK", name: "Plaid (Bank)" },
+  PLAID: { systemCode: "PLAID_BANK", name: "Plaid (Bank)" },
+};
+
+function normalizeSystem(raw: string): { systemCode: string; name: string } {
+  const key = String(raw || "").trim();
+  const hit = SYSTEM_ALIASES[key.toUpperCase()];
+  if (hit) return hit;
+  const code = key
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 64);
+  return { systemCode: code || "CUSTOM", name: key || "Custom" };
+}
+
+function demoCatalogFields(systemCode: string): Array<{ fieldKey: string; dataType: string }> {
+  if (systemCode === "NETSUITE_GL" || systemCode === "ACCOUNTING") {
+    const fields: Array<{ fieldKey: string; dataType: string }> = [];
+    for (let i = 4000; i <= 4090; i += 10) fields.push({ fieldKey: `GL_ACCOUNT.${i}`, dataType: "CURRENCY" });
+    for (let i = 6000; i <= 6090; i += 10) fields.push({ fieldKey: `GL_ACCOUNT.${i}`, dataType: "CURRENCY" });
+    return fields;
+  }
+  if (systemCode === "SALESFORCE") {
+    return [
+      { fieldKey: "CRM_ARR", dataType: "CURRENCY" },
+      { fieldKey: "CRM_BOOKINGS", dataType: "CURRENCY" },
+      { fieldKey: "CRM_PIPELINE", dataType: "CURRENCY" },
+      { fieldKey: "CRM_CHURN", dataType: "PERCENT" },
+    ];
+  }
+  if (systemCode === "WORKDAY_HR") {
+    return [
+      { fieldKey: "HR_HEADCOUNT", dataType: "NUMBER" },
+      { fieldKey: "HR_SALARY", dataType: "CURRENCY" },
+      { fieldKey: "HR_BENEFITS", dataType: "CURRENCY" },
+    ];
+  }
+  if (systemCode === "PLAID_BANK") {
+    return [
+      { fieldKey: "BANK_CASH", dataType: "CURRENCY" },
+      { fieldKey: "BANK_BALANCE", dataType: "CURRENCY" },
+      { fieldKey: "BANK_INFLOW", dataType: "CURRENCY" },
+    ];
+  }
+  return [];
+}
+
+function fuzzyMatchLineItem(
+  fieldKey: string,
+  lineItems: Array<{ id: string; code: string; name: string; moduleId: string | null }>
+) {
+  const key = fieldKey.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const token = fieldKey.includes(".") ? fieldKey.split(".").pop()!.toUpperCase() : fieldKey.toUpperCase();
+  let best = null;
+  let bestScore = 0;
+  for (const li of lineItems) {
+    const code = String(li.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const name = String(li.name || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    let score = 0;
+    if (code && (key.includes(code) || code.includes(token.replace(/[^A-Z0-9]/g, "")))) score = 90;
+    else if (name && key.includes(name)) score = 80;
+    else if (code && token.includes(code)) score = 70;
+    else if (name && (name.includes(token) || token.includes(name.slice(0, 6)))) score = 55;
+    if (
+      /ARR|BOOKINGS|PIPELINE|REVENUE|SALES/.test(fieldKey.toUpperCase()) &&
+      /ARR|BOOKINGS|PIPELINE|REVENUE|SALES/.test(`${li.code} ${li.name}`.toUpperCase())
+    ) {
+      score = Math.max(score, 75);
+    }
+    if (
+      /HEADCOUNT|SALARY|PAYROLL|HR_/.test(fieldKey.toUpperCase()) &&
+      /HEADCOUNT|SALARY|PAYROLL|WAGE|HR/.test(`${li.code} ${li.name}`.toUpperCase())
+    ) {
+      score = Math.max(score, 75);
+    }
+    if (
+      /BANK_CASH|BANK_BALANCE|CASH/.test(fieldKey.toUpperCase()) &&
+      /CASH|BANK|BALANCE/.test(`${li.code} ${li.name}`.toUpperCase())
+    ) {
+      score = Math.max(score, 75);
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = li;
+    }
+  }
+  return bestScore >= 70 ? best : null;
+}
+
+function toEntry(r: any) {
+  return {
+    id: r.id,
+    sourceField: r.sourceField?.fieldKey || null,
+    sourceFieldId: r.sourceFieldId,
+    sourceSystem: r.sourceField?.dataSource?.name || r.sourceField?.dataSource?.systemCode || null,
+    sourceSystemCode: r.sourceField?.dataSource?.systemCode || null,
+    targetLineItemId: r.lineItemId,
+    targetLineItemName: r.lineItem?.name || null,
+    targetLineItemCode: r.lineItem?.code || null,
+    moduleId: r.moduleId || r.lineItem?.moduleId || null,
+    status: r.status,
+    notes: r.notes || null,
+    mappedAt: r.mappedAt,
+    lastSyncedAt: r.lastSyncedAt,
+  };
+}
 
 export class FpaDataMappingService {
   static assertBuilder(user: any) {
@@ -17,10 +134,32 @@ export class FpaDataMappingService {
     return model;
   }
 
-  static async refresh(modelId: string, user: any) {
+  static async ensureDataSource(modelId: string, sourceSystemRaw: string) {
+    const { systemCode, name } = normalizeSystem(sourceSystemRaw);
+    let dataSource = await prisma.planningDataSource.findFirst({
+      where: {
+        modelId,
+        OR: [{ systemCode }, { name }, ...(systemCode === "NETSUITE_GL" ? [{ systemCode: "ACCOUNTING" }] : [])],
+      },
+    });
+    if (!dataSource) {
+      dataSource = await prisma.planningDataSource.create({
+        data: {
+          modelId,
+          systemCode,
+          name,
+          connectorConfig: { provider: systemCode, label: name, seeded: true },
+        },
+      });
+    }
+    return dataSource;
+  }
+
+  static async refresh(modelId: string, user: any, body: any = {}) {
     FpaDataMappingService.assertBuilder(user);
     await FpaDataMappingService.assertModel(modelId);
     const userId = user?.id;
+    const replaceExisting = body.replaceExisting === true || body.replaceExisting === "true";
 
     let dataSource = await prisma.planningDataSource.findFirst({
       where: { modelId, OR: [{ systemCode: "ACCOUNTING" }, { systemCode: "NETSUITE_GL" }, { name: "NetSuite GL" }] },
@@ -29,11 +168,28 @@ export class FpaDataMappingService {
       dataSource = await prisma.planningDataSource.create({
         data: {
           modelId,
-          systemCode: "ACCOUNTING",
+          systemCode: "NETSUITE_GL",
           name: "NetSuite GL",
           connectorConfig: { provider: "ACCOUNTING", label: "NetSuite GL" },
         },
       });
+    }
+
+    if (replaceExisting) {
+      const fields = await prisma.planningSourceField.findMany({
+        where: { dataSourceId: dataSource.id },
+        select: { id: true },
+      });
+      const fieldIds = fields.map((f) => f.id);
+      if (fieldIds.length) {
+        await prisma.planningLineItemMapping.deleteMany({
+          where: {
+            modelId,
+            sourceFieldId: { in: fieldIds },
+            status: { in: ["UNMAPPED", "SUGGESTED"] },
+          },
+        });
+      }
     }
 
     const modelAccounts = await prisma.planningModelAccount.findMany({ where: { modelId } });
@@ -99,6 +255,7 @@ export class FpaDataMappingService {
         if (matchLi) mapped += 1;
       } else {
         const data: any = { lastSyncedAt: now };
+        // Never wipe manual MAPPED rows; only auto-fill UNMAPPED without a target
         if (matchLi && mapping.status === "UNMAPPED" && !mapping.lineItemId) {
           data.lineItemId = matchLi.id;
           data.moduleId = matchLi.moduleId || null;
@@ -113,11 +270,236 @@ export class FpaDataMappingService {
 
     await FpaAuditService.log("DATA_MAPPING_REFRESH", userId, {
       modelId,
-      entityType: "DATA_MAPPING",
-      reason: JSON.stringify({ createdFields, createdMappings, mapped }),
+      entityType: "mapping",
+      summary: `Refreshed mappings (${createdFields} fields, ${createdMappings} mappings)`,
+      reason: JSON.stringify({ createdFields, createdMappings, mapped, replaceExisting }),
     });
 
-    return FpaDataMappingService.list(modelId, {});
+    const list = await FpaDataMappingService.list(modelId, {});
+    return {
+      createdFields,
+      createdMappings,
+      summary: list.summary,
+      ...list,
+    };
+  }
+
+  static async seedCatalog(modelId: string, body: any, user: any) {
+    FpaDataMappingService.assertBuilder(user);
+    await FpaDataMappingService.assertModel(modelId);
+    const userId = user?.id;
+    const replaceExisting = body.replaceExisting === true || body.replaceExisting === "true";
+    const moduleId = body.moduleId ? String(body.moduleId) : null;
+    const systemsRaw = Array.isArray(body.systems) && body.systems.length
+      ? body.systems.map(String)
+      : ["NetSuite GL", "Salesforce", "Workday HR", "Plaid (Bank)"];
+
+    const lineItems = await prisma.planningLineItem.findMany({
+      where: { modelId, ...(moduleId ? { moduleId } : {}) },
+      select: { id: true, code: true, name: true, moduleId: true },
+    });
+
+    let createdFields = 0;
+    let createdMappings = 0;
+    const now = new Date();
+
+    for (const sys of systemsRaw) {
+      const dataSource = await FpaDataMappingService.ensureDataSource(modelId, sys);
+      if (replaceExisting) {
+        const fields = await prisma.planningSourceField.findMany({
+          where: { dataSourceId: dataSource.id },
+          select: { id: true },
+        });
+        const fieldIds = fields.map((f) => f.id);
+        if (fieldIds.length) {
+          await prisma.planningLineItemMapping.deleteMany({
+            where: {
+              modelId,
+              sourceFieldId: { in: fieldIds },
+              status: { in: ["UNMAPPED", "SUGGESTED"] },
+            },
+          });
+        }
+      }
+
+      const catalog = demoCatalogFields(dataSource.systemCode);
+      for (const item of catalog) {
+        let field = await prisma.planningSourceField.findFirst({
+          where: { dataSourceId: dataSource.id, fieldKey: item.fieldKey },
+        });
+        if (!field) {
+          field = await prisma.planningSourceField.create({
+            data: {
+              dataSourceId: dataSource.id,
+              fieldKey: item.fieldKey,
+              dataType: item.dataType,
+            },
+          });
+          createdFields += 1;
+        }
+
+        let mapping = await prisma.planningLineItemMapping.findFirst({
+          where: { modelId, sourceFieldId: field.id },
+        });
+        if (mapping) {
+          if (mapping.status === "MAPPED" && mapping.lineItemId) continue;
+          const match = fuzzyMatchLineItem(item.fieldKey, lineItems);
+          if (match && !mapping.lineItemId) {
+            await prisma.planningLineItemMapping.update({
+              where: { id: mapping.id },
+              data: {
+                lineItemId: match.id,
+                moduleId: match.moduleId || moduleId,
+                status: "MAPPED",
+                mappedAt: now,
+                mappedById: userId,
+                lastSyncedAt: now,
+              },
+            });
+          } else {
+            await prisma.planningLineItemMapping.update({
+              where: { id: mapping.id },
+              data: { lastSyncedAt: now },
+            });
+          }
+          continue;
+        }
+
+        const match = fuzzyMatchLineItem(item.fieldKey, lineItems);
+        await prisma.planningLineItemMapping.create({
+          data: {
+            modelId,
+            sourceFieldId: field.id,
+            lineItemId: match?.id || null,
+            moduleId: match?.moduleId || moduleId,
+            status: match ? "MAPPED" : "UNMAPPED",
+            mappedAt: match ? now : null,
+            mappedById: match ? userId : null,
+            lastSyncedAt: now,
+          },
+        });
+        createdMappings += 1;
+      }
+    }
+
+    const list = await FpaDataMappingService.list(modelId, moduleId ? { moduleId } : {});
+    await FpaAuditService.log("DATA_MAPPING_SEED_CATALOG", userId, {
+      modelId,
+      moduleId,
+      entityType: "mapping",
+      summary: `Seeded connector catalog (${createdFields} fields, ${createdMappings} mappings)`,
+      reason: JSON.stringify({
+        systems: systemsRaw,
+        createdFields,
+        createdMappings,
+        replaceExisting,
+        summary: list.summary,
+      }),
+    });
+
+    return {
+      createdFields,
+      createdMappings,
+      summary: list.summary,
+    };
+  }
+
+  static async create(modelId: string, body: any, user: any) {
+    FpaDataMappingService.assertBuilder(user);
+    await FpaDataMappingService.assertModel(modelId);
+    const sourceSystem = body.sourceSystem != null ? String(body.sourceSystem).trim() : "";
+    const sourceFieldKey = body.sourceField != null ? String(body.sourceField).trim() : "";
+    if (!sourceSystem || !sourceFieldKey) {
+      throw new FpaError(400, "VALIDATION", "sourceSystem and sourceField are required");
+    }
+
+    const targetLineItemId = body.targetLineItemId ?? body.lineItemId ?? null;
+    let status = body.status != null ? String(body.status).toUpperCase() : null;
+    if (status && !MAPPING_STATUSES.has(status)) {
+      throw new FpaError(400, "VALIDATION", `Invalid status: ${status}`);
+    }
+    const notes = body.notes != null ? String(body.notes) : null;
+    const moduleIdBody = body.moduleId != null ? String(body.moduleId) : null;
+
+    let lineItem = null;
+    if (targetLineItemId) {
+      lineItem = await prisma.planningLineItem.findFirst({
+        where: { id: String(targetLineItemId), modelId },
+      });
+      if (!lineItem) throw new FpaError(400, "VALIDATION", "targetLineItemId must belong to model");
+    }
+
+    if (!status) status = lineItem ? "MAPPED" : "UNMAPPED";
+
+    const dataSource = await FpaDataMappingService.ensureDataSource(modelId, sourceSystem);
+    let field = await prisma.planningSourceField.findFirst({
+      where: { dataSourceId: dataSource.id, fieldKey: sourceFieldKey },
+    });
+    if (!field) {
+      field = await prisma.planningSourceField.create({
+        data: {
+          dataSourceId: dataSource.id,
+          fieldKey: sourceFieldKey,
+          dataType: "CURRENCY",
+        },
+      });
+    }
+
+    const existing = await prisma.planningLineItemMapping.findFirst({
+      where: { modelId, sourceFieldId: field.id },
+      include: {
+        sourceField: { include: { dataSource: true } },
+        lineItem: { select: { id: true, code: true, name: true, moduleId: true } },
+      },
+    });
+    if (existing) {
+      const err: any = new FpaError(
+        409,
+        "MAPPING_EXISTS",
+        `Mapping already exists for ${sourceSystem} / ${sourceFieldKey}`
+      );
+      err.existingId = existing.id;
+      err.existing = toEntry(existing);
+      throw err;
+    }
+
+    const now = new Date();
+    const created = await prisma.planningLineItemMapping.create({
+      data: {
+        modelId,
+        sourceFieldId: field.id,
+        lineItemId: lineItem?.id || null,
+        moduleId: moduleIdBody || lineItem?.moduleId || null,
+        status,
+        notes,
+        mappedAt: lineItem && status === "MAPPED" ? now : null,
+        mappedById: lineItem && status === "MAPPED" ? user?.id || null : null,
+        lastSyncedAt: null,
+      },
+      include: {
+        sourceField: { include: { dataSource: true } },
+        lineItem: { select: { id: true, code: true, name: true, moduleId: true } },
+      },
+    });
+
+    const entry = toEntry(created);
+    await FpaAuditService.log("MAPPING_CREATE", user?.id, {
+      modelId,
+      lineItemId: created.lineItemId,
+      moduleId: created.moduleId,
+      entityType: "mapping",
+      newValue: created.id,
+      summary: `Mapped ${sourceFieldKey} → ${entry.targetLineItemName || "(unmapped)"}`,
+      reason: JSON.stringify({
+        summary: `Mapped ${sourceFieldKey} → ${entry.targetLineItemName || "(unmapped)"}`,
+        entityId: created.id,
+        sourceSystem,
+        sourceField: sourceFieldKey,
+        status,
+      }),
+    });
+
+    return entry;
   }
 
   static async list(modelId: string, query: any = {}) {
@@ -150,7 +532,11 @@ export class FpaDataMappingService {
       filtered = filtered.filter((r) => {
         const code = String(r.sourceField?.dataSource?.systemCode || "").toUpperCase();
         const name = String(r.sourceField?.dataSource?.name || "").toUpperCase();
-        return code.includes(sys) || name.includes(sys) || sys === "NETSUITE" && (code === "ACCOUNTING" || name.includes("NETSUITE"));
+        return (
+          code.includes(sys) ||
+          name.includes(sys) ||
+          (sys === "NETSUITE" && (code === "ACCOUNTING" || code === "NETSUITE_GL" || name.includes("NETSUITE")))
+        );
       });
     }
     if (query.q) {
@@ -158,7 +544,8 @@ export class FpaDataMappingService {
       filtered = filtered.filter((r) => {
         const key = String(r.sourceField?.fieldKey || "").toLowerCase();
         const li = String(r.lineItem?.name || r.lineItem?.code || "").toLowerCase();
-        return key.includes(q) || li.includes(q);
+        const notes = String(r.notes || "").toLowerCase();
+        return key.includes(q) || li.includes(q) || notes.includes(q);
       });
     }
 
@@ -170,24 +557,9 @@ export class FpaDataMappingService {
     const mappedCount = allForSummary.filter((r) => r.status === "MAPPED").length;
     const pct = total ? Math.round((mappedCount / total) * 1000) / 10 : 0;
 
-    const entries = filtered.map((r) => ({
-      id: r.id,
-      sourceField: r.sourceField?.fieldKey || null,
-      sourceFieldId: r.sourceFieldId,
-      sourceSystem: r.sourceField?.dataSource?.name || r.sourceField?.dataSource?.systemCode || null,
-      sourceSystemCode: r.sourceField?.dataSource?.systemCode || null,
-      targetLineItemId: r.lineItemId,
-      targetLineItemName: r.lineItem?.name || null,
-      targetLineItemCode: r.lineItem?.code || null,
-      moduleId: r.moduleId || r.lineItem?.moduleId || null,
-      status: r.status,
-      mappedAt: r.mappedAt,
-      lastSyncedAt: r.lastSyncedAt,
-    }));
-
     return {
       summary: { total, mapped: mappedCount, unmapped: total - mappedCount, pct },
-      entries,
+      entries: filtered.map(toEntry),
       nextCursor: rows.length === take ? String(skip + take) : null,
     };
   }
@@ -197,16 +569,49 @@ export class FpaDataMappingService {
     await FpaDataMappingService.assertModel(modelId);
     const mapping = await prisma.planningLineItemMapping.findFirst({
       where: { id: mappingId, modelId },
+      include: {
+        sourceField: { include: { dataSource: true } },
+        lineItem: { select: { id: true, code: true, name: true } },
+      },
     });
     if (!mapping) throw new FpaError(404, "NOT_FOUND", "Mapping not found");
 
     const data: any = {};
-    if (body.lineItemId !== undefined) {
-      if (body.lineItemId) {
-        const li = await prisma.planningLineItem.findFirst({
-          where: { id: String(body.lineItemId), modelId },
+    const targetLineItemId = body.targetLineItemId !== undefined ? body.targetLineItemId : body.lineItemId;
+
+    if (body.sourceSystem != null || body.sourceField != null) {
+      const sysRaw = body.sourceSystem != null ? String(body.sourceSystem) : mapping.sourceField?.dataSource?.name;
+      const fieldKey = body.sourceField != null ? String(body.sourceField).trim() : mapping.sourceField?.fieldKey;
+      if (sysRaw && fieldKey) {
+        const dataSource = await FpaDataMappingService.ensureDataSource(modelId, sysRaw);
+        let field = await prisma.planningSourceField.findFirst({
+          where: { dataSourceId: dataSource.id, fieldKey },
         });
-        if (!li) throw new FpaError(400, "VALIDATION", "lineItemId must belong to model");
+        if (!field) {
+          field = await prisma.planningSourceField.create({
+            data: { dataSourceId: dataSource.id, fieldKey, dataType: "CURRENCY" },
+          });
+        }
+        if (field.id !== mapping.sourceFieldId) {
+          const clash = await prisma.planningLineItemMapping.findFirst({
+            where: { modelId, sourceFieldId: field.id, NOT: { id: mappingId } },
+          });
+          if (clash) {
+            const err: any = new FpaError(409, "MAPPING_EXISTS", "Another mapping already uses this source field");
+            err.existingId = clash.id;
+            throw err;
+          }
+          data.sourceFieldId = field.id;
+        }
+      }
+    }
+
+    if (targetLineItemId !== undefined) {
+      if (targetLineItemId) {
+        const li = await prisma.planningLineItem.findFirst({
+          where: { id: String(targetLineItemId), modelId },
+        });
+        if (!li) throw new FpaError(400, "VALIDATION", "targetLineItemId must belong to model");
         data.lineItemId = li.id;
         data.moduleId = body.moduleId != null ? String(body.moduleId) : li.moduleId;
         data.status = "MAPPED";
@@ -220,13 +625,16 @@ export class FpaDataMappingService {
         data.mappedById = null;
       }
     }
-    if (body.moduleId !== undefined && body.lineItemId === undefined) {
+    if (body.moduleId !== undefined && targetLineItemId === undefined) {
       data.moduleId = body.moduleId ? String(body.moduleId) : null;
     }
     if (body.status != null) {
       const st = String(body.status).toUpperCase();
       if (!MAPPING_STATUSES.has(st)) throw new FpaError(400, "VALIDATION", `Invalid status: ${st}`);
       data.status = st;
+    }
+    if (body.notes !== undefined) {
+      data.notes = body.notes != null ? String(body.notes) : null;
     }
 
     const updated = await prisma.planningLineItemMapping.update({
@@ -238,24 +646,56 @@ export class FpaDataMappingService {
       },
     });
 
-    await FpaAuditService.log("DATA_MAPPING_UPDATE", user?.id, {
+    const entry = toEntry(updated);
+    const summary = `Updated mapping ${entry.sourceField} → ${entry.targetLineItemName || "(unmapped)"}`;
+    await FpaAuditService.log("MAPPING_UPDATE", user?.id, {
       modelId,
       lineItemId: updated.lineItemId,
       moduleId: updated.moduleId,
-      entityType: "DATA_MAPPING",
+      entityType: "mapping",
       newValue: updated.id,
-      reason: JSON.stringify({ before: { status: mapping.status, lineItemId: mapping.lineItemId }, after: { status: updated.status, lineItemId: updated.lineItemId } }),
+      summary,
+      reason: JSON.stringify({
+        summary,
+        entityId: updated.id,
+        before: { status: mapping.status, lineItemId: mapping.lineItemId },
+        after: { status: updated.status, lineItemId: updated.lineItemId },
+      }),
     });
 
-    return {
-      id: updated.id,
-      sourceField: updated.sourceField?.fieldKey || null,
-      sourceSystem: updated.sourceField?.dataSource?.name || null,
-      targetLineItemId: updated.lineItemId,
-      targetLineItemName: updated.lineItem?.name || null,
-      status: updated.status,
-      moduleId: updated.moduleId,
-      lastSyncedAt: updated.lastSyncedAt,
-    };
+    return entry;
+  }
+
+  static async remove(modelId: string, mappingId: string, user: any) {
+    FpaDataMappingService.assertBuilder(user);
+    await FpaDataMappingService.assertModel(modelId);
+    const mapping = await prisma.planningLineItemMapping.findFirst({
+      where: { id: mappingId, modelId },
+      include: {
+        sourceField: { include: { dataSource: true } },
+        lineItem: { select: { id: true, name: true } },
+      },
+    });
+    if (!mapping) throw new FpaError(404, "NOT_FOUND", "Mapping not found");
+
+    await prisma.planningLineItemMapping.delete({ where: { id: mappingId } });
+
+    const fieldKey = mapping.sourceField?.fieldKey || mappingId;
+    const liName = mapping.lineItem?.name || "(unmapped)";
+    await FpaAuditService.log("MAPPING_DELETE", user?.id, {
+      modelId,
+      lineItemId: mapping.lineItemId,
+      moduleId: mapping.moduleId,
+      entityType: "mapping",
+      oldValue: mappingId,
+      summary: `Removed mapping ${fieldKey} → ${liName}`,
+      reason: JSON.stringify({
+        summary: `Removed mapping ${fieldKey} → ${liName}`,
+        entityId: mappingId,
+        sourceField: fieldKey,
+      }),
+    });
+
+    return { id: mappingId, deleted: true };
   }
 }

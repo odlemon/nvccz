@@ -242,6 +242,7 @@
     "db:migrate:fpa-model-builder-modules": "ts-node --transpile-only -r dotenv/config scripts/run-fpa-model-builder-modules-migration.ts",
     "db:migrate:fpa-model-builder-fe-contract": "ts-node --transpile-only -r dotenv/config scripts/run-fpa-model-builder-fe-contract-migration.ts",
     "db:migrate:fpa-detailed-workspace": "ts-node --transpile-only -r dotenv/config scripts/run-fpa-detailed-workspace-migration.ts",
+    "db:migrate:fpa-data-mapping-crud": "ts-node --transpile-only -r dotenv/config scripts/run-fpa-data-mapping-crud-migration.ts",
     "db:clear:fpa": "ts-node --transpile-only -r dotenv/config scripts/clear-fpa-planning-data.ts",
     "db:seed:fpa-demo": "ts-node --transpile-only -r dotenv/config scripts/seed-fpa-client-demo.ts",
     "db:reset:fpa-demo": "npm run db:clear:fpa && npm run db:seed:fpa-demo",

@@ -63,15 +63,6 @@ export class FpaSensitivityService {
     let targetIds: string[] = Array.isArray(body.targetLineItemIds)
       ? body.targetLineItemIds.map(String)
       : [];
-    if (!targetIds.length) {
-      targetIds = lineItems
-        .filter((l) => {
-          const code = String(l.code || "").toUpperCase();
-          const name = String(l.name || "").toUpperCase();
-          return code === "EBITDA" || code.includes("CASH") || name.includes("CASH");
-        })
-        .map((l) => l.id);
-    }
 
     const periodFrom = body.periodRange?.from ? new Date(body.periodRange.from) : null;
     const periodTo = body.periodRange?.to ? new Date(body.periodRange.to) : null;
@@ -90,6 +81,26 @@ export class FpaSensitivityService {
       }));
     const formulaByCode = Object.fromEntries(formulaRows.map((f) => [f.code, f]));
     const evalOrder = topoOrder(formulaRows);
+
+    if (!targetIds.length) {
+      const driverCode = String(driverLi.code || "").toUpperCase();
+      const dependentIds = formulaRows
+        .filter((f) => FpaFormulaEngine.extractLineCodes(f.expression).includes(driverCode))
+        .map((f) => f.lineItemId);
+      const kpiIds = lineItems
+        .filter((l) => {
+          const code = String(l.code || "").toUpperCase();
+          const name = String(l.name || "").toUpperCase();
+          return (
+            code === "EBITDA" ||
+            code.includes("CASH") ||
+            name.includes("CASH") ||
+            name.includes("EBITDA")
+          );
+        })
+        .map((l) => l.id);
+      targetIds = [...new Set([...kpiIds, ...dependentIds])].filter((id) => id !== driverLineItemId);
+    }
 
     const cells = await prisma.planningCell.findMany({
       where: { modelId, versionId, scenarioId },
@@ -183,22 +194,31 @@ export class FpaSensitivityService {
       periods,
       baseCase: baseByLi[primary.lineItemId] || [],
       shocked: shockedByLi[primary.lineItemId] || [],
-      unit: "CURRENCY",
+      unit: "USD",
       lineItemId: primary.lineItemId,
       lineItemName: primary.name,
     };
 
-    return {
+    const shockLabel = `${shockValue >= 0 ? "+" : ""}${shockValue}%`;
+    const result: any = {
       driver: {
         lineItemId: driverLi.id,
         code: driverLi.code,
         name: driverLi.name,
         shock: { type: "PERCENT", value: shockValue },
+        shockLabel,
       },
       impacts,
       series,
       versionId,
       scenarioId,
     };
+
+    if (!impacts.length) {
+      result.message =
+        "No calculated dependents with values for this driver. Seed cells and formulas first.";
+    }
+
+    return result;
   }
 }

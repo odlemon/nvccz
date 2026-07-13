@@ -5,6 +5,26 @@ import { FpaAccessService } from "./FpaAccessService";
 import { FpaAuditService } from "./FpaAuditService";
 
 export class FpaVersionService {
+  static async listByModel(modelId: string) {
+    const model = await prisma.planningModel.findUnique({ where: { id: modelId } });
+    if (!model) throw new FpaError(404, "NOT_FOUND", "Model not found");
+    return prisma.planningVersion.findMany({
+      where: { modelId },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        modelId: true,
+        name: true,
+        status: true,
+        lockedAt: true,
+        publishedAt: true,
+        createdById: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
   static async create(input: any, userId: string, ip?: string) {
     const modelId = input.modelId;
     if (!modelId || !input.name) throw new FpaError(400, "VALIDATION", "modelId and name required");
@@ -79,10 +99,14 @@ export class FpaVersionService {
     }
 
     const existingCount = await prisma.planningCell.count({ where: { versionId } });
-    if (existingCount > 0 && !input.force) {
-      throw new FpaError(409, "CELLS_EXIST", "Version already has cells; pass force=true to acknowledge, or use a new version");
-    }
-    if (existingCount > 0 && input.force) {
+    // Legacy: force without fillMissing acknowledges "already seeded" and skips.
+    // Default (and fillMissing=true): materialize missing (lineItem × period) rows — required for draft grids.
+    const fillMissing =
+      input.fillMissing === true ||
+      input.fillMissing === "true" ||
+      input.materialize === true ||
+      !input.force;
+    if (existingCount > 0 && input.force && !fillMissing) {
       return { versionId, cellsSeeded: 0, total: existingCount, skipped: true };
     }
 
@@ -117,11 +141,13 @@ export class FpaVersionService {
       await FpaAuditService.log("VERSION_SEED_CELLS", userId, {
         modelId: version.modelId,
         versionId,
+        entityType: "cell",
         oldValue: String(copyFromVersionId),
+        summary: `Seeded cells from version ${copyFromVersionId}`,
         ip,
       });
       const total = await prisma.planningCell.count({ where: { versionId } });
-      return { versionId, cellsSeeded: sourceCells.length, total };
+      return { versionId, cellsSeeded: Math.max(0, total - existingCount), total };
     }
 
     const scenarioId = input.scenarioId;
@@ -162,9 +188,18 @@ export class FpaVersionService {
     if (rows.length) {
       await prisma.planningCell.createMany({ data: rows, skipDuplicates: true });
     }
-    await FpaAuditService.log("VERSION_SEED_CELLS", userId, { modelId: version.modelId, versionId, ip });
     const total = await prisma.planningCell.count({ where: { versionId } });
-    return { versionId, cellsSeeded: rows.length, total };
+    const cellsSeeded = Math.max(0, total - existingCount);
+    await FpaAuditService.log("VERSION_SEED_CELLS", userId, {
+      modelId: version.modelId,
+      versionId,
+      entityType: "cell",
+      summary: cellsSeeded
+        ? `Materialized ${cellsSeeded} missing grid cells (${total} total)`
+        : `Grid already complete (${total} cells)`,
+      ip,
+    });
+    return { versionId, cellsSeeded, total, filledMissing: existingCount > 0 };
   }
 
   static async lock(versionId: string, user: any, reason?: string, ip?: string) {

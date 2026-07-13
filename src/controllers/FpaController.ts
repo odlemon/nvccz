@@ -42,6 +42,9 @@ function handleError(res: Response, e: any) {
     message: e?.message || "Internal error",
   };
   if (Array.isArray(e?.errors) && e.errors.length) body.errors = e.errors;
+  if (e?.existingId) body.existingId = e.existingId;
+  if (e?.existing) body.existing = e.existing;
+  if (status >= 500) console.error("[FPA]", e);
   res.status(status).json(body);
 }
 
@@ -172,6 +175,15 @@ export class FpaController {
     }
   }
 
+  static async createDataMapping(req: Request, res: Response) {
+    try {
+      const data = await FpaDataMappingService.create(req.params.modelId, req.body || {}, userOf(req));
+      res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
   static async updateDataMapping(req: Request, res: Response) {
     try {
       const data = await FpaDataMappingService.update(
@@ -186,9 +198,27 @@ export class FpaController {
     }
   }
 
+  static async deleteDataMapping(req: Request, res: Response) {
+    try {
+      const data = await FpaDataMappingService.remove(req.params.modelId, req.params.mappingId, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async seedDataMappingCatalog(req: Request, res: Response) {
+    try {
+      const data = await FpaDataMappingService.seedCatalog(req.params.modelId, req.body || {}, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
   static async refreshDataMappings(req: Request, res: Response) {
     try {
-      const data = await FpaDataMappingService.refresh(req.params.modelId, userOf(req));
+      const data = await FpaDataMappingService.refresh(req.params.modelId, userOf(req), req.body || {});
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
@@ -658,6 +688,24 @@ export class FpaController {
   static async getModel(req: Request, res: Response) {
     try {
       const data = await FpaModelService.get(req.params.modelId);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listModelVersions(req: Request, res: Response) {
+    try {
+      const data = await FpaVersionService.listByModel(req.params.modelId);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listModelScenarios(req: Request, res: Response) {
+    try {
+      const data = await FpaScenarioService.list(req.params.modelId);
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);

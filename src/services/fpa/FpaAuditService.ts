@@ -9,6 +9,8 @@ export type FpaAuditPayload = {
   lineItemId?: string | null;
   moduleId?: string | null;
   entityType?: string | null;
+  entityId?: string | null;
+  summary?: string | null;
   oldValue?: string | number | null;
   newValue?: string | number | null;
   reason?: string | null;
@@ -18,6 +20,23 @@ export type FpaAuditPayload = {
 export class FpaAuditService {
   static async log(actionType: string, userId: string, payload: FpaAuditPayload = {}) {
     if (!userId) return null;
+    let reason = payload.reason || null;
+    if (payload.summary || payload.entityId) {
+      let obj: any = {};
+      if (reason) {
+        try {
+          const parsed = JSON.parse(reason);
+          if (parsed && typeof parsed === "object") obj = { ...parsed };
+          else obj.detail = reason;
+        } catch {
+          obj.detail = reason;
+        }
+      }
+      if (payload.summary) obj.summary = payload.summary;
+      if (payload.entityId) obj.entityId = payload.entityId;
+      if (payload.entityType && !obj.entityType) obj.entityType = payload.entityType;
+      reason = JSON.stringify(obj);
+    }
     return prisma.planningAuditLog.create({
       data: {
         actionType,
@@ -31,7 +50,7 @@ export class FpaAuditService {
         entityType: payload.entityType || null,
         oldValue: payload.oldValue != null ? String(payload.oldValue) : null,
         newValue: payload.newValue != null ? String(payload.newValue) : null,
-        reason: payload.reason || null,
+        reason: reason || null,
         ipAddress: payload.ip || null,
       },
     });

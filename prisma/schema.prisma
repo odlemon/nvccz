@@ -6396,6 +6396,7 @@ model PlanningLineItemMapping {
   lineItemId    String?   @map("line_item_id")
   moduleId      String?   @map("module_id")
   status        String    @default("UNMAPPED") @db.VarChar(32)
+  notes         String?   @db.Text
   mappedAt      DateTime? @map("mapped_at")
   mappedById    String?   @map("mapped_by")
   lastSyncedAt  DateTime? @map("last_synced_at")
@@ -6406,6 +6407,7 @@ model PlanningLineItemMapping {
   sourceField PlanningSourceField @relation(fields: [sourceFieldId], references: [id], onDelete: Cascade)
   lineItem    PlanningLineItem?   @relation(fields: [lineItemId], references: [id], onDelete: SetNull)
 
+  @@unique([modelId, sourceFieldId], map: "planning_li_mappings_model_field_key")
   @@index([modelId, moduleId], map: "planning_li_mappings_model_module_idx")
   @@index([modelId, status], map: "planning_li_mappings_model_status_idx")
   @@map("planning_line_item_mappings")

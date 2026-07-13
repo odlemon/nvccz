@@ -232,24 +232,91 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
         queryParam("cursor", { type: "string" }),
       ],
     }),
-  },
-  "/v1/fpa/models/{modelId}/data-mappings/{mappingId}": {
-    put: op("Update a data mapping (target line item / status)", {
-      parameters: [modelId, pathParam("mappingId", "cuid")],
+    post: op("Create a data mapping from Add Mapping form", {
+      parameters: [modelId],
       requestBody: jsonRequestBody({
         schema: {
           type: "object",
+          required: ["sourceSystem", "sourceField"],
           properties: {
-            lineItemId: { type: "string", nullable: true },
-            moduleId: { type: "string", nullable: true },
-            status: { type: "string", enum: ["MAPPED", "UNMAPPED", "TYPE_MISMATCH", "STALE"] },
+            sourceSystem: { type: "string", example: "NetSuite GL" },
+            sourceField: { type: "string", example: "GL_ACCOUNT.4000" },
+            targetLineItemId: { type: "string" },
+            status: {
+              type: "string",
+              enum: ["MAPPED", "UNMAPPED", "SUGGESTED", "TYPE_MISMATCH", "STALE"],
+            },
+            notes: { type: "string" },
+            moduleId: { type: "string" },
           },
         },
       }),
     }),
   },
+  "/v1/fpa/models/{modelId}/data-mappings/seed-catalog": {
+    post: op("Seed demo connector catalog (NetSuite / Salesforce / Workday / Plaid)", {
+      parameters: [modelId],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          properties: {
+            systems: {
+              type: "array",
+              items: { type: "string" },
+              example: ["NetSuite GL", "Salesforce", "Workday HR", "Plaid (Bank)"],
+            },
+            moduleId: { type: "string" },
+            replaceExisting: { type: "boolean", default: false },
+          },
+        },
+      }),
+    }),
+  },
+  "/v1/fpa/models/{modelId}/data-mappings/{mappingId}": {
+    put: op("Update a data mapping (target line item / status / notes)", {
+      parameters: [modelId, pathParam("mappingId", "cuid")],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          properties: {
+            sourceSystem: { type: "string" },
+            sourceField: { type: "string" },
+            targetLineItemId: { type: "string", nullable: true },
+            lineItemId: { type: "string", nullable: true },
+            moduleId: { type: "string", nullable: true },
+            status: {
+              type: "string",
+              enum: ["MAPPED", "UNMAPPED", "SUGGESTED", "TYPE_MISMATCH", "STALE"],
+            },
+            notes: { type: "string", nullable: true },
+          },
+        },
+      }),
+    }),
+    delete: op("Delete a data mapping", {
+      parameters: [modelId, pathParam("mappingId", "cuid")],
+    }),
+  },
   "/v1/fpa/models/{modelId}/data-mappings/refresh": {
-    post: op("Refresh mappings from model COA (NetSuite GL / ACCOUNTING)", { parameters: [modelId] }),
+    post: op("Refresh mappings from model COA (NetSuite GL / ACCOUNTING); does not wipe manual MAPPED rows", {
+      parameters: [modelId],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          properties: {
+            replaceExisting: { type: "boolean", default: false },
+          },
+        },
+      }),
+    }),
+  },
+  "/v1/fpa/models/{modelId}/versions": {
+    get: op("List versions for a model (nested REST)", { parameters: [modelId] }),
+  },
+  "/v1/fpa/models/{modelId}/scenarios": {
+    get: op("List scenarios for a model (nested REST; mirrors GET /scenarios?modelId=)", {
+      parameters: [modelId],
+    }),
   },
   "/v1/fpa/models/{modelId}/sensitivity-analysis": {
     post: op("What-if sensitivity (PERCENT shock on driver line; no persisted scenario)", {

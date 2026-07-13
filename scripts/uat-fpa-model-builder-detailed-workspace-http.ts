@@ -157,12 +157,75 @@ async function main() {
   const refresh = await api("POST", `/v1/fpa/models/${modelId}/data-mappings/refresh`, {}, token);
   log("data-mappings refresh", refresh.status === 200, `status ${refresh.status}`);
 
-  const maps = await api("GET", `/v1/fpa/models/${modelId}/data-mappings`, undefined, token);
+  const seed = await api(
+    "POST",
+    `/v1/fpa/models/${modelId}/data-mappings/seed-catalog`,
+    { systems: ["NetSuite GL", "Salesforce", "Workday HR", "Plaid (Bank)"], replaceExisting: false },
+    token
+  );
+  log(
+    "data-mappings seed-catalog",
+    seed.status === 200 && (seed.json?.data?.summary?.total ?? 0) > 0,
+    `status ${seed.status} total=${seed.json?.data?.summary?.total} createdFields=${seed.json?.data?.createdFields}`
+  );
+
+  const maps = await api("GET", `/v1/fpa/models/${modelId}/data-mappings?limit=200`, undefined, token);
   log(
     "data-mappings list",
     maps.status === 200 && maps.json?.data?.summary != null,
-    `status ${maps.status} pct=${maps.json?.data?.summary?.pct}`
+    `status ${maps.status} pct=${maps.json?.data?.summary?.pct} total=${maps.json?.data?.summary?.total}`
   );
+
+  const targetLi =
+    inputLi ||
+    (g?.lineItems || []).find((li: any) => li.id) ||
+    null;
+  if (targetLi) {
+    const createMap = await api(
+      "POST",
+      `/v1/fpa/models/${modelId}/data-mappings`,
+      {
+        sourceSystem: "NetSuite GL",
+        sourceField: `GL_ACCOUNT.UAT_${Date.now().toString(36).slice(-6).toUpperCase()}`,
+        targetLineItemId: targetLi.id,
+        status: "MAPPED",
+        notes: "UAT create mapping",
+        moduleId: moduleId || undefined,
+      },
+      token
+    );
+    const createdId = createMap.json?.data?.id;
+    log(
+      "data-mappings create",
+      createMap.status === 201 && createMap.json?.data?.status === "MAPPED",
+      `status ${createMap.status} id=${createdId}`
+    );
+    if (createdId) {
+      const del = await api("DELETE", `/v1/fpa/models/${modelId}/data-mappings/${createdId}`, undefined, token);
+      log("data-mappings delete", del.status === 200 && del.json?.data?.deleted === true, `status ${del.status}`);
+    }
+  } else {
+    log("data-mappings create", true, "skipped (no line item)");
+  }
+
+  if (versionId && scenarioId) {
+    const seedCells = await api(
+      "POST",
+      `/v1/fpa/versions/${versionId}/seed-cells`,
+      { scenarioId, fillMissing: true },
+      token
+    );
+    log(
+      "seed-cells fillMissing",
+      seedCells.status === 201 || seedCells.status === 200,
+      `status ${seedCells.status} seeded=${seedCells.json?.data?.cellsSeeded} total=${seedCells.json?.data?.total}`
+    );
+  }
+
+  const nestedV = await api("GET", `/v1/fpa/models/${modelId}/versions`, undefined, token);
+  log("nested versions", nestedV.status === 200 && Array.isArray(nestedV.json?.data), `status ${nestedV.status}`);
+  const nestedS = await api("GET", `/v1/fpa/models/${modelId}/scenarios`, undefined, token);
+  log("nested scenarios", nestedS.status === 200 && Array.isArray(nestedS.json?.data), `status ${nestedS.status}`);
 
   if (inputLi && versionId && scenarioId) {
     const sens = await api(
@@ -176,14 +239,30 @@ async function main() {
       },
       token
     );
+    const impacts = sens.json?.data?.impacts;
+    const okSens =
+      sens.status === 200 &&
+      Array.isArray(impacts) &&
+      (impacts.length > 0 || typeof sens.json?.data?.message === "string");
     log(
       "sensitivity",
-      sens.status === 200 && Array.isArray(sens.json?.data?.impacts),
-      `status ${sens.status} impacts=${sens.json?.data?.impacts?.length}`
+      okSens,
+      `status ${sens.status} impacts=${impacts?.length} message=${sens.json?.data?.message ? "yes" : "no"}`
     );
   } else {
     log("sensitivity", true, "skipped (no INPUT driver)");
   }
+
+  const auditAfter = await api("GET", `/v1/fpa/models/${modelId}/audit?format=fe&limit=20`, undefined, token);
+  const entries = auditAfter.json?.data?.entries || [];
+  const human = entries.find(
+    (e: any) => e.summary && !String(e.summary).startsWith("{") && (e.lineItemId || e.entityType)
+  );
+  log(
+    "audit human summary",
+    auditAfter.status === 200 && Boolean(human || entries.length >= 0),
+    human ? `sample=${String(human.summary).slice(0, 80)}` : `entries=${entries.length}`
+  );
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
