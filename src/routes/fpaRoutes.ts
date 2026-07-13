@@ -52,6 +52,7 @@ router.post(
 router.put("/models/:modelId/data-mappings/:mappingId", FpaController.updateDataMapping);
 router.delete("/models/:modelId/data-mappings/:mappingId", FpaController.deleteDataMapping);
 router.post("/models/:modelId/sensitivity-analysis", FpaController.sensitivityAnalysis);
+router.get("/models/:modelId/variance-bridge", FpaController.varianceBridge);
 router.put("/modules/:moduleId", FpaController.updateModule);
 router.delete("/modules/:moduleId", FpaController.deleteModule);
 router.post("/modules/:moduleId/duplicate", FpaController.duplicateModule);

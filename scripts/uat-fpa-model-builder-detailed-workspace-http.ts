@@ -310,6 +310,21 @@ async function main() {
     log("sensitivity", true, "skipped (no INPUT driver)");
   }
 
+  const bridgeQs = new URLSearchParams({
+    metric: "REVENUE",
+    from: "BUDGET",
+    to: "FORECAST",
+    ...(versionId ? { versionId } : {}),
+    ...(scenarioId ? { scenarioId } : {}),
+  });
+  const bridge = await api("GET", `/v1/fpa/models/${modelId}/variance-bridge?${bridgeQs}`, undefined, token);
+  const pts = bridge.json?.data?.points;
+  log(
+    "variance-bridge",
+    bridge.status === 200 && Array.isArray(pts) && pts.length >= 3,
+    `status ${bridge.status} points=${pts?.length} variance=${bridge.json?.data?.variance}`
+  );
+
   const auditAfter = await api("GET", `/v1/fpa/models/${modelId}/audit?format=fe&limit=20`, undefined, token);
   const entries = auditAfter.json?.data?.entries || [];
   const human = entries.find(

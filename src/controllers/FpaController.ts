@@ -1265,6 +1265,15 @@ export class FpaController {
     }
   }
 
+  static async varianceBridge(req: Request, res: Response) {
+    try {
+      const data = await FpaVarianceService.varianceBridge(req.params.modelId, req.query || {});
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
   // Home
   static async homeDashboard(req: Request, res: Response) {
     try {

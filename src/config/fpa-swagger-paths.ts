@@ -388,6 +388,19 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
       }),
     }),
   },
+  "/v1/fpa/models/{modelId}/variance-bridge": {
+    get: op("Variance waterfall bridge v1 (Budget → Variance → Forecast/Actual)", {
+      parameters: [
+        modelId,
+        queryParam("metric", { type: "string" }, "REVENUE"),
+        queryParam("from", { type: "string" }, "BUDGET"),
+        queryParam("to", { type: "string" }, "FORECAST"),
+        queryParam("versionId", { type: "string" }),
+        queryParam("scenarioId", { type: "string" }),
+        queryParam("cycleId", { type: "string" }),
+      ],
+    }),
+  },
   "/v1/fpa/models/{modelId}/cells/update": {
     post: op("Update or upsert cell (injects path modelId; creates cell if coords given on empty version)", {
       parameters: [modelId],
