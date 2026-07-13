@@ -59,6 +59,20 @@ Primary model includes:
 
 Owners/tasks mix `PENDING` / `SUBMITTED` / `RETURNED` / `APPROVED` with comments and approval history.
 
+## Key IDs (`nts` / dev-api after last reset)
+
+Re-run prints a fresh SUMMARY JSON; IDs change each wipe. Latest `nts` snapshot:
+
+| Entity | Id |
+|--------|-----|
+| Primary model | `cmrit7p9bde24f847206ef251` |
+| Published version (LOCKED) | `cmrit7pbr476ad62f4317f3a9` |
+| Working version (DRAFT) | `cmrit7pbr00872796a298004d` |
+| BASE / UPSIDE / DOWNSIDE | see seed SUMMARY |
+| Board Pack / FY2027 Draft | see seed SUMMARY |
+
+`demo_env` has its own IDs (printed when that DB is seeded).
+
 ## FE click path (suggested)
 
 1. **Model Builder** → open **FY2026 Operating P&L** → modules / formulas / publish state; peek at **FY2027 Draft** and archived Board Pack.
