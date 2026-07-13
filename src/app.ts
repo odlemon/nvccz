@@ -212,7 +212,11 @@ app.use(cors({
       "http://localhost:3001",
       "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io",
       "http://yoogo0gw888okwwsgk0s88og.31.220.82.129.sslip.io",
-      "http://rk0kkk0wok0c4c8s48wc04k0.31.220.82.129.sslip.io"
+      "http://rk0kkk0wok0c4c8s48wc04k0.31.220.82.129.sslip.io",
+      "https://demo.31.220.82.129.sslip.io",
+      "https://demo-api.31.220.82.129.sslip.io",
+      "https://demo.arcus.co.zw",
+      "https://demo-api.arcus.co.zw"
     ];
     
     // Allow all Vercel preview deployments for development
