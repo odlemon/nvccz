@@ -135,18 +135,25 @@ export class FpaGridService {
 
     let assignedDepartmentIds: string[] | null = null;
     let cycleMeta: any = null;
+    let cycleCtx: Awaited<
+      ReturnType<typeof import("./FpaPlanningCycleContextService").FpaPlanningCycleContextService.resolve>
+    > = null;
     if (opts.cycleId && user) {
-      cycleMeta = await prisma.planningBudgetCycle.findUnique({ where: { id: String(opts.cycleId) } });
-      if (cycleMeta) {
-        if (!opts.versionId) where.versionId = cycleMeta.versionId;
-        if (!opts.scenarioId && cycleMeta.scenarioId) where.scenarioId = cycleMeta.scenarioId;
-      }
-      assignedDepartmentIds = await FpaAccessService.resolveCycleDepartmentIds(user, opts.cycleId);
-      if (assignedDepartmentIds && assignedDepartmentIds.length === 0) {
-        throw new FpaError(403, "FORBIDDEN", "You are not assigned to this budget cycle");
-      }
-      if (assignedDepartmentIds?.length) {
-        where.OR = [{ departmentId: { in: assignedDepartmentIds } }, { departmentId: null }];
+      const { FpaPlanningCycleContextService } = await import("./FpaPlanningCycleContextService");
+      cycleCtx = await FpaPlanningCycleContextService.resolve(String(opts.cycleId));
+      if (cycleCtx) {
+        cycleMeta = cycleCtx.cycle;
+        if (!opts.versionId) where.versionId = cycleCtx.versionId;
+        if (!opts.scenarioId && cycleCtx.scenarioId) where.scenarioId = cycleCtx.scenarioId;
+        if (cycleCtx.kind === "budget") {
+          assignedDepartmentIds = await FpaAccessService.resolveCycleDepartmentIds(user, opts.cycleId);
+          if (assignedDepartmentIds && assignedDepartmentIds.length === 0) {
+            throw new FpaError(403, "FORBIDDEN", "You are not assigned to this budget cycle");
+          }
+          if (assignedDepartmentIds?.length) {
+            where.OR = [{ departmentId: { in: assignedDepartmentIds } }, { departmentId: null }];
+          }
+        }
       }
     }
     if (opts.departmentId) where.departmentId = String(opts.departmentId);
@@ -163,7 +170,11 @@ export class FpaGridService {
     }
 
     let actualCutoff = await FpaGridService.resolveActualCutoff(modelId);
-    if (cycleMeta?.actualsCutoffDate) actualCutoff = monthStart(new Date(cycleMeta.actualsCutoffDate));
+    if (cycleCtx?.actualsCutoffDate) {
+      actualCutoff = monthStart(new Date(cycleCtx.actualsCutoffDate));
+    } else if (cycleMeta?.actualsCutoffDate) {
+      actualCutoff = monthStart(new Date(cycleMeta.actualsCutoffDate));
+    }
 
     const [model, total, cells, formulas, allCellsForTotals] = await Promise.all([
       prisma.planningModel.findUnique({

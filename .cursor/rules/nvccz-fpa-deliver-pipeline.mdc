@@ -1,0 +1,16 @@
+---
+description: After implementing FP&A (or similar) APIs — migrate all 3 DBs, push, deploy VPS, write dedicated API docs
+alwaysApply: true
+---
+
+# FP&A / feature delivery checklist (NVCCZ)
+
+When the user asks you to **implement** a new FP&A (or comparable backend) feature from FE/API requirements, finish the full pipeline in the **same turn** unless they explicitly say not to deploy:
+
+1. **Implement** code + idempotent migration script + `package.json` `db:migrate:…` entry.
+2. **Dedicated API docs** — separate markdown under `docs/` (e.g. `docs/fpa-*-api.md`), not only a mention inside a mega reference. Include endpoints, request/response examples, enums, errors, acceptance checklist.
+3. **Migrate all three MySQL DBs** on the VPS: `nts`, `client1_db`, `demo_env` (override `DATABASE_URL`; same pattern as `scripts/run-fpa-*-migration-all-dbs-vps.py`).
+4. **Commit** (when delivering the feature), **push** to `origin` (current branch / `master`).
+5. **Deploy VPS**: pull `nts` then `client1` (and `demo_env` if present), `npm i`, `prisma generate`, `npm run build`, `pm2 restart all`. Credentials: `.cursor/deploy-vps.credentials.local`.
+
+Do not stop at “local only” or “say if you want deploy” for these implement requests — run migrations + push + deploy + docs by default.

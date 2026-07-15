@@ -484,6 +484,7 @@ async function seedPrimaryModel(adminId: string, depts: { id: string }[], accoun
     data: {
       id: modelId,
       name: "FY2026 Operating P&L",
+      code: "FY2026_OPERATING_PL",
       modelType: "BUDGET",
       description:
         "Arcus Holdings primary operating P&L for FY2026 — Model Builder / Planning / Budgeting demo",
@@ -904,6 +905,7 @@ async function seedBoardPackModel(adminId: string) {
     data: {
       id: modelId,
       name: "FY2026 Board Pack Model",
+      code: "FY2026_BOARD_PACK",
       modelType: "BUDGET",
       description: "Simplified archived board pack cut for FY2026",
       ownerUserId: adminId,
@@ -1075,6 +1077,7 @@ async function seedDraft2027Model(adminId: string) {
     data: {
       id: modelId,
       name: "FY2027 Draft Structure",
+      code: "FY2027_DRAFT",
       modelType: "BUDGET",
       description: "Early FY2027 draft — Revenue + Opex skeleton only",
       ownerUserId: adminId,
@@ -1526,6 +1529,81 @@ async function seedBudgetCycles(
   return cycleIds;
 }
 
+async function seedModelPlanningCycles(
+  adminId: string,
+  primary: Awaited<ReturnType<typeof seedPrimaryModel>>
+) {
+  const cycleIds: Record<string, string> = {};
+  const defs = LITE
+    ? [
+        {
+          key: "FY2026 Annual Budget Planning",
+          name: "FY2026 Annual Budget Planning",
+          financialYear: 2026,
+          planningType: "ANNUAL_BUDGET",
+          status: "OPEN",
+        },
+      ]
+    : [
+        {
+          key: "FY2026 Annual Budget Planning",
+          name: "FY2026 Annual Budget Planning",
+          financialYear: 2026,
+          planningType: "ANNUAL_BUDGET",
+          status: "OPEN",
+        },
+        {
+          key: "FY2026 Rolling Forecast Q2",
+          name: "FY2026 Rolling Forecast Q2",
+          financialYear: 2026,
+          planningType: "ROLLING_FORECAST",
+          status: "DRAFT",
+        },
+        {
+          key: "FY2027 Long Range Plan",
+          name: "FY2027 Long Range Plan",
+          financialYear: 2027,
+          planningType: "LONG_RANGE_PLAN",
+          status: "DRAFT",
+        },
+      ];
+
+  for (const def of defs) {
+    const existing = await prisma.modelPlanningCycle.findFirst({
+      where: { name: def.name, sourceModelId: primary.modelId },
+      select: { id: true },
+    });
+    if (existing) {
+      cycleIds[def.key] = existing.id;
+      continue;
+    }
+
+    const id = cuid();
+    cycleIds[def.key] = id;
+    await prisma.modelPlanningCycle.create({
+      data: {
+        id,
+        name: def.name,
+        financialYear: def.financialYear,
+        planningType: def.planningType,
+        sourceModelId: primary.modelId,
+        sourceModelVersionId: primary.publishedVersionId,
+        actualsCutoffPeriod: monthDate(2025, 11),
+        forecastStartPeriod: monthDate(2026, 0),
+        planningHorizon: 12,
+        baseScenarioId: primary.scenarioIds.BASE,
+        submissionDeadline: new Date("2026-02-28T00:00:00.000Z"),
+        planningOwnerId: adminId,
+        status: def.status,
+        createdById: adminId,
+        updatedById: adminId,
+      },
+    });
+  }
+
+  return cycleIds;
+}
+
 async function main() {
   const url = process.env.DATABASE_URL || "";
   if (!url) throw new Error("DATABASE_URL is required");
@@ -1567,6 +1645,9 @@ async function main() {
   const cycleIds = await seedBudgetCycles(admin.id, primary, depts);
   console.log(`[seed-fpa] budget cycles=${Object.keys(cycleIds).length}`);
 
+  const modelPlanningCycleIds = await seedModelPlanningCycles(admin.id, primary);
+  console.log(`[seed-fpa] model planning cycles=${Object.keys(modelPlanningCycleIds).length}`);
+
   const summary = {
     lite: LITE,
     primaryModelId: primary.modelId,
@@ -1577,6 +1658,7 @@ async function main() {
     boardPackModelId,
     draft2027ModelId,
     cycleIds,
+    modelPlanningCycleIds,
     mappingSummary: primary.mappingSummary,
   };
 

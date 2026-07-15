@@ -105,6 +105,61 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
   "/v1/fpa/models/{modelId}/line-items/bulk": {
     post: op("Bulk create line items", { parameters: [modelId] }),
   },
+  "/v1/fpa/model-planning/cycles": {
+    get: op("List model planning cycles (distinct from budget execution cycles)", {
+      parameters: [
+        queryParam("modelId", { type: "string" }),
+        queryParam("planningType", { type: "string" }),
+        queryParam("status", { type: "string" }),
+        queryParam("ownerId", { type: "string" }),
+      ],
+    }),
+    post: op("Create model planning cycle (requires published LOCKED source version)", {
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["name", "financialYear", "planningType", "sourceModelId", "sourceModelVersionId"],
+          properties: {
+            name: { type: "string" },
+            financialYear: { type: "integer" },
+            planningType: {
+              type: "string",
+              enum: [
+                "ANNUAL_BUDGET",
+                "ROLLING_FORECAST",
+                "QUARTERLY_FORECAST",
+                "LONG_RANGE_PLAN",
+                "STRATEGIC_PLAN",
+                "REFORECAST",
+              ],
+            },
+            sourceModelId: { type: "string" },
+            sourceModelVersionId: { type: "string", description: "Must be a published (LOCKED) version" },
+            actualsCutoffPeriod: { type: "string", format: "date" },
+            forecastStartPeriod: { type: "string", format: "date" },
+            planningHorizon: { type: "integer" },
+            baseScenarioId: { type: "string" },
+            submissionDeadline: { type: "string", format: "date" },
+            approvalWorkflowId: { type: "string" },
+            planningOwnerId: { type: "string" },
+          },
+        },
+      }),
+    }),
+  },
+  "/v1/fpa/model-planning/cycles/sources": {
+    get: op("Model planning cycle create-form sources (published versions only)", {
+      parameters: [queryParam("modelId", { type: "string" })],
+    }),
+  },
+  "/v1/fpa/model-planning/cycles/{id}": {
+    get: op("Get model planning cycle", { parameters: [id] }),
+    put: op("Update model planning cycle (validated status transitions)", { parameters: [id] }),
+    delete: op("Delete DRAFT model planning cycle only", { parameters: [id] }),
+  },
+  "/v1/fpa/model-planning/cycles/{id}/workspace": {
+    get: op("Model planning workspace shell (cycle + grid params)", { parameters: [id] }),
+  },
   "/v1/fpa/budget-cycles": {
     get: op("List budget cycles", {
       parameters: [

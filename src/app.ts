@@ -248,6 +248,24 @@ app.use(cors({
 }))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
+
+// BigInt-safe JSON responses. mysql2 returns BigInt for BIGINT/DECIMAL columns,
+// which JSON.stringify cannot serialize ("Do not know how to serialize a BigInt").
+// In-range values become Number (keeps amounts numeric); out-of-range (e.g. big
+// unsigned IDs) become String. Applied globally so every endpoint is covered.
+const bigIntJsonReplacer = (_key, value) => {
+  if (typeof value === "bigint") {
+    return value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER)
+      ? Number(value)
+      : value.toString();
+  }
+  return value;
+};
+app.use((req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = (body) => originalJson(JSON.parse(JSON.stringify(body, bigIntJsonReplacer)));
+  next();
+});
 // Legacy local uploads. New media uploads use `/api/public-media/...` via `RemoteUploadService`.
 app.use(
   "/api/uploads",

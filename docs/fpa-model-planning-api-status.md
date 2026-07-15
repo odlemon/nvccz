@@ -1,6 +1,6 @@
 # FP&A Model Planning — Backend API status
 
-**Date:** 2026-07-14  
+**Date:** 2026-07-15  
 **Audience:** FE + Backend  
 **FE Phase 1:** §49 live shell on `FpaWorksheet` (compose existing endpoints)  
 **API base:** `/api/v1/fpa`
@@ -48,7 +48,11 @@ Prefer **not** breaking response shapes without notice.
 | # | Item | Status | Notes |
 |---|------|--------|-------|
 | 1 | `planning-workspace` aggregate | **MISSING** (compose OK) | Use dashboard + drivers + cycle + tasks |
-| 2 | Cycles `?modelId=` filter | **EXISTING** | Server-side on `modelId` |
+| 2 | Model planning cycles `?modelId=` filter | **EXISTING** | `GET /model-planning/cycles?modelId=` |
+| 2b | Published-version gate on cycle create | **EXISTING** | `400 SOURCE_VERSION_NOT_PUBLISHED` if version not LOCKED |
+| 2c | Grid `cycleId` → model planning cycle | **EXISTING** | Resolves version/scenario/actuals cut-over; no budget dept scope |
+| 2d | Cycle status lifecycle | **EXISTING (v1)** | DRAFT→OPEN→IN_REVIEW→APPROVED→LOCKED→CLOSED with transition validation |
+| 2e | Demo seed + UAT | **EXISTING** | `db:seed:fpa-demo`, `uat:fpa:model-planning-cycle` |
 | 3 | Variance waterfall bridge | **EXISTING (v1)** | `GET …/variance-bridge` |
 | 4 | Scenario overlay `effectiveValue` / deltas-only | **MISSING** | Scenarios are full cell copies; grid has `OVERRIDE` status only |
 | 5 | Material variance submit gate | **EXISTING** | Hardcoded **ABS ≥ 10%** + commentary; after `POST /variance/calculate` |

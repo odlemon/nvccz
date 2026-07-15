@@ -56,6 +56,18 @@ function monthStarts(start: Date, end: Date): Date[] {
   return out;
 }
 
+function deriveModelCode(name: string, input: any = {}): string {
+  if (input.code != null && String(input.code).trim()) {
+    return String(input.code).trim().slice(0, 255);
+  }
+  const slug = String(name)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 48);
+  return slug || `MODEL_${Date.now()}`;
+}
+
 export class FpaModelService {
   static async create(input: any, userId: string, ip?: string) {
     const name = String(input.name || input.modelName || "").trim();
@@ -70,6 +82,7 @@ export class FpaModelService {
       const created = await tx.planningModel.create({
         data: {
           name,
+          code: deriveModelCode(name, input),
           modelType: String(input.modelType || input.model_type || "BUDGET"),
           description: input.description || null,
           ownerUserId: input.ownerUserId || userId,

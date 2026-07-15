@@ -89,6 +89,15 @@ router.post("/budget-cycles/:id/lock", FpaController.lockBudgetCycle);
 router.post("/budget-cycles/:id/board-pack", FpaController.boardPackBudgetCycle);
 router.get("/budget-cycles/:id/summary", FpaController.budgetCycleSummary);
 
+// Model Planning — cycles (separate from /budget-cycles by product decision)
+router.get("/model-planning/cycles", FpaController.listModelPlanningCycles);
+router.get("/model-planning/cycles/sources", FpaController.modelPlanningSources);
+router.post("/model-planning/cycles", FpaController.createModelPlanningCycle);
+router.get("/model-planning/cycles/:id", FpaController.getModelPlanningCycle);
+router.get("/model-planning/cycles/:id/workspace", FpaController.modelPlanningWorkspace);
+router.put("/model-planning/cycles/:id", FpaController.updateModelPlanningCycle);
+router.delete("/model-planning/cycles/:id", FpaController.deleteModelPlanningCycle);
+
 // Grid / cells
 router.get("/models/:modelId/grid", FpaController.getGrid);
 router.get("/models/:modelId/grid/validations", FpaController.gridValidations);

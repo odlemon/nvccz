@@ -1,0 +1,406 @@
+import { PrismaClient } from "@prisma/client";
+import { FpaPlanningCycleContextService } from "./FpaPlanningCycleContextService";
+import { FpaAuditService } from "./FpaAuditService";
+
+const prisma = new PrismaClient();
+
+const MODEL_PLANNING_TYPES = [
+  "ANNUAL_BUDGET",
+  "ROLLING_FORECAST",
+  "QUARTERLY_FORECAST",
+  "LONG_RANGE_PLAN",
+  "STRATEGIC_PLAN",
+  "REFORECAST",
+] as const;
+
+export const MODEL_PLANNING_STATUSES = [
+  "DRAFT",
+  "OPEN",
+  "IN_REVIEW",
+  "APPROVED",
+  "LOCKED",
+  "CLOSED",
+] as const;
+
+type PlanningType = (typeof MODEL_PLANNING_TYPES)[number];
+type PlanningStatus = (typeof MODEL_PLANNING_STATUSES)[number];
+
+const STATUS_TRANSITIONS: Record<PlanningStatus, PlanningStatus[]> = {
+  DRAFT: ["DRAFT", "OPEN"],
+  OPEN: ["OPEN", "IN_REVIEW", "CLOSED"],
+  IN_REVIEW: ["IN_REVIEW", "OPEN", "APPROVED"],
+  APPROVED: ["APPROVED", "LOCKED"],
+  LOCKED: ["LOCKED", "CLOSED"],
+  CLOSED: ["CLOSED"],
+};
+
+const IMMUTABLE_STATUSES: PlanningStatus[] = ["APPROVED", "LOCKED", "CLOSED"];
+
+function assertStatusTransition(from: string, to: string) {
+  const current = String(from || "DRAFT").toUpperCase() as PlanningStatus;
+  const next = String(to).toUpperCase() as PlanningStatus;
+  if (!MODEL_PLANNING_STATUSES.includes(next)) {
+    throw new FpaModelPlanningError(
+      `Invalid status. Allowed: ${MODEL_PLANNING_STATUSES.join(", ")}`,
+      400,
+      "INVALID_STATUS"
+    );
+  }
+  const allowed = STATUS_TRANSITIONS[current] || [];
+  if (!allowed.includes(next)) {
+    throw new FpaModelPlanningError(
+      `Invalid status transition from ${current} to ${next}`,
+      409,
+      "INVALID_STATUS_TRANSITION"
+    );
+  }
+}
+
+async function assertPublishedSourceVersion(versionId: string, modelId: string) {
+  const version = await prisma.planningVersion.findUnique({ where: { id: versionId } });
+  if (!version) {
+    throw new FpaModelPlanningError("Source model version not found", 404, "SOURCE_VERSION_NOT_FOUND");
+  }
+  if (version.modelId !== modelId) {
+    throw new FpaModelPlanningError(
+      "Source model version does not belong to the selected model",
+      400,
+      "VERSION_MODEL_MISMATCH"
+    );
+  }
+  if (!FpaPlanningCycleContextService.isPublishedVersionStatus(version.status)) {
+    throw new FpaModelPlanningError(
+      "Source model version must be published (LOCKED). Publish the model in Model Builder first.",
+      400,
+      "SOURCE_VERSION_NOT_PUBLISHED"
+    );
+  }
+  return version;
+}
+
+export class FpaModelPlanningCycleService {
+  static MODEL_PLANNING_TYPES = MODEL_PLANNING_TYPES;
+  static MODEL_PLANNING_STATUSES = MODEL_PLANNING_STATUSES;
+
+  static async list(query: Record<string, unknown> = {}, _user: Record<string, unknown> = {}) {
+    const where: Record<string, unknown> = {};
+    if (query.modelId) where.sourceModelId = query.modelId;
+    if (query.planningType) where.planningType = query.planningType;
+    if (query.status) where.status = query.status;
+    if (query.ownerId) where.planningOwnerId = query.ownerId;
+
+    const [items, total] = await Promise.all([
+      prisma.modelPlanningCycle.findMany({
+        where,
+        orderBy: [{ financialYear: "desc" }, { createdAt: "desc" }],
+      }),
+      prisma.modelPlanningCycle.count({ where }),
+    ]);
+
+    return { items, total, count: items.length };
+  }
+
+  static async create(body: Record<string, unknown> = {}, userId: string, ip: string) {
+    const name = body.name != null ? String(body.name).trim() : "";
+    if (!name) {
+      throw new FpaModelPlanningError("Planning cycle name is required", 400, "NAME_REQUIRED");
+    }
+    if (body.financialYear == null || Number.isNaN(Number(body.financialYear))) {
+      throw new FpaModelPlanningError("Financial year is required", 400, "FINANCIAL_YEAR_REQUIRED");
+    }
+    if (!body.planningType) {
+      throw new FpaModelPlanningError("Planning type is required", 400, "PLANNING_TYPE_REQUIRED");
+    }
+    const planningType = String(body.planningType) as PlanningType;
+    if (!MODEL_PLANNING_TYPES.includes(planningType)) {
+      throw new FpaModelPlanningError(
+        `Invalid planning type. Allowed: ${MODEL_PLANNING_TYPES.join(", ")}`,
+        400,
+        "INVALID_PLANNING_TYPE"
+      );
+    }
+    if (!body.sourceModelId) {
+      throw new FpaModelPlanningError("Source model is required", 400, "SOURCE_MODEL_REQUIRED");
+    }
+    if (!body.sourceModelVersionId) {
+      throw new FpaModelPlanningError("Source model version is required", 400, "SOURCE_VERSION_REQUIRED");
+    }
+
+    const sourceModelId = String(body.sourceModelId);
+    const sourceModelVersionId = String(body.sourceModelVersionId);
+
+    const model = await prisma.planningModel.findUnique({ where: { id: sourceModelId } });
+    if (!model) {
+      throw new FpaModelPlanningError("Source model not found", 404, "SOURCE_MODEL_NOT_FOUND");
+    }
+
+    await assertPublishedSourceVersion(sourceModelVersionId, model.id);
+
+    if (body.baseScenarioId) {
+      const scenario = await prisma.planningScenario.findUnique({
+        where: { id: String(body.baseScenarioId) },
+      });
+      if (!scenario || scenario.modelId !== model.id) {
+        throw new FpaModelPlanningError(
+          "Base scenario not found for the selected model",
+          400,
+          "BASE_SCENARIO_INVALID"
+        );
+      }
+    }
+
+    const cycle = await prisma.modelPlanningCycle.create({
+      data: {
+        name,
+        financialYear: Number(body.financialYear),
+        planningType,
+        sourceModelId,
+        sourceModelVersionId,
+        actualsCutoffPeriod: body.actualsCutoffPeriod ? new Date(String(body.actualsCutoffPeriod)) : null,
+        forecastStartPeriod: body.forecastStartPeriod ? new Date(String(body.forecastStartPeriod)) : null,
+        planningHorizon: body.planningHorizon != null ? Number(body.planningHorizon) : null,
+        baseScenarioId: body.baseScenarioId ? String(body.baseScenarioId) : null,
+        submissionDeadline: body.submissionDeadline ? new Date(String(body.submissionDeadline)) : null,
+        approvalWorkflowId: body.approvalWorkflowId ? String(body.approvalWorkflowId) : null,
+        planningOwnerId: body.planningOwnerId ? String(body.planningOwnerId) : null,
+        status: "DRAFT",
+        createdById: userId,
+        updatedById: userId,
+      },
+    });
+
+    await FpaAuditService.log("MODEL_PLANNING_CYCLE_CREATE", userId, {
+      modelId: cycle.sourceModelId,
+      versionId: cycle.sourceModelVersionId,
+      entityType: "ModelPlanningCycle",
+      entityId: cycle.id,
+      reason: JSON.stringify({ name: cycle.name, planningType: cycle.planningType }),
+      ip,
+    });
+
+    return cycle;
+  }
+
+  static async get(id: string) {
+    const cycle = await prisma.modelPlanningCycle.findUnique({ where: { id } });
+    if (!cycle) {
+      throw new FpaModelPlanningError("Model planning cycle not found", 404, "NOT_FOUND");
+    }
+    return cycle;
+  }
+
+  static async update(id: string, body: Record<string, unknown> = {}, userId: string, ip: string) {
+    const existing = await FpaModelPlanningCycleService.get(id);
+    const currentStatus = String(existing.status || "DRAFT").toUpperCase();
+
+    if (body.planningType) {
+      const planningType = String(body.planningType) as PlanningType;
+      if (!MODEL_PLANNING_TYPES.includes(planningType)) {
+        throw new FpaModelPlanningError(
+          `Invalid planning type. Allowed: ${MODEL_PLANNING_TYPES.join(", ")}`,
+          400,
+          "INVALID_PLANNING_TYPE"
+        );
+      }
+    }
+
+    if (body.status != null) {
+      assertStatusTransition(currentStatus, String(body.status));
+    }
+
+    const nextStatus = body.status != null ? String(body.status).toUpperCase() : currentStatus;
+    const structuralFieldsTouched =
+      body.sourceModelId != null ||
+      body.sourceModelVersionId != null ||
+      body.baseScenarioId != null ||
+      body.planningType != null ||
+      body.financialYear != null;
+
+    if (structuralFieldsTouched && IMMUTABLE_STATUSES.includes(nextStatus as PlanningStatus)) {
+      throw new FpaModelPlanningError(
+        "Cannot change model, version, or planning type on an approved/locked/closed cycle",
+        409,
+        "CYCLE_IMMUTABLE"
+      );
+    }
+
+    const sourceModelId = body.sourceModelId != null ? String(body.sourceModelId) : existing.sourceModelId;
+    if (body.sourceModelVersionId && body.sourceModelVersionId !== existing.sourceModelVersionId) {
+      await assertPublishedSourceVersion(String(body.sourceModelVersionId), sourceModelId);
+    }
+
+    if (body.baseScenarioId) {
+      const scenario = await prisma.planningScenario.findUnique({
+        where: { id: String(body.baseScenarioId) },
+      });
+      if (!scenario || scenario.modelId !== sourceModelId) {
+        throw new FpaModelPlanningError(
+          "Base scenario not found for the selected model",
+          400,
+          "BASE_SCENARIO_INVALID"
+        );
+      }
+    }
+
+    const cycle = await prisma.modelPlanningCycle.update({
+      where: { id },
+      data: {
+        name: body.name != null ? String(body.name).trim() : undefined,
+        financialYear: body.financialYear != null ? Number(body.financialYear) : undefined,
+        planningType: body.planningType ? String(body.planningType) : undefined,
+        sourceModelId: body.sourceModelId ? String(body.sourceModelId) : undefined,
+        sourceModelVersionId: body.sourceModelVersionId ? String(body.sourceModelVersionId) : undefined,
+        actualsCutoffPeriod:
+          body.actualsCutoffPeriod != null
+            ? body.actualsCutoffPeriod
+              ? new Date(String(body.actualsCutoffPeriod))
+              : null
+            : undefined,
+        forecastStartPeriod:
+          body.forecastStartPeriod != null
+            ? body.forecastStartPeriod
+              ? new Date(String(body.forecastStartPeriod))
+              : null
+            : undefined,
+        planningHorizon: body.planningHorizon != null ? Number(body.planningHorizon) : undefined,
+        baseScenarioId: body.baseScenarioId != null ? (body.baseScenarioId ? String(body.baseScenarioId) : null) : undefined,
+        submissionDeadline:
+          body.submissionDeadline != null
+            ? body.submissionDeadline
+              ? new Date(String(body.submissionDeadline))
+              : null
+            : undefined,
+        approvalWorkflowId:
+          body.approvalWorkflowId != null
+            ? body.approvalWorkflowId
+              ? String(body.approvalWorkflowId)
+              : null
+            : undefined,
+        planningOwnerId:
+          body.planningOwnerId != null
+            ? body.planningOwnerId
+              ? String(body.planningOwnerId)
+              : null
+            : undefined,
+        status: body.status != null ? String(body.status).toUpperCase() : undefined,
+        updatedById: userId,
+      },
+    });
+
+    await FpaAuditService.log("MODEL_PLANNING_CYCLE_UPDATE", userId, {
+      modelId: cycle.sourceModelId,
+      versionId: cycle.sourceModelVersionId,
+      entityType: "ModelPlanningCycle",
+      entityId: cycle.id,
+      reason: JSON.stringify({ name: cycle.name, status: cycle.status }),
+      ip,
+    });
+
+    return cycle;
+  }
+
+  static async remove(id: string, userId: string, ip: string) {
+    const existing = await FpaModelPlanningCycleService.get(id);
+    if (existing.status !== "DRAFT") {
+      throw new FpaModelPlanningError(
+        "Only DRAFT model planning cycles can be deleted",
+        409,
+        "NOT_DELETABLE"
+      );
+    }
+
+    await prisma.modelPlanningCycle.delete({ where: { id } });
+    await FpaAuditService.log("MODEL_PLANNING_CYCLE_DELETE", userId, {
+      modelId: existing.sourceModelId,
+      versionId: existing.sourceModelVersionId,
+      entityType: "ModelPlanningCycle",
+      entityId: id,
+      reason: JSON.stringify({ name: existing.name }),
+      ip,
+    });
+    return { id, deleted: true };
+  }
+
+  /** Aggregates cycle + published source model so FE opens the planning worksheet grid. */
+  static async workspace(id: string) {
+    const cycle = await FpaModelPlanningCycleService.get(id);
+
+    const [model, version, scenarios] = await Promise.all([
+      prisma.planningModel.findUnique({ where: { id: cycle.sourceModelId } }),
+      prisma.planningVersion.findUnique({ where: { id: cycle.sourceModelVersionId } }),
+      prisma.planningScenario.findMany({ where: { modelId: cycle.sourceModelId } }),
+    ]);
+
+    return {
+      cycle,
+      model,
+      version,
+      scenarios,
+      grid: {
+        modelId: cycle.sourceModelId,
+        versionId: cycle.sourceModelVersionId,
+        baseScenarioId: cycle.baseScenarioId,
+        cycleId: cycle.id,
+      },
+    };
+  }
+
+  /** Selection helpers for the create form (published versions only). */
+  static async selectionSources(modelId?: string) {
+    const models = await prisma.planningModel.findMany({
+      where: modelId ? { id: modelId } : {},
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, code: true },
+    });
+
+    let versions: Array<{
+      id: string;
+      modelId: string;
+      name: string;
+      status: string;
+      publishedAt: Date | null;
+      createdAt: Date;
+    }> = [];
+    let scenarios: Array<{ id: string; modelId: string; name: string; scenarioType: string }> = [];
+
+    if (modelId) {
+      const allVersions = await prisma.planningVersion.findMany({
+        where: { modelId },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          modelId: true,
+          name: true,
+          status: true,
+          publishedAt: true,
+          createdAt: true,
+        },
+      });
+      versions = allVersions.filter((v) =>
+        FpaPlanningCycleContextService.isPublishedVersionStatus(v.status)
+      );
+      scenarios = await prisma.planningScenario.findMany({
+        where: { modelId },
+        select: { id: true, modelId: true, name: true, scenarioType: true },
+      });
+    }
+
+    return {
+      planningTypes: MODEL_PLANNING_TYPES,
+      planningStatuses: MODEL_PLANNING_STATUSES,
+      models,
+      versions,
+      scenarios,
+    };
+  }
+}
+
+export class FpaModelPlanningError extends Error {
+  statusCode: number;
+  code: string;
+  constructor(message: string, statusCode = 500, code = "ERROR") {
+    super(message);
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}

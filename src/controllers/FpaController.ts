@@ -24,6 +24,7 @@ import { FpaTemplateService } from "../services/fpa/FpaTemplateService";
 import { FpaDataMappingService } from "../services/fpa/FpaDataMappingService";
 import { FpaSensitivityService } from "../services/fpa/FpaSensitivityService";
 import { FpaExceptionsService } from "../services/fpa/FpaExceptionsService";
+import { FpaModelPlanningCycleService } from "../services/fpa/FpaModelPlanningCycleService";
 import fs from "fs";
 
 function ipOf(req: Request) {
@@ -1429,6 +1430,87 @@ export class FpaController {
     try {
       const data = await FpaAiService.draftCommentary(req.body, userOf(req).id, ipOf(req));
       res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Model Planning — cycles (separate from /budget-cycles by product decision)
+  // ---------------------------------------------------------------------------
+  static async listModelPlanningCycles(req: Request, res: Response) {
+    try {
+      const data = await FpaModelPlanningCycleService.list(req.query || {}, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async modelPlanningSources(req: Request, res: Response) {
+    try {
+      const data = await FpaModelPlanningCycleService.selectionSources(
+        req.query.modelId as string | undefined
+      );
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async createModelPlanningCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaModelPlanningCycleService.create(
+        req.body || {},
+        userOf(req).id,
+        ipOf(req)
+      );
+      res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async getModelPlanningCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaModelPlanningCycleService.get(req.params.id);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async updateModelPlanningCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaModelPlanningCycleService.update(
+        req.params.id,
+        req.body || {},
+        userOf(req).id,
+        ipOf(req)
+      );
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async deleteModelPlanningCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaModelPlanningCycleService.remove(
+        req.params.id,
+        userOf(req).id,
+        ipOf(req)
+      );
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async modelPlanningWorkspace(req: Request, res: Response) {
+    try {
+      const data = await FpaModelPlanningCycleService.workspace(req.params.id);
+      res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
     }

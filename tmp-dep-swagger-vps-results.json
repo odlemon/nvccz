@@ -1,0 +1,158 @@
+{
+  "server": "https://dev-api.arcus.co.zw/api",
+  "rows": [
+    {
+      "op": "Auth (prerequisite)",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "ok": true,
+      "note": "token obtained"
+    },
+    {
+      "op": "List deal execution packs",
+      "method": "GET",
+      "path": "/deal-execution-packs",
+      "status": 200,
+      "ok": true,
+      "note": "count=2"
+    },
+    {
+      "op": "Create / provision pack",
+      "method": "POST",
+      "path": "/deal-execution-packs",
+      "status": 201,
+      "ok": true,
+      "note": "d2453482-5499-4140-a161-6d31c87571f9"
+    },
+    {
+      "op": "Pack detail",
+      "method": "GET",
+      "path": "/deal-execution-packs/{packId}",
+      "status": 200,
+      "ok": true,
+      "note": "status=IN_PROGRESS"
+    },
+    {
+      "op": "Dashboard",
+      "method": "GET",
+      "path": "/deal-execution-packs/{packId}/dashboard",
+      "status": 200,
+      "ok": true,
+      "note": "rLegal=false"
+    },
+    {
+      "op": "List document slots",
+      "method": "GET",
+      "path": "/deal-execution-packs/{packId}/documents",
+      "status": 200,
+      "ok": true,
+      "note": "slots=5"
+    },
+    {
+      "op": "Upload document (multipart)",
+      "method": "POST",
+      "path": "/deal-execution-packs/{packId}/documents/{slotCode}/upload",
+      "status": 201,
+      "ok": true,
+      "note": "SPA docId=fd5e8c3e-b880-4c5b-8bea-f078df0bbe85"
+    },
+    {
+      "op": "SHA-256 verify",
+      "method": "GET",
+      "path": "/deal-execution-packs/{packId}/documents/{documentId}/verify",
+      "status": 200,
+      "ok": true,
+      "note": "ok=true"
+    },
+    {
+      "op": "Download with integrity gate",
+      "method": "GET",
+      "path": "/deal-execution-packs/{packId}/documents/{documentId}/download",
+      "status": 200,
+      "ok": true,
+      "note": "45 bytes"
+    },
+    {
+      "op": "List CPs",
+      "method": "GET",
+      "path": "/deal-execution-packs/{packId}/cps",
+      "status": 200,
+      "ok": true,
+      "note": "count=1"
+    },
+    {
+      "op": "Add CP item",
+      "method": "POST",
+      "path": "/deal-execution-packs/{packId}/cps",
+      "status": 201,
+      "ok": true,
+      "note": "33747f27-7c66-4d0d-9ae6-b8a977298b09"
+    },
+    {
+      "op": "Update CP",
+      "method": "PATCH",
+      "path": "/deal-execution-packs/{packId}/cps/{cpId}",
+      "status": 200,
+      "ok": true,
+      "note": "weight=30"
+    },
+    {
+      "op": "Satisfy CP",
+      "method": "POST",
+      "path": "/deal-execution-packs/{packId}/cps/{cpId}/satisfy",
+      "status": 200,
+      "ok": true,
+      "note": "SATISFIED"
+    },
+    {
+      "op": "List signatories",
+      "method": "GET",
+      "path": "/deal-execution-packs/{packId}/signatures",
+      "status": 200,
+      "ok": true,
+      "note": "count=3"
+    },
+    {
+      "op": "Sign as CCO",
+      "method": "POST",
+      "path": "/deal-execution-packs/{packId}/signatures/{signatureId}/sign",
+      "status": 200,
+      "ok": true,
+      "note": "CCO"
+    },
+    {
+      "op": "Sign as IC_MEMBER",
+      "method": "POST",
+      "path": "/deal-execution-packs/{packId}/signatures/{signatureId}/sign",
+      "status": 200,
+      "ok": true,
+      "note": "IC_MEMBER"
+    },
+    {
+      "op": "Sign as LEGAL_COORDINATOR",
+      "method": "POST",
+      "path": "/deal-execution-packs/{packId}/signatures/{signatureId}/sign",
+      "status": 200,
+      "ok": true,
+      "note": "LEGAL_COORDINATOR"
+    },
+    {
+      "op": "Final execute",
+      "method": "POST",
+      "path": "/deal-execution-packs/{packId}/execute",
+      "status": 200,
+      "ok": true,
+      "note": "EXECUTED"
+    },
+    {
+      "op": "Audit trail",
+      "method": "GET",
+      "path": "/deal-execution-packs/{packId}/audit",
+      "status": 200,
+      "ok": true,
+      "note": "events=19"
+    }
+  ],
+  "failed": 0
+}

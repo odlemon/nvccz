@@ -5715,6 +5715,7 @@ enum CounterpartyType {
 model PlanningModel {
   id                        String    @id @default(cuid())
   name                      String    @map("model_name") @db.VarChar(255)
+  code                      String    @map("model_code") @db.VarChar(255)
   modelType                 String    @map("model_type") @db.VarChar(100)
   description               String?   @db.Text
   ownerUserId               String    @map("owner_user_id")
@@ -6162,6 +6163,42 @@ model PlanningWorkflow {
 
   @@index([modelId, status], map: "planning_workflows_model_status_idx")
   @@map("planning_workflows")
+}
+
+/// Model Planning — a "Model Planning Cycle" selects a published source model + version +
+/// base scenario and opens the Model Planning worksheet. Distinct from PlanningBudgetCycle
+/// (the annual budget execution workflow) and intentionally namespaced under `model_planning_*`
+/// so it is not confused with the canonical `/budget-cycles` surface.
+///
+/// Foreign keys are plain String columns (resolved manually in FpaModelPlanningCycleService);
+/// real FK constraints are applied in the migration DDL.
+model ModelPlanningCycle {
+  id                    String    @id @default(cuid())
+  name                  String    @map("cycle_name") @db.VarChar(255)
+  financialYear         Int       @map("financial_year")
+  /// ANNUAL_BUDGET | ROLLING_FORECAST | QUARTERLY_FORECAST | LONG_RANGE_PLAN | STRATEGIC_PLAN | REFORECAST
+  planningType          String    @map("planning_type") @db.VarChar(64)
+  sourceModelId         String    @map("source_model_id")
+  sourceModelVersionId  String    @map("source_model_version_id")
+  actualsCutoffPeriod   DateTime? @map("actuals_cutoff_period") @db.Date
+  forecastStartPeriod   DateTime? @map("forecast_start_period") @db.Date
+  /// Number of periods in the plan (e.g. 12 months / 4 quarters).
+  planningHorizon       Int?      @map("planning_horizon")
+  baseScenarioId        String?   @map("base_scenario_id")
+  submissionDeadline    DateTime? @map("submission_deadline") @db.Date
+  approvalWorkflowId    String?   @map("approval_workflow_id")
+  planningOwnerId       String?   @map("planning_owner_id")
+  status                String    @default("DRAFT") @db.VarChar(64)
+  createdById           String    @map("created_by")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedById           String?   @map("updated_by")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@index([sourceModelId], map: "model_planning_cycles_source_model_idx")
+  @@index([planningType], map: "model_planning_cycles_planning_type_idx")
+  @@index([status], map: "model_planning_cycles_status_idx")
+  @@index([planningOwnerId], map: "model_planning_cycles_owner_idx")
+  @@map("model_planning_cycles")
 }
 
 model PlanningBudgetCycle {

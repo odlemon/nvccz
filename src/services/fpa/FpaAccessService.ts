@@ -81,6 +81,11 @@ export class FpaAccessService {
     if (!cycleId) return null;
     if (FpaAccessService.canApprove(user)) return null; // unrestricted
     const { prisma } = await import("../../utils/database");
+    const modelCycle = await prisma.modelPlanningCycle.findUnique({
+      where: { id: String(cycleId) },
+      select: { id: true },
+    });
+    if (modelCycle) return null; // model planning cycles are not scoped via budget owners
     const owners = await prisma.planningBudgetCycleOwner.findMany({
       where: { cycleId: String(cycleId), assigneeId: user.id },
       select: { departmentId: true },
