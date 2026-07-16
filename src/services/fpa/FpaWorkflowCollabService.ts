@@ -37,6 +37,12 @@ export class FpaWorkflowCollabService {
     return cycle;
   }
 
+  static async assertModelPlanningCycle(cycleId: string) {
+    const cycle = await prisma.modelPlanningCycle.findUnique({ where: { id: cycleId } });
+    if (!cycle) throw new FpaError(404, "NOT_FOUND", "Model planning cycle not found");
+    return cycle;
+  }
+
   static async assertTask(taskId: string) {
     const task = await prisma.planningTask.findUnique({
       where: { id: taskId },
@@ -318,8 +324,14 @@ export class FpaWorkflowCollabService {
       modelId = task.workflow.modelId;
       if (!cycleId && cycle) cycleId = cycle.id;
     } else if (cycleId) {
-      const cycle = await FpaWorkflowCollabService.assertCycle(cycleId);
-      modelId = cycle.modelId;
+      const budget = await prisma.planningBudgetCycle.findUnique({ where: { id: cycleId } });
+      if (budget) {
+        modelId = budget.modelId;
+      } else {
+        const mpc = await prisma.modelPlanningCycle.findUnique({ where: { id: cycleId } });
+        if (!mpc) throw new FpaError(404, "NOT_FOUND", "Planning cycle not found");
+        modelId = mpc.sourceModelId;
+      }
     }
     if (!modelId) throw new FpaError(400, "VALIDATION", "Unable to resolve model for comment");
 
@@ -603,5 +615,51 @@ export class FpaWorkflowCollabService {
       pendingDeltaWoW: pendingThis - pendingLast,
       returnedDeltaWoW: returnedThis - returnedLast,
     };
+  }
+
+  static async addModelPlanningComment(cycleId: string, input: any, user: any) {
+    return FpaWorkflowCollabService.addComment({ cycleId: String(cycleId) }, input, user);
+  }
+
+  static async listModelPlanningApprovalEvents(cycleId: string, user: any) {
+    const cycle = await FpaWorkflowCollabService.assertModelPlanningCycle(cycleId);
+    if (!cycle.workflowId) return [];
+
+    const approvals = await prisma.planningApproval.findMany({
+      where: { workflowId: cycle.workflowId },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      include: {
+        actor: { select: { id: true, firstName: true, lastName: true, email: true } },
+        task: { select: { id: true, title: true, departmentId: true } },
+      },
+    });
+
+    const actionMap: Record<string, string> = {
+      SUBMIT: "SUBMITTED",
+      SUBMIT_FPA: "SUBMITTED",
+      FPA_ACCEPT: "ACCEPTED",
+      APPROVE: "APPROVED",
+      CFO_APPROVE: "APPROVED",
+      RETURN: "RETURNED",
+      FPA_RETURN: "RETURNED",
+      CFO_RETURN: "RETURNED",
+      LOCK: "LOCKED",
+      REASSIGN: "REASSIGNED",
+    };
+
+    return approvals.map((a) => ({
+      id: a.id,
+      actorId: a.actorId,
+      actorName: userDisplayName(a.actor),
+      action: actionMap[String(a.action).toUpperCase()] || String(a.action).toUpperCase(),
+      rawAction: a.action,
+      target: a.taskId
+        ? { type: "TASK", id: a.taskId, title: a.task?.title || null, departmentId: a.task?.departmentId || null }
+        : { type: "CYCLE", id: cycleId, title: cycle.name },
+      comment: a.comment,
+      commentSnippet: a.comment ? String(a.comment).slice(0, 160) : null,
+      createdAt: a.createdAt,
+    }));
   }
 }

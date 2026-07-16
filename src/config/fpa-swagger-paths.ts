@@ -160,6 +160,76 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
   "/v1/fpa/model-planning/cycles/{id}/workspace": {
     get: op("Model planning workspace shell (cycle + grid params)", { parameters: [id] }),
   },
+  "/v1/fpa/model-planning/cycles/{id}/owner-workspace": {
+    get: op("Model planning owner workspace (slice submit gates)", { parameters: [id] }),
+  },
+  "/v1/fpa/model-planning/cycles/{id}/owners": {
+    put: op("Replace model planning cycle owners (creates tasks)", {
+      parameters: [id],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["owners"],
+          properties: {
+            owners: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["departmentId", "assigneeId"],
+                properties: {
+                  departmentId: { type: "string" },
+                  assigneeId: { type: "string" },
+                  dueDate: { type: "string", format: "date" },
+                },
+              },
+            },
+          },
+        },
+      }),
+    }),
+  },
+  "/v1/fpa/model-planning/cycles/{id}/tasks": {
+    get: op("List model planning cycle tasks (owner slices + ad-hoc)", {
+      parameters: [
+        id,
+        queryParam("status", { type: "string" }),
+        queryParam("departmentId", { type: "string" }),
+        queryParam("assigneeId", { type: "string" }),
+        queryParam("priority", { type: "string" }),
+      ],
+    }),
+    post: op("Assign ad-hoc planning task on model planning cycle", {
+      parameters: [id],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["title", "assigneeId"],
+          properties: {
+            title: { type: "string" },
+            assigneeId: { type: "string" },
+            departmentId: { type: "string" },
+            dueDate: { type: "string", format: "date" },
+            priority: { type: "string", enum: ["HIGH", "MEDIUM", "LOW"] },
+            description: { type: "string" },
+            modelId: { type: "string" },
+            versionId: { type: "string" },
+          },
+        },
+      }),
+    }),
+  },
+  "/v1/fpa/model-planning/cycles/{id}/comments": {
+    get: op("List model planning cycle comments", { parameters: [id] }),
+    post: op("Add model planning cycle comment", {
+      parameters: [id],
+      requestBody: jsonRequestBody({
+        schema: { type: "object", required: ["body"], properties: { body: { type: "string" } } },
+      }),
+    }),
+  },
+  "/v1/fpa/model-planning/cycles/{id}/activity": {
+    get: op("Model planning cycle approval activity", { parameters: [id] }),
+  },
   "/v1/fpa/budget-cycles": {
     get: op("List budget cycles", {
       parameters: [
@@ -571,6 +641,18 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
   "/v1/fpa/tasks/my-tasks": {
     get: op("List my open tasks (assigned to me or unassigned)", {
       parameters: [queryParam("modelId", { type: "string" }), queryParam("status", { type: "string" })],
+    }),
+  },
+  "/v1/fpa/tasks/{id}": {
+    patch: op("Update planning task status (ad-hoc complete; not owner slice submit)", {
+      parameters: [id],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["status"],
+          properties: { status: { type: "string", example: "COMPLETED" } },
+        },
+      }),
     }),
   },
   "/v1/fpa/tasks/{id}/submit": {

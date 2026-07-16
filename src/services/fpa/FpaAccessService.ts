@@ -81,11 +81,21 @@ export class FpaAccessService {
     if (!cycleId) return null;
     if (FpaAccessService.canApprove(user)) return null; // unrestricted
     const { prisma } = await import("../../utils/database");
-    const modelCycle = await prisma.modelPlanningCycle.findUnique({
+    const modelOwners = await prisma.modelPlanningCycleOwner.findMany({
+      where: { cycleId: String(cycleId), assigneeId: user.id },
+      select: { departmentId: true },
+    });
+    if (modelOwners.length) {
+      return modelOwners.map((o) => o.departmentId);
+    }
+    const isModelCycle = await prisma.modelPlanningCycle.findUnique({
       where: { id: String(cycleId) },
       select: { id: true },
     });
-    if (modelCycle) return null; // model planning cycles are not scoped via budget owners
+    if (isModelCycle) {
+      // Model planning cycle exists but this user is not an owner → empty (no edit).
+      return [];
+    }
     const owners = await prisma.planningBudgetCycleOwner.findMany({
       where: { cycleId: String(cycleId), assigneeId: user.id },
       select: { departmentId: true },
@@ -93,11 +103,20 @@ export class FpaAccessService {
     return owners.map((o) => o.departmentId);
   }
 
-  static assertCanEditVersion(user: any, version: { status?: string; id?: string }, opts?: any) {
-    if (String(version?.status || "").toUpperCase() === "LOCKED") {
+  static assertCanEditVersion(
+    user: any,
+    version: { status?: string; id?: string },
+    opts?: {
+      departmentId?: string | null;
+      assignedDepartmentIds?: string[];
+      allowLockedPublished?: boolean;
+    }
+  ) {
+    const status = String(version?.status || "").toUpperCase();
+    if (status === "LOCKED" && !opts?.allowLockedPublished) {
       throw new FpaError(403, "LOCKED_VERSION", "Version is locked and cannot be edited");
     }
-    if (String(version?.status || "").toUpperCase() === "ARCHIVED") {
+    if (status === "ARCHIVED") {
       throw new FpaError(403, "VERSION_ARCHIVED", "Version is archived and cannot be edited");
     }
     if (!FpaAccessService.canEdit(user, opts)) {

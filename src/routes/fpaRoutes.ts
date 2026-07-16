@@ -95,6 +95,13 @@ router.get("/model-planning/cycles/sources", FpaController.modelPlanningSources)
 router.post("/model-planning/cycles", FpaController.createModelPlanningCycle);
 router.get("/model-planning/cycles/:id", FpaController.getModelPlanningCycle);
 router.get("/model-planning/cycles/:id/workspace", FpaController.modelPlanningWorkspace);
+router.get("/model-planning/cycles/:id/owner-workspace", FpaController.modelPlanningOwnerWorkspace);
+router.get("/model-planning/cycles/:id/tasks", FpaController.listModelPlanningCycleTasks);
+router.post("/model-planning/cycles/:id/tasks", FpaController.createModelPlanningCycleTask);
+router.get("/model-planning/cycles/:id/comments", FpaController.listModelPlanningCycleComments);
+router.post("/model-planning/cycles/:id/comments", FpaController.addModelPlanningCycleComment);
+router.get("/model-planning/cycles/:id/activity", FpaController.listModelPlanningCycleActivity);
+router.put("/model-planning/cycles/:id/owners", FpaController.setModelPlanningOwners);
 router.put("/model-planning/cycles/:id", FpaController.updateModelPlanningCycle);
 router.delete("/model-planning/cycles/:id", FpaController.deleteModelPlanningCycle);
 
@@ -147,6 +154,7 @@ router.post("/tasks/:id/comments", FpaController.addTaskComment);
 router.get("/tasks/:id/attachments", FpaController.listTaskAttachments);
 router.post("/tasks/:id/attachments", uploadAttachment.single("file"), FpaController.uploadTaskAttachment);
 router.get("/tasks/:id/summary", FpaController.taskSummary);
+router.patch("/tasks/:id", FpaController.updatePlanningTask);
 router.post("/tasks/:id/submit", FpaController.submitTask);
 router.post("/tasks/:id/return", FpaController.returnTask);
 router.post("/tasks/:id/approve", FpaController.approveTask);

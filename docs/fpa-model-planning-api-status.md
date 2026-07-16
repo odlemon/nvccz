@@ -50,7 +50,9 @@ Prefer **not** breaking response shapes without notice.
 | 1 | `planning-workspace` aggregate | **MISSING** (compose OK) | Use dashboard + drivers + cycle + tasks |
 | 2 | Model planning cycles `?modelId=` filter | **EXISTING** | `GET /model-planning/cycles?modelId=` |
 | 2b | Published-version gate on cycle create | **EXISTING** | `400 SOURCE_VERSION_NOT_PUBLISHED` if version not LOCKED |
-| 2c | Grid `cycleId` → model planning cycle | **EXISTING** | Resolves version/scenario/actuals cut-over; no budget dept scope |
+| 2c | Grid `cycleId` → model planning cycle | **EXISTING** | Resolves version/scenario/actuals cut-over + dept owner scope |
+| 2f | Department owners + slice submit | **EXISTING** | `owners[]`, `owner-workspace`, task submit; see [fpa-model-planning-owners-api.md](./fpa-model-planning-owners-api.md) |
+| 2g | Ad-hoc planning tasks (Stage 2) | **EXISTING** | `GET/POST …/cycles/{id}/tasks`, `PATCH /tasks/{id}`; see [fpa-model-planning-tasks-api.md](./fpa-model-planning-tasks-api.md) |
 | 2d | Cycle status lifecycle | **EXISTING (v1)** | DRAFT→OPEN→IN_REVIEW→APPROVED→LOCKED→CLOSED with transition validation |
 | 2e | Demo seed + UAT | **EXISTING** | `db:seed:fpa-demo`, `uat:fpa:model-planning-cycle` |
 | 3 | Variance waterfall bridge | **EXISTING (v1)** | `GET …/variance-bridge` |
@@ -58,7 +60,7 @@ Prefer **not** breaking response shapes without notice.
 | 5 | Material variance submit gate | **EXISTING** | Hardcoded **ABS ≥ 10%** + commentary; after `POST /variance/calculate` |
 | 6 | Rich commentary (@, threads, resolve, attachments) | **PARTIAL** | Cell/cycle/task comments + status string; task attachments only |
 | 7 | Model→cycle migration (§54) | **MISSING** | Scheduled; hard rule holds |
-| 8 | Actuals cut-over | **PARTIAL** | See § Cut-over |
+| 8 | Actuals cut-over | **EXISTING (v1)** | Cycle cutoffs round-trip; grid `actualCutoff` + `forecastStartPeriod` + `periodRole`/`readOnly`; write `ACTUAL_PERIOD_LOCKED` — see [fpa-model-planning-actuals-cutoff-api.md](./fpa-model-planning-actuals-cutoff-api.md) |
 | 9 | Advanced spread methods | **PARTIAL** | EVEN, copy-forward, growth, bulk; not PRIOR_YEAR_PATTERN / weights / etc. |
 | 10 | Audit full field list | **PARTIAL** | See § Audit |
 | 11 | Async `calculate` + jobs | **MISSING** | Sync on write; board-pack jobs only |
@@ -107,9 +109,12 @@ GET /v1/fpa/models/{modelId}/variance-bridge?metric=REVENUE&from=BUDGET&to=FOREC
 |------|-----------------|
 | Import / sync actuals | `POST /actuals/sync`, `POST …/budget-cycles/:id/load-actuals` |
 | Closed periods | Matching cells → `sourceType`/`valueType` **ACTUAL**; closed/locked fiscal periods locked |
-| Grid bands | `periodRole` `ACTUAL` \| `FORECAST` from cycle `actualsCutoffDate` / `forecastStartPeriod` |
-| Prior forecast history | **Not** separately snapshotted on cut-over (cell audit history only) |
-| Forecast start advance | Fields on cycle + grid cutoff; no dedicated one-shot cut-over workflow API |
+| Grid bands | `periodRole` `ACTUAL` \| `FORECAST` from **Model Planning** / budget cycle cutoffs when `cycleId` present; periods include `key`/`label`/`readOnly` |
+| Cycle cutoffs | `actualsCutoffPeriod` + `forecastStartPeriod` as `YYYY-MM-01`; forecast auto = cutoff + 1 month |
+| Write guard | `403 ACTUAL_PERIOD_LOCKED` on cell write for periods on/before cutoff |
+| Forecast start advance | Fields on cycle + grid; dedicated one-shot cut-over workflow API still later |
+
+Detail: [fpa-model-planning-actuals-cutoff-api.md](./fpa-model-planning-actuals-cutoff-api.md)
 
 ---
 

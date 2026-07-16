@@ -6011,6 +6011,7 @@ model PlanningCell {
   /// Unique coord key is MySQL-only: (version_id, scenario_id, line_item_id, period_date, dim_key)
   /// where dim_key is a STORED generated column — see db:migrate:fpa-cell-canonical.
   @@index([modelId, versionId, scenarioId], map: "planning_cells_mvs_idx")
+  @@index([modelId, versionId, scenarioId, departmentId], map: "planning_cells_mvs_dept_idx")
   @@index([modelId, lineItemId, periodDate], map: "planning_cells_line_period_idx")
   @@index([versionId, isLocked], map: "planning_cells_version_locked_idx")
   @@map("planning_cells")
@@ -6187,6 +6188,8 @@ model ModelPlanningCycle {
   baseScenarioId        String?   @map("base_scenario_id")
   submissionDeadline    DateTime? @map("submission_deadline") @db.Date
   approvalWorkflowId    String?   @map("approval_workflow_id")
+  /// PlanningWorkflow id that owns per-department owner tasks.
+  workflowId            String?   @map("workflow_id")
   planningOwnerId       String?   @map("planning_owner_id")
   status                String    @default("DRAFT") @db.VarChar(64)
   createdById           String    @map("created_by")
@@ -6194,11 +6197,33 @@ model ModelPlanningCycle {
   updatedById           String?   @map("updated_by")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
+  owners                ModelPlanningCycleOwner[]
+
   @@index([sourceModelId], map: "model_planning_cycles_source_model_idx")
   @@index([planningType], map: "model_planning_cycles_planning_type_idx")
   @@index([status], map: "model_planning_cycles_status_idx")
   @@index([planningOwnerId], map: "model_planning_cycles_owner_idx")
   @@map("model_planning_cycles")
+}
+
+model ModelPlanningCycleOwner {
+  id           String    @id @default(cuid())
+  cycleId      String    @map("cycle_id")
+  departmentId String    @map("department_id")
+  assigneeId   String?   @map("assignee_id")
+  taskId       String?   @map("task_id")
+  dueDate      DateTime? @map("due_date") @db.Date
+  /// OPEN | IN_PROGRESS | SUBMITTED | RETURNED | APPROVED
+  status       String    @default("OPEN") @db.VarChar(32)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  cycle        ModelPlanningCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+
+  @@unique([cycleId, departmentId], map: "model_planning_cycle_owners_key")
+  @@index([cycleId], map: "model_planning_cycle_owners_cycle_idx")
+  @@index([assigneeId], map: "model_planning_cycle_owners_assignee_idx")
+  @@map("model_planning_cycle_owners")
 }
 
 model PlanningBudgetCycle {

@@ -1,8 +1,35 @@
 import { PrismaClient } from "@prisma/client";
-import { FpaPlanningCycleContextService } from "./FpaPlanningCycleContextService";
+import {
+  FpaPlanningCycleContextService,
+  periodStartIso,
+  resolveCutoffPair,
+  toPeriodStartDate,
+  nextPeriodStart,
+} from "./FpaPlanningCycleContextService";
 import { FpaAuditService } from "./FpaAuditService";
+import { FpaModelPlanningOwnersService } from "./FpaModelPlanningOwnersService";
 
 const prisma = new PrismaClient();
+
+/** Serialize cycle dates as period-start ISO (`YYYY-MM-01`) for FE banding/header. */
+async function serializeCycle(cycle: any) {
+  if (!cycle) return cycle;
+  const actualsCutoffPeriod = periodStartIso(cycle.actualsCutoffPeriod);
+  let forecastStartPeriod = periodStartIso(cycle.forecastStartPeriod);
+  if (!forecastStartPeriod && cycle.actualsCutoffPeriod) {
+    const cut = toPeriodStartDate(cycle.actualsCutoffPeriod);
+    if (cut) forecastStartPeriod = periodStartIso(nextPeriodStart(cut));
+  }
+  const owners = await FpaModelPlanningOwnersService.enrichOwners(cycle.id);
+  return {
+    ...cycle,
+    cycle_name: cycle.name,
+    actualsCutoffPeriod,
+    forecastStartPeriod,
+    submissionDeadline: periodStartIso(cycle.submissionDeadline) || cycle.submissionDeadline,
+    owners,
+  };
+}
 
 const MODEL_PLANNING_TYPES = [
   "ANNUAL_BUDGET",
@@ -97,7 +124,11 @@ export class FpaModelPlanningCycleService {
       prisma.modelPlanningCycle.count({ where }),
     ]);
 
-    return { items, total, count: items.length };
+    return {
+      items: await Promise.all(items.map(serializeCycle)),
+      total,
+      count: items.length,
+    };
   }
 
   static async create(body: Record<string, unknown> = {}, userId: string, ip: string) {
@@ -149,6 +180,20 @@ export class FpaModelPlanningCycleService {
       }
     }
 
+    const ownersIn = Array.isArray(body.owners) ? body.owners : [];
+    if (ownersIn.length < 1) {
+      throw new FpaModelPlanningError(
+        "At least one owner with departmentId and assigneeId is required",
+        400,
+        "NO_OWNERS"
+      );
+    }
+
+    const cutoffs = resolveCutoffPair({
+      actualsCutoffPeriod: body.actualsCutoffPeriod,
+      forecastStartPeriod: body.forecastStartPeriod,
+    });
+
     const cycle = await prisma.modelPlanningCycle.create({
       data: {
         name,
@@ -156,18 +201,22 @@ export class FpaModelPlanningCycleService {
         planningType,
         sourceModelId,
         sourceModelVersionId,
-        actualsCutoffPeriod: body.actualsCutoffPeriod ? new Date(String(body.actualsCutoffPeriod)) : null,
-        forecastStartPeriod: body.forecastStartPeriod ? new Date(String(body.forecastStartPeriod)) : null,
+        actualsCutoffPeriod: cutoffs.actualsCutoffPeriod,
+        forecastStartPeriod: cutoffs.forecastStartPeriod,
         planningHorizon: body.planningHorizon != null ? Number(body.planningHorizon) : null,
         baseScenarioId: body.baseScenarioId ? String(body.baseScenarioId) : null,
-        submissionDeadline: body.submissionDeadline ? new Date(String(body.submissionDeadline)) : null,
+        submissionDeadline: body.submissionDeadline
+          ? toPeriodStartDate(body.submissionDeadline) || new Date(String(body.submissionDeadline))
+          : null,
         approvalWorkflowId: body.approvalWorkflowId ? String(body.approvalWorkflowId) : null,
-        planningOwnerId: body.planningOwnerId ? String(body.planningOwnerId) : null,
+        planningOwnerId: body.planningOwnerId ? String(body.planningOwnerId) : userId,
         status: "DRAFT",
         createdById: userId,
         updatedById: userId,
       },
     });
+
+    await FpaModelPlanningOwnersService.replaceOwners(cycle, ownersIn, userId, ip);
 
     await FpaAuditService.log("MODEL_PLANNING_CYCLE_CREATE", userId, {
       modelId: cycle.sourceModelId,
@@ -178,10 +227,20 @@ export class FpaModelPlanningCycleService {
       ip,
     });
 
-    return cycle;
+    const refreshed = await prisma.modelPlanningCycle.findUnique({ where: { id: cycle.id } });
+    return await serializeCycle(refreshed);
   }
 
   static async get(id: string) {
+    const cycle = await prisma.modelPlanningCycle.findUnique({ where: { id } });
+    if (!cycle) {
+      throw new FpaModelPlanningError("Model planning cycle not found", 404, "NOT_FOUND");
+    }
+    return await serializeCycle(cycle);
+  }
+
+  /** Raw Prisma row (for internal guards). */
+  static async getRaw(id: string) {
     const cycle = await prisma.modelPlanningCycle.findUnique({ where: { id } });
     if (!cycle) {
       throw new FpaModelPlanningError("Model planning cycle not found", 404, "NOT_FOUND");
@@ -190,7 +249,7 @@ export class FpaModelPlanningCycleService {
   }
 
   static async update(id: string, body: Record<string, unknown> = {}, userId: string, ip: string) {
-    const existing = await FpaModelPlanningCycleService.get(id);
+    const existing = await FpaModelPlanningCycleService.getRaw(id);
     const currentStatus = String(existing.status || "DRAFT").toUpperCase();
 
     if (body.planningType) {
@@ -242,6 +301,31 @@ export class FpaModelPlanningCycleService {
       }
     }
 
+    let actualsCutoffPeriod: Date | null | undefined = undefined;
+    let forecastStartPeriod: Date | null | undefined = undefined;
+    if (body.actualsCutoffPeriod !== undefined || body.forecastStartPeriod !== undefined) {
+      const cutoffs = resolveCutoffPair({
+        actualsCutoffPeriod:
+          body.actualsCutoffPeriod !== undefined
+            ? body.actualsCutoffPeriod
+            : existing.actualsCutoffPeriod,
+        forecastStartPeriod:
+          body.forecastStartPeriod !== undefined
+            ? body.forecastStartPeriod
+            : body.actualsCutoffPeriod !== undefined
+              ? null // re-derive from new cutoff unless FE also sent forecast
+              : existing.forecastStartPeriod,
+      });
+      // If only forecastStart changed, keep existing cutoff and use provided forecast
+      if (body.actualsCutoffPeriod === undefined && body.forecastStartPeriod !== undefined) {
+        actualsCutoffPeriod = undefined;
+        forecastStartPeriod = toPeriodStartDate(body.forecastStartPeriod);
+      } else {
+        actualsCutoffPeriod = cutoffs.actualsCutoffPeriod;
+        forecastStartPeriod = cutoffs.forecastStartPeriod;
+      }
+    }
+
     const cycle = await prisma.modelPlanningCycle.update({
       where: { id },
       data: {
@@ -250,24 +334,15 @@ export class FpaModelPlanningCycleService {
         planningType: body.planningType ? String(body.planningType) : undefined,
         sourceModelId: body.sourceModelId ? String(body.sourceModelId) : undefined,
         sourceModelVersionId: body.sourceModelVersionId ? String(body.sourceModelVersionId) : undefined,
-        actualsCutoffPeriod:
-          body.actualsCutoffPeriod != null
-            ? body.actualsCutoffPeriod
-              ? new Date(String(body.actualsCutoffPeriod))
-              : null
-            : undefined,
-        forecastStartPeriod:
-          body.forecastStartPeriod != null
-            ? body.forecastStartPeriod
-              ? new Date(String(body.forecastStartPeriod))
-              : null
-            : undefined,
+        actualsCutoffPeriod,
+        forecastStartPeriod,
         planningHorizon: body.planningHorizon != null ? Number(body.planningHorizon) : undefined,
-        baseScenarioId: body.baseScenarioId != null ? (body.baseScenarioId ? String(body.baseScenarioId) : null) : undefined,
+        baseScenarioId:
+          body.baseScenarioId != null ? (body.baseScenarioId ? String(body.baseScenarioId) : null) : undefined,
         submissionDeadline:
           body.submissionDeadline != null
             ? body.submissionDeadline
-              ? new Date(String(body.submissionDeadline))
+              ? toPeriodStartDate(body.submissionDeadline) || new Date(String(body.submissionDeadline))
               : null
             : undefined,
         approvalWorkflowId:
@@ -296,11 +371,28 @@ export class FpaModelPlanningCycleService {
       ip,
     });
 
-    return cycle;
+    if (Array.isArray(body.owners)) {
+      await FpaModelPlanningOwnersService.replaceOwners(
+        await prisma.modelPlanningCycle.findUniqueOrThrow({ where: { id } }),
+        body.owners,
+        userId,
+        ip
+      );
+    }
+
+    return await serializeCycle(await prisma.modelPlanningCycle.findUniqueOrThrow({ where: { id } }));
+  }
+
+  static async setOwners(id: string, body: any, userId: string, ip?: string) {
+    return FpaModelPlanningOwnersService.setOwners(id, body, userId, ip);
+  }
+
+  static async ownerWorkspace(id: string, user: any) {
+    return FpaModelPlanningOwnersService.ownerWorkspace(id, user);
   }
 
   static async remove(id: string, userId: string, ip: string) {
-    const existing = await FpaModelPlanningCycleService.get(id);
+    const existing = await FpaModelPlanningCycleService.getRaw(id);
     if (existing.status !== "DRAFT") {
       throw new FpaModelPlanningError(
         "Only DRAFT model planning cycles can be deleted",
@@ -323,24 +415,30 @@ export class FpaModelPlanningCycleService {
 
   /** Aggregates cycle + published source model so FE opens the planning worksheet grid. */
   static async workspace(id: string) {
-    const cycle = await FpaModelPlanningCycleService.get(id);
+    const cycleRaw = await FpaModelPlanningCycleService.getRaw(id);
+    const cycle = await serializeCycle(cycleRaw);
 
     const [model, version, scenarios] = await Promise.all([
-      prisma.planningModel.findUnique({ where: { id: cycle.sourceModelId } }),
-      prisma.planningVersion.findUnique({ where: { id: cycle.sourceModelVersionId } }),
-      prisma.planningScenario.findMany({ where: { modelId: cycle.sourceModelId } }),
+      prisma.planningModel.findUnique({ where: { id: cycleRaw.sourceModelId } }),
+      prisma.planningVersion.findUnique({ where: { id: cycleRaw.sourceModelVersionId } }),
+      prisma.planningScenario.findMany({ where: { modelId: cycleRaw.sourceModelId } }),
     ]);
 
     return {
       cycle,
+      owners: cycle.owners,
       model,
       version,
       scenarios,
+      actualsCutoffPeriod: cycle.actualsCutoffPeriod,
+      forecastStartPeriod: cycle.forecastStartPeriod,
       grid: {
-        modelId: cycle.sourceModelId,
-        versionId: cycle.sourceModelVersionId,
-        baseScenarioId: cycle.baseScenarioId,
-        cycleId: cycle.id,
+        modelId: cycleRaw.sourceModelId,
+        versionId: cycleRaw.sourceModelVersionId,
+        baseScenarioId: cycleRaw.baseScenarioId,
+        cycleId: cycleRaw.id,
+        actualCutoff: cycle.actualsCutoffPeriod,
+        forecastStartPeriod: cycle.forecastStartPeriod,
       },
     };
   }

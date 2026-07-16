@@ -1,16 +1,23 @@
 ---
-description: After implementing FP&A (or similar) APIs — migrate all 3 DBs, push, deploy VPS, write dedicated API docs
+description: FP&A implement pipeline — migrate 3 DBs + docs + UAT with client-demo data; do NOT push or deploy unless asked
 alwaysApply: true
 ---
 
 # FP&A / feature delivery checklist (NVCCZ)
 
-When the user asks you to **implement** a new FP&A (or comparable backend) feature from FE/API requirements, finish the full pipeline in the **same turn** unless they explicitly say not to deploy:
+When the user asks you to **implement** a new FP&A (or comparable backend) feature from FE/API requirements, finish this pipeline in the **same turn**:
 
 1. **Implement** code + idempotent migration script + `package.json` `db:migrate:…` entry.
-2. **Dedicated API docs** — separate markdown under `docs/` (e.g. `docs/fpa-*-api.md`), not only a mention inside a mega reference. Include endpoints, request/response examples, enums, errors, acceptance checklist.
-3. **Migrate all three MySQL DBs** on the VPS: `nts`, `client1_db`, `demo_env` (override `DATABASE_URL`; same pattern as `scripts/run-fpa-*-migration-all-dbs-vps.py`).
-4. **Commit** (when delivering the feature), **push** to `origin` (current branch / `master`).
-5. **Deploy VPS**: pull `nts` then `client1` (and `demo_env` if present), `npm i`, `prisma generate`, `npm run build`, `pm2 restart all`. Credentials: `.cursor/deploy-vps.credentials.local`.
+2. **Dedicated API docs** — separate markdown under `docs/` (e.g. `docs/fpa-*-api.md`). Include endpoints, request/response examples, enums, errors, acceptance checklist.
+3. **Migrate all three MySQL DBs**: `nts`, `client1_db`, `demo_env` (override `DATABASE_URL`; same pattern as existing `scripts/run-*-all-dbs-vps.py` or local remote MySQL URLs).
+4. **UAT / seed with real client-demo data** — scripts must create or reuse story-ready fixtures (named departments, owners, cycles) so the user can walk a client through the product. Prefer Arcus / existing `db:seed:fpa-demo` entities. Log IDs and names clearly in UAT output.
+5. **Do NOT commit, push, or VPS-deploy** unless the user explicitly asks in that turn.
 
-Do not stop at “local only” or “say if you want deploy” for these implement requests — run migrations + push + deploy + docs by default.
+## Explicit overrides
+
+| User says | Do |
+|-----------|-----|
+| “push and deploy” / “commit and push” | Then commit / push / deploy as asked |
+| “no migrate” | Skip 3-DB migrate |
+
+Do not offer “say if you want deploy” as the default stop — migrations + docs + client-demo UAT **are** required; push/deploy are **opt-in**.

@@ -1531,8 +1531,12 @@ async function seedBudgetCycles(
 
 async function seedModelPlanningCycles(
   adminId: string,
-  primary: Awaited<ReturnType<typeof seedPrimaryModel>>
+  primary: Awaited<ReturnType<typeof seedPrimaryModel>>,
+  depts: { id: string; name?: string }[]
 ) {
+  const { FpaModelPlanningOwnersService } = await import(
+    "../src/services/fpa/FpaModelPlanningOwnersService"
+  );
   const cycleIds: Record<string, string> = {};
   const defs = LITE
     ? [
@@ -1568,6 +1572,8 @@ async function seedModelPlanningCycles(
         },
       ];
 
+  const ownerDepts = depts.slice(0, Math.min(2, depts.length));
+
   for (const def of defs) {
     const existing = await prisma.modelPlanningCycle.findFirst({
       where: { name: def.name, sourceModelId: primary.modelId },
@@ -1575,6 +1581,18 @@ async function seedModelPlanningCycles(
     });
     if (existing) {
       cycleIds[def.key] = existing.id;
+      // Ensure owners exist for client walkthroughs
+      if (ownerDepts.length) {
+        await FpaModelPlanningOwnersService.replaceOwners(
+          await prisma.modelPlanningCycle.findUniqueOrThrow({ where: { id: existing.id } }),
+          ownerDepts.map((d) => ({
+            departmentId: d.id,
+            assigneeId: adminId,
+            dueDate: "2026-09-30",
+          })),
+          adminId
+        );
+      }
       continue;
     }
 
@@ -1599,6 +1617,17 @@ async function seedModelPlanningCycles(
         updatedById: adminId,
       },
     });
+    if (ownerDepts.length) {
+      await FpaModelPlanningOwnersService.replaceOwners(
+        await prisma.modelPlanningCycle.findUniqueOrThrow({ where: { id } }),
+        ownerDepts.map((d) => ({
+          departmentId: d.id,
+          assigneeId: adminId,
+          dueDate: "2026-09-30",
+        })),
+        adminId
+      );
+    }
   }
 
   return cycleIds;
@@ -1645,7 +1674,7 @@ async function main() {
   const cycleIds = await seedBudgetCycles(admin.id, primary, depts);
   console.log(`[seed-fpa] budget cycles=${Object.keys(cycleIds).length}`);
 
-  const modelPlanningCycleIds = await seedModelPlanningCycles(admin.id, primary);
+  const modelPlanningCycleIds = await seedModelPlanningCycles(admin.id, primary, depts);
   console.log(`[seed-fpa] model planning cycles=${Object.keys(modelPlanningCycleIds).length}`);
 
   const summary = {

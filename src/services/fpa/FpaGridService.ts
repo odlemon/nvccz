@@ -5,6 +5,13 @@ import { FpaAccessService } from "./FpaAccessService";
 import { FpaAuditService } from "./FpaAuditService";
 import { FpaFormulaEngine } from "./FpaFormulaEngine";
 import { pickCanonicalCells, mergeLineValuesByCode, periodKey } from "./FpaCellCanonical";
+import {
+  monthStart,
+  periodMonthKey,
+  periodMonthLabel,
+  periodStartIso,
+  nextPeriodStart,
+} from "./FpaPlanningCycleContextService";
 
 function userDisplayName(u: any): string | null {
   if (!u) return null;
@@ -14,15 +21,13 @@ function userDisplayName(u: any): string | null {
 
 function periodRoleFor(periodDate: Date, actualCutoff: Date, sourceType?: string | null): "ACTUAL" | "FORECAST" {
   if (String(sourceType || "").toUpperCase() === "ACTUAL") return "ACTUAL";
-  const p = new Date(periodDate);
-  p.setHours(0, 0, 0, 0);
-  const cut = new Date(actualCutoff);
-  cut.setHours(0, 0, 0, 0);
+  const p = monthStart(new Date(periodDate));
+  const cut = monthStart(new Date(actualCutoff));
   return p <= cut ? "ACTUAL" : "FORECAST";
 }
 
-function monthStart(d: Date) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+function isPeriodOnOrBeforeCutoff(periodDate: Date, actualCutoff: Date): boolean {
+  return monthStart(new Date(periodDate)) <= monthStart(new Date(actualCutoff));
 }
 
 function cellStatusOf(c: any): string {
@@ -76,6 +81,215 @@ function yearKey(d: Date): { key: string; label: string; start: string } {
   return { key: `${y}`, label: String(y), start };
 }
 
+/** Build SQL WHERE for planning_cells (alias `c`) from getGrid filters. */
+function buildPlanningCellSqlFilter(
+  modelId: string,
+  where: Record<string, any>
+): { sql: string; params: unknown[] } {
+  const parts: string[] = ["c.model_id = ?"];
+  const params: unknown[] = [modelId];
+
+  if (where.versionId) {
+    parts.push("c.version_id = ?");
+    params.push(where.versionId);
+  }
+  if (where.scenarioId) {
+    parts.push("c.scenario_id = ?");
+    params.push(where.scenarioId);
+  }
+  if (where.lineItemId) {
+    if (typeof where.lineItemId === "string") {
+      parts.push("c.line_item_id = ?");
+      params.push(where.lineItemId);
+    } else if (where.lineItemId?.in) {
+      const ids = where.lineItemId.in as string[];
+      if (!ids.length || ids[0] === "__none__") {
+        parts.push("1 = 0");
+      } else {
+        parts.push(`c.line_item_id IN (${ids.map(() => "?").join(",")})`);
+        params.push(...ids);
+      }
+    }
+  }
+  if (where.departmentId) {
+    parts.push("c.department_id = ?");
+    params.push(where.departmentId);
+  } else if (where.OR) {
+    const deptIn = where.OR.find((o: any) => o.departmentId?.in)?.departmentId?.in as string[] | undefined;
+    const hasNull = where.OR.some((o: any) => o.departmentId === null);
+    if (deptIn?.length) {
+      if (hasNull) {
+        parts.push(`(c.department_id IN (${deptIn.map(() => "?").join(",")}) OR c.department_id IS NULL)`);
+        params.push(...deptIn);
+      } else {
+        parts.push(`c.department_id IN (${deptIn.map(() => "?").join(",")})`);
+        params.push(...deptIn);
+      }
+    }
+  }
+  return { sql: parts.join(" AND "), params };
+}
+
+function lineItemSnapshot(li: any) {
+  return {
+    id: li.id,
+    code: li.code,
+    name: li.name,
+    lineItemType: li.lineItemType,
+    category: li.category,
+    isEditable: li.isEditable,
+    summaryMethod: li.summaryMethod,
+    moduleId: li.moduleId,
+  };
+}
+
+function summarizeLineItemTotalsFromCells(
+  cells: Array<{ lineItemId: string; periodDate: Date | string; value: unknown }>,
+  lineItems: any[],
+  methodByLi: Record<string, string>
+): Record<string, number> {
+  const monthlyByLi: Record<string, Array<{ period: string; value: number }>> = {};
+  for (const c of cells) {
+    const val = c.value != null ? Number(c.value) : null;
+    if (val == null) continue;
+    const key = periodKey(c.periodDate);
+    (monthlyByLi[c.lineItemId] ||= []).push({ period: key, value: val });
+  }
+  const fyTotals: Record<string, number> = {};
+  for (const li of lineItems) {
+    const vals = (monthlyByLi[li.id] || [])
+      .sort((a, b) => a.period.localeCompare(b.period))
+      .map((x) => x.value);
+    fyTotals[li.id] = summarizeValues(vals, methodByLi[li.id] || "SUM");
+  }
+  return fyTotals;
+}
+
+async function computeFyTotalsAggregated(
+  where: Record<string, any>,
+  lineItems: any[],
+  methodByLi: Record<string, string>
+): Promise<Record<string, number>> {
+  const fyTotals: Record<string, number> = {};
+  const sumIds: string[] = [];
+  const avgIds: string[] = [];
+  const lastIds: string[] = [];
+
+  for (const li of lineItems) {
+    const m = methodByLi[li.id] || "SUM";
+    if (m === "AVG" || m === "AVERAGE" || m === "MEAN") avgIds.push(li.id);
+    else if (m === "LAST") lastIds.push(li.id);
+    else sumIds.push(li.id);
+  }
+
+  const tasks: Promise<void>[] = [];
+  const allAggIds = [...new Set([...sumIds, ...avgIds])];
+
+  if (allAggIds.length) {
+    const { sql, params } = buildPlanningCellSqlFilter(where.modelId, where);
+    tasks.push(
+      prisma
+        .$queryRawUnsafe<
+          Array<{ lineItemId: string; sumVal: unknown; avgVal: unknown }>
+        >(
+          `SELECT c.line_item_id AS lineItemId,
+             SUM(CASE WHEN c.value IS NOT NULL THEN CAST(c.value AS DECIMAL(20,4)) ELSE 0 END) AS sumVal,
+             AVG(CASE WHEN c.value IS NOT NULL THEN CAST(c.value AS DECIMAL(20,4)) ELSE NULL END) AS avgVal
+           FROM planning_cells c
+           WHERE ${sql} AND c.line_item_id IN (${allAggIds.map(() => "?").join(",")})
+           GROUP BY c.line_item_id`,
+          ...params,
+          ...allAggIds
+        )
+        .then((rows) => {
+          const sumSet = new Set(sumIds);
+          const avgSet = new Set(avgIds);
+          for (const r of rows) {
+            if (sumSet.has(r.lineItemId)) fyTotals[r.lineItemId] = Number(r.sumVal || 0);
+            else if (avgSet.has(r.lineItemId)) fyTotals[r.lineItemId] = Number(r.avgVal || 0);
+          }
+        })
+    );
+  }
+  if (lastIds.length) {
+    const { sql, params } = buildPlanningCellSqlFilter(where.modelId, where);
+    tasks.push(
+      prisma
+        .$queryRawUnsafe<
+          Array<{ lineItemId: string; value: unknown }>
+        >(
+          `SELECT ranked.line_item_id AS lineItemId, ranked.value
+           FROM (
+             SELECT c.line_item_id, c.value,
+               ROW_NUMBER() OVER (
+                 PARTITION BY c.line_item_id
+                 ORDER BY c.period_date DESC, c.updated_at DESC, c.id DESC
+               ) AS rn
+             FROM planning_cells c
+             WHERE ${sql} AND c.line_item_id IN (${lastIds.map(() => "?").join(",")}) AND c.value IS NOT NULL
+           ) ranked
+           WHERE ranked.rn = 1`,
+          ...params,
+          ...lastIds
+        )
+        .then((rows) => {
+          for (const r of rows) fyTotals[r.lineItemId] = Number(r.value || 0);
+        })
+    );
+  }
+
+  await Promise.all(tasks);
+  for (const li of lineItems) {
+    if (fyTotals[li.id] == null) fyTotals[li.id] = 0;
+  }
+  return fyTotals;
+}
+
+type GrainBucketRow = {
+  lineItemId: string;
+  bucketKey: string;
+  periodStart: Date;
+  sumVal: unknown;
+  avgVal: unknown;
+  lastVal: unknown;
+  maxPeriod: Date;
+};
+
+async function aggregateCellsByGrain(
+  modelId: string,
+  where: Record<string, any>,
+  grain: "quarterly" | "annual"
+): Promise<GrainBucketRow[]> {
+  const { sql, params } = buildPlanningCellSqlFilter(modelId, where);
+  const bucketExpr =
+    grain === "quarterly"
+      ? "CONCAT(YEAR(c.period_date), '-Q', QUARTER(c.period_date))"
+      : "CAST(YEAR(c.period_date) AS CHAR)";
+  const periodStartExpr =
+    grain === "quarterly"
+      ? "MIN(c.period_date)"
+      : "MIN(c.period_date)";
+
+  return prisma.$queryRawUnsafe<GrainBucketRow[]>(
+    `SELECT
+       c.line_item_id AS lineItemId,
+       ${bucketExpr} AS bucketKey,
+       ${periodStartExpr} AS periodStart,
+       SUM(CAST(c.value AS DECIMAL(20,4))) AS sumVal,
+       AVG(CAST(c.value AS DECIMAL(20,4))) AS avgVal,
+       MAX(c.period_date) AS maxPeriod,
+       SUBSTRING_INDEX(
+         GROUP_CONCAT(CAST(c.value AS CHAR) ORDER BY c.period_date ASC SEPARATOR ','),
+         ',',
+         -1
+       ) AS lastVal
+     FROM planning_cells c
+     WHERE ${sql} AND c.value IS NOT NULL
+     GROUP BY c.line_item_id, ${grain === "quarterly" ? "YEAR(c.period_date), QUARTER(c.period_date)" : "YEAR(c.period_date)"}`,
+    ...params
+  );
+}
+
 function serializeCell(c: any) {
   return {
     ...c,
@@ -86,11 +300,17 @@ function serializeCell(c: any) {
 }
 
 export class FpaGridService {
-  static async assertEditableVersion(versionId: string, userId: string, user: any, ip?: string) {
+  static async assertEditableVersion(
+    versionId: string,
+    userId: string,
+    user: any,
+    ip?: string,
+    opts?: { allowLockedPublished?: boolean }
+  ) {
     const version = await prisma.planningVersion.findUnique({ where: { id: versionId } });
     if (!version) throw new FpaError(404, "NOT_FOUND", "Version not found");
     try {
-      FpaAccessService.assertCanEditVersion(user, version);
+      FpaAccessService.assertCanEditVersion(user, version, opts);
     } catch (e: any) {
       if (e?.statusCode === 403) {
         await FpaAuditService.log("CELL_EDIT_BLOCKED_LOCKED", userId, {
@@ -117,93 +337,185 @@ export class FpaGridService {
     return monthStart(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)));
   }
 
+  /** SRD §31 — reject writes on/before actuals cutoff when cycle (or model fallback) says so. */
+  static async assertNotActualPeriodLocked(
+    cell: { periodDate: Date; modelId: string; versionId?: string; id?: string; lineItemId?: string },
+    cycleId?: string | null,
+    userId?: string,
+    ip?: string
+  ) {
+    let cutoff: Date | null = null;
+    if (cycleId) {
+      const { FpaPlanningCycleContextService } = await import("./FpaPlanningCycleContextService");
+      const ctx = await FpaPlanningCycleContextService.resolve(String(cycleId));
+      if (ctx?.actualsCutoffDate) cutoff = monthStart(new Date(ctx.actualsCutoffDate));
+    }
+    if (!cutoff) {
+      cutoff = await FpaGridService.resolveActualCutoff(cell.modelId);
+    }
+    if (cutoff && isPeriodOnOrBeforeCutoff(new Date(cell.periodDate), cutoff)) {
+      if (userId) {
+        await FpaAuditService.log("CELL_EDIT_BLOCKED_ACTUAL_PERIOD", userId, {
+          modelId: cell.modelId,
+          versionId: cell.versionId || null,
+          cellId: cell.id || null,
+          lineItemId: cell.lineItemId || null,
+          entityType: "CELL",
+          reason: `Period on/before actuals cutoff ${periodStartIso(cutoff)}`,
+          ip,
+        });
+      }
+      throw new FpaError(
+        403,
+        "ACTUAL_PERIOD_LOCKED",
+        "Cannot edit values in actual periods (on or before actuals cutoff)."
+      );
+    }
+  }
+
   static async getGrid(modelId: string, opts: any = {}, user: any = null) {
     const page = Math.max(1, Number(opts.page || 1));
     const pageSize = Math.min(500, Math.max(1, Number(opts.pageSize || opts.page_size || 100)));
     const grain = String(opts.grain || "monthly").toLowerCase();
     const moduleId = opts.moduleId ? String(opts.moduleId) : null;
+    const isCoarseGrain = grain === "quarterly" || grain === "annual";
 
-    if (moduleId) {
-      const mod = await prisma.planningModule.findFirst({ where: { id: moduleId, modelId } });
-      if (!mod) throw new FpaError(404, "NOT_FOUND", "Module not found for this model");
-    }
+    const [moduleRow, lineItems, cycleBootstrap] = await Promise.all([
+      moduleId
+        ? prisma.planningModule.findFirst({ where: { id: moduleId, modelId } })
+        : Promise.resolve(null),
+      prisma.planningLineItem.findMany({
+        where: moduleId ? { modelId, moduleId } : { modelId },
+        orderBy: { sortOrder: "asc" },
+      }),
+      (async () => {
+        if (!opts.cycleId || !user) return { cycleCtx: null, assignedDepartmentIds: null as string[] | null };
+        const { FpaPlanningCycleContextService } = await import("./FpaPlanningCycleContextService");
+        const cycleCtx = await FpaPlanningCycleContextService.resolve(String(opts.cycleId));
+        const assignedDepartmentIds = cycleCtx
+          ? await FpaAccessService.resolveCycleDepartmentIds(user, opts.cycleId)
+          : null;
+        return { cycleCtx, assignedDepartmentIds };
+      })(),
+    ]);
+
+    if (moduleId && !moduleRow) throw new FpaError(404, "NOT_FOUND", "Module not found for this model");
 
     const where: any = { modelId };
     if (opts.versionId) where.versionId = String(opts.versionId);
     if (opts.scenarioId) where.scenarioId = String(opts.scenarioId);
     if (opts.lineItemId) where.lineItemId = String(opts.lineItemId);
 
-    let assignedDepartmentIds: string[] | null = null;
+    const { cycleCtx, assignedDepartmentIds: scopedDeptIds } = cycleBootstrap;
+    let assignedDepartmentIds = scopedDeptIds;
     let cycleMeta: any = null;
-    let cycleCtx: Awaited<
-      ReturnType<typeof import("./FpaPlanningCycleContextService").FpaPlanningCycleContextService.resolve>
-    > = null;
-    if (opts.cycleId && user) {
-      const { FpaPlanningCycleContextService } = await import("./FpaPlanningCycleContextService");
-      cycleCtx = await FpaPlanningCycleContextService.resolve(String(opts.cycleId));
-      if (cycleCtx) {
-        cycleMeta = cycleCtx.cycle;
-        if (!opts.versionId) where.versionId = cycleCtx.versionId;
-        if (!opts.scenarioId && cycleCtx.scenarioId) where.scenarioId = cycleCtx.scenarioId;
-        if (cycleCtx.kind === "budget") {
-          assignedDepartmentIds = await FpaAccessService.resolveCycleDepartmentIds(user, opts.cycleId);
-          if (assignedDepartmentIds && assignedDepartmentIds.length === 0) {
-            throw new FpaError(403, "FORBIDDEN", "You are not assigned to this budget cycle");
-          }
-          if (assignedDepartmentIds?.length) {
-            where.OR = [{ departmentId: { in: assignedDepartmentIds } }, { departmentId: null }];
-          }
-        }
+
+    if (cycleCtx) {
+      cycleMeta = cycleCtx.cycle;
+      if (!opts.versionId) where.versionId = cycleCtx.versionId;
+      if (!opts.scenarioId && cycleCtx.scenarioId) where.scenarioId = cycleCtx.scenarioId;
+      if (assignedDepartmentIds && assignedDepartmentIds.length === 0) {
+        throw new FpaError(
+          403,
+          "FORBIDDEN",
+          cycleCtx.kind === "model"
+            ? "You are not assigned to this planning cycle"
+            : "You are not assigned to this budget cycle"
+        );
+      }
+      if (assignedDepartmentIds?.length) {
+        where.OR = [{ departmentId: { in: assignedDepartmentIds } }, { departmentId: null }];
       }
     }
-    if (opts.departmentId) where.departmentId = String(opts.departmentId);
+    if (opts.departmentId) {
+      const deptId = String(opts.departmentId);
+      if (assignedDepartmentIds?.length && !assignedDepartmentIds.includes(deptId)) {
+        throw new FpaError(403, "DEPARTMENT_SCOPE_LOCKED", "Department is outside your authorised slice");
+      }
+      where.departmentId = deptId;
+      delete where.OR;
+    }
 
-    const lineItemWhere: any = { modelId };
-    if (moduleId) lineItemWhere.moduleId = moduleId;
-    const lineItems = await prisma.planningLineItem.findMany({
-      where: lineItemWhere,
-      orderBy: { sortOrder: "asc" },
-    });
     const lineItemIds = lineItems.map((l) => l.id);
     if (moduleId) {
       where.lineItemId = lineItemIds.length ? { in: lineItemIds } : { in: ["__none__"] };
     }
 
-    let actualCutoff = await FpaGridService.resolveActualCutoff(modelId);
+    const lineItemById = Object.fromEntries(lineItems.map((li) => [li.id, lineItemSnapshot(li)]));
+
+    let actualCutoff: Date | null = null;
+    let forecastStart: Date | null = null;
     if (cycleCtx?.actualsCutoffDate) {
       actualCutoff = monthStart(new Date(cycleCtx.actualsCutoffDate));
+      forecastStart = cycleCtx.forecastStartPeriod
+        ? monthStart(new Date(cycleCtx.forecastStartPeriod))
+        : nextPeriodStart(actualCutoff);
     } else if (cycleMeta?.actualsCutoffDate) {
       actualCutoff = monthStart(new Date(cycleMeta.actualsCutoffDate));
+      forecastStart = cycleMeta.forecastStartPeriod
+        ? monthStart(new Date(cycleMeta.forecastStartPeriod))
+        : nextPeriodStart(actualCutoff);
+    } else if (cycleMeta?.actualsCutoffPeriod) {
+      actualCutoff = monthStart(new Date(cycleMeta.actualsCutoffPeriod));
+      forecastStart = cycleMeta.forecastStartPeriod
+        ? monthStart(new Date(cycleMeta.forecastStartPeriod))
+        : nextPeriodStart(actualCutoff);
     }
 
-    const [model, total, cells, formulas, allCellsForTotals] = await Promise.all([
+    const methodByLi = Object.fromEntries(
+      lineItems.map((li) => [li.id, String(li.summaryMethod || "SUM").toUpperCase()])
+    );
+
+    const cellSelect = {
+      id: true,
+      modelId: true,
+      scenarioId: true,
+      versionId: true,
+      lineItemId: true,
+      periodDate: true,
+      entityId: true,
+      departmentId: true,
+      costCentreId: true,
+      currencyCode: true,
+      value: true,
+      valueType: true,
+      sourceType: true,
+      isEditable: true,
+      isLocked: true,
+      formulaId: true,
+      driverId: true,
+      recordVersion: true,
+      updatedAt: true,
+      createdAt: true,
+    } as const;
+
+    const cellPagePromise = isCoarseGrain
+      ? Promise.resolve([])
+      : prisma.planningCell
+          .findMany({
+            where,
+            select: cellSelect,
+            orderBy: [{ periodDate: "asc" }, { lineItemId: "asc" }],
+            skip: (page - 1) * pageSize,
+            take: pageSize,
+          })
+          .then((rows) => {
+            const sortIdx = Object.fromEntries(lineItems.map((li, i) => [li.id, li.sortOrder ?? i]));
+            return rows.sort((a, b) => {
+              const d = (sortIdx[a.lineItemId] ?? 0) - (sortIdx[b.lineItemId] ?? 0);
+              if (d) return d;
+              return new Date(a.periodDate).getTime() - new Date(b.periodDate).getTime();
+            });
+          });
+
+    const [model, cells, formulas, grainBuckets, fallbackCutoff] = await Promise.all([
       prisma.planningModel.findUnique({
         where: { id: modelId },
         include: {
           owner: { select: { id: true, firstName: true, lastName: true, email: true, backgroundImage: true } },
         },
       }),
-      prisma.planningCell.count({ where }),
-      prisma.planningCell.findMany({
-        where,
-        include: {
-          lineItem: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              lineItemType: true,
-              category: true,
-              isEditable: true,
-              summaryMethod: true,
-              moduleId: true,
-            },
-          },
-        },
-        orderBy: [{ lineItem: { sortOrder: "asc" } }, { periodDate: "asc" }],
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
+      cellPagePromise,
       prisma.planningFormula.findMany({
         where: {
           modelId,
@@ -211,13 +523,33 @@ export class FpaGridService {
         },
         select: { id: true, lineItemId: true, expression: true, isValid: true },
       }),
-      prisma.planningCell.findMany({
-        where,
-        select: { lineItemId: true, periodDate: true, value: true },
-        orderBy: { periodDate: "asc" },
-      }),
+      isCoarseGrain ? aggregateCellsByGrain(modelId, where, grain as "quarterly" | "annual") : Promise.resolve([]),
+      actualCutoff ? Promise.resolve(null) : FpaGridService.resolveActualCutoff(modelId),
     ]);
     if (!model) throw new FpaError(404, "NOT_FOUND", "Planning model not found");
+
+    if (!actualCutoff) {
+      actualCutoff = fallbackCutoff || monthStart(new Date());
+    }
+    if (!forecastStart) forecastStart = nextPeriodStart(actualCutoff);
+
+    const canonicalPageCells = isCoarseGrain ? [] : pickCanonicalCells(cells);
+    const singlePageComplete = !isCoarseGrain && page === 1 && canonicalPageCells.length < pageSize;
+
+    let total: number;
+    let fyTotals: Record<string, number>;
+    if (isCoarseGrain) {
+      total = 0;
+      fyTotals = await computeFyTotalsAggregated(where, lineItems, methodByLi);
+    } else if (singlePageComplete) {
+      total = canonicalPageCells.length;
+      fyTotals = summarizeLineItemTotalsFromCells(canonicalPageCells, lineItems, methodByLi);
+    } else {
+      [total, fyTotals] = await Promise.all([
+        prisma.planningCell.count({ where }),
+        computeFyTotalsAggregated(where, lineItems, methodByLi),
+      ]);
+    }
 
     const formulasByLi: Record<string, any[]> = {};
     for (const f of formulas) {
@@ -234,128 +566,133 @@ export class FpaGridService {
       formulas: formulasByLi[li.id] || [],
     }));
 
-    const methodByLi = Object.fromEntries(
-      lineItems.map((li) => [li.id, String(li.summaryMethod || "SUM").toUpperCase()])
-    );
-
-    const fyTotals: Record<string, number> = {};
-    const monthlyByLi: Record<string, Array<{ period: string; value: number }>> = {};
-    const canonicalTotals = pickCanonicalCells(allCellsForTotals);
-    for (const c of canonicalTotals) {
-      const key = periodKey(c.periodDate);
-      const val = c.value != null ? Number(c.value) : null;
-      if (val == null) continue;
-      (monthlyByLi[c.lineItemId] ||= []).push({ period: key, value: val });
-    }
-    for (const li of lineItems) {
-      const vals = (monthlyByLi[li.id] || [])
-        .sort((a, b) => a.period.localeCompare(b.period))
-        .map((x) => x.value);
-      fyTotals[li.id] = summarizeValues(vals, methodByLi[li.id]);
-    }
-
-    const canonicalPage = pickCanonicalCells(cells);
+    const canonicalPage = canonicalPageCells;
     const enrichedCells = canonicalPage.map((c) => {
-      const cellStatus = cellStatusOf(c);
+      let cellStatus = cellStatusOf(c);
       const periodRole = periodRoleFor(c.periodDate, actualCutoff, c.sourceType);
+      const actualPeriodLocked = periodRole === "ACTUAL";
+      if (actualPeriodLocked && (cellStatus === "INPUT" || cellStatus === "OVERRIDE")) {
+        cellStatus = "ACTUAL";
+      }
+      const deptScoped = Boolean(assignedDepartmentIds?.length);
+      const departmentId = c.departmentId || null;
+      const deptLocked =
+        deptScoped &&
+        (!departmentId || !assignedDepartmentIds!.includes(String(departmentId)));
+      const editable =
+        !actualPeriodLocked &&
+        !deptLocked &&
+        isEditableStatus(cellStatus) &&
+        c.isEditable &&
+        !c.isLocked;
       return {
         ...c,
+        lineItem: lineItemById[c.lineItemId] || null,
+        departmentId,
         recordVersion: c.recordVersion != null ? Number(c.recordVersion) : 1,
         periodRole,
         cellStatus,
-        isEditable: isEditableStatus(cellStatus) && c.isEditable && !c.isLocked,
+        isEditable: editable,
+        readOnly: !editable,
         value: c.value != null ? Number(c.value) : null,
       };
     });
 
-    const periodMap = new Map<string, { periodDate: string; periodRole: "ACTUAL" | "FORECAST"; readOnly?: boolean; label?: string }>();
-    for (const c of enrichedCells) {
-      const key = new Date(c.periodDate).toISOString().slice(0, 10);
-      if (!periodMap.has(key)) {
-        periodMap.set(key, { periodDate: key, periodRole: c.periodRole });
+    const periodMap = new Map<
+      string,
+      {
+        periodDate: string;
+        key: string;
+        label: string;
+        periodRole: "ACTUAL" | "FORECAST";
+        readOnly: boolean;
       }
+    >();
+    const addPeriod = (d: Date, role: "ACTUAL" | "FORECAST") => {
+      const ms = monthStart(d);
+      const periodDate = periodStartIso(ms)!;
+      if (!periodMap.has(periodDate)) {
+        periodMap.set(periodDate, {
+          periodDate,
+          key: periodMonthKey(ms),
+          label: periodMonthLabel(ms),
+          periodRole: role,
+          readOnly: role === "ACTUAL",
+        });
+      }
+    };
+    for (const c of enrichedCells) {
+      addPeriod(new Date(c.periodDate), c.periodRole);
     }
     if (model.startPeriod && model.endPeriod) {
       let cursor = monthStart(new Date(model.startPeriod));
       const end = monthStart(new Date(model.endPeriod));
       while (cursor <= end) {
-        const key = cursor.toISOString().slice(0, 10);
-        if (!periodMap.has(key)) {
-          periodMap.set(key, {
-            periodDate: key,
-            periodRole: periodRoleFor(cursor, actualCutoff, null),
-          });
-        }
+        addPeriod(cursor, periodRoleFor(cursor, actualCutoff, null));
         cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
       }
     }
     let periods = [...periodMap.values()].sort((a, b) => a.periodDate.localeCompare(b.periodDate));
     let cellsOut = enrichedCells;
 
-    if (grain === "quarterly" || grain === "annual") {
+    if (isCoarseGrain) {
       const bucketFn = grain === "quarterly" ? quarterKey : yearKey;
       const aggPeriods = new Map<string, any>();
-      const cellBuckets: Record<string, Record<string, number[]>> = {};
       const periodRoleBuckets: Record<string, "ACTUAL" | "FORECAST"> = {};
 
-      for (const p of periods) {
-        const d = new Date(p.periodDate);
+      for (const row of grainBuckets) {
+        const d = new Date(row.periodStart);
         const b = bucketFn(d);
+        const role = periodRoleFor(d, actualCutoff, null);
         if (!aggPeriods.has(b.key)) {
           aggPeriods.set(b.key, {
             periodDate: b.start,
+            key: b.key,
             periodKey: b.key,
             label: b.label,
-            periodRole: p.periodRole,
-            readOnly: true,
+            periodRole: role,
+            readOnly: role === "ACTUAL",
           });
         }
-        if (p.periodRole === "FORECAST") periodRoleBuckets[b.key] = "FORECAST";
-        else if (!periodRoleBuckets[b.key]) periodRoleBuckets[b.key] = p.periodRole;
+        if (role === "FORECAST") periodRoleBuckets[b.key] = "FORECAST";
+        else if (!periodRoleBuckets[b.key]) periodRoleBuckets[b.key] = role;
       }
       for (const [k, role] of Object.entries(periodRoleBuckets)) {
-        const row = aggPeriods.get(k);
-        if (row) row.periodRole = role;
-      }
-
-      for (const c of allCellsForTotals) {
-        const d = new Date(c.periodDate);
-        const b = bucketFn(d);
-        const val = c.value != null ? Number(c.value) : null;
-        if (val == null) continue;
-        ((cellBuckets[c.lineItemId] ||= {})[b.key] ||= []).push(val);
-      }
-
-      cellsOut = [];
-      for (const li of lineItems) {
-        const buckets = cellBuckets[li.id] || {};
-        for (const [bKey, vals] of Object.entries(buckets)) {
-          const meta = aggPeriods.get(bKey);
-          if (!meta) continue;
-          cellsOut.push({
-            id: `agg:${li.id}:${bKey}`,
-            modelId,
-            lineItemId: li.id,
-            periodDate: meta.periodDate,
-            periodKey: bKey,
-            value: summarizeValues(vals, methodByLi[li.id]),
-            cellStatus: "CALCULATED",
-            isEditable: false,
-            periodRole: meta.periodRole,
-            readOnly: true,
-            lineItem: {
-              id: li.id,
-              code: li.code,
-              name: li.name,
-              lineItemType: li.lineItemType,
-              category: li.category,
-              isEditable: li.isEditable,
-              summaryMethod: li.summaryMethod,
-              moduleId: li.moduleId,
-            },
-          });
+        const meta = aggPeriods.get(k);
+        if (meta) {
+          meta.periodRole = role;
+          meta.readOnly = role === "ACTUAL";
         }
       }
+
+      cellsOut = grainBuckets.map((row) => {
+        const d = new Date(row.periodStart);
+        const b = bucketFn(d);
+        const meta = aggPeriods.get(b.key)!;
+        const method = methodByLi[row.lineItemId] || "SUM";
+        let value: number;
+        if (method === "AVG" || method === "AVERAGE" || method === "MEAN") {
+          value = Number(row.avgVal || 0);
+        } else if (method === "LAST") {
+          value = Number(row.lastVal || 0);
+        } else {
+          value = Number(row.sumVal || 0);
+        }
+        const li = lineItemById[row.lineItemId];
+        return {
+          id: `agg:${row.lineItemId}:${b.key}`,
+          modelId,
+          lineItemId: row.lineItemId,
+          periodDate: meta.periodDate,
+          periodKey: b.key,
+          value,
+          cellStatus: "CALCULATED",
+          isEditable: false,
+          periodRole: meta.periodRole,
+          readOnly: meta.readOnly,
+          lineItem: li || null,
+        };
+      });
       periods = [...aggPeriods.values()].sort((a, b) => a.periodDate.localeCompare(b.periodDate));
     }
 
@@ -363,14 +700,15 @@ export class FpaGridService {
       modelId,
       moduleId,
       grain,
-      versionId: opts.versionId || cycleMeta?.versionId || null,
-      scenarioId: opts.scenarioId || cycleMeta?.scenarioId || null,
+      versionId: opts.versionId || cycleCtx?.versionId || cycleMeta?.versionId || null,
+      scenarioId: opts.scenarioId || cycleCtx?.scenarioId || cycleMeta?.scenarioId || null,
       cycleId: opts.cycleId || null,
       assignedDepartmentIds,
       page,
       pageSize,
       total: grain === "monthly" ? total : cellsOut.length,
-      actualCutoff: actualCutoff.toISOString().slice(0, 10),
+      actualCutoff: periodStartIso(actualCutoff),
+      forecastStartPeriod: periodStartIso(forecastStart),
       ownerName: userDisplayName(model.owner),
       ownerAvatarUrl: model.owner?.backgroundImage || null,
       periods,
@@ -455,7 +793,46 @@ export class FpaGridService {
       });
       throw new FpaError(409, "CELL_NOT_EDITABLE", "Calculated or non-editable line items cannot be edited");
     }
-    const version = await FpaGridService.assertEditableVersion(cell.versionId, userId, user, ip);
+
+    await FpaGridService.assertNotActualPeriodLocked(cell, input.cycleId, userId, ip);
+
+    let allowLockedPublished = false;
+    if (input.cycleId) {
+      const scoped = await FpaAccessService.resolveCycleDepartmentIds(user, input.cycleId);
+      if (scoped && scoped.length === 0) {
+        throw new FpaError(403, "FORBIDDEN", "You are not assigned to this planning cycle");
+      }
+      if (scoped?.length) {
+        const cellDept = cell.departmentId || input.departmentId || null;
+        if (!cellDept || !scoped.includes(String(cellDept))) {
+          await FpaAuditService.log("CELL_EDIT_BLOCKED_DEPT_SCOPE", userId, {
+            modelId: cell.modelId,
+            versionId: cell.versionId,
+            cellId: cell.id,
+            lineItemId: cell.lineItemId,
+            entityType: "CELL",
+            reason: `Department ${cellDept || "null"} outside assigned ${scoped.join(",")}`,
+            ip,
+          });
+          throw new FpaError(
+            403,
+            "DEPARTMENT_SCOPE_LOCKED",
+            "Cannot edit values outside your authorised department slice."
+          );
+        }
+      }
+      const mpc = await prisma.modelPlanningCycle.findUnique({
+        where: { id: String(input.cycleId) },
+        select: { status: true },
+      });
+      if (mpc && ["DRAFT", "OPEN", "IN_REVIEW"].includes(String(mpc.status).toUpperCase())) {
+        allowLockedPublished = true;
+      }
+    }
+
+    const version = await FpaGridService.assertEditableVersion(cell.versionId, userId, user, ip, {
+      allowLockedPublished,
+    });
     const status = cellStatusOf(cell);
     if (!isEditableStatus(status) || cell.isLocked || !cell.isEditable) {
       await FpaAuditService.log("CELL_EDIT_BLOCKED", userId, {
@@ -481,6 +858,7 @@ export class FpaGridService {
     FpaAccessService.assertCanEditVersion(user, version, {
       departmentId: cell.departmentId || input.departmentId || null,
       assignedDepartmentIds: assignedDepartmentIds || undefined,
+      allowLockedPublished,
     });
 
     const currentVersion = cell.recordVersion != null ? Number(cell.recordVersion) : 1;
@@ -628,7 +1006,7 @@ export class FpaGridService {
 
   static async spread(input: any, user: any, ip?: string) {
     const userId = user?.id;
-    const { modelId, versionId, scenarioId, lineItemId, value, periodDates } = input;
+    const { modelId, versionId, scenarioId, lineItemId, value, periodDates, cycleId } = input;
     if (!versionId || !lineItemId) throw new FpaError(400, "VALIDATION", "versionId and lineItemId required");
     await FpaGridService.assertEditableVersion(versionId, userId, user, ip);
 
@@ -644,7 +1022,7 @@ export class FpaGridService {
     for (const cell of cells) {
       updated.push(
         await FpaGridService.updateCell(
-          { cellId: cell.id, value: per, reason: input.reason || "SPREAD" },
+          { cellId: cell.id, value: per, reason: input.reason || "SPREAD", cycleId },
           user,
           ip
         )
@@ -655,7 +1033,7 @@ export class FpaGridService {
 
   static async copyForward(input: any, user: any, ip?: string) {
     const userId = user?.id;
-    const { modelId, versionId, scenarioId, lineItemId, fromPeriodDate } = input;
+    const { modelId, versionId, scenarioId, lineItemId, fromPeriodDate, cycleId } = input;
     if (!versionId || !lineItemId || !fromPeriodDate) {
       throw new FpaError(400, "VALIDATION", "versionId, lineItemId, fromPeriodDate required");
     }
@@ -681,7 +1059,7 @@ export class FpaGridService {
     for (const cell of targets) {
       updated.push(
         await FpaGridService.updateCell(
-          { cellId: cell.id, value: source.value, reason: input.reason || "COPY_FORWARD" },
+          { cellId: cell.id, value: source.value, reason: input.reason || "COPY_FORWARD", cycleId },
           user,
           ip
         )

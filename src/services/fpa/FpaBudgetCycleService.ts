@@ -893,6 +893,7 @@ export class FpaBudgetCycleService {
     cycleId: string;
     relatedEntity?: string;
     data?: Record<string, any>;
+    path?: string;
     email: {
       subject: string;
       heading: string;
@@ -901,7 +902,7 @@ export class FpaBudgetCycleService {
       ctaLabel?: string;
     };
   }) {
-    const path = FpaBudgetCycleService.budgetCyclePath(opts.cycleId);
+    const path = opts.path || FpaBudgetCycleService.budgetCyclePath(opts.cycleId);
     const base = String(process.env.FRONTEND_URL || "http://app.kyntaro.com").replace(/\/+$/, "");
     const seen = new Set<string>();
     const recipientIds: string[] = [];

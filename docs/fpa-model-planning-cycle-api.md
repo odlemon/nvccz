@@ -148,7 +148,7 @@ Optional `?modelId=` to scope versions/scenarios to one model.
   "planningType": "ANNUAL_BUDGET",
   "sourceModelId": "cmr...",
   "sourceModelVersionId": "cmr...",
-  "actualsCutoffPeriod": "2025-12-31",
+  "actualsCutoffPeriod": "2025-12-01",
   "forecastStartPeriod": "2026-01-01",
   "planningHorizon": 12,
   "baseScenarioId": "cmr...",
@@ -165,8 +165,8 @@ Optional `?modelId=` to scope versions/scenarios to one model.
 | `planningType` | enum | ✅ | one of §2 |
 | `sourceModelId` | string | ✅ | a published `PlanningModel` |
 | `sourceModelVersionId` | string | ✅ | must belong to `sourceModelId` and have **`status: LOCKED`** (published) |
-| `actualsCutoffPeriod` | date | — | `YYYY-MM-DD` |
-| `forecastStartPeriod` | date | — | `YYYY-MM-DD` |
+| `actualsCutoffPeriod` | date | — | Normalized to period start `YYYY-MM-01` (e.g. `2026-07-15` → `2026-07-01`) |
+| `forecastStartPeriod` | date | — | Period start `YYYY-MM-01`; **defaults to cutoff + 1 month** if omitted when cutoff is set |
 | `planningHorizon` | int | — | number of periods |
 | `baseScenarioId` | string | — | scenario on the source model |
 | `submissionDeadline` | date | — | `YYYY-MM-DD` |
@@ -179,6 +179,8 @@ Optional `?modelId=` to scope versions/scenarios to one model.
 - `sourceModelVersionId` must be **published** (`PlanningVersion.status === LOCKED`) → `400 SOURCE_VERSION_NOT_PUBLISHED`.
 - `baseScenarioId` must belong to `sourceModelId` → `400 BASE_SCENARIO_INVALID`.
 - Unknown model/version → `404 SOURCE_MODEL_NOT_FOUND` / `SOURCE_VERSION_NOT_FOUND`.
+
+**Cutoff / forecast dates** always round-trip as period-start ISO (`YYYY-MM-01`). Full grid banding + write lock: [fpa-model-planning-actuals-cutoff-api.md](./fpa-model-planning-actuals-cutoff-api.md).
 
 **Response** `201`
 ```json

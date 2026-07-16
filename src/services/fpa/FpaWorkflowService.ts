@@ -204,10 +204,25 @@ export class FpaWorkflowService {
   }
 
   static async cycleForWorkflow(workflowId: string) {
-    return prisma.planningBudgetCycle.findFirst({
+    const budget = await prisma.planningBudgetCycle.findFirst({
       where: { workflowId },
       select: { id: true, name: true, fiscalYear: true },
     });
+    if (budget) return { ...budget, kind: "budget" as const };
+
+    const model = await prisma.modelPlanningCycle.findFirst({
+      where: { OR: [{ workflowId }, { approvalWorkflowId: workflowId }] },
+      select: { id: true, name: true, financialYear: true },
+    });
+    if (model) {
+      return {
+        id: model.id,
+        name: model.name,
+        fiscalYear: model.financialYear,
+        kind: "model" as const,
+      };
+    }
+    return null;
   }
 
   /** Notify assignee on reassign / return / approve; notify FPA+CFO on owner task submit. */
@@ -370,7 +385,7 @@ export class FpaWorkflowService {
     }
 
     const cycle = await FpaWorkflowService.cycleForWorkflow(task.workflowId);
-    if (cycle?.id) {
+    if (cycle?.kind === "budget" && cycle.id) {
       const check = await FpaBudgetCycleService.validateOwnerSubmission(cycle.id, user, {
         departmentIds: task.departmentId ? [task.departmentId] : undefined,
       });
@@ -382,6 +397,10 @@ export class FpaWorkflowService {
           check.errors
         );
       }
+    }
+    if (cycle?.kind === "model") {
+      const { FpaModelPlanningOwnersService } = await import("./FpaModelPlanningOwnersService");
+      await FpaModelPlanningOwnersService.validateSliceSubmit(taskId, user);
     }
 
     const updated = await prisma.planningTask.update({
@@ -401,11 +420,17 @@ export class FpaWorkflowService {
         comment: comment || changeNotes || null,
       },
     });
-    if (cycle?.id && task.departmentId) {
+    if (cycle?.kind === "budget" && cycle.id && task.departmentId) {
       await prisma.planningBudgetCycleOwner.updateMany({
         where: { cycleId: cycle.id, departmentId: task.departmentId },
         data: { status: "SUBMITTED" },
       });
+    }
+    if (cycle?.kind === "model" && task.departmentId) {
+      const { FpaModelPlanningOwnersService } = await import("./FpaModelPlanningOwnersService");
+      await FpaModelPlanningOwnersService.markOwnerSubmitted(task.workflowId, task.departmentId);
+      const { FpaPlanningPmTaskBridge } = await import("./FpaPlanningPmTaskBridge");
+      await FpaPlanningPmTaskBridge.syncStatus(taskId, "SUBMITTED");
     }
     await FpaAuditService.log("TASK_SUBMIT", user.id, { modelId: task.workflow.modelId, reason: comment, ip });
     await FpaWorkflowService.notifyTaskEvent({
@@ -435,6 +460,11 @@ export class FpaWorkflowService {
       },
     });
     await FpaAuditService.log("TASK_RETURN", user.id, { modelId: task.workflow.modelId, reason: comment, ip });
+    const cycle = await FpaWorkflowService.cycleForWorkflow(task.workflowId);
+    if (cycle?.kind === "model") {
+      const { FpaPlanningPmTaskBridge } = await import("./FpaPlanningPmTaskBridge");
+      await FpaPlanningPmTaskBridge.syncStatus(taskId, "RETURNED");
+    }
     await FpaWorkflowService.notifyTaskEvent({
       task: updated,
       actorId: user.id,
