@@ -28,7 +28,194 @@ function weightedAmount(opp: any): number {
   return base * (stageProb / 100) * confidence;
 }
 
-function aggregateOpportunities(campaigns: any[], opportunities: any[]) {
+function isOpenTaskStatus(status: unknown): boolean {
+  const s = String(status || "").toLowerCase();
+  return s !== "" && !["done", "completed", "cancelled", "archived", "closed"].includes(s);
+}
+
+function signedHistoryDelta(row: { newValue: unknown; oldValue: unknown }): number {
+  const newVal = n(row.newValue);
+  const oldVal = row.oldValue == null ? null : n(row.oldValue);
+  if (oldVal == null) return newVal;
+  return newVal - oldVal;
+}
+
+function revenueFromCommercialTerms(termsJson: unknown, opp: any): number {
+  const terms = (termsJson || {}) as Record<string, unknown>;
+  const projected = n(terms.projectedFees ?? terms.projectedFee ?? terms.expectedRevenue);
+  if (projected > 0) return projected;
+
+  const base =
+    n(opp?.signedAmount) ||
+    n(opp?.expectedAum) ||
+    n(opp?.proposedAmount) ||
+    n(opp?.softCircleAmount) ||
+    n(opp?.qualifiedAmount) ||
+    n(opp?.indicativeAmount);
+  if (base <= 0) return 0;
+
+  const feePct =
+    n(terms.managementFee) ||
+    n(terms.managementFeeRate) ||
+    n(terms.managementFeePct) ||
+    n(terms.feeRate);
+  if (feePct <= 0) return 0;
+  const rate = feePct > 1 ? feePct / 100 : feePct;
+  return base * rate;
+}
+
+async function computeExpectedRevenue(campaignIds: string[], opportunities: any[], signedTotal: number) {
+  if (campaignIds.length > 0) {
+    const scenarios = await prisma.fundraisingForecastScenario.findMany({
+      where: { campaignId: { in: campaignIds } },
+      select: {
+        campaignId: true,
+        scenarioType: true,
+        projectedFees: true,
+        updatedAt: true,
+      },
+      orderBy: { updatedAt: "desc" },
+    });
+
+    const feesByCampaign = new Map<string, number>();
+    for (const scenario of scenarios) {
+      if (feesByCampaign.has(scenario.campaignId)) continue;
+      const fees = n(scenario.projectedFees);
+      if (fees > 0) feesByCampaign.set(scenario.campaignId, fees);
+    }
+    if (feesByCampaign.size > 0) {
+      return [...feesByCampaign.values()].reduce((s, v) => s + v, 0);
+    }
+  }
+
+  const oppIds = opportunities.map((o) => o.id);
+  if (oppIds.length > 0) {
+    const commercialTerms = await prisma.fundraisingCommercialTerms.findMany({
+      where: { opportunityId: { in: oppIds } },
+      select: { opportunityId: true, termsJson: true },
+    });
+    if (commercialTerms.length > 0) {
+      const oppById = new Map(opportunities.map((o) => [o.id, o]));
+      let total = 0;
+      for (const row of commercialTerms) {
+        total += revenueFromCommercialTerms(row.termsJson, oppById.get(row.opportunityId));
+      }
+      if (total > 0) return total;
+    }
+  }
+
+  return signedTotal > 0 ? signedTotal * 0.02 : 0;
+}
+
+async function computeSignedTrend(opportunityIds: string[]) {
+  const now = new Date();
+  const currentStart = new Date(now);
+  currentStart.setDate(currentStart.getDate() - 30);
+  const previousStart = new Date(now);
+  previousStart.setDate(previousStart.getDate() - 60);
+
+  let currentPeriod = 0;
+  let previousPeriod = 0;
+
+  if (opportunityIds.length > 0) {
+    const historyRows = await prisma.opportunityAmountHistory.findMany({
+      where: {
+        opportunityId: { in: opportunityIds },
+        amountType: "SIGNED",
+        changedAt: { gte: previousStart },
+      },
+      select: { newValue: true, oldValue: true, changedAt: true },
+    });
+
+    for (const row of historyRows) {
+      const delta = signedHistoryDelta(row);
+      if (row.changedAt >= currentStart) currentPeriod += delta;
+      else previousPeriod += delta;
+    }
+
+    if (currentPeriod === 0 && previousPeriod === 0) {
+      const auditRows = await prisma.fundraisingAuditLog.findMany({
+        where: {
+          objectType: "FundraisingOpportunity",
+          objectId: { in: opportunityIds },
+          timestamp: { gte: previousStart },
+        },
+        select: { previousValue: true, newValue: true, timestamp: true },
+        take: 5000,
+      });
+
+      for (const row of auditRows) {
+        const prevSigned = n((row.previousValue as any)?.signedAmount);
+        const nextSigned = n((row.newValue as any)?.signedAmount);
+        if (nextSigned === prevSigned) continue;
+        const delta = nextSigned - prevSigned;
+        if (row.timestamp >= currentStart) currentPeriod += delta;
+        else previousPeriod += delta;
+      }
+    }
+  }
+
+  const value = currentPeriod - previousPeriod;
+  let direction: "UP" | "DOWN" | "FLAT" = "FLAT";
+  if (value > 0) direction = "UP";
+  else if (value < 0) direction = "DOWN";
+
+  return {
+    direction,
+    value,
+    currentPeriod,
+    previousPeriod,
+  };
+}
+
+async function countOpenTasks(campaignIds: string[], scopedCampaignId?: string | null) {
+  const tasks = await prisma.task.findMany({
+    where: {
+      isTrashed: false,
+      taskMetadata: { path: "$.sourceModule", equals: "fundraising" },
+    },
+    select: { id: true, status: true, stage: true, taskMetadata: true },
+  });
+
+  const scopedIds = scopedCampaignId ? [scopedCampaignId] : campaignIds;
+  const openPerformanceTasks = tasks.filter((task) => {
+    const meta = (task.taskMetadata || {}) as Record<string, unknown>;
+    if (scopedIds.length > 0) {
+      const taskCampaignId = meta.campaignId as string | undefined;
+      if (taskCampaignId && !scopedIds.includes(taskCampaignId)) return false;
+    }
+    return isOpenTaskStatus(task.status || task.stage);
+  }).length;
+
+  const commWhere: any = { interactionType: "INTERNAL_TASK" };
+  if (scopedCampaignId) commWhere.campaignId = scopedCampaignId;
+  else if (campaignIds.length > 0) commWhere.campaignId = { in: campaignIds };
+
+  const commTasks = await prisma.fundraisingCommunication.findMany({
+    where: commWhere,
+    select: { outcome: true },
+  });
+  const openCommTasks = commTasks.filter((row) => isOpenTaskStatus(row.outcome)).length;
+
+  return openPerformanceTasks + openCommTasks;
+}
+
+async function countUpcomingClosings(campaignIds: string[]) {
+  if (campaignIds.length === 0) return 0;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return prisma.fundraisingClosing.count({
+    where: {
+      campaignId: { in: campaignIds },
+      status: { in: ["PLANNED", "IN_PROGRESS", "SCHEDULED"] },
+      closingDate: { gte: today },
+    },
+  });
+}
+
+function aggregateOpportunityMetrics(campaigns: any[], opportunities: any[]) {
   const targetTotal = campaigns.reduce((s, c) => s + n(c.targetCapital), 0);
   let signedTotal = 0;
   let admittedTotal = 0;
@@ -75,7 +262,34 @@ function aggregateOpportunities(campaigns: any[], opportunities: any[]) {
       byStatus: opportunityCountsByStatus,
       byStageCode: opportunityCountsByStage,
     },
+  };
+}
+
+async function buildDashboardMetrics(
+  campaigns: any[],
+  opportunities: any[],
+  scopedCampaignId?: string | null
+) {
+  const campaignIds = campaigns.map((c) => c.id);
+  const opportunityIds = opportunities.map((o) => o.id);
+  const base = aggregateOpportunityMetrics(campaigns, opportunities);
+
+  const [expectedRevenue, trendsSigned, openTasksCount, upcomingClosingsCount] = await Promise.all([
+    computeExpectedRevenue(campaignIds, opportunities, base.signedTotal),
+    computeSignedTrend(opportunityIds),
+    countOpenTasks(campaignIds, scopedCampaignId),
+    countUpcomingClosings(campaignIds),
+  ]);
+
+  return {
+    ...base,
+    expectedRevenue,
+    trends: {
+      signed: trendsSigned,
+    },
     openTasks: [] as any[],
+    openTasksCount,
+    upcomingClosingsCount,
   };
 }
 
@@ -112,7 +326,7 @@ export class FundraisingIrDashboardService {
             include: { currentStage: true },
           });
 
-    const metrics = aggregateOpportunities(campaigns, opportunities);
+    const metrics = await buildDashboardMetrics(campaigns, opportunities, campaignId || null);
     return {
       scope: { campaignId: campaignId || null, campaignType: campaignType || null },
       campaignCount: campaigns.length,
@@ -135,7 +349,7 @@ export class FundraisingIrDashboardService {
       include: { currentStage: true, investor: { select: { id: true, legalName: true } } },
     });
 
-    const metrics = aggregateOpportunities([campaign], opportunities);
+    const metrics = await buildDashboardMetrics([campaign], opportunities, campaignId);
 
     const stages = campaign.stages.map((stage) => {
       const stageOpps = opportunities.filter((o) => o.currentStageId === stage.id);

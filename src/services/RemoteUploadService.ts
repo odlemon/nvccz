@@ -198,6 +198,16 @@ const UPLOAD_TYPE_MAP: Record<string, string> = {
   "payroll-employee-pictures": "application-documents",
   "payroll-employee-picture": "application-documents",
 
+  // Fundraising / IR documents
+  "fundraising-subscription-agreements": "fundraising-documents",
+  "fundraising-agreements": "fundraising-documents",
+  "fundraising-data-room": "fundraising-documents",
+  "fundraising-ddq-evidence": "fundraising-documents",
+  "fundraising-documents": "fundraising-documents",
+  "fundraising-campaign-materials": "fundraising-documents",
+  "fundraising-rfp-proposals": "fundraising-documents",
+  "lp-portal-vault": "lp-portal-vault",
+
   // Deal execution pack documents
   "deal-execution-pack": "financial-reports",
   "deal-execution-packs": "financial-reports",

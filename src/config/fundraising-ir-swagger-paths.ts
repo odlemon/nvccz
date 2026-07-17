@@ -12,9 +12,9 @@ export const FUNDRAISING_IR_TAG = "Fundraising & Investor Relations";
 export const FUNDRAISING_IR_TAG_DEFINITION = {
   name: FUNDRAISING_IR_TAG,
   description:
-    "**Fundraising & Investor Relations foundation** — investor organisations, multi-amount opportunities, PE/AM stage seeds, dashboards.\n\n" +
-    "Base paths: `/v1/fundraising/*` and `/v1/investors/*` (server URL already includes `/api`).\n\n" +
-    "Legacy LP deal-close path remains at `/fundraising/*`. See `docs/fundraising-investor-relations-api.md`.",
+    "**Fundraising & Investor Relations (full SRD)** — campaigns, opportunities, investors, commitments, closings, mandates/RFPs, DDQ, data rooms, agreements, placement agents, forecasts, analytics, audit.\n\n" +
+    "Base paths: `/fundraising/*` and `/investors/*` (server URL already includes `/api`). **No `/v1` prefix.**\n\n" +
+    "Legacy `/fundraising/deals/*` is deprecated (compat only). Canonical pipeline = opportunities. See `docs/fundraising-srd-api.md`.",
 };
 
 const TAG = [FUNDRAISING_IR_TAG];
@@ -35,7 +35,7 @@ const opportunityId = pathParam("opportunityId", "clxyz_opportunity");
 const investorId = pathParam("investorId", "clxyz_investor");
 
 export const fundraisingIrSwaggerPaths: Record<string, unknown> = {
-  "/v1/fundraising/dashboard": {
+  "/fundraising/dashboard": {
     get: op("Executive IR dashboard", {
       parameters: [
         queryParam("campaignId", { type: "string" }),
@@ -43,7 +43,7 @@ export const fundraisingIrSwaggerPaths: Record<string, unknown> = {
       ],
     }),
   },
-  "/v1/fundraising/campaigns": {
+  "/fundraising/campaigns": {
     get: op("List IR campaigns", {
       parameters: [
         queryParam("campaignType", { type: "string" }),
@@ -99,7 +99,7 @@ export const fundraisingIrSwaggerPaths: Record<string, unknown> = {
       }),
     }),
   },
-  "/v1/fundraising/campaigns/{campaignId}": {
+  "/fundraising/campaigns/{campaignId}": {
     get: op("Get IR campaign", { parameters: [campaignId] }),
     patch: op("Update IR campaign", {
       parameters: [campaignId],
@@ -117,13 +117,13 @@ export const fundraisingIrSwaggerPaths: Record<string, unknown> = {
       }),
     }),
   },
-  "/v1/fundraising/campaigns/{campaignId}/activate": {
+  "/fundraising/campaigns/{campaignId}/activate": {
     post: op("Activate campaign (APPROVED + ACTIVE)", { parameters: [campaignId] }),
   },
-  "/v1/fundraising/campaigns/{campaignId}/dashboard": {
+  "/fundraising/campaigns/{campaignId}/dashboard": {
     get: op("Campaign IR dashboard", { parameters: [campaignId] }),
   },
-  "/v1/fundraising/opportunities": {
+  "/fundraising/opportunities": {
     get: op("List opportunities", {
       parameters: [
         queryParam("campaignId", { type: "string" }),
@@ -154,7 +154,7 @@ export const fundraisingIrSwaggerPaths: Record<string, unknown> = {
       }),
     }),
   },
-  "/v1/fundraising/opportunities/{opportunityId}": {
+  "/fundraising/opportunities/{opportunityId}": {
     get: op("Get opportunity", { parameters: [opportunityId] }),
     patch: op("Update opportunity (amount changes write history)", {
       parameters: [opportunityId],
@@ -174,7 +174,7 @@ export const fundraisingIrSwaggerPaths: Record<string, unknown> = {
       }),
     }),
   },
-  "/v1/fundraising/opportunities/{opportunityId}/transition": {
+  "/fundraising/opportunities/{opportunityId}/transition": {
     post: op("Transition opportunity stage (gate checks)", {
       parameters: [opportunityId],
       requestBody: jsonRequestBody({
@@ -189,7 +189,7 @@ export const fundraisingIrSwaggerPaths: Record<string, unknown> = {
       }),
     }),
   },
-  "/v1/fundraising/opportunities/{opportunityId}/assign": {
+  "/fundraising/opportunities/{opportunityId}/assign": {
     post: op("Assign opportunity owner", {
       parameters: [opportunityId],
       requestBody: jsonRequestBody({
@@ -201,7 +201,7 @@ export const fundraisingIrSwaggerPaths: Record<string, unknown> = {
       }),
     }),
   },
-  "/v1/fundraising/opportunities/{opportunityId}/mark-lost": {
+  "/fundraising/opportunities/{opportunityId}/mark-lost": {
     post: op("Mark opportunity lost", {
       parameters: [opportunityId],
       requestBody: jsonRequestBody({
@@ -213,10 +213,10 @@ export const fundraisingIrSwaggerPaths: Record<string, unknown> = {
       }),
     }),
   },
-  "/v1/fundraising/opportunities/{opportunityId}/timeline": {
+  "/fundraising/opportunities/{opportunityId}/timeline": {
     get: op("Opportunity amount + stage timeline", { parameters: [opportunityId] }),
   },
-  "/v1/investors": {
+  "/investors": {
     get: op("List investor organisations", {
       parameters: [
         queryParam("q", { type: "string" }),
@@ -243,7 +243,7 @@ export const fundraisingIrSwaggerPaths: Record<string, unknown> = {
       }),
     }),
   },
-  "/v1/investors/{investorId}": {
+  "/investors/{investorId}": {
     get: op("Get investor organisation", { parameters: [investorId] }),
     patch: op("Update investor organisation", {
       parameters: [investorId],
@@ -262,7 +262,7 @@ export const fundraisingIrSwaggerPaths: Record<string, unknown> = {
       }),
     }),
   },
-  "/v1/investors/{investorId}/contacts": {
+  "/investors/{investorId}/contacts": {
     post: op("Add investor contact", {
       parameters: [investorId],
       requestBody: jsonRequestBody({
@@ -280,7 +280,7 @@ export const fundraisingIrSwaggerPaths: Record<string, unknown> = {
       }),
     }),
   },
-  "/v1/investors/{investorId}/relationship-summary": {
+  "/investors/{investorId}/relationship-summary": {
     get: op("Investor relationship summary", { parameters: [investorId] }),
   },
 };

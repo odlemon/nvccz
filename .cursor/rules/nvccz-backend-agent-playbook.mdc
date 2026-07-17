@@ -1,0 +1,20 @@
+---
+description: Point agents to the NVCCZ backend delivery playbook (migrations, UAT, FE handoff, module map)
+alwaysApply: true
+---
+
+# NVCCZ backend agent playbook
+
+Before inventing a workflow for backend feature work, follow:
+
+**`docs/nvccz-backend-agent-playbook.md`**
+
+That doc covers: delivery pipeline (code → migrate script → docs → 3 DBs → UAT → FE handoff), no Prisma Migrate, FE contract conventions, UAT self-sufficiency, and an FP&A module map (Builder vs Model Planning vs Budgeting).
+
+Encoded in sibling rules (same habits):
+
+- `nvccz-database-no-prisma-migrate.mdc`
+- `nvccz-fpa-deliver-pipeline.mdc`
+- `nvccz-uat-scripts-self-sufficient.mdc`
+
+Do not commit, push, or VPS-deploy unless the user explicitly asks in that turn.
