@@ -52,9 +52,10 @@ Prefer **not** breaking response shapes without notice.
 | 2b | Published-version gate on cycle create | **EXISTING** | `400 SOURCE_VERSION_NOT_PUBLISHED` if version not LOCKED |
 | 2c | Grid `cycleId` → model planning cycle | **EXISTING** | Resolves version/scenario/actuals cut-over + dept owner scope |
 | 2f | Department owners + slice submit | **EXISTING** | `owners[]`, `owner-workspace`, task submit; see [fpa-model-planning-owners-api.md](./fpa-model-planning-owners-api.md) |
-| 2g | Ad-hoc planning tasks (Stage 2) | **EXISTING** | `GET/POST …/cycles/{id}/tasks`, `PATCH /tasks/{id}`; see [fpa-model-planning-tasks-api.md](./fpa-model-planning-tasks-api.md) |
-| 2d | Cycle status lifecycle | **EXISTING (v1)** | DRAFT→OPEN→IN_REVIEW→APPROVED→LOCKED→CLOSED with transition validation |
-| 2e | Demo seed + UAT | **EXISTING** | `db:seed:fpa-demo`, `uat:fpa:model-planning-cycle` |
+| 2g | Ad-hoc planning tasks (Stage 5) | **EXISTING** | `GET/POST …/cycles/{id}/tasks`, `PATCH /tasks/{id}`, comments/activity; see [fpa-model-planning-tasks-api.md](./fpa-model-planning-tasks-api.md) |
+| 2h | MPC workflow Stages 6–9 | **EXISTING** | submit / review accept|return / cfo-approve|return / lock / request-reopen; see [fpa-model-planning-workflow-api.md](./fpa-model-planning-workflow-api.md) |
+| 2d | Cycle status lifecycle | **EXISTING** | OPEN→SUBMITTED→UNDER_REVIEW→APPROVED→LOCKED (+ RETURNED_FOR_CORRECTION); GET exposes `currentStage`, timestamps |
+| 2e | Demo seed + UAT | **EXISTING** | `db:seed:fpa-demo`, `uat:fpa:model-planning-cycle`, `uat:fpa:model-planning-workflow` |
 | 3 | Variance waterfall bridge | **EXISTING (v1)** | `GET …/variance-bridge` |
 | 4 | Scenario overlay `effectiveValue` / deltas-only | **MISSING** | Scenarios are full cell copies; grid has `OVERRIDE` status only |
 | 5 | Material variance submit gate | **EXISTING** | Hardcoded **ABS ≥ 10%** + commentary; after `POST /variance/calculate` |
@@ -166,9 +167,11 @@ Today: `PATCH …/budget-cycles/:id` may set `versionId` without structure migra
 
 ## Scheduled (not this sprint)
 
-- Scenario overlay deltas-only + grid `effectiveValue` / `isOverride`
+- Scenario overlay deltas-only + grid `effectiveValue` / `isOverride` (partial: `parentScenarioId` + fast copy — see Stage 4 doc)
 - Model migration preview/approve/apply
-- Advanced spread: `PRIOR_YEAR_PATTERN` | `CUSTOM_WEIGHT` | `WORKING_DAYS` | `SEASONAL_PROFILE` | `HISTORICAL_PATTERN` | `MANUAL`
+- Spread methods `WORKING_DAYS` | `SEASONAL_PROFILE` | `MANUAL` (EVEN / CUSTOM_WEIGHT / PRIOR_YEAR_PATTERN **shipped**)
 - Commentary: @mentions, threads, resolution API, comment attachments
-- Configurable material-variance threshold (today **10%**)
 - Async model calculate jobs
+
+**Stage 3 shipped:** driver `priorActual`, spread methods, `updatedCells`, `planning-summary`, `materialVariancePct`.  
+**Stage 4 shipped:** enriched compare, fast copy-from-Base, inheritance metadata, assumptions library — [fpa-model-planning-stage4-api.md](./fpa-model-planning-stage4-api.md).

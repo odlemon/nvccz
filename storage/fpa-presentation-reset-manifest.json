@@ -1,0 +1,13 @@
+{
+  "database": "nts",
+  "resetAt": "2026-07-17T06:55:35.704Z",
+  "rowsDeleted": 8588,
+  "sharedMasterCounts": {
+    "users": 17,
+    "departments": 9,
+    "forecastEntities": 9,
+    "entityAccounts": 181,
+    "chartOfAccounts": 95,
+    "journalEntries": 4827
+  }
+}

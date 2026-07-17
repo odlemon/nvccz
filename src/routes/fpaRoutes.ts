@@ -104,6 +104,14 @@ router.get("/model-planning/cycles/:id/activity", FpaController.listModelPlannin
 router.put("/model-planning/cycles/:id/owners", FpaController.setModelPlanningOwners);
 router.put("/model-planning/cycles/:id", FpaController.updateModelPlanningCycle);
 router.delete("/model-planning/cycles/:id", FpaController.deleteModelPlanningCycle);
+// Stages 6–9 — MPC workflow (do not use /budget-cycles for MPC ids)
+router.post("/model-planning/cycles/:id/submit", FpaController.submitModelPlanningCycle);
+router.post("/model-planning/cycles/:id/review/accept", FpaController.reviewAcceptModelPlanningCycle);
+router.post("/model-planning/cycles/:id/review/return", FpaController.reviewReturnModelPlanningCycle);
+router.post("/model-planning/cycles/:id/cfo-approve", FpaController.cfoApproveModelPlanningCycle);
+router.post("/model-planning/cycles/:id/cfo-return", FpaController.cfoReturnModelPlanningCycle);
+router.post("/model-planning/cycles/:id/lock", FpaController.lockModelPlanningCycle);
+router.post("/model-planning/cycles/:id/request-reopen", FpaController.requestReopenModelPlanningCycle);
 
 // Grid / cells
 router.get("/models/:modelId/grid", FpaController.getGrid);
@@ -115,6 +123,8 @@ router.post("/models/:modelId/cells/spread", FpaController.spread);
 router.post("/models/:modelId/cells/copy-forward", FpaController.copyForward);
 router.post("/models/:modelId/cells/apply-growth", FpaController.applyGrowth);
 router.post("/models/:modelId/cells/bulk-operation", FpaController.bulkCellOperation);
+router.post("/models/:modelId/recalculate", FpaController.recalculateModel);
+router.get("/models/:modelId/planning-summary", FpaController.planningSummary);
 router.get("/models/:modelId/cells/:cellId/detail", FpaController.cellDetail);
 router.get("/models/:modelId/cells/:cellId/trace", FpaController.cellTrace);
 router.get("/models/:modelId/cells/:cellId/history", FpaController.cellHistory);
@@ -131,6 +141,9 @@ router.put("/formulas/:formulaId", FpaController.updateFormula);
 // Scenarios
 router.post("/scenarios", FpaController.createScenario);
 router.get("/scenarios", FpaController.listScenarios);
+router.put("/scenarios/:id", FpaController.updateScenario);
+router.patch("/scenarios/:id", FpaController.updateScenario);
+router.post("/scenarios/:id/archive", FpaController.archiveScenario);
 router.post("/scenarios/:id/copy", FpaController.copyScenario);
 router.post("/scenarios/:id/compare", FpaController.compareScenarios);
 router.post("/scenarios/:id/promote", FpaController.promoteScenario);
@@ -169,6 +182,7 @@ router.get("/actuals/snapshots", FpaController.listActualsSnapshots);
 // Variance
 router.post("/variance/calculate", FpaController.calculateVariance);
 router.get("/variance/results", FpaController.listVarianceResults);
+router.get("/variance/summary", FpaController.varianceSummary);
 router.post("/variance/:id/commentary", FpaController.varianceCommentary);
 
 // Home
@@ -188,14 +202,31 @@ router.post("/models/:modelId/drivers", FpaController.createDriver);
 router.get("/drivers", FpaController.listDrivers);
 router.post("/drivers", FpaController.createDriver);
 router.put("/drivers/:id", FpaController.updateDriver);
+router.delete("/drivers/:id", FpaController.deleteDriver);
 
 // Domain views
 router.get("/domain/:category", FpaController.domainCategory);
+router.post("/domain/:category/sensitivity", FpaController.domainSensitivity);
 
 // Export / AI
 router.post("/exports/board-pack", FpaController.exportBoardPack);
+router.get("/exports", FpaController.listExports);
+router.get("/exports/capabilities", FpaController.exportCapabilities);
 router.get("/exports/:id", FpaController.getExportJob);
 router.get("/exports/:id/download", FpaController.downloadExport);
+
+// Rolling forecast (sidebar Forecasts)
+router.get("/models/:modelId/rolling-forecast", FpaController.getRollingForecast);
+router.put("/models/:modelId/rolling-forecast/cutoff", FpaController.setRollingForecastCutoff);
+router.put("/models/:modelId/rolling-forecast/method", FpaController.setRollingForecastMethod);
+router.post("/models/:modelId/rolling-forecast/roll-forward", FpaController.rollForwardRollingForecast);
+
+// Persisted FP&A settings + connector state
+router.get("/settings", FpaController.getFpaSettings);
+router.put("/settings", FpaController.updateFpaSettings);
+router.post("/settings/sync-sources/:sourceId/connect", FpaController.connectFpaSyncSource);
+router.post("/settings/sync-sources/:sourceId/disconnect", FpaController.disconnectFpaSyncSource);
+router.post("/settings/sync-sources/:sourceId/sync", FpaController.syncFpaSource);
 router.post("/ai/suggest", FpaController.aiSuggest);
 router.post("/ai/commentary-draft", FpaController.aiCommentaryDraft);
 

@@ -444,8 +444,22 @@ export class FpaWorkflowService {
 
   static async returnTask(taskId: string, user: any, comment?: string, ip?: string) {
     FpaAccessService.assertCanApprove(user);
+    const normalizedComment = String(comment || "").trim();
+    if (!normalizedComment) {
+      throw new FpaError(400, "COMMENT_REQUIRED", "comment is required when returning a task");
+    }
     const task = await prisma.planningTask.findUnique({ where: { id: taskId }, include: { workflow: true } });
     if (!task) throw new FpaError(404, "NOT_FOUND", "Task not found");
+    if (!["SUBMITTED", "APPROVED"].includes(String(task.status).toUpperCase())) {
+      throw new FpaError(409, "INVALID_STATUS", `Cannot return task from ${task.status}`);
+    }
+    const cycle = await FpaWorkflowService.cycleForWorkflow(task.workflowId);
+    if (
+      cycle?.kind === "model" &&
+      ["APPROVED", "LOCKED", "CLOSED"].includes(String(cycle.status).toUpperCase())
+    ) {
+      throw new FpaError(409, "INVALID_STATUS", `Cycle is ${cycle.status} and task decisions are closed`);
+    }
     const updated = await prisma.planningTask.update({
       where: { id: taskId },
       data: { status: "RETURNED", submittedAt: null },
@@ -456,36 +470,53 @@ export class FpaWorkflowService {
         taskId,
         actorId: user.id,
         action: "RETURN",
-        comment: comment || null,
+        comment: normalizedComment,
       },
     });
-    await FpaAuditService.log("TASK_RETURN", user.id, { modelId: task.workflow.modelId, reason: comment, ip });
-    const cycle = await FpaWorkflowService.cycleForWorkflow(task.workflowId);
+    await FpaAuditService.log("TASK_RETURN", user.id, { modelId: task.workflow.modelId, reason: normalizedComment, ip });
     if (cycle?.kind === "model") {
       const { FpaPlanningPmTaskBridge } = await import("./FpaPlanningPmTaskBridge");
       await FpaPlanningPmTaskBridge.syncStatus(taskId, "RETURNED");
+      await prisma.modelPlanningCycleOwner.updateMany({
+        where: { cycleId: cycle.id, taskId },
+        data: { status: "RETURNED" },
+      });
     }
     await FpaWorkflowService.notifyTaskEvent({
       task: updated,
       actorId: user.id,
       type: "TASK_RETURNED",
-      comment: comment || null,
+      comment: normalizedComment,
       targetUserId: updated.assigneeId,
     });
-    return updated;
+    return {
+      ...updated,
+      cycleId: cycle?.id || null,
+      taskKind: cycle?.kind === "model" ? "PLANNING" : "BUDGET",
+    };
   }
 
   static async approve(taskId: string, user: any, comment?: string, ip?: string) {
     FpaAccessService.assertCanApprove(user);
     const task = await prisma.planningTask.findUnique({ where: { id: taskId }, include: { workflow: true } });
     if (!task) throw new FpaError(404, "NOT_FOUND", "Task not found");
+    if (String(task.status).toUpperCase() !== "SUBMITTED") {
+      throw new FpaError(409, "INVALID_STATUS", `Cannot approve task from ${task.status}`);
+    }
+    const cycle = await FpaWorkflowService.cycleForWorkflow(task.workflowId);
+    if (
+      cycle?.kind === "model" &&
+      ["APPROVED", "LOCKED", "CLOSED"].includes(String(cycle.status).toUpperCase())
+    ) {
+      throw new FpaError(409, "INVALID_STATUS", `Cycle is ${cycle.status} and task decisions are closed`);
+    }
 
     const submitApproval = await prisma.planningApproval.findFirst({
       where: { taskId, action: "SUBMIT" },
       orderBy: { createdAt: "desc" },
     });
     if (submitApproval && submitApproval.actorId === user.id) {
-      throw new FpaError(403, "MAKER_CHECKER", "Maker cannot approve their own submission");
+      throw new FpaError(409, "MAKER_CHECKER", "Maker cannot approve their own submission");
     }
 
     const updated = await prisma.planningTask.update({
@@ -502,6 +533,14 @@ export class FpaWorkflowService {
       },
     });
     await FpaAuditService.log("TASK_APPROVE", user.id, { modelId: task.workflow.modelId, reason: comment, ip });
+    if (cycle?.kind === "model") {
+      const { FpaPlanningPmTaskBridge } = await import("./FpaPlanningPmTaskBridge");
+      await FpaPlanningPmTaskBridge.syncStatus(taskId, "APPROVED");
+      await prisma.modelPlanningCycleOwner.updateMany({
+        where: { cycleId: cycle.id, taskId },
+        data: { status: "APPROVED" },
+      });
+    }
     await FpaWorkflowService.notifyTaskEvent({
       task: updated,
       actorId: user.id,
@@ -509,6 +548,10 @@ export class FpaWorkflowService {
       comment: comment || null,
       targetUserId: updated.assigneeId,
     });
-    return updated;
+    return {
+      ...updated,
+      cycleId: cycle?.id || null,
+      taskKind: cycle?.kind === "model" ? "PLANNING" : "BUDGET",
+    };
   }
 }

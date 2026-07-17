@@ -1,0 +1,26 @@
+---
+description: UAT and local API always use the DEV MySQL database (nts) — never client1_db or demo_env
+alwaysApply: true
+---
+
+# UAT / local runs — DEV database only (NVCCZ)
+
+## Hard rule
+
+- **UAT scripts, seeds used for UAT, and `npm run dev` must use the DEV DB: `nts`.**
+- **Never** run UAT against `client1_db` (prod) or `demo_env` unless the user explicitly says so in that turn.
+- 3-DB migrations (`nts` + `client1_db` + `demo_env`) are for **DDL only**. After migrating, **clear** any shell `DATABASE_URL` override so the next UAT/dev command falls back to `.env` → `nts`.
+
+## Why this bites
+
+`dotenv` does **not** override an existing `process.env.DATABASE_URL`. If a migration loop sets `$env:DATABASE_URL = …client1_db…`, later `npm run uat:*` silently hits the wrong DB while the API (started from `.env`) still uses `nts`.
+
+## Agent checklist (every UAT run)
+
+1. Before UAT: `Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue` (PowerShell) or unset `DATABASE_URL`.
+2. Confirm target is `nts` (log `SELECT DATABASE()` / refuse non-`nts` in UAT helpers).
+3. Do **not** leave `DATABASE_URL` set to client1/demo in the shell after migrate-all-dbs.
+
+## Code expectation
+
+UAT scripts should call a shared guard (e.g. `scripts/lib/assert-dev-database.ts`) that **exits** unless `DATABASE()` is `nts` (override only with `UAT_ALLOW_NON_DEV_DB=1`).

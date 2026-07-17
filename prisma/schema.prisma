@@ -5951,23 +5951,26 @@ model PlanningVersion {
 }
 
 model PlanningScenario {
-  id           String   @id @default(cuid())
-  modelId      String   @map("model_id")
-  name         String   @db.VarChar(255)
-  scenarioType String   @map("scenario_type") @db.VarChar(50)
-  description  String?  @db.Text
-  isOfficial   Boolean  @default(false) @map("is_official")
-  status       String   @default("DRAFT") @db.VarChar(50)
-  createdById  String   @map("created_by")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id                    String   @id @default(cuid())
+  modelId               String   @map("model_id")
+  name                  String   @db.VarChar(255)
+  scenarioType          String   @map("scenario_type") @db.VarChar(50)
+  description           String?  @db.Text
+  isOfficial            Boolean  @default(false) @map("is_official")
+  status                String   @default("DRAFT") @db.VarChar(50)
+  /// Parent for inheritance (EffectiveValue = override ?? parent). No Prisma self-FK (cyclic actions).
+  parentScenarioId      String?  @map("parent_scenario_id")
+  createdById           String   @map("created_by")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
 
-  model        PlanningModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
-  cells        PlanningCell[]
-  drivers      PlanningDriver[]
-  auditLogs    PlanningAuditLog[]
+  model                 PlanningModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  cells                 PlanningCell[]
+  drivers               PlanningDriver[]
+  auditLogs             PlanningAuditLog[]
 
   @@index([modelId, scenarioType], map: "planning_scenarios_model_type_idx")
+  @@index([parentScenarioId], map: "planning_scenarios_parent_idx")
   @@map("planning_scenarios")
 }
 
@@ -6029,6 +6032,10 @@ model PlanningDriver {
   value            Decimal   @db.Decimal(20, 8)
   unit             String?   @db.VarChar(32)
   requiresApproval Boolean   @default(false) @map("requires_approval")
+  /// HIGH | MEDIUM | LOW
+  confidence       String?   @db.VarChar(16)
+  /// EVEN | SEASONAL | PRIOR_YEAR | MANUAL | CUSTOM_WEIGHT | …
+  spreadingMethod  String?   @map("spreading_method") @db.VarChar(32)
   createdById      String    @map("created_by")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
@@ -6039,6 +6046,7 @@ model PlanningDriver {
   cells            PlanningCell[]
 
   @@index([modelId, code], map: "planning_drivers_model_code_idx")
+  @@index([modelId, versionId, scenarioId], map: "planning_drivers_mvs_idx")
   @@map("planning_drivers")
 }
 
@@ -6125,6 +6133,7 @@ model PlanningComment {
   varianceId       String?  @map("variance_id")
   cycleId          String?  @map("cycle_id")
   taskId           String?  @map("task_id")
+  parentCommentId  String?  @map("parent_comment_id")
   /// INTERNAL | ALL
   visibility       String   @default("ALL") @db.VarChar(16)
   body             String   @db.Text
@@ -6141,7 +6150,34 @@ model PlanningComment {
   @@index([modelId], map: "planning_comments_model_idx")
   @@index([cycleId], map: "planning_comments_cycle_idx")
   @@index([taskId], map: "planning_comments_task_idx")
+  @@index([parentCommentId], map: "planning_comments_parent_idx")
   @@map("planning_comments")
+}
+
+model FpaSettings {
+  id           String   @id @default("default") @db.VarChar(64)
+  varianceJson Json     @map("variance_json")
+  workflowJson Json     @map("workflow_json")
+  updatedById  String?  @map("updated_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("fpa_settings")
+}
+
+model FpaSyncSource {
+  id           String    @id @db.VarChar(64)
+  label        String    @db.VarChar(128)
+  status       String    @default("DISCONNECTED") @db.VarChar(32)
+  lastSyncAt   DateTime? @map("last_sync_at")
+  lastError    String?   @map("last_error") @db.Text
+  configJson   Json?     @map("config_json")
+  updatedById  String?   @map("updated_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([status], map: "fpa_sync_sources_status_idx")
+  @@map("fpa_sync_sources")
 }
 
 model PlanningWorkflow {
@@ -6185,6 +6221,8 @@ model ModelPlanningCycle {
   forecastStartPeriod   DateTime? @map("forecast_start_period") @db.Date
   /// Number of periods in the plan (e.g. 12 months / 4 quarters).
   planningHorizon       Int?      @map("planning_horizon")
+  /// Absolute variance % that requires commentary (Stage 3 / Stage 5 gate). Default 5.
+  materialVariancePct   Decimal   @default(5.0000) @map("material_variance_pct") @db.Decimal(8, 4)
   baseScenarioId        String?   @map("base_scenario_id")
   submissionDeadline    DateTime? @map("submission_deadline") @db.Date
   approvalWorkflowId    String?   @map("approval_workflow_id")
@@ -6192,6 +6230,14 @@ model ModelPlanningCycle {
   workflowId            String?   @map("workflow_id")
   planningOwnerId       String?   @map("planning_owner_id")
   status                String    @default("DRAFT") @db.VarChar(64)
+  /// OWNER_INPUT | FPA_REVIEW | CFO_REVIEW | APPROVED | LOCKED | …
+  currentStage          String?   @map("current_stage") @db.VarChar(64)
+  submittedAt           DateTime? @map("submitted_at")
+  submittedById         String?   @map("submitted_by")
+  approvedAt            DateTime? @map("approved_at")
+  approvedById          String?   @map("approved_by")
+  lockedAt              DateTime? @map("locked_at")
+  lockedById            String?   @map("locked_by")
   createdById           String    @map("created_by")
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedById           String?   @map("updated_by")

@@ -728,6 +728,7 @@ app.use("/api/procurement", procurementRoutes)
 
 // Forecast entities (Tax Return Pack + FP&A dimension)
 app.use("/api/forecast-entities", forecastEntityRoutes)
+app.use("/api/v1/forecast-entities", forecastEntityRoutes)
 
 // FP&A Planning, Budgeting, Forecasting
 app.use("/api/v1/fpa", fpaRoutes)

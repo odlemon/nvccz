@@ -299,6 +299,50 @@ function serializeCell(c: any) {
   };
 }
 
+/** Flatten primary + dependent cells from updateCell / tool results (unique by id). */
+function mergeUpdatedCells(results: any[]): any[] {
+  const map = new Map<string, any>();
+  for (const r of results || []) {
+    const list = Array.isArray(r?.updatedCells) ? r.updatedCells : r?.id ? [serializeCell(r)] : [];
+    for (const c of list) {
+      if (c?.id) map.set(String(c.id), c);
+    }
+  }
+  return [...map.values()];
+}
+
+const SPREAD_METHODS = new Set([
+  "EVEN",
+  "CUSTOM_WEIGHT",
+  "PRIOR_YEAR_PATTERN",
+  "HISTORICAL_PATTERN",
+  "WORKING_DAYS",
+  "SEASONAL_PROFILE",
+]);
+
+function normalizeWeights(weights: number[], n: number): number[] {
+  if (!Array.isArray(weights) || weights.length !== n) {
+    throw new FpaError(
+      400,
+      "INVALID_WEIGHTS",
+      `weights length must equal period count (${n})`
+    );
+  }
+  const nums = weights.map((w) => Number(w));
+  if (nums.some((w) => !Number.isFinite(w) || w < 0)) {
+    throw new FpaError(400, "INVALID_WEIGHTS", "weights must be non-negative numbers");
+  }
+  const sum = nums.reduce((s, w) => s + w, 0);
+  if (sum <= 0) {
+    throw new FpaError(400, "INVALID_WEIGHTS", "weights must sum to a positive number");
+  }
+  if (Math.abs(sum - 1) > 0.02) {
+    // Allow slight float error; otherwise require ≈ 1
+    throw new FpaError(400, "INVALID_WEIGHTS", `weights must sum to ≈ 1 (got ${sum})`);
+  }
+  return nums.map((w) => w / sum);
+}
+
 export class FpaGridService {
   static async assertEditableVersion(
     versionId: string,
@@ -794,10 +838,33 @@ export class FpaGridService {
       throw new FpaError(409, "CELL_NOT_EDITABLE", "Calculated or non-editable line items cannot be edited");
     }
 
-    await FpaGridService.assertNotActualPeriodLocked(cell, input.cycleId, userId, ip);
-
     let allowLockedPublished = false;
     if (input.cycleId) {
+      const mpc = await prisma.modelPlanningCycle.findUnique({
+        where: { id: String(input.cycleId) },
+        select: { status: true },
+      });
+      if (mpc) {
+        const mpcStatus = String(mpc.status).toUpperCase();
+        if (["LOCKED", "APPROVED", "CLOSED"].includes(mpcStatus)) {
+          await FpaAuditService.log("CELL_EDIT_BLOCKED_LOCKED", userId, {
+            modelId: cell.modelId,
+            versionId: cell.versionId,
+            cellId: cell.id,
+            entityType: "CELL",
+            reason: `Model planning cycle ${mpcStatus}`,
+            ip,
+          });
+          throw new FpaError(
+            423,
+            "LOCKED_VERSION",
+            "Planning cycle is locked or approved; cell edits are blocked."
+          );
+        }
+        if (["DRAFT", "OPEN", "IN_REVIEW", "RETURNED_FOR_CORRECTION"].includes(mpcStatus)) {
+          allowLockedPublished = true;
+        }
+      }
       const scoped = await FpaAccessService.resolveCycleDepartmentIds(user, input.cycleId);
       if (scoped && scoped.length === 0) {
         throw new FpaError(403, "FORBIDDEN", "You are not assigned to this planning cycle");
@@ -821,20 +888,19 @@ export class FpaGridService {
           );
         }
       }
-      const mpc = await prisma.modelPlanningCycle.findUnique({
-        where: { id: String(input.cycleId) },
-        select: { status: true },
-      });
-      if (mpc && ["DRAFT", "OPEN", "IN_REVIEW"].includes(String(mpc.status).toUpperCase())) {
-        allowLockedPublished = true;
-      }
     }
+
+    await FpaGridService.assertNotActualPeriodLocked(cell, input.cycleId, userId, ip);
 
     const version = await FpaGridService.assertEditableVersion(cell.versionId, userId, user, ip, {
       allowLockedPublished,
     });
     const status = cellStatusOf(cell);
-    if (!isEditableStatus(status) || cell.isLocked || !cell.isEditable) {
+    const growthRerun =
+      input.allowGrowthCalculated === true &&
+      status === "CALCULATED" &&
+      String(cell.sourceType || "").toUpperCase() === "GROWTH";
+    if ((!isEditableStatus(status) && !growthRerun) || cell.isLocked || !cell.isEditable) {
       await FpaAuditService.log("CELL_EDIT_BLOCKED", userId, {
         modelId: cell.modelId,
         versionId: cell.versionId,
@@ -1008,27 +1074,261 @@ export class FpaGridService {
     const userId = user?.id;
     const { modelId, versionId, scenarioId, lineItemId, value, periodDates, cycleId } = input;
     if (!versionId || !lineItemId) throw new FpaError(400, "VALIDATION", "versionId and lineItemId required");
-    await FpaGridService.assertEditableVersion(versionId, userId, user, ip);
+    if (value == null || !Number.isFinite(Number(value))) {
+      throw new FpaError(400, "VALIDATION", "value is required");
+    }
+
+    let method = String(input.method || "EVEN").toUpperCase();
+    if (method === "HISTORICAL_PATTERN") method = "PRIOR_YEAR_PATTERN";
+    if (!SPREAD_METHODS.has(method)) {
+      throw new FpaError(400, "UNSUPPORTED_SPREAD_METHOD", `Unsupported spread method: ${method}`);
+    }
+    if (method === "WORKING_DAYS" || method === "SEASONAL_PROFILE") {
+      throw new FpaError(
+        400,
+        "UNSUPPORTED_SPREAD_METHOD",
+        `Spread method ${method} is not implemented yet`
+      );
+    }
+
+    // --- Auth / scope once (not per cell) ---
+    let allowLockedPublished = false;
+    let assignedDepartmentIds: string[] | null = null;
+    let cutoff: Date | null = null;
+    if (cycleId) {
+      assignedDepartmentIds = await FpaAccessService.resolveCycleDepartmentIds(user, cycleId);
+      if (assignedDepartmentIds && assignedDepartmentIds.length === 0) {
+        throw new FpaError(403, "FORBIDDEN", "You are not assigned to this planning cycle");
+      }
+      const mpc = await prisma.modelPlanningCycle.findUnique({
+        where: { id: String(cycleId) },
+        select: { status: true, actualsCutoffPeriod: true },
+      });
+      if (mpc && ["DRAFT", "OPEN", "IN_REVIEW"].includes(String(mpc.status).toUpperCase())) {
+        allowLockedPublished = true;
+      }
+      if (mpc?.actualsCutoffPeriod) cutoff = monthStart(new Date(mpc.actualsCutoffPeriod));
+    }
+    const version = await FpaGridService.assertEditableVersion(versionId, userId, user, ip, {
+      allowLockedPublished,
+    });
+    if (!cutoff) cutoff = await FpaGridService.resolveActualCutoff(modelId);
+
+    const lineItem = await prisma.planningLineItem.findUnique({ where: { id: String(lineItemId) } });
+    if (!lineItem || lineItem.modelId !== modelId) {
+      throw new FpaError(404, "NOT_FOUND", "Line item not found");
+    }
+    if (isCalculatedLineItem(lineItem) || lineItem.isEditable === false) {
+      throw new FpaError(409, "CELL_NOT_EDITABLE", "Calculated or non-editable line items cannot be edited");
+    }
+
+    const deptId = input.departmentId ? String(input.departmentId) : null;
+    if (assignedDepartmentIds?.length) {
+      if (!deptId || !assignedDepartmentIds.includes(deptId)) {
+        throw new FpaError(
+          403,
+          "DEPARTMENT_SCOPE_LOCKED",
+          "Cannot edit values outside your authorised department slice."
+        );
+      }
+    }
+    FpaAccessService.assertCanEditVersion(user, version, {
+      departmentId: deptId,
+      assignedDepartmentIds: assignedDepartmentIds || undefined,
+      allowLockedPublished,
+    });
 
     const where: any = { modelId, versionId, lineItemId, isLocked: false, isEditable: true };
     if (scenarioId) where.scenarioId = scenarioId;
     if (periodDates?.length) {
-      where.periodDate = { in: periodDates.map((d) => new Date(d)) };
+      where.periodDate = { in: periodDates.map((d: string) => new Date(d)) };
     }
-    const cells = await prisma.planningCell.findMany({ where });
-    const n = cells.length || 1;
-    const per = Number(value) / n;
-    const updated = [];
-    for (const cell of cells) {
-      updated.push(
-        await FpaGridService.updateCell(
-          { cellId: cell.id, value: per, reason: input.reason || "SPREAD", cycleId },
-          user,
-          ip
-        )
+    where.departmentId = deptId;
+
+    const cells = await prisma.planningCell.findMany({
+      where,
+      orderBy: { periodDate: "asc" },
+    });
+    if (!cells.length) {
+      throw new FpaError(404, "NOT_FOUND", "No editable cells found for spread");
+    }
+
+    // Drop actual-locked periods (same rule as updateCell)
+    const editable = cells.filter((c) => {
+      if (cutoff && isPeriodOnOrBeforeCutoff(new Date(c.periodDate), cutoff)) return false;
+      const st = cellStatusOf(c);
+      return isEditableStatus(st);
+    });
+    if (!editable.length) {
+      throw new FpaError(403, "ACTUAL_PERIOD_LOCKED", "All target periods are locked as actuals");
+    }
+
+    const n = editable.length;
+    const total = Number(value);
+    let amounts: number[] = [];
+
+    if (method === "EVEN") {
+      const per = total / n;
+      amounts = editable.map(() => per);
+    } else if (method === "CUSTOM_WEIGHT") {
+      const weights = normalizeWeights(input.weights || [], n);
+      amounts = weights.map((w) => total * w);
+    } else if (method === "PRIOR_YEAR_PATTERN") {
+      const priorDates = editable.map((c) => {
+        const prior = new Date(c.periodDate);
+        prior.setUTCFullYear(prior.getUTCFullYear() - 1);
+        return prior;
+      });
+      const priorCells = await prisma.planningCell.findMany({
+        where: {
+          modelId,
+          versionId,
+          lineItemId,
+          periodDate: { in: priorDates },
+          ...(scenarioId ? { scenarioId } : {}),
+          ...(deptId ? { departmentId: deptId } : { departmentId: null }),
+        },
+        select: { periodDate: true, value: true },
+      });
+      const priorByKey = new Map(
+        priorCells.map((c) => [new Date(c.periodDate).toISOString().slice(0, 10), Number(c.value || 0)])
       );
+      const pattern = priorDates.map((d) => Math.max(0, priorByKey.get(d.toISOString().slice(0, 10)) || 0));
+      const patternSum = pattern.reduce((s, v) => s + v, 0);
+      amounts =
+        patternSum <= 0
+          ? editable.map(() => total / n)
+          : pattern.map((v) => total * (v / patternSum));
     }
-    return { spreadAcross: updated.length, cells: updated };
+
+    const now = new Date();
+    const reason = input.reason || `SPREAD_${method}`;
+
+    // Batch write INPUT cells in parallel (one round-trip each, no per-cell auth/audit/recalc)
+    const written = await Promise.all(
+      editable.map(async (cell, i) => {
+        const nextRv = BigInt(Number(cell.recordVersion || 1) + 1);
+        return prisma.planningCell.update({
+          where: { id: cell.id },
+          data: {
+            value: amounts[i],
+            valueType: "MANUAL",
+            sourceType: "INPUT",
+            lastUpdatedById: userId,
+            lastUpdatedAt: now,
+            recordVersion: nextRv,
+          },
+        });
+      })
+    );
+
+    // One audit row for the whole spread
+    await FpaAuditService.log("CELL_SPREAD", userId, {
+      modelId,
+      versionId,
+      scenarioId: scenarioId || null,
+      lineItemId,
+      entityType: "cell",
+      reason: `${reason}; periods=${n}; value=${total}; method=${method}`,
+      newValue: String(total),
+      ip,
+    });
+
+    // Recalc dependents once per period (shared formula/driver load)
+    const [formulas, driversRows] = await Promise.all([
+      prisma.planningFormula.findMany({
+        where: { modelId },
+        include: { lineItem: { select: { id: true, code: true } } },
+      }),
+      prisma.planningDriver.findMany({ where: { modelId }, take: 200 }),
+    ]);
+    const lineCode = String(lineItem.code).toUpperCase();
+    const dependentFormulas = formulas.filter((f) =>
+      FpaFormulaEngine.extractLineCodes(f.expression).some((c) => String(c).toUpperCase() === lineCode)
+    );
+    const drivers: Record<string, number> = {};
+    for (const d of driversRows) drivers[String(d.code).toUpperCase()] = Number(d.value || 0);
+
+    const dependentCells: any[] = [];
+    if (dependentFormulas.length) {
+      const periodDatesUnique = [
+        ...new Set(written.map((c) => new Date(c.periodDate).toISOString().slice(0, 10))),
+      ];
+      // Load all period slices for this version/scenario/dept in one query
+      const periodDateObjs = periodDatesUnique.map((k) => new Date(k));
+      const allPeriodCells = await prisma.planningCell.findMany({
+        where: {
+          versionId,
+          ...(scenarioId ? { scenarioId } : {}),
+          periodDate: { in: periodDateObjs },
+          departmentId: deptId,
+        },
+        include: { lineItem: { select: { id: true, code: true } } },
+      });
+      const byPeriod = new Map<string, typeof allPeriodCells>();
+      for (const c of allPeriodCells) {
+        const k = new Date(c.periodDate).toISOString().slice(0, 10);
+        (byPeriod.get(k) || byPeriod.set(k, []).get(k)!).push(c);
+      }
+
+      const calcUpdates: Promise<any>[] = [];
+      for (const periodKey of periodDatesUnique) {
+        const periodCells = byPeriod.get(periodKey) || [];
+        const canonicalPeriod = pickCanonicalCells(periodCells);
+        const lines: Record<string, number> = {};
+        const merged = mergeLineValuesByCode(canonicalPeriod, { nullAsZero: true });
+        for (const [k, v] of Object.entries(merged)) lines[k] = v != null ? Number(v) : 0;
+        // Ensure spread line reflects new value
+        const spreadCell = written.find(
+          (c) => new Date(c.periodDate).toISOString().slice(0, 10) === periodKey
+        );
+        if (spreadCell) lines[lineCode] = Number(spreadCell.value || 0);
+
+        for (const f of dependentFormulas) {
+          if (!f.lineItemId) continue;
+          try {
+            const calcVal = FpaFormulaEngine.evaluate(f.expression, { lines, drivers });
+            const target =
+              canonicalPeriod.find((c) => c.lineItemId === f.lineItemId) ||
+              periodCells.find((c) => c.lineItemId === f.lineItemId);
+            if (!target || target.isLocked) continue;
+            if (f.lineItem?.code) lines[String(f.lineItem.code).toUpperCase()] = calcVal;
+            calcUpdates.push(
+              prisma.planningCell
+                .update({
+                  where: { id: target.id },
+                  data: {
+                    value: calcVal,
+                    valueType: "CALCULATED",
+                    sourceType: "FORMULA",
+                    formulaId: f.id,
+                    lastUpdatedById: userId,
+                    lastUpdatedAt: now,
+                    lastCalculatedAt: now,
+                    recordVersion: BigInt(Number(target.recordVersion || 1) + 1),
+                  },
+                })
+                .then((u) => serializeCell(u))
+            );
+          } catch {
+            /* skip */
+          }
+        }
+      }
+      dependentCells.push(...(await Promise.all(calcUpdates)));
+    }
+
+    const primaries = written.map(serializeCell);
+    const updatedCells = mergeUpdatedCells([
+      ...primaries.map((c) => ({ updatedCells: [c] })),
+      { updatedCells: dependentCells },
+    ]);
+    return {
+      spreadAcross: written.length,
+      method,
+      cells: primaries.map((p) => ({ ...p, updatedCells: [p] })),
+      updatedCells,
+    };
   }
 
   static async copyForward(input: any, user: any, ip?: string) {
@@ -1065,7 +1365,12 @@ export class FpaGridService {
         )
       );
     }
-    return { copied: updated.length, value: source.value, cells: updated };
+    return {
+      copied: updated.length,
+      value: source.value,
+      cells: updated,
+      updatedCells: mergeUpdatedCells(updated),
+    };
   }
 
   /**
@@ -1078,80 +1383,186 @@ export class FpaGridService {
     const modelId = String(input.modelId || "");
     const versionId = String(input.versionId || "");
     const scenarioId = String(input.scenarioId || "");
-    const lineItemId = String(input.lineItemId || "");
-    const fromPeriodDate = input.fromPeriodDate;
-    const ratePct = Number(input.ratePct);
+    const preferredLineItemIds = Array.isArray(input.lineItemIds)
+      ? input.lineItemIds.map(String).filter(Boolean)
+      : [];
+    const legacyLineItemId = input.lineItemId ? String(input.lineItemId) : "";
+    const lineItemIds = preferredLineItemIds.length
+      ? [...new Set(preferredLineItemIds)]
+      : legacyLineItemId
+        ? [legacyLineItemId]
+        : [];
+    const preferredContract = preferredLineItemIds.length > 0 || input.periodFrom != null;
+    const periodFrom = input.periodFrom || input.fromPeriodDate;
+    const periodTo = input.periodTo || null;
+    const ratePct = Number(input.ratePercent ?? input.ratePct);
     const mode = String(input.mode || "COMPOUND").toUpperCase();
 
-    if (!modelId || !versionId || !scenarioId || !lineItemId || !fromPeriodDate) {
-      throw new FpaError(
-        400,
-        "VALIDATION",
-        "modelId, versionId, scenarioId, lineItemId, fromPeriodDate are required"
-      );
+    if (!modelId || !versionId || !scenarioId || !periodFrom) {
+      throw new FpaError(400, "VALIDATION", "modelId, versionId, scenarioId, and periodFrom are required");
     }
-    if (!Number.isFinite(ratePct)) throw new FpaError(400, "VALIDATION", "ratePct is required");
+    if (!lineItemIds.length) {
+      throw new FpaError(400, "LINE_ITEM_REQUIRED", "lineItemIds (or legacy lineItemId) is required");
+    }
+    if (!Number.isFinite(ratePct)) {
+      throw new FpaError(400, "VALIDATION", "ratePercent (or legacy ratePct) is required");
+    }
+    if (!["COMPOUND", "FLAT"].includes(mode)) {
+      throw new FpaError(400, "VALIDATION", "mode must be COMPOUND or FLAT");
+    }
     await FpaGridService.assertEditableVersion(versionId, userId, user, ip);
 
-    const from = new Date(fromPeriodDate);
-    const source = await prisma.planningCell.findFirst({
-      where: { modelId, versionId, scenarioId, lineItemId, periodDate: from },
-    });
-    if (!source || source.value == null) {
-      throw new FpaError(404, "NOT_FOUND", "Source cell with a value not found at fromPeriodDate");
+    const from = new Date(periodFrom);
+    const to = periodTo ? new Date(periodTo) : null;
+    if (Number.isNaN(from.getTime()) || (to && Number.isNaN(to.getTime()))) {
+      throw new FpaError(400, "INVALID_PERIOD_RANGE", "periodFrom/periodTo must be valid dates");
+    }
+    if (to && from > to) {
+      throw new FpaError(400, "INVALID_PERIOD_RANGE", "periodFrom must be on or before periodTo");
     }
 
-    const targets = await prisma.planningCell.findMany({
-      where: {
-        modelId,
-        versionId,
-        scenarioId,
-        lineItemId,
-        periodDate: { gt: from },
-        isLocked: false,
-        isEditable: true,
-      },
-      orderBy: { periodDate: "asc" },
+    if (input.cycleId) {
+      const cycle = await prisma.modelPlanningCycle.findUnique({
+        where: { id: String(input.cycleId) },
+        select: { status: true },
+      });
+      if (cycle && ["APPROVED", "LOCKED", "CLOSED"].includes(String(cycle.status).toUpperCase())) {
+        throw new FpaError(423, "LOCKED_VERSION", "Planning cycle is locked; growth cannot be applied");
+      }
+    }
+
+    const foundLineItems = await prisma.planningLineItem.findMany({
+      where: { modelId, id: { in: lineItemIds } },
     });
+    if (foundLineItems.length !== lineItemIds.length) {
+      throw new FpaError(400, "LINE_ITEM_REQUIRED", "One or more lineItemIds do not belong to this model");
+    }
+    if (foundLineItems.some((lineItem) => isCalculatedLineItem(lineItem) || lineItem.isEditable === false)) {
+      throw new FpaError(409, "CELL_NOT_EDITABLE", "Apply Growth requires editable input line items");
+    }
+
+    const work: Array<{ lineItemId: string; source: any; targets: any[] }> = [];
+    for (const lineItemId of lineItemIds) {
+      const periodRange: any = preferredContract
+        ? { gte: from, ...(to ? { lte: to } : {}) }
+        : { gt: from, ...(to ? { lte: to } : {}) };
+      const targets = await prisma.planningCell.findMany({
+        where: {
+          modelId,
+          versionId,
+          scenarioId,
+          lineItemId,
+          periodDate: periodRange,
+          isLocked: false,
+          isEditable: true,
+        },
+        orderBy: { periodDate: "asc" },
+      });
+      if (preferredContract) {
+        const grouped = new Map<string, any[]>();
+        for (const target of targets) {
+          const key = [
+            target.entityId || "",
+            target.departmentId || "",
+            target.costCentreId || "",
+            target.accountId || "",
+            target.currencyCode || "",
+          ].join("|");
+          const rows = grouped.get(key) || [];
+          rows.push(target);
+          grouped.set(key, rows);
+        }
+        for (const dimensionTargets of grouped.values()) {
+          const first = dimensionTargets[0];
+          const source = await prisma.planningCell.findFirst({
+            where: {
+              modelId,
+              versionId,
+              scenarioId,
+              lineItemId,
+              entityId: first.entityId,
+              departmentId: first.departmentId,
+              costCentreId: first.costCentreId,
+              accountId: first.accountId,
+              currencyCode: first.currencyCode,
+              periodDate: { lt: from },
+              value: { not: null },
+            },
+            orderBy: { periodDate: "desc" },
+          });
+          if (!source) {
+            throw new FpaError(
+              404,
+              "NOT_FOUND",
+              `No source value exists before periodFrom for line item ${lineItemId} and target dimensions`
+            );
+          }
+          work.push({ lineItemId, source, targets: dimensionTargets });
+        }
+      } else {
+        const source = await prisma.planningCell.findFirst({
+          where: { modelId, versionId, scenarioId, lineItemId, periodDate: from },
+        });
+        if (!source || source.value == null) {
+          throw new FpaError(
+            404,
+            "NOT_FOUND",
+            `Source cell with a value not found at fromPeriodDate for line item ${lineItemId}`
+          );
+        }
+        work.push({ lineItemId, source, targets });
+      }
+    }
 
     const rate = ratePct / 100;
-    let prev = Number(source.value);
-    const base = Number(source.value);
     const updated = [];
-    for (let i = 0; i < targets.length; i++) {
-      const cell = targets[i];
-      const nextVal = mode === "FLAT" ? base * (1 + rate) : prev * (1 + rate);
-      prev = nextVal;
-      updated.push(
-        await FpaGridService.updateCell(
-          {
-            cellId: cell.id,
-            value: nextVal,
-            reason: input.reason || `APPLY_GROWTH_${mode}_${ratePct}`,
-            sourceType: "GROWTH",
-            valueType: "CALCULATED",
-          },
-          user,
-          ip
-        )
-      );
+    const baseValues: Record<string, number> = {};
+    for (const item of work) {
+      let prev = Number(item.source.value);
+      const base = Number(item.source.value);
+      if (baseValues[item.lineItemId] == null) baseValues[item.lineItemId] = base;
+      for (const cell of item.targets) {
+        const nextVal = mode === "FLAT" ? base * (1 + rate) : prev * (1 + rate);
+        prev = nextVal;
+        updated.push(
+          await FpaGridService.updateCell(
+            {
+              cellId: cell.id,
+              value: nextVal,
+              cycleId: input.cycleId || null,
+              allowGrowthCalculated: true,
+              reason: input.reason || `APPLY_GROWTH_${mode}_${ratePct}`,
+              sourceType: "GROWTH",
+              valueType: "CALCULATED",
+            },
+            user,
+            ip
+          )
+        );
+      }
     }
 
     await FpaAuditService.log("CELL_APPLY_GROWTH", userId, {
       modelId,
       versionId,
       scenarioId,
-      reason: `ratePct=${ratePct};mode=${mode};from=${fromPeriodDate}`,
+      reason: `ratePct=${ratePct};mode=${mode};from=${periodFrom};to=${periodTo || ""};lines=${lineItemIds.join(",")}`,
       ip,
     });
 
     return {
       applied: updated.length,
       ratePct,
+      ratePercent: ratePct,
       mode,
-      fromPeriodDate,
-      baseValue: base,
+      fromPeriodDate: periodFrom,
+      periodFrom,
+      periodTo: periodTo || null,
+      lineItemIds,
+      baseValue: lineItemIds.length === 1 ? baseValues[lineItemIds[0]] : null,
+      baseValues,
       cells: updated,
+      updatedCells: mergeUpdatedCells(updated),
     };
   }
 
@@ -1491,7 +1902,82 @@ export class FpaGridService {
       throw new FpaError(400, "VALIDATION", `Unknown bulk operation: ${op}`);
     }
 
-    return { operation: op, updated: updated.length, cells: updated };
+    return {
+      operation: op,
+      updated: updated.length,
+      cells: updated,
+      updatedCells: mergeUpdatedCells(updated),
+    };
+  }
+
+  /**
+   * Re-evaluate all formula cells for a version/scenario (Stage 3 optional explicit recalc).
+   */
+  static async recalculate(input: any, user: any, ip?: string) {
+    const modelId = String(input.modelId || "");
+    const versionId = String(input.versionId || "");
+    const scenarioId = input.scenarioId ? String(input.scenarioId) : null;
+    const cycleId = input.cycleId ? String(input.cycleId) : null;
+    if (!modelId || !versionId) {
+      throw new FpaError(400, "VALIDATION", "versionId required");
+    }
+    await FpaGridService.assertEditableVersion(versionId, user?.id, user, ip, {
+      allowLockedPublished: !!cycleId,
+    });
+
+    const formulas = await prisma.planningFormula.findMany({
+      where: { modelId },
+      include: { lineItem: { select: { id: true, code: true } } },
+    });
+    if (!formulas.length) {
+      return { recalculated: 0, updatedCells: [] };
+    }
+
+    const where: any = { modelId, versionId };
+    if (scenarioId) where.scenarioId = scenarioId;
+    const seedCells = await prisma.planningCell.findMany({
+      where: { ...where, isEditable: true, sourceType: { in: ["INPUT", "MANUAL", "OVERRIDE"] } },
+      take: 1,
+    });
+    // Touch each INPUT once so dependents refresh; if none, evaluate formula cells directly
+    const updatedCells: any[] = [];
+    if (seedCells.length) {
+      for (const seed of await prisma.planningCell.findMany({
+        where: { ...where, isEditable: true },
+        take: 50,
+        orderBy: { periodDate: "asc" },
+      })) {
+        const deps = await FpaGridService.recalculateDependents(seed, user?.id);
+        for (const c of deps) {
+          if (c?.id) updatedCells.push(c);
+        }
+      }
+    } else {
+      for (const f of formulas) {
+        const cells = await prisma.planningCell.findMany({
+          where: { ...where, lineItemId: f.lineItemId },
+        });
+        for (const cell of cells) {
+          const deps = await FpaGridService.recalculateDependents(
+            { ...cell, lineItemId: cell.lineItemId },
+            user?.id
+          );
+          for (const c of deps) {
+            if (c?.id) updatedCells.push(c);
+          }
+        }
+      }
+    }
+
+    const merged = mergeUpdatedCells(updatedCells.map((c) => ({ updatedCells: [c] })));
+    await FpaAuditService.log("MODEL_RECALCULATE", user?.id, {
+      modelId,
+      versionId,
+      scenarioId,
+      reason: `recalculated=${merged.length}`,
+      ip,
+    });
+    return { recalculated: merged.length, updatedCells: merged };
   }
 
   static async cellDetail(modelId: string, cellId: string) {

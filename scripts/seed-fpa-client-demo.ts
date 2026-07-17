@@ -1,1703 +1,1364 @@
 // @ts-nocheck
 /**
- * Seed rich FY2026 Arcus Holdings FP&A demo data (Model Builder, Detailed, Planning, Budgeting).
- * Does NOT wipe — run clear-fpa-planning-data.ts first if needed.
+ * Builds the Arcus Group FY2026 presentation dataset after a complete FP&A reset.
  *
- * Run: npx ts-node --transpile-only -r dotenv/config scripts/seed-fpa-client-demo.ts
- * Safety: refuses client1_db unless ALLOW_CLIENT1_FPA_SEED=1
+ * Run only against the empty DEV nts planning schema.
+ * Shared users, departments, entities, and chart accounts are read but never changed.
  */
 import "dotenv/config";
 import { randomBytes } from "crypto";
 import { PrismaClient } from "@prisma/client";
+import { assertDevDatabase } from "./lib/assert-dev-database";
 
 const prisma = new PrismaClient();
+const FIXED_NOW = new Date("2026-07-15T09:00:00.000Z");
+const FORBIDDEN_VISIBLE = /\b(?:uat|test|demo|placeholder)\b|[\u2013\u2014]/i;
 
-/** Lean seed for demo UI (non-scrollable lists): fewer models/cycles/owners/scenarios. */
-const LITE = process.env.FPA_DEMO_LITE === "1" || process.env.FPA_DEMO_LITE === "true";
-
-function cuid(): string {
-  return `c${Date.now().toString(36)}${randomBytes(8).toString("hex")}`.slice(0, 25);
+function id(prefix = "c"): string {
+  return `${prefix}${Date.now().toString(36)}${randomBytes(8).toString("hex")}`.slice(0, 25);
 }
 
-function assertSafeDatabaseUrl(url: string) {
-  const lower = url.toLowerCase();
-  if (lower.includes("client1_db") && process.env.ALLOW_CLIENT1_FPA_SEED !== "1") {
-    throw new Error(
-      "Refusing to seed client1_db. Set ALLOW_CLIENT1_FPA_SEED=1 only if intentional."
-    );
+function month(year: number, zeroBasedMonth: number): Date {
+  return new Date(Date.UTC(year, zeroBasedMonth, 1));
+}
+
+function amount(value: number): string {
+  return (Math.round(value * 10000) / 10000).toFixed(4);
+}
+
+function inspectVisible(value: unknown, path = "payload"): void {
+  if (typeof value === "string" && FORBIDDEN_VISIBLE.test(value)) {
+    throw new Error(`Forbidden visible content at ${path}: ${JSON.stringify(value)}`);
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => inspectVisible(item, `${path}[${index}]`));
+    return;
+  }
+  if (value && typeof value === "object" && !(value instanceof Date) && !Buffer.isBuffer(value)) {
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      inspectVisible(child, `${path}.${key}`);
+    }
   }
 }
 
-function d(n: number): string {
-  return (Math.round(n * 10000) / 10000).toFixed(4);
+async function create(delegate: any, data: Record<string, unknown>) {
+  inspectVisible(data);
+  return delegate.create({ data });
 }
 
-function monthDate(year: number, monthIndex: number): Date {
-  return new Date(Date.UTC(year, monthIndex, 1));
+async function createMany(delegate: any, rows: Record<string, unknown>[], label: string) {
+  inspectVisible(rows, label);
+  const batchSize = 500;
+  for (let offset = 0; offset < rows.length; offset += batchSize) {
+    await delegate.createMany({
+      data: rows.slice(offset, offset + batchSize),
+      skipDuplicates: true,
+    });
+  }
+  console.log(`[seed-fpa] ${label}=${rows.length}`);
 }
 
-function floor(n: number): number {
-  return Math.floor(n);
+async function upsert(delegate: any, where: Record<string, unknown>, data: Record<string, unknown>) {
+  inspectVisible(data);
+  return delegate.upsert({ where, create: data, update: data });
 }
 
-const SEASONALITY = [0, 40, 80, 60, 20, 100, 140, 120, 90, 110, 130, 150];
+type Person = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  role?: { name?: string | null } | null;
+  roleCode?: string | null;
+};
 
-type LineDef = {
+type Master = { id: string; name: string };
+
+const MODULES = [
+  { code: "REVENUE", name: "Revenue and Growth", order: 10 },
+  { code: "WORKFORCE", name: "Workforce Planning", order: 20 },
+  { code: "OPEX", name: "Operating Expenses", order: 30 },
+  { code: "CASH", name: "Cash and Investment", order: 40 },
+];
+
+type LineDefinition = {
   code: string;
   name: string;
-  lineItemType: string;
+  module: string;
   category: string;
-  dataType: string;
-  summaryMethod: string;
-  moduleCode: string;
-  isEditable: boolean;
+  type: string;
+  dataType?: string;
+  summary?: string;
   expression?: string;
   dependsOn?: string[];
 };
 
-const PRIMARY_MODULES = [
-  { code: "REVENUE", name: "Revenue", calcOrder: 10, sortOrder: 10 },
-  { code: "COGS", name: "COGS & Margin", calcOrder: 20, sortOrder: 20 },
-  { code: "WORKFORCE", name: "Workforce", calcOrder: 30, sortOrder: 30 },
-  { code: "OPEX", name: "Operating Expenses", calcOrder: 40, sortOrder: 40 },
-  { code: "CASH", name: "Cash", calcOrder: 50, sortOrder: 50 },
-];
-
-const PRIMARY_LINES: LineDef[] = [
+const LINES: LineDefinition[] = [
+  { code: "VOLUME", name: "Client Mandates", module: "REVENUE", category: "REVENUE", type: "DRIVER", dataType: "NUMBER" },
+  { code: "AVERAGE_FEE", name: "Average Monthly Fee", module: "REVENUE", category: "REVENUE", type: "DRIVER" },
+  { code: "RECURRING_REVENUE", name: "Recurring Advisory Revenue", module: "REVENUE", category: "REVENUE", type: "INPUT" },
+  { code: "PROJECT_REVENUE", name: "Project and Transaction Revenue", module: "REVENUE", category: "REVENUE", type: "INPUT" },
   {
-    code: "UNITS",
-    name: "Units Sold",
-    lineItemType: "DRIVER",
+    code: "REVENUE",
+    name: "Revenue",
+    module: "REVENUE",
     category: "REVENUE",
-    dataType: "NUMBER",
-    summaryMethod: "SUM",
-    moduleCode: "REVENUE",
-    isEditable: true,
+    type: "CALC",
+    expression: "LINE('RECURRING_REVENUE')+LINE('PROJECT_REVENUE')",
   },
+  { code: "HEADCOUNT", name: "Headcount", module: "WORKFORCE", category: "WORKFORCE", type: "DRIVER", dataType: "NUMBER", summary: "LAST" },
+  { code: "NEW_HIRES", name: "New Hires", module: "WORKFORCE", category: "WORKFORCE", type: "DRIVER", dataType: "NUMBER" },
+  { code: "AVERAGE_COST_PER_FTE", name: "Average Cost per FTE", module: "WORKFORCE", category: "WORKFORCE", type: "DRIVER" },
   {
-    code: "PRICE",
-    name: "Average Price",
-    lineItemType: "INPUT",
-    category: "REVENUE",
-    dataType: "CURRENCY",
-    summaryMethod: "AVG",
-    moduleCode: "REVENUE",
-    isEditable: true,
-  },
-  {
-    code: "GROSS_REVENUE",
-    name: "Gross Revenue",
-    lineItemType: "CALC",
-    category: "REVENUE",
-    dataType: "CURRENCY",
-    summaryMethod: "SUM",
-    moduleCode: "REVENUE",
-    isEditable: false,
-    expression: "LINE('UNITS')*LINE('PRICE')",
-  },
-  {
-    code: "DISCOUNTS",
-    name: "Discounts",
-    lineItemType: "INPUT",
-    category: "REVENUE",
-    dataType: "CURRENCY",
-    summaryMethod: "SUM",
-    moduleCode: "REVENUE",
-    isEditable: true,
-  },
-  {
-    code: "NET_REVENUE",
-    name: "Net Revenue",
-    lineItemType: "CALC",
-    category: "REVENUE",
-    dataType: "CURRENCY",
-    summaryMethod: "SUM",
-    moduleCode: "REVENUE",
-    isEditable: false,
-    expression: "LINE('GROSS_REVENUE')-LINE('DISCOUNTS')",
-    dependsOn: ["GROSS_REVENUE"],
-  },
-  {
-    code: "COGS",
-    name: "Cost of Goods Sold",
-    lineItemType: "EXPENSE",
+    code: "PAYROLL",
+    name: "Payroll and Benefits",
+    module: "WORKFORCE",
     category: "EXPENSE",
-    dataType: "CURRENCY",
-    summaryMethod: "SUM",
-    moduleCode: "COGS",
-    isEditable: true,
+    type: "CALC",
+    expression: "LINE('HEADCOUNT')*LINE('AVERAGE_COST_PER_FTE')",
   },
+  { code: "MARKETING", name: "Market Development", module: "OPEX", category: "EXPENSE", type: "INPUT" },
+  { code: "TECHNOLOGY", name: "Technology and Data", module: "OPEX", category: "EXPENSE", type: "INPUT" },
+  { code: "FACILITIES", name: "Facilities and Operations", module: "OPEX", category: "EXPENSE", type: "INPUT" },
+  { code: "PROFESSIONAL_FEES", name: "Professional Fees", module: "OPEX", category: "EXPENSE", type: "INPUT" },
   {
-    code: "GROSS_PROFIT",
-    name: "Gross Profit",
-    lineItemType: "CALC",
-    category: "REVENUE",
-    dataType: "CURRENCY",
-    summaryMethod: "SUM",
-    moduleCode: "COGS",
-    isEditable: false,
-    expression: "LINE('NET_REVENUE')-LINE('COGS')",
-    dependsOn: ["NET_REVENUE"],
-  },
-  {
-    code: "HEADCOUNT",
-    name: "Headcount",
-    lineItemType: "DRIVER",
-    category: "WORKFORCE",
-    dataType: "NUMBER",
-    summaryMethod: "AVG",
-    moduleCode: "WORKFORCE",
-    isEditable: true,
-  },
-  {
-    code: "AVG_SALARY",
-    name: "Average Salary",
-    lineItemType: "INPUT",
-    category: "WORKFORCE",
-    dataType: "CURRENCY",
-    summaryMethod: "AVG",
-    moduleCode: "WORKFORCE",
-    isEditable: true,
-  },
-  {
-    code: "SALARIES",
-    name: "Salaries",
-    lineItemType: "CALC",
+    code: "OPEX",
+    name: "Operating Expenses",
+    module: "OPEX",
     category: "EXPENSE",
-    dataType: "CURRENCY",
-    summaryMethod: "SUM",
-    moduleCode: "WORKFORCE",
-    isEditable: false,
-    expression: "LINE('HEADCOUNT')*LINE('AVG_SALARY')",
-  },
-  {
-    code: "RENT",
-    name: "Rent",
-    lineItemType: "EXPENSE",
-    category: "EXPENSE",
-    dataType: "CURRENCY",
-    summaryMethod: "SUM",
-    moduleCode: "OPEX",
-    isEditable: true,
-  },
-  {
-    code: "MARKETING",
-    name: "Marketing",
-    lineItemType: "EXPENSE",
-    category: "EXPENSE",
-    dataType: "CURRENCY",
-    summaryMethod: "SUM",
-    moduleCode: "OPEX",
-    isEditable: true,
-  },
-  {
-    code: "GA",
-    name: "G&A",
-    lineItemType: "EXPENSE",
-    category: "EXPENSE",
-    dataType: "CURRENCY",
-    summaryMethod: "SUM",
-    moduleCode: "OPEX",
-    isEditable: true,
+    type: "CALC",
+    expression: "LINE('PAYROLL')+LINE('MARKETING')+LINE('TECHNOLOGY')+LINE('FACILITIES')+LINE('PROFESSIONAL_FEES')",
+    dependsOn: ["PAYROLL"],
   },
   {
     code: "EBITDA",
     name: "EBITDA",
-    lineItemType: "CALC",
-    category: "REVENUE",
-    dataType: "CURRENCY",
-    summaryMethod: "SUM",
-    moduleCode: "CASH",
-    isEditable: false,
-    expression:
-      "LINE('GROSS_PROFIT')-LINE('SALARIES')-LINE('RENT')-LINE('MARKETING')-LINE('GA')",
-    dependsOn: ["GROSS_PROFIT", "SALARIES"],
+    module: "OPEX",
+    category: "PROFIT",
+    type: "CALC",
+    expression: "LINE('REVENUE')-LINE('OPEX')",
+    dependsOn: ["REVENUE", "OPEX"],
   },
+  { code: "OPENING_CASH", name: "Opening Cash", module: "CASH", category: "CASH", type: "INPUT", summary: "FIRST" },
   {
-    code: "OPENING_CASH",
-    name: "Opening Cash",
-    lineItemType: "CASH",
+    code: "OPERATING_CASH_FLOW",
+    name: "Operating Cash Flow",
+    module: "CASH",
     category: "CASH",
-    dataType: "CURRENCY",
-    summaryMethod: "LAST",
-    moduleCode: "CASH",
-    isEditable: true,
+    type: "CALC",
+    expression: "LINE('EBITDA')*0.86",
+    dependsOn: ["EBITDA"],
   },
+  { code: "CAPEX", name: "Capital Expenditure", module: "CASH", category: "CASH", type: "INPUT" },
+  { code: "FINANCING_CASH_FLOW", name: "Financing Cash Flow", module: "CASH", category: "CASH", type: "INPUT" },
   {
     code: "CLOSING_CASH",
     name: "Closing Cash",
-    lineItemType: "CASH",
+    module: "CASH",
     category: "CASH",
-    dataType: "CURRENCY",
-    summaryMethod: "LAST",
-    moduleCode: "CASH",
-    isEditable: true,
+    type: "CALC",
+    summary: "LAST",
+    expression: "LINE('OPENING_CASH')+LINE('OPERATING_CASH_FLOW')-LINE('CAPEX')+LINE('FINANCING_CASH_FLOW')",
+    dependsOn: ["OPERATING_CASH_FLOW"],
   },
 ];
 
-const GL_FIELD_BY_LINE: Record<string, string> = {
-  UNITS: "GL_ACCOUNT.4100",
-  PRICE: "GL_ACCOUNT.4110",
-  GROSS_REVENUE: "GL_ACCOUNT.4000",
-  NET_REVENUE: "GL_ACCOUNT.4010",
-  COGS: "GL_ACCOUNT.5000",
-  GROSS_PROFIT: "GL_ACCOUNT.5010",
-  HEADCOUNT: "GL_ACCOUNT.6100",
-  AVG_SALARY: "GL_ACCOUNT.6110",
-  SALARIES: "GL_ACCOUNT.6120",
-  RENT: "GL_ACCOUNT.6200",
-  MARKETING: "GL_ACCOUNT.6300",
-  EBITDA: "GL_ACCOUNT.7000",
-  OPENING_CASH: "GL_ACCOUNT.1100",
-  CLOSING_CASH: "GL_ACCOUNT.1101",
-};
+const SCENARIOS = [
+  { key: "BASE", name: "Management Base Case", type: "BASE", multiplier: 1, official: true },
+  { key: "GROWTH", name: "Accelerated Growth", type: "UPSIDE", multiplier: 1.09, official: false },
+  { key: "RESILIENCE", name: "Market Resilience", type: "DOWNSIDE", multiplier: 0.92, official: false },
+  { key: "INVESTMENT", name: "Strategic Investment", type: "CUSTOM", multiplier: 1.04, official: false },
+];
 
-/** UNMAPPED on purpose for Detailed workspace demos */
-const UNMAPPED_LINES = new Set(["DISCOUNTS", "GA"]);
+const VERSION_DEFINITIONS = [
+  { key: "WORKING", name: "FY2026 Management Plan", status: "DRAFT" },
+  { key: "PUBLISHED", name: "FY2026 Board Approved Plan", status: "LOCKED" },
+  { key: "PRIOR", name: "FY2025 Final Comparative", status: "LOCKED" },
+  { key: "MPC_DRAFT", name: "FY2026 Planning Intake", status: "DRAFT" },
+  { key: "MPC_OPEN", name: "FY2026 Department Input", status: "DRAFT" },
+  { key: "MPC_SUBMITTED", name: "FY2026 Consolidated Submission", status: "SUBMITTED" },
+  { key: "MPC_REVIEW", name: "FY2026 Finance Review", status: "SUBMITTED" },
+  { key: "MPC_RETURNED", name: "FY2026 Revision Request", status: "DRAFT" },
+  { key: "MPC_APPROVED", name: "FY2026 Executive Approval", status: "PUBLISHED" },
+  { key: "MPC_LOCKED", name: "FY2026 Locked Baseline", status: "LOCKED" },
+];
 
-type MonthValues = {
-  units: number;
-  price: number;
-  grossRevenue: number;
-  discounts: number;
-  netRevenue: number;
-  cogs: number;
-  grossProfit: number;
-  headcount: number;
-  avgSalary: number;
-  salaries: number;
-  rent: number;
-  marketing: number;
-  ga: number;
-  ebitda: number;
-  openingCash: number;
-  closingCash: number;
-};
-
-function computeMonthValues(
-  m: number,
-  opts: { unitsMul?: number; priceMul?: number; marketingMul?: number } = {}
-): MonthValues {
-  const unitsMul = opts.unitsMul ?? 1;
-  const priceMul = opts.priceMul ?? 1;
-  const marketingMul = opts.marketingMul ?? 1;
-
-  const units = (1200 + m * 15 + SEASONALITY[m]) * unitsMul;
-  const price = 185 * priceMul;
-  const grossRevenue = units * price;
-  const discounts = grossRevenue * 0.04;
-  const netRevenue = grossRevenue - discounts;
-  const cogs = netRevenue * 0.42;
-  const grossProfit = netRevenue - cogs;
-  const headcount = 48 + floor(m / 3);
-  const avgSalary = 4200;
-  const salaries = headcount * avgSalary;
-  const rent = 28000;
-  const q4Bump = m >= 9 ? 8000 + (m - 9) * 2000 : 0;
-  const marketing = (12000 + q4Bump) * marketingMul;
-  const ga = 15000;
-  const ebitda = grossProfit - salaries - rent - marketing - ga;
-
+function monthlyValues(monthIndex: number, scenarioMultiplier: number, factor = 1) {
+  const seasonal = [0.93, 0.96, 1.01, 0.98, 1.03, 1.07, 1.04, 1.06, 1.08, 1.12, 1.16, 1.21][monthIndex];
+  const recurring = 720000 * seasonal * scenarioMultiplier * factor;
+  const projects = (155000 + monthIndex * 8500) * scenarioMultiplier * factor;
+  const revenue = recurring + projects;
+  const headcount = Math.round((82 + Math.floor(monthIndex / 2)) * (scenarioMultiplier > 1.05 ? 1.04 : 1));
+  const hires = monthIndex % 3 === 0 ? 4 : 2;
+  const fteCost = 7250;
+  const payroll = headcount * fteCost;
+  const investment = scenarioMultiplier === 1.04 ? 1.2 : 1;
+  const marketing = (68000 + monthIndex * 1800) * investment * factor;
+  const technology = (94000 + monthIndex * 1200) * investment * factor;
+  const facilities = 57000 * factor;
+  const professionalFees = (42000 + (monthIndex % 3) * 5500) * factor;
+  const opex = payroll + marketing + technology + facilities + professionalFees;
+  const ebitda = revenue - opex;
+  const operatingCashFlow = ebitda * 0.86;
+  const capex = (monthIndex === 2 || monthIndex === 8 ? 185000 : 52000) * investment * factor;
+  const financingCashFlow = monthIndex === 0 ? 250000 * factor : 0;
   return {
-    units,
-    price,
-    grossRevenue,
-    discounts,
-    netRevenue,
-    cogs,
-    grossProfit,
-    headcount,
-    avgSalary,
-    salaries,
-    rent,
-    marketing,
-    ga,
-    ebitda,
-    openingCash: 0,
-    closingCash: 0,
+    VOLUME: 118 + monthIndex * 3,
+    AVERAGE_FEE: recurring / Math.max(1, 118 + monthIndex * 3),
+    RECURRING_REVENUE: recurring,
+    PROJECT_REVENUE: projects,
+    REVENUE: revenue,
+    HEADCOUNT: headcount,
+    NEW_HIRES: hires,
+    AVERAGE_COST_PER_FTE: fteCost,
+    PAYROLL: payroll,
+    MARKETING: marketing,
+    TECHNOLOGY: technology,
+    FACILITIES: facilities,
+    PROFESSIONAL_FEES: professionalFees,
+    OPEX: opex,
+    EBITDA: ebitda,
+    OPENING_CASH: 0,
+    OPERATING_CASH_FLOW: operatingCashFlow,
+    CAPEX: capex,
+    FINANCING_CASH_FLOW: financingCashFlow,
+    CLOSING_CASH: 0,
+  } as Record<string, number>;
+}
+
+async function requireEmptyPlanningSchema() {
+  const counts = await Promise.all([
+    prisma.planningModel.count(),
+    prisma.modelPlanningCycle.count(),
+    prisma.planningBudgetCycle.count(),
+  ]);
+  if (counts.some((count) => count !== 0)) {
+    throw new Error(
+      `FP&A reset required before seeding: models=${counts[0]}, modelPlanningCycles=${counts[1]}, budgetCycles=${counts[2]}`
+    );
+  }
+}
+
+async function resolvePeople(): Promise<{
+  people: Person[];
+  roles: Record<string, Person>;
+}> {
+  const all = (await prisma.user.findMany({
+    include: { role: true },
+    orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+  })) as Person[];
+  const clean = all.filter((person) => {
+    const identity = `${person.firstName} ${person.lastName} ${person.email}`;
+    return !FORBIDDEN_VISIBLE.test(identity) && person.firstName && person.lastName;
+  });
+  if (!clean.length) {
+    throw new Error("No suitable professional user identity is available");
+  }
+  const score = (person: Person, terms: string[]) => {
+    const text = `${person.role?.name || ""} ${person.roleCode || ""} ${person.firstName} ${person.lastName}`.toUpperCase();
+    return terms.reduce((total, term) => total + (text.includes(term) ? 10 : 0), 0);
+  };
+  const pick = (terms: string[], used: Set<string>) => {
+    const candidates = [...clean].sort((a, b) => score(b, terms) - score(a, terms));
+    const selected = candidates.find((candidate) => !used.has(candidate.id)) || candidates[0];
+    used.add(selected.id);
+    return selected;
+  };
+  const used = new Set<string>();
+  return {
+    people: clean,
+    roles: {
+      executiveSponsor: pick(["CFO", "FINANCE DIRECTOR", "ADMIN"], used),
+      planningLead: pick(["FP&A", "FINANCE", "CONTROLLER"], used),
+      businessPartner: pick(["FINANCE", "MANAGER", "ACCOUNT"], used),
+      departmentOwner: pick(["MANAGER", "HEAD", "DIRECTOR"], used),
+    },
   };
 }
 
-function withCashChain(months: MonthValues[]): MonthValues[] {
-  let opening = 850000;
-  return months.map((row) => {
-    const closing = opening + row.ebitda;
-    const next = { ...row, openingCash: opening, closingCash: closing };
-    opening = closing;
-    return next;
-  });
-}
-
-async function resolveAdminUser() {
-  const byEmail = await prisma.user.findUnique({
-    where: { email: "admin@nts.com" },
-    include: { role: true },
-  });
-  if (byEmail) return byEmail;
-
-  const users = await prisma.user.findMany({
-    include: { role: true },
-    orderBy: { createdAt: "asc" },
-    take: 50,
-  });
-  const privileged = users.find((u) => {
-    const hay = `${u.role?.name ?? ""} ${u.roleCode ?? ""}`.toUpperCase();
-    return (
-      hay.includes("ADMIN") || hay.includes("CFO") || hay.includes("SYSADMIN")
-    );
-  });
-  if (privileged) return privileged;
-  if (users[0]) return users[0];
-  throw new Error("No users found — cannot seed FP&A demo without an owner user");
-}
-
-async function resolveDepartments() {
-  let depts = await prisma.department.findMany({
-    where: { isActive: true },
-    take: 3,
-    orderBy: { name: "asc" },
-  });
-  if (depts.length > 0) return depts;
-
-  try {
-    const created = await prisma.department.create({
-      data: {
-        id: cuid(),
-        name: "FP&A Demo Finance",
-        description: "Seeded for FP&A client demo",
-        isActive: true,
-      },
-    });
-    console.log(`[seed-fpa] created minimal department ${created.name}`);
-    return [created];
-  } catch (err) {
-    console.warn(
-      `[seed-fpa] could not create department — skipping dept-scoped links: ${
-        (err as Error).message
-      }`
-    );
-    return [];
-  }
-}
-
-async function resolveAccounts() {
-  try {
-    return await prisma.chartOfAccounts.findMany({
+async function resolveMasters() {
+  const [departments, entities, accounts] = await Promise.all([
+    prisma.department.findMany({
       where: { isActive: true },
-      take: 15,
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.forecastEntity.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+    }),
+    prisma.chartOfAccounts.findMany({
+      where: { isActive: true },
+      select: { id: true, accountNo: true, accountName: true },
       orderBy: { accountNo: "asc" },
-    });
-  } catch (err) {
-    console.warn(`[seed-fpa] chart accounts unavailable: ${(err as Error).message}`);
-    return [];
+      take: 24,
+    }),
+  ]);
+  const cleanDepartments = departments.filter((department) => !FORBIDDEN_VISIBLE.test(department.name));
+  const cleanEntities = entities.filter((entity) => !FORBIDDEN_VISIBLE.test(entity.name));
+  if (cleanDepartments.length < 3 || cleanEntities.length < 2) {
+    throw new Error(
+      `At least three professional departments and two active forecast entities are required; got departments=${cleanDepartments.length} entities=${cleanEntities.length}`
+    );
   }
+  return {
+    departments: cleanDepartments.slice(0, 4),
+    entities: cleanEntities.slice(0, 3),
+    accounts,
+  };
 }
 
-async function ensureDimensions() {
-  const catalog = [
+async function seedDimensions() {
+  const definitions = [
     {
       code: "REGION",
-      name: "Region",
-      dimensionType: "GEOGRAPHY",
+      name: "Operating Region",
+      type: "GEOGRAPHY",
       members: [
-        { code: "ZW", name: "Zimbabwe", sortOrder: 1 },
-        { code: "ZA", name: "South Africa", sortOrder: 2 },
-        { code: "US", name: "United States", sortOrder: 3 },
+        ["SOUTHERN_AFRICA", "Southern Africa"],
+        ["EAST_AFRICA", "East Africa"],
+        ["INTERNATIONAL", "International Markets"],
       ],
     },
     {
-      code: "PRODUCT",
-      name: "Product",
-      dimensionType: "PRODUCT",
+      code: "SERVICE_LINE",
+      name: "Service Line",
+      type: "PRODUCT",
       members: [
-        { code: "EQUITY", name: "Equity", sortOrder: 1 },
-        { code: "FIXED_INCOME", name: "Fixed Income", sortOrder: 2 },
-        { code: "ALTERNATIVES", name: "Alternatives", sortOrder: 3 },
+        ["ADVISORY", "Investment Advisory"],
+        ["CAPITAL_MARKETS", "Capital Markets"],
+        ["TREASURY", "Treasury Solutions"],
       ],
     },
     {
-      code: "CHANNEL",
-      name: "Channel",
-      dimensionType: "CHANNEL",
+      code: "CLIENT_CHANNEL",
+      name: "Client Channel",
+      type: "CHANNEL",
       members: [
-        { code: "DIRECT", name: "Direct", sortOrder: 1 },
-        { code: "INTERMEDIARY", name: "Intermediary", sortOrder: 2 },
+        ["INSTITUTIONAL", "Institutional"],
+        ["CORPORATE", "Corporate"],
+        ["PRIVATE_CLIENT", "Private Client"],
       ],
     },
   ];
-
-  const existing = await prisma.planningDimension.count();
-  if (existing === 0) {
-    for (const dim of catalog) {
-      const row = await prisma.planningDimension.create({
-        data: {
-          id: cuid(),
-          code: dim.code,
-          name: dim.name,
-          dimensionType: dim.dimensionType,
-        },
+  inspectVisible(definitions, "dimensionDefinitions");
+  const dimensions: Record<string, { id: string; memberIds: string[] }> = {};
+  for (const definition of definitions) {
+    const dimension = await create(prisma.planningDimension, {
+      id: id(),
+      code: definition.code,
+      name: definition.name,
+      dimensionType: definition.type,
+    });
+    const memberIds: string[] = [];
+    for (let index = 0; index < definition.members.length; index += 1) {
+      const memberId = id();
+      memberIds.push(memberId);
+      await create(prisma.planningDimensionMember, {
+        id: memberId,
+        dimensionId: dimension.id,
+        code: definition.members[index][0],
+        name: definition.members[index][1],
+        sortOrder: index + 1,
+        isActive: true,
       });
-      for (const m of dim.members) {
-        await prisma.planningDimensionMember.create({
-          data: {
-            id: cuid(),
-            dimensionId: row.id,
-            code: m.code,
-            name: m.name,
-            sortOrder: m.sortOrder,
-            isActive: true,
-          },
-        });
-      }
     }
-    console.log("[seed-fpa] created dimensions REGION / PRODUCT / CHANNEL");
-  } else {
-    console.log(`[seed-fpa] dimensions already present (${existing}) — leaving catalog`);
+    dimensions[definition.code] = { id: dimension.id, memberIds };
   }
-
-  const dims = await prisma.planningDimension.findMany({
-    include: { members: { orderBy: { sortOrder: "asc" } } },
-  });
-  return dims;
+  return dimensions;
 }
 
-async function createManyBatched(
-  label: string,
-  rows: Record<string, unknown>[],
-  batchSize: number,
-  createBatch: (chunk: Record<string, unknown>[]) => Promise<unknown>
+async function seedPrimaryModel(
+  roles: Record<string, Person>,
+  departments: Master[],
+  entities: Master[],
+  accounts: Array<{ id: string }>,
+  dimensions: Record<string, { id: string; memberIds: string[] }>
 ) {
-  let inserted = 0;
-  for (let i = 0; i < rows.length; i += batchSize) {
-    const chunk = rows.slice(i, i + batchSize);
-    await createBatch(chunk);
-    inserted += chunk.length;
-  }
-  console.log(`[seed-fpa] ${label}: ${inserted} rows`);
-}
-
-async function seedPrimaryModel(adminId: string, depts: { id: string }[], accounts: { id: string }[], dims: Awaited<ReturnType<typeof ensureDimensions>>) {
-  const now = new Date();
-  const modelId = cuid();
-
-  await prisma.planningModel.create({
-    data: {
-      id: modelId,
-      name: "FY2026 Operating P&L",
-      code: "FY2026_OPERATING_PL",
-      modelType: "BUDGET",
-      description:
-        "Arcus Holdings primary operating P&L for FY2026 — Model Builder / Planning / Budgeting demo",
-      ownerUserId: adminId,
-      baseCurrency: "USD",
-      startPeriod: monthDate(2026, 0),
-      endPeriod: monthDate(2026, 11),
-      timeGranularity: "MONTHLY",
-      status: "DRAFT",
-      baselineMode: "NONE",
-      createdById: adminId,
-      updatedById: adminId,
-    },
+  const modelId = id();
+  await create(prisma.planningModel, {
+    id: modelId,
+    name: "Arcus Group FY2026 Integrated Plan",
+    code: "ARCUS_GROUP_FY2026",
+    modelType: "INTEGRATED_PLAN",
+    description: "Integrated revenue, workforce, operating expense, cash, and capital plan for Arcus Group",
+    ownerUserId: roles.planningLead.id,
+    baseCurrency: "USD",
+    startPeriod: month(2026, 0),
+    endPeriod: month(2026, 11),
+    timeGranularity: "MONTHLY",
+    status: "PUBLISHED",
+    baselineMode: "PRIOR_YEAR_ACTUAL",
+    publishedAt: FIXED_NOW,
+    publishedById: roles.executiveSponsor.id,
+    createdById: roles.planningLead.id,
+    updatedById: roles.planningLead.id,
   });
 
   const moduleIds: Record<string, string> = {};
-  for (const mod of PRIMARY_MODULES) {
-    const id = cuid();
-    moduleIds[mod.code] = id;
-    await prisma.planningModule.create({
-      data: {
-        id,
-        modelId,
-        code: mod.code,
-        name: mod.name,
-        calcOrder: mod.calcOrder,
-        sortOrder: mod.sortOrder,
-        status: "ACTIVE",
-      },
+  for (const definition of MODULES) {
+    const moduleId = id();
+    moduleIds[definition.code] = moduleId;
+    await create(prisma.planningModule, {
+      id: moduleId,
+      modelId,
+      code: definition.code,
+      name: definition.name,
+      description: `${definition.name} schedule for the FY2026 integrated plan`,
+      calcOrder: definition.order,
+      sortOrder: definition.order,
+      status: "ACTIVE",
+      dimensionKeys: ["ENTITY", "DEPARTMENT", "REGION", "SERVICE_LINE"],
     });
   }
 
   const lineIds: Record<string, string> = {};
-  let sort = 10;
-  for (const line of PRIMARY_LINES) {
-    const id = cuid();
-    lineIds[line.code] = id;
-    await prisma.planningLineItem.create({
-      data: {
-        id,
-        modelId,
-        moduleId: moduleIds[line.moduleCode],
-        code: line.code,
-        name: line.name,
-        lineItemType: line.lineItemType,
-        category: line.category,
-        dataType: line.dataType,
-        summaryMethod: line.summaryMethod,
-        currencyCode: line.dataType === "CURRENCY" ? "USD" : null,
-        isEditable: line.isEditable,
-        sortOrder: sort,
-        updatedById: adminId,
-      },
-    });
-    sort += 10;
-  }
-
   const formulaIds: Record<string, string> = {};
-  for (const line of PRIMARY_LINES) {
-    if (!line.expression) continue;
-    const id = cuid();
-    formulaIds[line.code] = id;
-    await prisma.planningFormula.create({
-      data: {
-        id,
+  for (let index = 0; index < LINES.length; index += 1) {
+    const line = LINES[index];
+    const lineId = id();
+    lineIds[line.code] = lineId;
+    await create(prisma.planningLineItem, {
+      id: lineId,
+      modelId,
+      moduleId: moduleIds[line.module],
+      code: line.code,
+      name: line.name,
+      description: `${line.name} for management planning and performance review`,
+      lineItemType: line.type,
+      category: line.category,
+      dataType: line.dataType || "CURRENCY",
+      summaryMethod: line.summary || (line.dataType === "NUMBER" ? "SUM" : "SUM"),
+      format: line.dataType === "NUMBER" ? "NUMBER" : "CURRENCY",
+      currencyCode: line.dataType === "NUMBER" ? null : "USD",
+      decimalPlaces: line.dataType === "NUMBER" ? 0 : 2,
+      dimensionKeys: ["ENTITY", "DEPARTMENT"],
+      isEditable: !line.expression,
+      sortOrder: (index + 1) * 10,
+      accountId: accounts[index % Math.max(accounts.length, 1)]?.id || null,
+      updatedById: roles.planningLead.id,
+    });
+    if (line.expression) {
+      const formulaId = id();
+      formulaIds[line.code] = formulaId;
+      await create(prisma.planningFormula, {
+        id: formulaId,
         modelId,
-        lineItemId: lineIds[line.code],
+        lineItemId: lineId,
         expression: line.expression,
         isValid: true,
-        createdById: adminId,
-      },
-    });
-  }
-
-  for (const line of PRIMARY_LINES) {
-    if (!line.dependsOn?.length || !formulaIds[line.code]) continue;
-    for (const depCode of line.dependsOn) {
-      if (!formulaIds[depCode]) continue;
-      await prisma.planningFormulaDependency.create({
-        data: {
-          id: cuid(),
-          formulaId: formulaIds[line.code],
-          dependsOnFormulaId: formulaIds[depCode],
-        },
+        validationMsg: "Validated for FY2026 monthly calculation",
+        createdById: roles.planningLead.id,
       });
     }
   }
-
-  const scenarioDefs = LITE
-    ? [
-        { key: "BASE", name: "Base Case", scenarioType: "BASE", isOfficial: true },
-        { key: "UPSIDE", name: "Upside", scenarioType: "UPSIDE", isOfficial: false },
-      ]
-    : [
-        { key: "BASE", name: "Base Case", scenarioType: "BASE", isOfficial: true },
-        { key: "UPSIDE", name: "Upside", scenarioType: "UPSIDE", isOfficial: false },
-        { key: "DOWNSIDE", name: "Downside", scenarioType: "DOWNSIDE", isOfficial: false },
-      ];
+  for (const line of LINES) {
+    for (const dependencyCode of line.dependsOn || []) {
+      if (formulaIds[line.code] && formulaIds[dependencyCode]) {
+        await create(prisma.planningFormulaDependency, {
+          id: id(),
+          formulaId: formulaIds[line.code],
+          dependsOnFormulaId: formulaIds[dependencyCode],
+        });
+      }
+    }
+  }
 
   const scenarioIds: Record<string, string> = {};
-  for (const s of scenarioDefs) {
-    const id = cuid();
-    scenarioIds[s.key] = id;
-    await prisma.planningScenario.create({
-      data: {
-        id,
-        modelId,
-        name: s.name,
-        scenarioType: s.scenarioType,
-        description: `${s.name} for Arcus FY2026 Operating P&L`,
-        isOfficial: s.isOfficial,
-        status: "ACTIVE",
-        createdById: adminId,
-      },
+  for (const scenario of SCENARIOS) {
+    const scenarioId = id();
+    scenarioIds[scenario.key] = scenarioId;
+    await create(prisma.planningScenario, {
+      id: scenarioId,
+      modelId,
+      name: scenario.name,
+      scenarioType: scenario.type,
+      description: `${scenario.name} assumptions for Arcus Group FY2026`,
+      isOfficial: scenario.official,
+      status: "ACTIVE",
+      parentScenarioId: scenario.key === "BASE" ? null : scenarioIds.BASE,
+      createdById: roles.planningLead.id,
     });
   }
 
-  const publishedVersionId = cuid();
-  const workingVersionId = cuid();
-  await prisma.planningVersion.create({
-    data: {
-      id: publishedVersionId,
+  const versionIds: Record<string, string> = {};
+  for (const definition of VERSION_DEFINITIONS) {
+    const versionId = id();
+    versionIds[definition.key] = versionId;
+    const locked = definition.status === "LOCKED";
+    const published = ["LOCKED", "PUBLISHED"].includes(definition.status);
+    await create(prisma.planningVersion, {
+      id: versionId,
       modelId,
-      name: "FY2026 v1 Published",
-      status: "LOCKED",
-      lockedAt: now,
-      lockedById: adminId,
-      publishedAt: now,
-      publishedById: adminId,
-      publishNotes: "Arcus Holdings FY2026 board-ready published cut",
-      createdById: adminId,
-    },
-  });
-  await prisma.planningVersion.create({
-    data: {
-      id: workingVersionId,
-      modelId,
-      name: "FY2026 v1 Working",
-      status: "DRAFT",
-      createdById: adminId,
-    },
-  });
-
+      name: definition.name,
+      status: definition.status,
+      lockedAt: locked ? FIXED_NOW : null,
+      lockedById: locked ? roles.executiveSponsor.id : null,
+      publishedAt: published ? FIXED_NOW : null,
+      publishedById: published ? roles.executiveSponsor.id : null,
+      checksum: `arcus-fy2026-${definition.key.toLowerCase()}`,
+      publishNotes: published ? "Approved management planning baseline" : null,
+      createdById: roles.planningLead.id,
+    });
+  }
   await prisma.planningModel.update({
     where: { id: modelId },
     data: {
-      status: "PUBLISHED",
-      publishedAt: now,
-      publishedById: adminId,
-      updatedById: adminId,
+      baselineSourceVersionId: versionIds.PRIOR,
+      baselineSourceScenarioId: scenarioIds.BASE,
     },
   });
 
-  // Scope: departments, accounts, dimensions
-  for (const dept of depts.slice(0, LITE ? 1 : 2)) {
-    await prisma.planningModelDepartment.create({
-      data: { id: cuid(), modelId, departmentId: dept.id },
-    });
+  for (const entity of entities) {
+    await create(prisma.planningModelEntity, { id: id(), modelId, entityId: entity.id });
   }
-  for (const acct of accounts.slice(0, LITE ? 4 : 8)) {
-    await prisma.planningModelAccount.create({
-      data: { id: cuid(), modelId, accountId: acct.id },
-    });
+  for (const department of departments) {
+    await create(prisma.planningModelDepartment, { id: id(), modelId, departmentId: department.id });
   }
-
-  const region = dims.find((d) => d.code === "REGION");
-  const product = dims.find((d) => d.code === "PRODUCT");
-  for (const dim of [region, product].filter(Boolean)) {
-    await prisma.planningModelDimension.create({
-      data: { id: cuid(), modelId, dimensionId: dim!.id },
+  for (const account of accounts) {
+    await create(prisma.planningModelAccount, { id: id(), modelId, accountId: account.id });
+  }
+  for (const dimension of Object.values(dimensions)) {
+    await create(prisma.planningModelDimension, {
+      id: id(),
+      modelId,
+      dimensionId: dimension.id,
     });
-    for (const mem of dim!.members.slice(0, 3)) {
-      await prisma.planningModelDimensionMember.create({
-        data: {
-          id: cuid(),
-          modelId,
-          dimensionId: dim!.id,
-          memberId: mem.id,
-        },
+    for (const memberId of dimension.memberIds) {
+      await create(prisma.planningModelDimensionMember, {
+        id: id(),
+        modelId,
+        dimensionId: dimension.id,
+        memberId,
       });
     }
   }
 
-  const scenarioOpts: Record<string, { unitsMul?: number; priceMul?: number; marketingMul?: number }> = {
-    BASE: {},
-    UPSIDE: { unitsMul: 1.1, priceMul: 1.02 },
-    DOWNSIDE: { unitsMul: 0.9, marketingMul: 0.85 },
-  };
+  const selectedEntities = entities.slice(0, 2);
+  const selectedDepartments = departments.slice(0, 3);
+  const coordinates = selectedEntities.flatMap((entity, entityIndex) =>
+    selectedDepartments.map((department, departmentIndex) => ({
+      entity,
+      department,
+      weight: [0.28, 0.2, 0.14, 0.16, 0.13, 0.09][entityIndex * 3 + departmentIndex] || 0.1,
+    }))
+  );
+  const coordinateWeight = coordinates.reduce((sum, coordinate) => sum + coordinate.weight, 0);
+  coordinates.forEach((coordinate) => {
+    coordinate.weight /= coordinateWeight;
+  });
 
   const cellRows: Record<string, unknown>[] = [];
   const driverRows: Record<string, unknown>[] = [];
-  // Lite: full grid on working copy only; published keeps BASE so sheets stay light.
-  const versions = LITE
-    ? [
-        { id: publishedVersionId, locked: true, scenarios: ["BASE"] },
-        { id: workingVersionId, locked: false, scenarios: Object.keys(scenarioIds) },
-      ]
-    : [
-        { id: publishedVersionId, locked: true, scenarios: Object.keys(scenarioIds) },
-        { id: workingVersionId, locked: false, scenarios: Object.keys(scenarioIds) },
-      ];
-
-  for (const ver of versions) {
-    for (const scenarioKey of ver.scenarios) {
-      const scenarioId = scenarioIds[scenarioKey];
-      if (!scenarioId) continue;
-      const months = withCashChain(
-        Array.from({ length: 12 }, (_, m) => computeMonthValues(m, scenarioOpts[scenarioKey] || {}))
-      );
-
-      for (let m = 0; m < 12; m++) {
-        const v = months[m];
-        const periodDate = monthDate(2026, m);
-        const byCode: Record<string, { value: number; calc: boolean }> = {
-          UNITS: { value: v.units, calc: false },
-          PRICE: { value: v.price, calc: false },
-          GROSS_REVENUE: { value: v.grossRevenue, calc: true },
-          DISCOUNTS: { value: v.discounts, calc: false },
-          NET_REVENUE: { value: v.netRevenue, calc: true },
-          COGS: { value: v.cogs, calc: false },
-          GROSS_PROFIT: { value: v.grossProfit, calc: true },
-          HEADCOUNT: { value: v.headcount, calc: false },
-          AVG_SALARY: { value: v.avgSalary, calc: false },
-          SALARIES: { value: v.salaries, calc: true },
-          RENT: { value: v.rent, calc: false },
-          MARKETING: { value: v.marketing, calc: false },
-          GA: { value: v.ga, calc: false },
-          EBITDA: { value: v.ebitda, calc: true },
-          OPENING_CASH: { value: v.openingCash, calc: false },
-          CLOSING_CASH: { value: v.closingCash, calc: false },
-        };
-
-        for (const [code, cell] of Object.entries(byCode)) {
-          cellRows.push({
-            id: cuid(),
-            modelId,
-            scenarioId,
-            versionId: ver.id,
-            lineItemId: lineIds[code],
-            periodDate,
-            currencyCode: "USD",
-            value: d(cell.value),
-            valueType: "MANUAL",
-            sourceType: cell.calc ? "FORMULA" : "INPUT",
-            isEditable: !cell.calc,
-            isLocked: ver.locked,
-            formulaId: cell.calc ? formulaIds[code] ?? null : null,
-            lastUpdatedById: adminId,
-            lastUpdatedAt: now,
-            lastCalculatedAt: cell.calc ? now : null,
-            recordVersion: 1n,
-          });
+  const versionPlans = [
+    { key: "WORKING", scenarios: SCENARIOS.map((scenario) => scenario.key), factor: 1 },
+    { key: "PUBLISHED", scenarios: ["BASE", "GROWTH"], factor: 0.99 },
+    { key: "MPC_DRAFT", scenarios: ["BASE"], factor: 0.96 },
+    { key: "MPC_OPEN", scenarios: ["BASE"], factor: 0.975 },
+    { key: "MPC_SUBMITTED", scenarios: ["BASE"], factor: 0.985 },
+    { key: "MPC_REVIEW", scenarios: ["BASE"], factor: 0.99 },
+    { key: "MPC_RETURNED", scenarios: ["BASE"], factor: 0.982 },
+    { key: "MPC_APPROVED", scenarios: ["BASE"], factor: 0.995 },
+    { key: "MPC_LOCKED", scenarios: ["BASE"], factor: 1 },
+  ];
+  for (const plan of versionPlans) {
+    for (const scenarioKey of plan.scenarios) {
+      const scenario = SCENARIOS.find((item) => item.key === scenarioKey)!;
+      let openingCash = 2650000 * plan.factor;
+      for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
+        const values = monthlyValues(monthIndex, scenario.multiplier, plan.factor);
+        values.OPENING_CASH = openingCash;
+        values.CLOSING_CASH =
+          openingCash + values.OPERATING_CASH_FLOW - values.CAPEX + values.FINANCING_CASH_FLOW;
+        openingCash = values.CLOSING_CASH;
+        for (const coordinate of coordinates) {
+          for (const line of LINES) {
+            const isNumber = line.dataType === "NUMBER";
+            const value =
+              isNumber && ["HEADCOUNT", "VOLUME"].includes(line.code)
+                ? values[line.code] * coordinate.weight
+                : values[line.code] * coordinate.weight;
+            cellRows.push({
+              id: id(),
+              modelId,
+              scenarioId: scenarioIds[scenarioKey],
+              versionId: versionIds[plan.key],
+              lineItemId: lineIds[line.code],
+              periodDate: month(2026, monthIndex),
+              entityId: coordinate.entity.id,
+              departmentId: coordinate.department.id,
+              accountId: accounts[LINES.indexOf(line) % Math.max(accounts.length, 1)]?.id || null,
+              currencyCode: "USD",
+              value: amount(value),
+              valueType: line.expression ? "CALCULATED" : "PLAN",
+              sourceType: line.expression ? "FORMULA" : "INPUT",
+              isEditable: !line.expression && !["PUBLISHED", "MPC_LOCKED"].includes(plan.key),
+              isLocked: ["PUBLISHED", "MPC_LOCKED"].includes(plan.key),
+              formulaId: formulaIds[line.code] || null,
+              lastUpdatedById: roles.businessPartner.id,
+              lastUpdatedAt: FIXED_NOW,
+              lastCalculatedAt: line.expression ? FIXED_NOW : null,
+              recordVersion: 1n,
+            });
+          }
         }
-
-        if (scenarioKey === "BASE" && !ver.locked) {
-          driverRows.push({
-            id: cuid(),
-            modelId,
-            scenarioId,
-            versionId: ver.id,
-            code: "HEADCOUNT",
-            name: "Headcount",
-            category: "WORKFORCE",
-            periodDate,
-            value: d(v.headcount),
-            unit: "FTE",
-            createdById: adminId,
-          });
-          driverRows.push({
-            id: cuid(),
-            modelId,
-            scenarioId,
-            versionId: ver.id,
-            code: "PRICE",
-            name: "Average Price",
-            category: "REVENUE",
-            periodDate,
-            value: d(v.price),
-            unit: "USD",
-            createdById: adminId,
-          });
+        if (plan.key === "WORKING" && scenarioKey === "BASE") {
+          for (const driver of [
+            { code: "CLIENT_MANDATES", name: "Client Mandates", category: "REVENUE", value: values.VOLUME, unit: "MANDATES", method: "SEASONAL" },
+            { code: "AVERAGE_MONTHLY_FEE", name: "Average Monthly Fee", category: "REVENUE", value: values.AVERAGE_FEE, unit: "USD", method: "PRIOR_YEAR" },
+            { code: "HEADCOUNT", name: "Headcount", category: "WORKFORCE", value: values.HEADCOUNT, unit: "FTE", method: "MANUAL" },
+            { code: "FTE_COST", name: "Average Cost per FTE", category: "WORKFORCE", value: values.AVERAGE_COST_PER_FTE, unit: "USD", method: "RUN_RATE" },
+            { code: "CAPEX_PROGRAM", name: "Capital Program", category: "CAPEX", value: values.CAPEX, unit: "USD", method: "CUSTOM_WEIGHT" },
+          ]) {
+            driverRows.push({
+              id: id(),
+              modelId,
+              scenarioId: scenarioIds.BASE,
+              versionId: versionIds.WORKING,
+              code: driver.code,
+              name: driver.name,
+              category: driver.category,
+              periodDate: month(2026, monthIndex),
+              value: amount(driver.value),
+              unit: driver.unit,
+              requiresApproval: driver.code === "CAPEX_PROGRAM",
+              confidence: monthIndex < 6 ? "HIGH" : "MEDIUM",
+              spreadingMethod: driver.method,
+              createdById: roles.planningLead.id,
+            });
+          }
         }
       }
     }
   }
 
-  await createManyBatched("planning_cells (primary)", cellRows, 500, (chunk) =>
-    prisma.planningCell.createMany({ data: chunk as never, skipDuplicates: true })
-  );
-  await createManyBatched("planning_drivers (primary)", driverRows, 500, (chunk) =>
-    prisma.planningDriver.createMany({ data: chunk as never, skipDuplicates: true })
-  );
-
-  // Data mappings (Detailed workspace)
-  const dataSourceId = cuid();
-  await prisma.planningDataSource.create({
-    data: {
-      id: dataSourceId,
-      modelId,
-      systemCode: "NETSUITE_GL",
-      name: "NetSuite GL",
-      connectorConfig: { system: "NetSuite", ledger: "Arcus Holdings USD" },
-    },
-  });
-
-  let mappedCount = 0;
-  let unmappedCount = 0;
-  for (const line of PRIMARY_LINES) {
-    const fieldKey = GL_FIELD_BY_LINE[line.code] ?? `GL_ACCOUNT.${line.code}`;
-    const fieldId = cuid();
-    await prisma.planningSourceField.create({
-      data: {
-        id: fieldId,
-        dataSourceId,
-        fieldKey,
-        dataType: line.dataType === "NUMBER" ? "NUMBER" : "CURRENCY",
-      },
-    });
-    const unmapped = UNMAPPED_LINES.has(line.code);
-    await prisma.planningLineItemMapping.create({
-      data: {
-        id: cuid(),
-        modelId,
-        sourceFieldId: fieldId,
-        lineItemId: unmapped ? null : lineIds[line.code],
-        moduleId: moduleIds[line.moduleCode],
-        status: unmapped ? "UNMAPPED" : "MAPPED",
-        mappedAt: unmapped ? null : now,
-        mappedById: unmapped ? null : adminId,
-      },
-    });
-    if (unmapped) unmappedCount += 1;
-    else mappedCount += 1;
+  let priorOpeningCash = 2240000;
+  for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
+    const values = monthlyValues(monthIndex, 0.91, 0.97);
+    values.OPENING_CASH = priorOpeningCash;
+    values.CLOSING_CASH =
+      priorOpeningCash + values.OPERATING_CASH_FLOW - values.CAPEX + values.FINANCING_CASH_FLOW;
+    priorOpeningCash = values.CLOSING_CASH;
+    for (const coordinate of coordinates) {
+      for (const line of LINES) {
+        cellRows.push({
+          id: id(),
+          modelId,
+          scenarioId: scenarioIds.BASE,
+          versionId: versionIds.PRIOR,
+          lineItemId: lineIds[line.code],
+          periodDate: month(2025, monthIndex),
+          entityId: coordinate.entity.id,
+          departmentId: coordinate.department.id,
+          accountId: accounts[LINES.indexOf(line) % Math.max(accounts.length, 1)]?.id || null,
+          currencyCode: "USD",
+          value: amount(values[line.code] * coordinate.weight),
+          valueType: "ACTUAL",
+          sourceType: "ACTUALS_SNAPSHOT",
+          isEditable: false,
+          isLocked: true,
+          formulaId: formulaIds[line.code] || null,
+          lastUpdatedById: roles.planningLead.id,
+          lastUpdatedAt: FIXED_NOW,
+          lastCalculatedAt: line.expression ? FIXED_NOW : null,
+          recordVersion: 1n,
+        });
+      }
+    }
   }
+  await createMany(prisma.planningCell, cellRows, "planningCells");
+  await createMany(prisma.planningDriver, driverRows, "planningDrivers");
 
-  // Audit samples
-  const sampleCell = await prisma.planningCell.findFirst({
-    where: { modelId, versionId: workingVersionId, scenarioId: scenarioIds.BASE },
+  const actualRows: Record<string, unknown>[] = [];
+  let actualOpeningCash = 2650000;
+  for (let monthIndex = 0; monthIndex < 6; monthIndex += 1) {
+    const actualValues = monthlyValues(monthIndex, 1.015, 1);
+    actualValues.OPENING_CASH = actualOpeningCash;
+    actualValues.CLOSING_CASH =
+      actualOpeningCash +
+      actualValues.OPERATING_CASH_FLOW -
+      actualValues.CAPEX +
+      actualValues.FINANCING_CASH_FLOW;
+    actualOpeningCash = actualValues.CLOSING_CASH;
+    for (const coordinate of coordinates) {
+      for (const line of LINES.filter((item) =>
+        ["REVENUE", "OPEX", "EBITDA", "HEADCOUNT", "CLOSING_CASH", "CAPEX", "PAYROLL", "MARKETING"].includes(item.code)
+      )) {
+        actualRows.push({
+          id: id(),
+          modelId,
+          periodDate: month(2026, monthIndex),
+          entityId: coordinate.entity.id,
+          accountId: accounts[LINES.indexOf(line) % Math.max(accounts.length, 1)]?.id || null,
+          lineItemId: lineIds[line.code],
+          currencyCode: "USD",
+          amount: amount(actualValues[line.code] * coordinate.weight),
+          sourceModule: line.code === "HEADCOUNT" ? "HRIS" : "GENERAL_LEDGER",
+        });
+      }
+    }
+  }
+  await createMany(prisma.planningActualsSnapshot, actualRows, "actualsSnapshots");
+
+  const dataSource = await create(prisma.planningDataSource, {
+    id: id(),
+    modelId,
+    systemCode: "ARCUS_ERP",
+    name: "Arcus Finance Ledger",
+    connectorConfig: {
+      ledger: "Arcus Group Consolidated",
+      currency: "USD",
+      refreshCadence: "MONTHLY_CLOSE",
+    },
   });
-  const audits = [
-    {
-      actionType: "MODEL_CREATE",
-      entityType: "MODEL",
-      newValue: "FY2026 Operating P&L",
-      moduleId: null as string | null,
-      lineItemId: null as string | null,
-      cellId: null as string | null,
-      versionId: null as string | null,
-      scenarioId: null as string | null,
-    },
-    {
-      actionType: "MODULE_CREATED",
-      entityType: "MODULE",
-      newValue: "REVENUE",
-      moduleId: moduleIds.REVENUE,
-      lineItemId: null,
-      cellId: null,
-      versionId: null,
-      scenarioId: null,
-    },
-    {
-      actionType: "CELL_UPDATE",
-      entityType: "CELL",
-      newValue: sampleCell ? String(sampleCell.value) : "1200",
-      oldValue: "0",
-      moduleId: moduleIds.REVENUE,
-      lineItemId: lineIds.UNITS,
-      cellId: sampleCell?.id ?? null,
-      versionId: workingVersionId,
-      scenarioId: scenarioIds.BASE,
-    },
-    {
-      actionType: "VERSION_PUBLISHED",
-      entityType: "VERSION",
-      newValue: "FY2026 v1 Published",
-      moduleId: null,
-      lineItemId: null,
-      cellId: null,
-      versionId: publishedVersionId,
-      scenarioId: scenarioIds.BASE,
-    },
-  ];
-  for (const a of audits) {
-    await prisma.planningAuditLog.create({
-      data: {
-        id: cuid(),
-        modelId,
-        scenarioId: a.scenarioId,
-        versionId: a.versionId,
-        cellId: a.cellId,
-        lineItemId: a.lineItemId,
-        moduleId: a.moduleId,
-        entityType: a.entityType,
-        userId: adminId,
-        actionType: a.actionType,
-        oldValue: a.oldValue ?? null,
-        newValue: a.newValue,
-        reason: "Arcus demo seed",
-      },
+  for (let index = 0; index < LINES.length; index += 1) {
+    const line = LINES[index];
+    const sourceField = await create(prisma.planningSourceField, {
+      id: id(),
+      dataSourceId: dataSource.id,
+      fieldKey: `FINANCE.${String(4000 + index * 10)}`,
+      dataType: line.dataType || "CURRENCY",
+    });
+    await create(prisma.planningLineItemMapping, {
+      id: id(),
+      modelId,
+      sourceFieldId: sourceField.id,
+      lineItemId: lineIds[line.code],
+      moduleId: moduleIds[line.module],
+      status: "MAPPED",
+      mappedAt: FIXED_NOW,
+      mappedById: roles.planningLead.id,
     });
   }
 
   return {
     modelId,
-    publishedVersionId,
-    workingVersionId,
-    scenarioIds,
     moduleIds,
     lineIds,
-    mappingSummary: { mappedCount, unmappedCount, dataSourceId, systemCode: "NETSUITE_GL" },
+    formulaIds,
+    scenarioIds,
+    versionIds,
+    coordinates,
+    dataSourceId: dataSource.id,
   };
 }
 
-async function seedBoardPackModel(adminId: string) {
-  const now = new Date();
-  const modelId = cuid();
-  await prisma.planningModel.create({
-    data: {
-      id: modelId,
-      name: "FY2026 Board Pack Model",
-      code: "FY2026_BOARD_PACK",
-      modelType: "BUDGET",
-      description: "Simplified archived board pack cut for FY2026",
-      ownerUserId: adminId,
-      baseCurrency: "USD",
-      startPeriod: monthDate(2026, 0),
-      endPeriod: monthDate(2026, 11),
-      timeGranularity: "MONTHLY",
-      status: "ARCHIVED",
-      publishedAt: now,
-      publishedById: adminId,
-      createdById: adminId,
-      updatedById: adminId,
-    },
-  });
-
-  const moduleId = cuid();
-  await prisma.planningModule.create({
-    data: {
-      id: moduleId,
-      modelId,
-      code: "SUMMARY",
-      name: "Board Summary",
-      calcOrder: 10,
-      sortOrder: 10,
-      status: "ACTIVE",
-    },
-  });
-
-  const lines = [
-    { code: "REVENUE", name: "Revenue", type: "REVENUE", expr: null as string | null },
-    { code: "COGS", name: "COGS", type: "EXPENSE", expr: null },
-    {
-      code: "GROSS_PROFIT",
-      name: "Gross Profit",
-      type: "CALC",
-      expr: "LINE('REVENUE')-LINE('COGS')",
-    },
-    {
-      code: "EBITDA",
-      name: "EBITDA",
-      type: "CALC",
-      expr: "LINE('GROSS_PROFIT')*0.65",
-    },
-  ];
-  const lineIds: Record<string, string> = {};
-  let sort = 10;
-  for (const l of lines) {
-    const id = cuid();
-    lineIds[l.code] = id;
-    await prisma.planningLineItem.create({
-      data: {
-        id,
-        modelId,
-        moduleId,
-        code: l.code,
-        name: l.name,
-        lineItemType: l.type,
-        category: l.type === "EXPENSE" ? "EXPENSE" : "REVENUE",
-        dataType: "CURRENCY",
-        summaryMethod: "SUM",
-        currencyCode: "USD",
-        isEditable: !l.expr,
-        sortOrder: sort,
-        updatedById: adminId,
-      },
-    });
-    sort += 10;
-  }
-
-  const formulaIds: Record<string, string> = {};
-  for (const l of lines) {
-    if (!l.expr) continue;
-    const id = cuid();
-    formulaIds[l.code] = id;
-    await prisma.planningFormula.create({
-      data: {
-        id,
-        modelId,
-        lineItemId: lineIds[l.code],
-        expression: l.expr,
-        isValid: true,
-        createdById: adminId,
-      },
-    });
-  }
-  if (formulaIds.GROSS_PROFIT && formulaIds.EBITDA) {
-    await prisma.planningFormulaDependency.create({
-      data: {
-        id: cuid(),
-        formulaId: formulaIds.EBITDA,
-        dependsOnFormulaId: formulaIds.GROSS_PROFIT,
-      },
-    });
-  }
-
-  const scenarioId = cuid();
-  await prisma.planningScenario.create({
-    data: {
-      id: scenarioId,
-      modelId,
-      name: "Base Case",
-      scenarioType: "BASE",
-      isOfficial: true,
-      status: "ACTIVE",
-      createdById: adminId,
-    },
-  });
-
-  const versionId = cuid();
-  await prisma.planningVersion.create({
-    data: {
-      id: versionId,
-      modelId,
-      name: "Board Pack Locked",
-      status: "LOCKED",
-      lockedAt: now,
-      lockedById: adminId,
-      publishedAt: now,
-      publishedById: adminId,
-      createdById: adminId,
-    },
-  });
-
-  const cellRows: Record<string, unknown>[] = [];
-  for (let m = 0; m < 12; m++) {
-    const base = computeMonthValues(m);
-    const revenue = base.netRevenue;
-    const cogs = base.cogs;
-    const gp = revenue - cogs;
-    const ebitda = gp * 0.65;
-    const periodDate = monthDate(2026, m);
-    const vals: Record<string, { value: number; calc: boolean }> = {
-      REVENUE: { value: revenue, calc: false },
-      COGS: { value: cogs, calc: false },
-      GROSS_PROFIT: { value: gp, calc: true },
-      EBITDA: { value: ebitda, calc: true },
-    };
-    for (const [code, cell] of Object.entries(vals)) {
-      cellRows.push({
-        id: cuid(),
-        modelId,
-        scenarioId,
-        versionId,
-        lineItemId: lineIds[code],
-        periodDate,
-        currencyCode: "USD",
-        value: d(cell.value),
-        valueType: "MANUAL",
-        sourceType: cell.calc ? "FORMULA" : "INPUT",
-        isEditable: !cell.calc,
-        isLocked: true,
-        formulaId: cell.calc ? formulaIds[code] ?? null : null,
-        lastUpdatedById: adminId,
-        lastUpdatedAt: now,
-        recordVersion: 1n,
-      });
-    }
-  }
-  await createManyBatched("planning_cells (board pack)", cellRows, 500, (chunk) =>
-    prisma.planningCell.createMany({ data: chunk as never, skipDuplicates: true })
-  );
-
-  return { modelId, versionId, scenarioId };
-}
-
-async function seedDraft2027Model(adminId: string) {
-  const modelId = cuid();
-  await prisma.planningModel.create({
-    data: {
-      id: modelId,
-      name: "FY2027 Draft Structure",
-      code: "FY2027_DRAFT",
-      modelType: "BUDGET",
-      description: "Early FY2027 draft — Revenue + Opex skeleton only",
-      ownerUserId: adminId,
-      baseCurrency: "USD",
-      startPeriod: monthDate(2027, 0),
-      endPeriod: monthDate(2027, 11),
-      timeGranularity: "MONTHLY",
-      status: "DRAFT",
-      createdById: adminId,
-      updatedById: adminId,
-    },
-  });
-
-  const revMod = cuid();
-  const opexMod = cuid();
-  await prisma.planningModule.createMany({
-    data: [
-      {
-        id: revMod,
-        modelId,
-        code: "REVENUE",
-        name: "Revenue",
-        calcOrder: 10,
-        sortOrder: 10,
-        status: "DRAFT",
-      },
-      {
-        id: opexMod,
-        modelId,
-        code: "OPEX",
-        name: "Operating Expenses",
-        calcOrder: 20,
-        sortOrder: 20,
-        status: "DRAFT",
-      },
-    ],
-  });
-
-  const lineDefs = [
-    { code: "NET_REVENUE", name: "Net Revenue", moduleId: revMod, type: "REVENUE", editable: true },
-    { code: "MARKETING", name: "Marketing", moduleId: opexMod, type: "EXPENSE", editable: true },
-    { code: "GA", name: "G&A", moduleId: opexMod, type: "EXPENSE", editable: true },
-  ];
-  const lineIds: Record<string, string> = {};
-  let sort = 10;
-  for (const l of lineDefs) {
-    const id = cuid();
-    lineIds[l.code] = id;
-    await prisma.planningLineItem.create({
-      data: {
-        id,
-        modelId,
-        moduleId: l.moduleId,
-        code: l.code,
-        name: l.name,
-        lineItemType: l.type,
-        category: l.type === "EXPENSE" ? "EXPENSE" : "REVENUE",
-        dataType: "CURRENCY",
-        summaryMethod: "SUM",
-        currencyCode: "USD",
-        isEditable: l.editable,
-        sortOrder: sort,
-        updatedById: adminId,
-      },
-    });
-    sort += 10;
-  }
-
-  const scenarioId = cuid();
-  await prisma.planningScenario.create({
-    data: {
-      id: scenarioId,
-      modelId,
-      name: "Base Case",
-      scenarioType: "BASE",
-      isOfficial: true,
-      status: "DRAFT",
-      createdById: adminId,
-    },
-  });
-
-  const versionId = cuid();
-  await prisma.planningVersion.create({
-    data: {
-      id: versionId,
-      modelId,
-      name: "FY2027 Draft v0",
-      status: "DRAFT",
-      createdById: adminId,
-    },
-  });
-
-  // Sparse cells — Q1 only (Jan–Mar)
-  const cellRows: Record<string, unknown>[] = [];
-  const now = new Date();
-  for (let m = 0; m < 3; m++) {
-    const base = computeMonthValues(m);
-    const periodDate = monthDate(2027, m);
-    const vals = {
-      NET_REVENUE: base.netRevenue * 1.05,
-      MARKETING: base.marketing,
-      GA: 15000,
-    };
-    for (const [code, value] of Object.entries(vals)) {
-      cellRows.push({
-        id: cuid(),
-        modelId,
-        scenarioId,
-        versionId,
-        lineItemId: lineIds[code],
-        periodDate,
-        currencyCode: "USD",
-        value: d(value),
-        valueType: "MANUAL",
-        sourceType: "INPUT",
-        isEditable: true,
-        isLocked: false,
-        lastUpdatedById: adminId,
-        lastUpdatedAt: now,
-        recordVersion: 1n,
-      });
-    }
-  }
-  await createManyBatched("planning_cells (fy2027 draft)", cellRows, 500, (chunk) =>
-    prisma.planningCell.createMany({ data: chunk as never, skipDuplicates: true })
-  );
-
-  return { modelId, versionId, scenarioId };
-}
-
-async function seedBudgetCycles(
-  adminId: string,
-  primary: Awaited<ReturnType<typeof seedPrimaryModel>>,
-  depts: { id: string; name?: string }[]
+async function seedCompanionModel(
+  input: {
+    name: string;
+    code: string;
+    description: string;
+    status: string;
+    year: number;
+    versionName: string;
+  },
+  ownerId: string
 ) {
-  const cycleIds: Record<string, string> = {};
-  const now = new Date();
-
-  // Dedicated historical version so closed FY2025 is NOT bound to the FY2026 LOCKED publish.
-  // Otherwise Planning sheets that resolve cycle-by-version land on the wrong worksheet.
-  const fy2025VersionId = cuid();
-  await prisma.planningVersion.create({
-    data: {
-      id: fy2025VersionId,
-      modelId: primary.modelId,
-      name: "FY2025 Final (Locked)",
-      status: "LOCKED",
-      lockedAt: new Date("2024-12-20T00:00:00.000Z"),
-      lockedById: adminId,
-      publishedAt: new Date("2024-12-15T00:00:00.000Z"),
-      publishedById: adminId,
-      publishNotes: "Historical closed FY2025 budget book",
-      createdById: adminId,
-    },
+  const model = await create(prisma.planningModel, {
+    id: id(),
+    name: input.name,
+    code: input.code,
+    modelType: "BUDGET",
+    description: input.description,
+    ownerUserId: ownerId,
+    baseCurrency: "USD",
+    startPeriod: month(input.year, 0),
+    endPeriod: month(input.year, 11),
+    timeGranularity: "MONTHLY",
+    status: input.status,
+    createdById: ownerId,
+    updatedById: ownerId,
   });
-
-  const fy2025Lines = await prisma.planningLineItem.findMany({
-    where: { modelId: primary.modelId },
-    select: { id: true, code: true, lineItemType: true },
+  const module = await create(prisma.planningModule, {
+    id: id(),
+    modelId: model.id,
+    code: "SUMMARY",
+    name: "Management Summary",
+    description: "Concise management planning structure",
+    calcOrder: 10,
+    sortOrder: 10,
+    status: input.status === "ARCHIVED" ? "ARCHIVED" : "DRAFT",
   });
-  const fy2025Cells: Record<string, unknown>[] = [];
-  const months = withCashChain(Array.from({ length: 12 }, (_, m) => computeMonthValues(m)));
-  const byCodeVal = (m: number) => {
-    const v = months[m];
-    return {
-      UNITS: v.units,
-      PRICE: v.price,
-      GROSS_REVENUE: v.grossRevenue,
-      DISCOUNTS: v.discounts,
-      NET_REVENUE: v.netRevenue,
-      COGS: v.cogs,
-      GROSS_PROFIT: v.grossProfit,
-      HEADCOUNT: v.headcount,
-      AVG_SALARY: v.avgSalary,
-      SALARIES: v.salaries,
-      RENT: v.rent,
-      MARKETING: v.marketing,
-      GA: v.ga,
-      EBITDA: v.ebitda,
-      OPENING_CASH: v.openingCash,
-      CLOSING_CASH: v.closingCash,
-    } as Record<string, number>;
-  };
-  for (let m = 0; m < 12; m++) {
-    // Lite: only Jan/Apr/Jul/Oct so closed book is visible without flooding grids
-    if (LITE && ![0, 3, 6, 9].includes(m)) continue;
-    const vals = byCodeVal(m);
-    const periodDate = monthDate(2025, m);
-    for (const li of fy2025Lines) {
-      if (vals[li.code] == null) continue;
-      const calc = ["CALC", "CALCULATED"].includes(String(li.lineItemType).toUpperCase());
-      fy2025Cells.push({
-        id: cuid(),
-        modelId: primary.modelId,
-        scenarioId: primary.scenarioIds.BASE,
-        versionId: fy2025VersionId,
-        lineItemId: li.id,
-        periodDate,
-        currencyCode: "USD",
-        value: d(vals[li.code] * 0.88),
-        valueType: "MANUAL",
-        sourceType: calc ? "FORMULA" : "INPUT",
-        isEditable: !calc,
-        isLocked: true,
-        lastUpdatedById: adminId,
-        lastUpdatedAt: now,
-        recordVersion: 1n,
-      });
-    }
-  }
-  await createManyBatched("planning_cells (fy2025 closed)", fy2025Cells, 500, (chunk) =>
-    prisma.planningCell.createMany({ data: chunk as never, skipDuplicates: true })
-  );
-
-  const ownerCategorySets: string[][] = [
-    ["REVENUE", "OPERATING_EXPENSES"],
-    ["PAYROLL"],
-    ["OPERATING_EXPENSES"],
-  ];
-
-  const cycleDefsAll = [
-    {
-      key: "FY2025 Annual Budget (Closed)",
-      name: "FY2025 Annual Budget (Closed)",
-      fiscalYear: 2025,
-      status: "LOCKED",
-      currentStage: "LOCK",
-      planningType: "ANNUAL_BUDGET",
-      versionId: fy2025VersionId,
-      scenarioId: primary.scenarioIds.BASE,
-      openedAt: new Date("2024-09-01T00:00:00.000Z"),
-      approvedAt: new Date("2024-12-15T00:00:00.000Z"),
-      lockedAt: new Date("2024-12-20T00:00:00.000Z"),
-      startDate: monthDate(2025, 0),
-      endDate: monthDate(2025, 11),
-      submissionDeadline: new Date("2024-11-30T00:00:00.000Z"),
-      ownerStatuses: ["APPROVED", "APPROVED", "APPROVED"] as string[],
-      taskStatuses: ["APPROVED", "APPROVED", "APPROVED"] as string[],
-      workflowStage: "LOCKED",
-    },
-    {
-      key: "FY2026 Annual Budget — Open",
-      name: "FY2026 Annual Budget — Open",
-      fiscalYear: 2026,
-      status: "OPEN_FOR_INPUT",
-      currentStage: "OWNER_INPUT",
-      planningType: "ANNUAL_BUDGET",
-      versionId: primary.workingVersionId,
-      scenarioId: primary.scenarioIds.BASE,
-      openedAt: new Date("2025-09-01T00:00:00.000Z"),
-      approvedAt: null as Date | null,
-      lockedAt: null as Date | null,
-      startDate: monthDate(2026, 0),
-      endDate: monthDate(2026, 11),
-      submissionDeadline: new Date("2025-11-15T00:00:00.000Z"),
-      ownerStatuses: ["PENDING", "SUBMITTED", "RETURNED"],
-      taskStatuses: ["PENDING", "SUBMITTED", "RETURNED"],
-      workflowStage: "DEPARTMENT_INPUT",
-    },
-    {
-      key: "FY2026 Mid-Year — Returned",
-      name: "FY2026 Mid-Year — Returned",
-      fiscalYear: 2026,
-      status: "RETURNED_FOR_CORRECTION",
-      currentStage: "FPA_REVIEW",
-      planningType: "REFORECAST",
-      versionId: primary.workingVersionId,
-      scenarioId: primary.scenarioIds.BASE,
-      openedAt: new Date("2026-06-01T00:00:00.000Z"),
-      approvedAt: null,
-      lockedAt: null,
-      startDate: monthDate(2026, 6),
-      endDate: monthDate(2026, 11),
-      submissionDeadline: new Date("2026-07-15T00:00:00.000Z"),
-      ownerStatuses: ["RETURNED", "SUBMITTED", "PENDING"],
-      taskStatuses: ["RETURNED", "SUBMITTED", "PENDING"],
-      workflowStage: "FPA_REVIEW",
-    },
-    {
-      key: "FY2026 Board Review",
-      name: "FY2026 Board Review",
-      fiscalYear: 2026,
-      status: "PENDING_CFO_REVIEW",
-      currentStage: "CFO_REVIEW",
-      planningType: "ANNUAL_BUDGET",
-      versionId: primary.publishedVersionId,
-      scenarioId: primary.scenarioIds.BASE,
-      openedAt: new Date("2025-11-01T00:00:00.000Z"),
-      approvedAt: null,
-      lockedAt: null,
-      startDate: monthDate(2026, 0),
-      endDate: monthDate(2026, 11),
-      submissionDeadline: new Date("2025-12-01T00:00:00.000Z"),
-      ownerStatuses: ["APPROVED", "APPROVED", "SUBMITTED"],
-      taskStatuses: ["APPROVED", "APPROVED", "SUBMITTED"],
-      workflowStage: "CFO_APPROVAL",
-    },
-  ];
-
-  // Lite: Open + Closed only (2 cards) so budgeting lists stay short
-  const cycleDefs = LITE
-    ? cycleDefsAll.filter((c) =>
-        ["FY2025 Annual Budget (Closed)", "FY2026 Annual Budget — Open"].includes(c.key)
-      )
-    : cycleDefsAll;
-
-  for (const def of cycleDefs) {
-    const workflowId = cuid();
-    await prisma.planningWorkflow.create({
-      data: {
-        id: workflowId,
-        modelId: primary.modelId,
-        name: `${def.name} Workflow`,
-        workflowType: "BUDGET",
-        stage: def.workflowStage,
-        status: def.status === "LOCKED" ? "COMPLETED" : "ACTIVE",
-        startDate: def.startDate,
-        endDate: def.endDate,
-        createdById: adminId,
-      },
+  const lines: Record<string, string> = {};
+  for (const [index, line] of [
+    ["REVENUE", "Revenue"],
+    ["OPEX", "Operating Expenses"],
+    ["EBITDA", "EBITDA"],
+    ["CLOSING_CASH", "Closing Cash"],
+  ].entries()) {
+    const row = await create(prisma.planningLineItem, {
+      id: id(),
+      modelId: model.id,
+      moduleId: module.id,
+      code: line[0],
+      name: line[1],
+      description: `${line[1]} management summary`,
+      lineItemType: "INPUT",
+      category: line[0] === "OPEX" ? "EXPENSE" : "SUMMARY",
+      dataType: "CURRENCY",
+      summaryMethod: line[0] === "CLOSING_CASH" ? "LAST" : "SUM",
+      currencyCode: "USD",
+      isEditable: input.status !== "ARCHIVED",
+      sortOrder: (index + 1) * 10,
+      updatedById: ownerId,
     });
-
-    const cycleId = cuid();
-    cycleIds[def.key] = cycleId;
-    await prisma.planningBudgetCycle.create({
-      data: {
-        id: cycleId,
-        name: def.name,
-        modelId: primary.modelId,
-        versionId: def.versionId,
-        scenarioId: def.scenarioId,
-        workflowId,
-        fiscalYear: def.fiscalYear,
-        planningType: def.planningType,
-        status: def.status,
-        currentStage: def.currentStage,
-        startDate: def.startDate,
-        endDate: def.endDate,
-        submissionDeadline: def.submissionDeadline,
-        baseCurrency: "USD",
-        cycleOwnerId: adminId,
-        openedAt: def.openedAt,
-        approvedAt: def.approvedAt,
-        approvedById: def.approvedAt ? adminId : null,
-        lockedAt: def.lockedAt,
-        lockedById: def.lockedAt ? adminId : null,
-        fpaReviewAt: def.currentStage === "FPA_REVIEW" ? now : null,
-        cfoReviewAt: def.currentStage === "CFO_REVIEW" ? now : null,
-        createdById: adminId,
-      },
-    });
-
-    const taskTitles = [
-      "Revenue input — Finance",
-      "Workforce input — HR",
-      "Opex input — Operations",
-    ];
-    const ownerDepts = depts.slice(0, LITE ? 2 : 3);
-    const taskIds: string[] = [];
-
-    for (let i = 0; i < Math.max(ownerDepts.length, 1); i++) {
-      const dept = ownerDepts[i];
-      const taskId = cuid();
-      taskIds.push(taskId);
-      await prisma.planningTask.create({
-        data: {
-          id: taskId,
-          workflowId,
-          title: taskTitles[i] ?? `Budget input — Dept ${i + 1}`,
-          departmentId: dept?.id ?? null,
-          assigneeId: adminId,
-          status: def.taskStatuses[i] ?? "PENDING",
-          priority: i === 0 ? "HIGH" : "NORMAL",
-          dueDate: def.submissionDeadline,
-          submittedAt:
-            (def.taskStatuses[i] ?? "") === "PENDING"
-              ? null
-              : new Date(def.submissionDeadline.getTime() - 3 * 86400000),
-          changeNotes:
-            (def.taskStatuses[i] ?? "") === "RETURNED"
-              ? "Please revise marketing phasing for Q4"
-              : null,
-        },
-      });
-
-      if (dept) {
-        await prisma.planningBudgetCycleOwner.create({
-          data: {
-            id: cuid(),
-            cycleId,
-            departmentId: dept.id,
-            assigneeId: adminId,
-            taskId,
-            categoriesJson: ownerCategorySets[i] ?? ["REVENUE", "OPERATING_EXPENSES"],
-            baselineMethod: "PRIOR_YEAR_BUDGET",
-            status: def.ownerStatuses[i] ?? "PENDING",
-          },
-        });
-      }
-    }
-
-    if (taskIds[0]) {
-      await prisma.planningApproval.create({
-        data: {
-          id: cuid(),
-          workflowId,
-          taskId: taskIds[0],
-          actorId: adminId,
-          action: def.status === "RETURNED_FOR_CORRECTION" ? "RETURN" : "APPROVE",
-          comment:
-            def.status === "RETURNED_FOR_CORRECTION"
-              ? "Returned — tighten headcount ramp and marketing ROI notes"
-              : "Looks coherent with Arcus FY plan assumptions",
-        },
-      });
-    }
-    if (taskIds[1] && def.status !== "OPEN_FOR_INPUT") {
-      await prisma.planningApproval.create({
-        data: {
-          id: cuid(),
-          workflowId,
-          taskId: taskIds[1],
-          actorId: adminId,
-          action: "APPROVE",
-          comment: "Workforce plan accepted",
-        },
-      });
-    }
-
-    if (def.status === "OPEN_FOR_INPUT" || def.status === "RETURNED_FOR_CORRECTION") {
-      await prisma.planningComment.create({
-        data: {
-          id: cuid(),
-          modelId: primary.modelId,
-          cycleId,
-          taskId: taskIds[0] ?? null,
-          visibility: "ALL",
-          body:
-            def.status === "RETURNED_FOR_CORRECTION"
-              ? "FP&A: please re-submit marketing after Q4 campaign lock."
-              : "Reminder: submit Revenue input by the deadline.",
-          status: "OPEN",
-          createdById: adminId,
-        },
-      });
-    }
+    lines[line[0]] = row.id;
   }
-
-  return cycleIds;
+  const scenario = await create(prisma.planningScenario, {
+    id: id(),
+    modelId: model.id,
+    name: "Management Base Case",
+    scenarioType: "BASE",
+    description: "Primary management planning assumptions",
+    isOfficial: true,
+    status: input.status === "ARCHIVED" ? "ARCHIVED" : "DRAFT",
+    createdById: ownerId,
+  });
+  const version = await create(prisma.planningVersion, {
+    id: id(),
+    modelId: model.id,
+    name: input.versionName,
+    status: input.status === "ARCHIVED" ? "LOCKED" : "DRAFT",
+    lockedAt: input.status === "ARCHIVED" ? FIXED_NOW : null,
+    lockedById: input.status === "ARCHIVED" ? ownerId : null,
+    publishedAt: input.status === "ARCHIVED" ? FIXED_NOW : null,
+    publishedById: input.status === "ARCHIVED" ? ownerId : null,
+    publishNotes: input.status === "ARCHIVED" ? "Retained for historical comparison" : null,
+    createdById: ownerId,
+  });
+  return { modelId: model.id, versionId: version.id, scenarioId: scenario.id, lineIds: lines };
 }
 
 async function seedModelPlanningCycles(
-  adminId: string,
   primary: Awaited<ReturnType<typeof seedPrimaryModel>>,
-  depts: { id: string; name?: string }[]
+  roles: Record<string, Person>,
+  departments: Master[]
 ) {
-  const { FpaModelPlanningOwnersService } = await import(
-    "../src/services/fpa/FpaModelPlanningOwnersService"
-  );
+  const definitions = [
+    { key: "DRAFT", name: "FY2026 Planning Framework", status: "DRAFT", stage: "SETUP", version: "MPC_DRAFT" },
+    { key: "OPEN", name: "FY2026 Department Planning", status: "OPEN", stage: "OWNER_INPUT", version: "MPC_OPEN" },
+    { key: "SUBMITTED", name: "FY2026 Consolidated Plan", status: "SUBMITTED", stage: "FPA_REVIEW", version: "MPC_SUBMITTED" },
+    { key: "UNDER_REVIEW", name: "FY2026 Finance Review", status: "UNDER_REVIEW", stage: "CFO_REVIEW", version: "MPC_REVIEW" },
+    { key: "RETURNED_FOR_CORRECTION", name: "FY2026 Management Revisions", status: "RETURNED_FOR_CORRECTION", stage: "OWNER_INPUT", version: "MPC_RETURNED" },
+    { key: "APPROVED", name: "FY2026 Executive Approved Plan", status: "APPROVED", stage: "APPROVED", version: "MPC_APPROVED" },
+    { key: "LOCKED", name: "FY2026 Locked Operating Plan", status: "LOCKED", stage: "LOCKED", version: "MPC_LOCKED" },
+  ];
+  inspectVisible(definitions, "modelPlanningDefinitions");
   const cycleIds: Record<string, string> = {};
-  const defs = LITE
-    ? [
-        {
-          key: "FY2026 Annual Budget Planning",
-          name: "FY2026 Annual Budget Planning",
-          financialYear: 2026,
-          planningType: "ANNUAL_BUDGET",
-          status: "OPEN",
-        },
-      ]
-    : [
-        {
-          key: "FY2026 Annual Budget Planning",
-          name: "FY2026 Annual Budget Planning",
-          financialYear: 2026,
-          planningType: "ANNUAL_BUDGET",
-          status: "OPEN",
-        },
-        {
-          key: "FY2026 Rolling Forecast Q2",
-          name: "FY2026 Rolling Forecast Q2",
-          financialYear: 2026,
-          planningType: "ROLLING_FORECAST",
-          status: "DRAFT",
-        },
-        {
-          key: "FY2027 Long Range Plan",
-          name: "FY2027 Long Range Plan",
-          financialYear: 2027,
-          planningType: "LONG_RANGE_PLAN",
-          status: "DRAFT",
-        },
-      ];
-
-  const ownerDepts = depts.slice(0, Math.min(2, depts.length));
-
-  for (const def of defs) {
-    const existing = await prisma.modelPlanningCycle.findFirst({
-      where: { name: def.name, sourceModelId: primary.modelId },
-      select: { id: true },
+  const workflowIds: Record<string, string> = {};
+  for (let index = 0; index < definitions.length; index += 1) {
+    const definition = definitions[index];
+    const workflow = await create(prisma.planningWorkflow, {
+      id: id(),
+      modelId: primary.modelId,
+      name: `${definition.name} Workflow`,
+      workflowType: "MODEL_PLANNING",
+      stage: definition.stage,
+      status: ["APPROVED", "LOCKED"].includes(definition.status) ? "COMPLETED" : "ACTIVE",
+      startDate: month(2025, 8),
+      endDate: month(2026, 11),
+      createdById: roles.planningLead.id,
     });
-    if (existing) {
-      cycleIds[def.key] = existing.id;
-      // Ensure owners exist for client walkthroughs
-      if (ownerDepts.length) {
-        await FpaModelPlanningOwnersService.replaceOwners(
-          await prisma.modelPlanningCycle.findUniqueOrThrow({ where: { id: existing.id } }),
-          ownerDepts.map((d) => ({
-            departmentId: d.id,
-            assigneeId: adminId,
-            dueDate: "2026-09-30",
-          })),
-          adminId
-        );
+    workflowIds[definition.key] = workflow.id;
+    const cycle = await create(prisma.modelPlanningCycle, {
+      id: id(),
+      name: definition.name,
+      financialYear: 2026,
+      planningType: index === 4 ? "REFORECAST" : "ANNUAL_BUDGET",
+      sourceModelId: primary.modelId,
+      sourceModelVersionId: primary.versionIds[definition.version],
+      actualsCutoffPeriod: month(2026, 5),
+      forecastStartPeriod: month(2026, 6),
+      planningHorizon: 12,
+      materialVariancePct: amount(5),
+      baseScenarioId: primary.scenarioIds.BASE,
+      submissionDeadline: new Date("2026-09-30T00:00:00.000Z"),
+      workflowId: workflow.id,
+      planningOwnerId: roles.planningLead.id,
+      status: definition.status,
+      currentStage: definition.stage,
+      submittedAt: ["SUBMITTED", "UNDER_REVIEW", "APPROVED", "LOCKED"].includes(definition.status) ? new Date("2026-09-28T14:00:00.000Z") : null,
+      submittedById: ["SUBMITTED", "UNDER_REVIEW", "APPROVED", "LOCKED"].includes(definition.status) ? roles.businessPartner.id : null,
+      approvedAt: ["APPROVED", "LOCKED"].includes(definition.status) ? new Date("2026-10-20T15:00:00.000Z") : null,
+      approvedById: ["APPROVED", "LOCKED"].includes(definition.status) ? roles.executiveSponsor.id : null,
+      lockedAt: definition.status === "LOCKED" ? new Date("2026-10-24T12:00:00.000Z") : null,
+      lockedById: definition.status === "LOCKED" ? roles.executiveSponsor.id : null,
+      createdById: roles.planningLead.id,
+      updatedById: roles.planningLead.id,
+    });
+    cycleIds[definition.key] = cycle.id;
+    for (let departmentIndex = 0; departmentIndex < Math.min(3, departments.length); departmentIndex += 1) {
+      const department = departments[departmentIndex];
+      const status =
+        definition.status === "RETURNED_FOR_CORRECTION"
+          ? "RETURNED"
+          : ["APPROVED", "LOCKED"].includes(definition.status)
+            ? "APPROVED"
+            : ["SUBMITTED", "UNDER_REVIEW"].includes(definition.status)
+              ? "SUBMITTED"
+              : definition.status === "OPEN"
+                ? "IN_PROGRESS"
+                : "OPEN";
+      const task = await create(prisma.planningTask, {
+        id: id(),
+        workflowId: workflow.id,
+        title: `${department.name} FY2026 operating plan`,
+        departmentId: department.id,
+        assigneeId: departmentIndex === 0 ? roles.departmentOwner.id : roles.businessPartner.id,
+        reviewerId: roles.planningLead.id,
+        status,
+        priority: departmentIndex === 0 ? "HIGH" : "NORMAL",
+        dueDate: new Date("2026-09-30T00:00:00.000Z"),
+        submittedAt: ["SUBMITTED", "RETURNED", "APPROVED"].includes(status) ? new Date("2026-09-28T14:00:00.000Z") : null,
+        changeNotes: status === "RETURNED" ? "Revise the second half hiring sequence and link each role to signed client mandates." : null,
+      });
+      await create(prisma.modelPlanningCycleOwner, {
+        id: id(),
+        cycleId: cycle.id,
+        departmentId: department.id,
+        assigneeId: departmentIndex === 0 ? roles.departmentOwner.id : roles.businessPartner.id,
+        taskId: task.id,
+        dueDate: new Date("2026-09-30T00:00:00.000Z"),
+        status,
+      });
+      if (["SUBMITTED", "UNDER_REVIEW", "RETURNED_FOR_CORRECTION", "APPROVED", "LOCKED"].includes(definition.status)) {
+        await create(prisma.planningApproval, {
+          id: id(),
+          workflowId: workflow.id,
+          taskId: task.id,
+          actorId: roles.planningLead.id,
+          action: definition.status === "RETURNED_FOR_CORRECTION" ? "RETURN" : definition.status === "UNDER_REVIEW" ? "REVIEW" : "APPROVE",
+          comment:
+            definition.status === "RETURNED_FOR_CORRECTION"
+              ? "Revenue assumptions are sound. Please align the hiring sequence to mandate activation dates."
+              : "Department submission is complete and supported by clear operating assumptions.",
+        });
       }
-      continue;
-    }
-
-    const id = cuid();
-    cycleIds[def.key] = id;
-    await prisma.modelPlanningCycle.create({
-      data: {
-        id,
-        name: def.name,
-        financialYear: def.financialYear,
-        planningType: def.planningType,
-        sourceModelId: primary.modelId,
-        sourceModelVersionId: primary.publishedVersionId,
-        actualsCutoffPeriod: monthDate(2025, 11),
-        forecastStartPeriod: monthDate(2026, 0),
-        planningHorizon: 12,
-        baseScenarioId: primary.scenarioIds.BASE,
-        submissionDeadline: new Date("2026-02-28T00:00:00.000Z"),
-        planningOwnerId: adminId,
-        status: def.status,
-        createdById: adminId,
-        updatedById: adminId,
-      },
-    });
-    if (ownerDepts.length) {
-      await FpaModelPlanningOwnersService.replaceOwners(
-        await prisma.modelPlanningCycle.findUniqueOrThrow({ where: { id } }),
-        ownerDepts.map((d) => ({
-          departmentId: d.id,
-          assigneeId: adminId,
-          dueDate: "2026-09-30",
-        })),
-        adminId
-      );
     }
   }
+  return { cycleIds, workflowIds };
+}
 
+async function seedLegacyCycles(
+  primary: Awaited<ReturnType<typeof seedPrimaryModel>>,
+  roles: Record<string, Person>,
+  departments: Master[]
+) {
+  const definitions = [
+    { key: "RETURNED", name: "FY2026 Budget Revision", status: "RETURNED_FOR_CORRECTION", stage: "FPA_REVIEW", version: "MPC_RETURNED" },
+    { key: "OPEN", name: "FY2026 Budget Input", status: "OPEN_FOR_INPUT", stage: "OWNER_INPUT", version: "MPC_OPEN" },
+    { key: "REVIEW", name: "FY2026 Executive Budget Review", status: "PENDING_CFO_REVIEW", stage: "CFO_REVIEW", version: "MPC_REVIEW" },
+    { key: "LOCKED", name: "FY2025 Closed Budget", status: "LOCKED", stage: "LOCK", version: "PRIOR" },
+  ];
+  inspectVisible(definitions, "legacyCycleDefinitions");
+  const cycleIds: Record<string, string> = {};
+  for (const definition of definitions) {
+    const workflow = await create(prisma.planningWorkflow, {
+      id: id(),
+      modelId: primary.modelId,
+      name: `${definition.name} Workflow`,
+      workflowType: "BUDGET",
+      stage: definition.stage,
+      status: definition.status === "LOCKED" ? "COMPLETED" : "ACTIVE",
+      startDate: definition.key === "LOCKED" ? month(2024, 8) : month(2025, 8),
+      endDate: definition.key === "LOCKED" ? month(2025, 11) : month(2026, 11),
+      createdById: roles.planningLead.id,
+    });
+    const cycle = await create(prisma.planningBudgetCycle, {
+      id: id(),
+      name: definition.name,
+      modelId: primary.modelId,
+      versionId: primary.versionIds[definition.version],
+      scenarioId: primary.scenarioIds.BASE,
+      workflowId: workflow.id,
+      fiscalYear: definition.key === "LOCKED" ? 2025 : 2026,
+      planningType: "ANNUAL_BUDGET",
+      status: definition.status,
+      currentStage: definition.stage,
+      startDate: definition.key === "LOCKED" ? month(2025, 0) : month(2026, 0),
+      endDate: definition.key === "LOCKED" ? month(2025, 11) : month(2026, 11),
+      actualsCutoffDate: definition.key === "LOCKED" ? month(2024, 11) : month(2026, 5),
+      forecastStartPeriod: definition.key === "LOCKED" ? month(2025, 0) : month(2026, 6),
+      submissionDeadline: definition.key === "LOCKED" ? new Date("2024-11-30T00:00:00.000Z") : new Date("2026-09-30T00:00:00.000Z"),
+      baseCurrency: "USD",
+      cycleOwnerId: roles.planningLead.id,
+      entityIdsJson: primary.coordinates.map((coordinate) => coordinate.entity.id),
+      baselineMode: "PRIOR_YEAR_ACTUAL",
+      baselineSourceVersionId: primary.versionIds.PRIOR,
+      loadPriorActualsOnOpen: true,
+      loadBaselineOnOpen: true,
+      inputCategoriesJson: ["REVENUE", "WORKFORCE", "OPEX", "CASH", "CAPEX"],
+      openedAt: definition.status !== "DRAFT" ? new Date("2026-08-15T09:00:00.000Z") : null,
+      cfoReviewAt: definition.status === "PENDING_CFO_REVIEW" ? new Date("2026-10-14T09:00:00.000Z") : null,
+      lockedAt: definition.status === "LOCKED" ? new Date("2024-12-20T12:00:00.000Z") : null,
+      lockedById: definition.status === "LOCKED" ? roles.executiveSponsor.id : null,
+      approvedAt: definition.status === "LOCKED" ? new Date("2024-12-18T12:00:00.000Z") : null,
+      approvedById: definition.status === "LOCKED" ? roles.executiveSponsor.id : null,
+      createdById: roles.planningLead.id,
+    });
+    cycleIds[definition.key] = cycle.id;
+    for (let index = 0; index < Math.min(3, departments.length); index += 1) {
+      const department = departments[index];
+      const task = await create(prisma.planningTask, {
+        id: id(),
+        workflowId: workflow.id,
+        title: `${department.name} budget submission`,
+        departmentId: department.id,
+        assigneeId: index === 0 ? roles.departmentOwner.id : roles.businessPartner.id,
+        reviewerId: roles.planningLead.id,
+        status: definition.status === "LOCKED" ? "APPROVED" : definition.status === "PENDING_CFO_REVIEW" ? "SUBMITTED" : definition.status === "RETURNED_FOR_CORRECTION" ? "RETURNED" : definition.status === "OPEN_FOR_INPUT" ? "IN_PROGRESS" : "PENDING",
+        priority: index === 0 ? "HIGH" : "NORMAL",
+        dueDate: new Date("2026-09-30T00:00:00.000Z"),
+        submittedAt: ["LOCKED", "PENDING_CFO_REVIEW"].includes(definition.status) ? new Date("2026-09-28T14:00:00.000Z") : null,
+      });
+      await create(prisma.planningBudgetCycleOwner, {
+        id: id(),
+        cycleId: cycle.id,
+        departmentId: department.id,
+        assigneeId: index === 0 ? roles.departmentOwner.id : roles.businessPartner.id,
+        taskId: task.id,
+        categoriesJson: index === 0 ? ["REVENUE", "WORKFORCE"] : ["OPEX", "CASH", "CAPEX"],
+        baselineMethod: "PRIOR_YEAR_ACTUAL",
+        status: definition.status === "LOCKED" ? "APPROVED" : definition.status === "PENDING_CFO_REVIEW" ? "SUBMITTED" : definition.status === "RETURNED_FOR_CORRECTION" ? "RETURNED" : "PENDING",
+      });
+    }
+  }
   return cycleIds;
 }
 
-async function main() {
-  const url = process.env.DATABASE_URL || "";
-  if (!url) throw new Error("DATABASE_URL is required");
-  assertSafeDatabaseUrl(url);
-
-  const dbName = (await prisma.$queryRawUnsafe<Array<{ d: string }>>(`SELECT DATABASE() AS d`))[0]
-    ?.d;
-  console.log(`[seed-fpa] database=${dbName} lite=${LITE}`);
-  console.log("[seed-fpa] wipe is NOT performed — ensure clear-fpa-planning-data ran if needed");
-
-  const admin = await resolveAdminUser();
-  console.log(`[seed-fpa] admin user=${admin.email} (${admin.id})`);
-
-  const depts = await resolveDepartments();
-  console.log(`[seed-fpa] departments=${depts.length}`);
-
-  const accounts = await resolveAccounts();
-  console.log(`[seed-fpa] chart accounts=${accounts.length}`);
-
-  const dims = await ensureDimensions();
-
-  const primary = await seedPrimaryModel(admin.id, depts, accounts, dims);
-  console.log(`[seed-fpa] primary model=${primary.modelId}`);
-
-  let boardPackModelId: string | null = null;
-  let draft2027ModelId: string | null = null;
-  if (!LITE) {
-    const board = await seedBoardPackModel(admin.id);
-    boardPackModelId = board.modelId;
-    console.log(`[seed-fpa] board pack model=${board.modelId}`);
-
-    const draft2027 = await seedDraft2027Model(admin.id);
-    draft2027ModelId = draft2027.modelId;
-    console.log(`[seed-fpa] fy2027 draft model=${draft2027.modelId}`);
-  } else {
-    console.log("[seed-fpa] lite: skipping Board Pack + FY2027 draft models");
+async function seedCollaborationAndVariance(
+  primary: Awaited<ReturnType<typeof seedPrimaryModel>>,
+  roles: Record<string, Person>,
+  mpc: Awaited<ReturnType<typeof seedModelPlanningCycles>>
+) {
+  const varianceIds: string[] = [];
+  let planClosingCash = 2650000;
+  let actualClosingCash = 2650000;
+  for (let monthIndex = 0; monthIndex < 6; monthIndex += 1) {
+    const plan = monthlyValues(monthIndex, 1, 1);
+    const actual = monthlyValues(monthIndex, 1.015, 1);
+    plan.OPENING_CASH = planClosingCash;
+    plan.CLOSING_CASH =
+      planClosingCash + plan.OPERATING_CASH_FLOW - plan.CAPEX + plan.FINANCING_CASH_FLOW;
+    planClosingCash = plan.CLOSING_CASH;
+    actual.OPENING_CASH = actualClosingCash;
+    actual.CLOSING_CASH =
+      actualClosingCash + actual.OPERATING_CASH_FLOW - actual.CAPEX + actual.FINANCING_CASH_FLOW;
+    actualClosingCash = actual.CLOSING_CASH;
+    for (const code of ["REVENUE", "OPEX", "EBITDA", "HEADCOUNT", "CAPEX", "CLOSING_CASH"]) {
+      const actualValue = actual[code];
+      const planValue = plan[code];
+      const variance = actualValue - planValue;
+      const variancePercent = planValue === 0 ? 0 : (variance / Math.abs(planValue)) * 100;
+      const row = await create(prisma.planningVarianceResult, {
+        id: id(),
+        modelId: primary.modelId,
+        lineItemId: primary.lineIds[code],
+        periodDate: month(2026, monthIndex),
+        entityId: primary.coordinates[monthIndex % primary.coordinates.length].entity.id,
+        departmentId: primary.coordinates[monthIndex % primary.coordinates.length].department.id,
+        varianceType: "ACTUAL_VS_PLAN",
+        actualValue: amount(actualValue),
+        planValue: amount(planValue),
+        varianceAmount: amount(variance),
+        variancePercent: amount(variancePercent),
+        direction: variance >= 0 ? "FAVORABLE" : "UNFAVORABLE",
+        commentaryRequired: Math.abs(variancePercent) >= 3,
+      });
+      varianceIds.push(row.id);
+      if (Math.abs(variancePercent) >= 3 || ["EBITDA", "CAPEX"].includes(code)) {
+        const parent = await create(prisma.planningComment, {
+          id: id(),
+          modelId: primary.modelId,
+          varianceId: row.id,
+          cycleId: mpc.cycleIds.UNDER_REVIEW,
+          visibility: "ALL",
+          body:
+            code === "CAPEX"
+              ? "Capital spend reflects the approved data platform milestone and remains within the annual envelope."
+              : `${LINES.find((line) => line.code === code)?.name} movement reflects current trading and operating cadence.`,
+          correctiveAction:
+            code === "EBITDA"
+              ? "Maintain weekly margin reviews and align discretionary spend to confirmed revenue conversion."
+              : "Track the monthly run rate and escalate any change to the management outlook.",
+          status: "OPEN",
+          createdById: roles.businessPartner.id,
+        });
+        await create(prisma.planningComment, {
+          id: id(),
+          modelId: primary.modelId,
+          varianceId: row.id,
+          cycleId: mpc.cycleIds.UNDER_REVIEW,
+          parentCommentId: parent.id,
+          visibility: "ALL",
+          body: "Finance has reviewed the supporting schedule. Include this explanation in the monthly performance pack.",
+          correctiveAction: "Confirm the next forecast update after month end close.",
+          status: "RESOLVED",
+          createdById: roles.planningLead.id,
+        });
+      }
+    }
   }
 
-  const cycleIds = await seedBudgetCycles(admin.id, primary, depts);
-  console.log(`[seed-fpa] budget cycles=${Object.keys(cycleIds).length}`);
+  const activities = [
+    ["MODEL_CREATED", "MODEL", "Integrated FY2026 model structure established"],
+    ["VERSION_PUBLISHED", "VERSION", "Board approved plan published"],
+    ["ACTUALS_SYNCED", "ACTUALS", "January through June actuals synchronized"],
+    ["DRIVER_UPDATED", "DRIVER", "Client mandate and workforce assumptions refreshed"],
+    ["OWNER_ASSIGNED", "CYCLE", "Department planning ownership confirmed"],
+    ["SUBMISSION_RECEIVED", "CYCLE", "Consolidated department submission received"],
+    ["REVIEW_STARTED", "CYCLE", "Finance review commenced"],
+    ["VARIANCE_EXPLAINED", "VARIANCE", "Material performance movement explained"],
+    ["PLAN_APPROVED", "CYCLE", "Executive approval recorded"],
+    ["BASELINE_LOCKED", "VERSION", "Operating baseline locked"],
+  ];
+  for (let index = 0; index < activities.length; index += 1) {
+    const activity = activities[index];
+    await create(prisma.planningAuditLog, {
+      id: id(),
+      modelId: primary.modelId,
+      scenarioId: primary.scenarioIds.BASE,
+      versionId: index > 7 ? primary.versionIds.MPC_LOCKED : primary.versionIds.WORKING,
+      lineItemId: index === 3 ? primary.lineIds.HEADCOUNT : null,
+      entityType: activity[1],
+      userId: index > 7 ? roles.executiveSponsor.id : roles.planningLead.id,
+      actionType: activity[0],
+      oldValue: null,
+      newValue: activity[2],
+      reason: "FY2026 planning governance",
+      ipAddress: "127.0.0.1",
+    });
+  }
+  return varianceIds;
+}
 
-  const modelPlanningCycleIds = await seedModelPlanningCycles(admin.id, primary, depts);
-  console.log(`[seed-fpa] model planning cycles=${Object.keys(modelPlanningCycleIds).length}`);
+async function seedSettings(primary: Awaited<ReturnType<typeof seedPrimaryModel>>, userId: string) {
+  await upsert(
+    prisma.fpaSettings,
+    { id: "default" },
+    {
+      id: "default",
+      varianceJson: {
+        commentaryThresholdPct: 5,
+        enforceCommentary: true,
+        blockSubmitWithoutCommentary: false,
+        favorableColor: "GREEN",
+        unfavorableColor: "RED",
+        defaultComparison: "ACTUAL_VS_PLAN",
+        requireCorrectiveAction: true,
+      },
+      workflowJson: {
+        path: "LINEAR",
+        requireCfoSignature: true,
+        allowRerunAfterReturn: true,
+        submissionReminderDays: [7, 3, 1],
+        reviewSequence: ["DEPARTMENT_OWNER", "FINANCE_REVIEW", "EXECUTIVE_APPROVAL"],
+        lockAfterApproval: true,
+        requireVarianceCommentary: true,
+      },
+      updatedById: userId,
+    }
+  );
+  const sources = [
+    {
+      id: "netsuite",
+      label: "NetSuite",
+      status: "DISCONNECTED",
+      lastSyncAt: null,
+      configJson: null,
+    },
+    {
+      id: "general-ledger",
+      label: "General Ledger",
+      status: "CONNECTED",
+      lastSyncAt: new Date("2026-07-14T22:00:00.000Z"),
+      configJson: { cadence: "DAILY", scope: "ACTUALS_AND_BALANCES" },
+    },
+    {
+      id: "workforce",
+      label: "Workforce Management",
+      status: "CONNECTED",
+      lastSyncAt: new Date("2026-07-14T20:30:00.000Z"),
+      configJson: { cadence: "WEEKLY", scope: "HEADCOUNT_AND_COMPENSATION" },
+    },
+    {
+      id: "sales-pipeline",
+      label: "Client Revenue Pipeline",
+      status: "CONNECTED",
+      lastSyncAt: new Date("2026-07-14T18:00:00.000Z"),
+      configJson: { cadence: "DAILY", scope: "MANDATES_AND_FEES" },
+    },
+  ];
+  for (const source of sources) {
+    await upsert(prisma.fpaSyncSource, { id: source.id }, { ...source, lastError: null, updatedById: userId });
+  }
+  const rollingId = "arcus-fy2026-rolling";
+  const rollingParameters = [
+    rollingId,
+    primary.modelId,
+    primary.versionIds.WORKING,
+    month(2026, 5),
+    month(2026, 6),
+    12,
+    "DRIVER",
+    userId,
+    userId,
+  ];
+  inspectVisible(rollingParameters, "rollingForecastSettings");
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO fpa_rolling_forecast_settings
+      (id, model_id, version_id, actuals_cutoff, forecast_start, horizon_months, active_method, created_by, updated_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+     ON DUPLICATE KEY UPDATE
+       version_id=VALUES(version_id),
+       actuals_cutoff=VALUES(actuals_cutoff),
+       forecast_start=VALUES(forecast_start),
+       horizon_months=VALUES(horizon_months),
+       active_method=VALUES(active_method),
+       updated_by=VALUES(updated_by),
+       updated_at=NOW(3)`,
+    ...rollingParameters
+  );
+  return { syncSourceIds: sources.map((source) => source.id), rollingSettingsId: rollingId };
+}
+
+async function createExports(
+  primary: Awaited<ReturnType<typeof seedPrimaryModel>>,
+  userId: string,
+  legacyCycleIds: Record<string, string>
+) {
+  const { FpaExportService } = await import("../src/services/fpa/FpaExportService");
+  const exportTypes = ["BOARD_PACK", "MANAGEMENT_REPORT", "FINANCIAL_STATEMENTS", "DEPT_EXPENSES"];
+  const jobs: Array<{ id: string; exportType: string; filename: string }> = [];
+  for (const exportType of exportTypes) {
+    const input = {
+      modelId: primary.modelId,
+      versionId: primary.versionIds.PUBLISHED,
+      exportType,
+      period: 2026,
+      meta: {
+        fiscalYear: 2026,
+        budgetCycleId: legacyCycleIds.REVIEW,
+        title: `Arcus Group FY2026 ${exportType.replaceAll("_", " ")}`,
+      },
+    };
+    inspectVisible(input, `export.${exportType}`);
+    const job = await FpaExportService.createBoardPack(input, userId, "127.0.0.1");
+    jobs.push({ id: job.id, exportType, filename: job.filename });
+  }
+  return jobs;
+}
+
+async function main() {
+  const database = await assertDevDatabase(prisma, "seed:fpa-client-presentation");
+  if (database !== "nts") {
+    throw new Error(`FP&A presentation seed is restricted to nts; got ${database}`);
+  }
+  console.log("[seed-fpa] safety checks: database confirmed");
+  await requireEmptyPlanningSchema();
+  inspectVisible(
+    {
+      modules: MODULES,
+      lines: LINES,
+      scenarios: SCENARIOS,
+      versions: VERSION_DEFINITIONS,
+    },
+    "presentationCatalog"
+  );
+  console.log("[seed-fpa] safety checks: empty schema and visible copy confirmed");
+
+  const { roles } = await resolvePeople();
+  const masters = await resolveMasters();
+  console.log("[seed-fpa] shared masters: users, departments, entities, and accounts resolved");
+  const dimensions = await seedDimensions();
+  console.log("[seed-fpa] dimensions: planning dimensions created");
+  const primary = await seedPrimaryModel(
+    roles,
+    masters.departments,
+    masters.entities,
+    masters.accounts,
+    dimensions
+  );
+  console.log("[seed-fpa] primary model: integrated FY2026 dataset created");
+  const draftModel = await seedCompanionModel(
+    {
+      name: "Arcus Group FY2027 Planning Framework",
+      code: "ARCUS_GROUP_FY2027_FRAMEWORK",
+      description: "Lightweight structure for the next annual planning horizon",
+      status: "DRAFT",
+      year: 2027,
+      versionName: "FY2027 Initial Framework",
+    },
+    roles.planningLead.id
+  );
+  const historyModel = await seedCompanionModel(
+    {
+      name: "Arcus Group FY2024 Historical Plan",
+      code: "ARCUS_GROUP_FY2024_HISTORY",
+      description: "Retained historical planning structure for management comparison",
+      status: "ARCHIVED",
+      year: 2024,
+      versionName: "FY2024 Final Archive",
+    },
+    roles.planningLead.id
+  );
+  console.log("[seed-fpa] companion models: draft and history structures created");
+  const modelPlanning = await seedModelPlanningCycles(primary, roles, masters.departments);
+  console.log("[seed-fpa] model planning: seven lifecycle cycles created");
+  const legacyCycleIds = await seedLegacyCycles(primary, roles, masters.departments);
+  console.log("[seed-fpa] budget planning: legacy lifecycle created");
+  const varianceIds = await seedCollaborationAndVariance(primary, roles, modelPlanning);
+  console.log("[seed-fpa] collaboration: variance, comments, approvals, and activity created");
+  const settings = await seedSettings(primary, roles.planningLead.id);
+  console.log("[seed-fpa] settings: variance, workflow, sync, and rolling forecast configured");
+  const exportJobs = await createExports(primary, roles.planningLead.id, legacyCycleIds);
+  console.log("[seed-fpa] exports: four XLSX workbooks created");
 
   const summary = {
-    lite: LITE,
-    primaryModelId: primary.modelId,
-    publishedVersionId: primary.publishedVersionId,
-    workingVersionId: primary.workingVersionId,
-    scenarioIds: primary.scenarioIds,
-    moduleIds: primary.moduleIds,
-    boardPackModelId,
-    draft2027ModelId,
-    cycleIds,
-    modelPlanningCycleIds,
-    mappingSummary: primary.mappingSummary,
+    database: "nts",
+    generatedFor: "Arcus Group FY2026 presentation",
+    primary: {
+      modelId: primary.modelId,
+      moduleIds: primary.moduleIds,
+      lineIds: primary.lineIds,
+      scenarioIds: primary.scenarioIds,
+      versionIds: primary.versionIds,
+      dataSourceId: primary.dataSourceId,
+    },
+    companionModels: {
+      draft: draftModel,
+      history: historyModel,
+    },
+    modelPlanningCycleIds: modelPlanning.cycleIds,
+    legacyBudgetCycleIds: legacyCycleIds,
+    varianceIds,
+    exportJobs,
+    settings,
+    presentationRoles: Object.fromEntries(
+      Object.entries(roles).map(([role, person]) => [
+        role,
+        {
+          userId: person.id,
+          name: `${person.firstName} ${person.lastName}`,
+          email: person.email,
+        },
+      ])
+    ),
+    sharedMasters: {
+      entityIds: masters.entities.map((entity) => entity.id),
+      departmentIds: masters.departments.map((department) => department.id),
+      accountIds: masters.accounts.map((account) => account.id),
+    },
   };
-
+  inspectVisible(summary, "summary");
   console.log("[seed-fpa] SUMMARY");
   console.log(JSON.stringify(summary, null, 2));
 }
 
 main()
-  .catch((err) => {
-    console.error("[seed-fpa] FAILED", err);
+  .catch((error) => {
+    console.error("[seed-fpa] FAILED", error);
     process.exitCode = 1;
   })
   .finally(async () => {

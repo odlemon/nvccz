@@ -230,6 +230,79 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
   "/v1/fpa/model-planning/cycles/{id}/activity": {
     get: op("Model planning cycle approval activity", { parameters: [id] }),
   },
+  "/v1/fpa/model-planning/cycles/{id}/submit": {
+    post: op("Consolidate / submit model planning cycle (Stage 6)", {
+      parameters: [id],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          properties: { note: { type: "string" }, comment: { type: "string" } },
+        },
+      }),
+    }),
+  },
+  "/v1/fpa/model-planning/cycles/{id}/review/accept": {
+    post: op("FP&A review accept → CFO_REVIEW", { parameters: [id] }),
+  },
+  "/v1/fpa/model-planning/cycles/{id}/review/return": {
+    post: op("FP&A review return to owners", {
+      parameters: [id],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["comment"],
+          properties: {
+            comment: { type: "string" },
+            departmentId: { type: "string" },
+            taskId: { type: "string" },
+          },
+        },
+      }),
+    }),
+  },
+  "/v1/fpa/model-planning/cycles/{id}/cfo-approve": {
+    post: op("CFO approve model planning cycle", {
+      parameters: [id],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          properties: { comment: { type: "string" }, scenarioId: { type: "string" } },
+        },
+      }),
+    }),
+  },
+  "/v1/fpa/model-planning/cycles/{id}/cfo-return": {
+    post: op("CFO return model planning cycle", {
+      parameters: [id],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["comment"],
+          properties: { comment: { type: "string" }, departmentId: { type: "string" } },
+        },
+      }),
+    }),
+  },
+  "/v1/fpa/model-planning/cycles/{id}/lock": {
+    post: op("Lock approved model planning cycle (freeze version)", {
+      parameters: [id],
+      requestBody: jsonRequestBody({
+        schema: { type: "object", properties: { reason: { type: "string" } } },
+      }),
+    }),
+  },
+  "/v1/fpa/model-planning/cycles/{id}/request-reopen": {
+    post: op("Request reopen of locked model planning cycle", {
+      parameters: [id],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["reason"],
+          properties: { reason: { type: "string" } },
+        },
+      }),
+    }),
+  },
   "/v1/fpa/budget-cycles": {
     get: op("List budget cycles", {
       parameters: [
@@ -549,7 +622,62 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
     post: op("Bulk update cells", { parameters: [modelId] }),
   },
   "/v1/fpa/models/{modelId}/cells/spread": {
-    post: op("Spread value across periods", { parameters: [modelId] }),
+    post: op("Spread annual value across periods (EVEN | CUSTOM_WEIGHT | PRIOR_YEAR_PATTERN)", {
+      parameters: [modelId],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["versionId", "lineItemId", "value"],
+          properties: {
+            versionId: { type: "string" },
+            scenarioId: { type: "string" },
+            lineItemId: { type: "string" },
+            value: { type: "number" },
+            method: {
+              type: "string",
+              enum: [
+                "EVEN",
+                "CUSTOM_WEIGHT",
+                "PRIOR_YEAR_PATTERN",
+                "HISTORICAL_PATTERN",
+                "WORKING_DAYS",
+                "SEASONAL_PROFILE",
+              ],
+              default: "EVEN",
+            },
+            weights: { type: "array", items: { type: "number" } },
+            periodDates: { type: "array", items: { type: "string", format: "date" } },
+            cycleId: { type: "string" },
+          },
+        },
+      }),
+    }),
+  },
+  "/v1/fpa/models/{modelId}/planning-summary": {
+    get: op("Live planning KPIs (revenue / gross margin / EBITDA) after cell edits", {
+      parameters: [
+        modelId,
+        queryParam("versionId", { type: "string" }),
+        queryParam("scenarioId", { type: "string" }),
+        queryParam("cycleId", { type: "string" }),
+      ],
+    }),
+  },
+  "/v1/fpa/models/{modelId}/recalculate": {
+    post: op("Explicit formula recalculation for version/scenario", {
+      parameters: [modelId],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["versionId"],
+          properties: {
+            versionId: { type: "string" },
+            scenarioId: { type: "string" },
+            cycleId: { type: "string" },
+          },
+        },
+      }),
+    }),
   },
   "/v1/fpa/models/{modelId}/cells/copy-forward": {
     post: op("Copy cell value forward", { parameters: [modelId] }),
@@ -692,11 +820,18 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
     post: op("Create line item", { parameters: [modelId] }),
   },
   "/v1/fpa/models/{modelId}/drivers": {
-    get: op("List drivers for model", { parameters: [modelId] }),
+    get: op("List drivers (includes priorActual / priorPeriodLabel for Stage 3)", {
+      parameters: [
+        modelId,
+        queryParam("versionId", { type: "string" }),
+        queryParam("scenarioId", { type: "string" }),
+        queryParam("cycleId", { type: "string" }),
+      ],
+    }),
     post: op("Create driver", { parameters: [modelId] }),
   },
   "/v1/fpa/drivers/{id}": {
-    put: op("Update driver (value/period/unit/name)", { parameters: [id] }),
+    put: op("Update driver — returns updatedCells for dependents", { parameters: [id] }),
   },
   "/v1/fpa/domain/{category}": {
     get: op("Domain view (workforce|revenue|expense|cash)", {

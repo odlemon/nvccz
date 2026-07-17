@@ -9,8 +9,8 @@ When the user asks you to **implement** a new FP&A (or comparable backend) featu
 
 1. **Implement** code + idempotent migration script + `package.json` `db:migrate:…` entry.
 2. **Dedicated API docs** — separate markdown under `docs/` (e.g. `docs/fpa-*-api.md`). Include endpoints, request/response examples, enums, errors, acceptance checklist.
-3. **Migrate all three MySQL DBs**: `nts`, `client1_db`, `demo_env` (override `DATABASE_URL`; same pattern as existing `scripts/run-*-all-dbs-vps.py` or local remote MySQL URLs).
-4. **UAT / seed with real client-demo data** — scripts must create or reuse story-ready fixtures (named departments, owners, cycles) so the user can walk a client through the product. Prefer Arcus / existing `db:seed:fpa-demo` entities. Log IDs and names clearly in UAT output.
+3. **Migrate all three MySQL DBs**: `nts`, `client1_db`, `demo_env` (override `DATABASE_URL`; same pattern as existing `scripts/run-*-all-dbs-vps.py` or local remote MySQL URLs). **After** the migrate loop, **unset** shell `DATABASE_URL` so UAT/dev use `.env` → **`nts` only**.
+4. **UAT / seed with real client-demo data** — **always on DEV `nts`** (see `nvccz-uat-dev-db-only.mdc`). Never UAT against `client1_db` / `demo_env`. Scripts must create or reuse story-ready fixtures (named departments, owners, cycles). Prefer Arcus / existing `db:seed:fpa-demo` entities. Log IDs and names clearly in UAT output.
 5. **Do NOT commit, push, or VPS-deploy** unless the user explicitly asks in that turn.
 
 ## Explicit overrides

@@ -82,7 +82,46 @@ function buildBoardPackWorkbook(opts: {
   return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
 
+const SUPPORTED_EXPORT_TYPES = new Set([
+  "BOARD_PACK",
+  "MANAGEMENT_REPORT",
+  "FINANCIAL_STATEMENTS",
+  "DEPT_EXPENSES",
+]);
+
 export class FpaExportService {
+  static capabilities() {
+    return {
+      exportTypes: [
+        { code: "BOARD_PACK", enabled: true },
+        { code: "MANAGEMENT_REPORT", enabled: true },
+        { code: "FINANCIAL_STATEMENTS", enabled: true },
+        { code: "DEPT_EXPENSES", enabled: true },
+      ],
+    };
+  }
+
+  static async listJobs(query: any = {}) {
+    const where: any = {};
+    if (query.modelId) where.modelId = String(query.modelId);
+    const limit = Math.min(100, Math.max(1, Number(query.limit || 20)));
+    const jobs = await prisma.planningExportJob.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+    return jobs.map((j) => ({
+      id: j.id,
+      exportType: j.exportType,
+      status: j.status === "COMPLETED" ? "READY" : j.status,
+      createdAt: j.createdAt,
+      completedAt: j.completedAt,
+      modelId: j.modelId,
+      versionId: j.versionId,
+      downloadUrl: j.fileUrl || downloadPath(j.id),
+    }));
+  }
+
   static async createBoardPack(input: any, userId: string, ip?: string) {
     const modelId = input.modelId;
     const versionId = input.versionId;
@@ -94,22 +133,44 @@ export class FpaExportService {
     });
     if (!model) throw new FpaError(404, "NOT_FOUND", "Planning model not found");
 
+    const exportType = String(input.exportType || "BOARD_PACK").toUpperCase();
+    if (!SUPPORTED_EXPORT_TYPES.has(exportType)) {
+      throw new FpaError(
+        400,
+        "UNSUPPORTED_EXPORT_TYPE",
+        `exportType must be one of ${[...SUPPORTED_EXPORT_TYPES].join(", ")}`
+      );
+    }
+
+    let cellWhere: any = { modelId, ...(versionId ? { versionId } : {}) };
+    if (exportType === "DEPT_EXPENSES") {
+      cellWhere = {
+        ...cellWhere,
+        departmentId: { not: null },
+        lineItem: { category: { in: ["EXPENSE", "OPEX"] } },
+      };
+    } else if (exportType === "FINANCIAL_STATEMENTS") {
+      cellWhere = {
+        ...cellWhere,
+        lineItem: { code: { in: ["REVENUE", "EBITDA", "OPEX", "CLOSING_CASH", "EXPENSE"] } },
+      };
+    }
+
     const cells = await prisma.planningCell.findMany({
-      where: { modelId, ...(versionId ? { versionId } : {}) },
+      where: cellWhere,
       include: {
-        lineItem: { select: { code: true, name: true, lineItemType: true } },
+        lineItem: { select: { code: true, name: true, lineItemType: true, category: true } },
       },
       orderBy: [{ periodDate: "asc" }],
     });
 
-    const exportType = String(input.exportType || "BOARD_PACK");
-    const fiscalYear = input.meta?.fiscalYear ?? null;
+    const fiscalYear = input.meta?.fiscalYear ?? input.period ?? null;
     const buffer = buildBoardPackWorkbook({
       modelName: model.name,
       fiscalYear,
       exportType,
       cells,
-      meta: input.meta || {},
+      meta: { ...(input.meta || {}), period: input.period || null },
     });
 
     const payload = {
@@ -180,7 +241,7 @@ export class FpaExportService {
     const job = await prisma.planningExportJob.findUnique({ where: { id: jobId } });
     if (!job) throw new FpaError(404, "NOT_FOUND", "Export job not found");
     if (job.status !== "COMPLETED") {
-      throw new FpaError(409, "NOT_READY", `Export status is ${job.status}`);
+      throw new FpaError(409, "EXPORT_NOT_READY", `Export status is ${job.status}`);
     }
 
     const meta = (job.payloadJson || {}) as any;

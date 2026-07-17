@@ -8,6 +8,7 @@ import {
 } from "./FpaPlanningCycleContextService";
 import { FpaAuditService } from "./FpaAuditService";
 import { FpaModelPlanningOwnersService } from "./FpaModelPlanningOwnersService";
+import { FpaSettingsService } from "./FpaSettingsService";
 
 const prisma = new PrismaClient();
 
@@ -27,6 +28,15 @@ async function serializeCycle(cycle: any) {
     actualsCutoffPeriod,
     forecastStartPeriod,
     submissionDeadline: periodStartIso(cycle.submissionDeadline) || cycle.submissionDeadline,
+    materialVariancePct:
+      cycle.materialVariancePct != null ? Number(cycle.materialVariancePct) : 5,
+    currentStage: cycle.currentStage || null,
+    submittedAt: cycle.submittedAt || null,
+    submittedById: cycle.submittedById || null,
+    approvedAt: cycle.approvedAt || null,
+    approvedById: cycle.approvedById || null,
+    lockedAt: cycle.lockedAt || null,
+    lockedById: cycle.lockedById || null,
     owners,
   };
 }
@@ -43,7 +53,10 @@ const MODEL_PLANNING_TYPES = [
 export const MODEL_PLANNING_STATUSES = [
   "DRAFT",
   "OPEN",
+  "SUBMITTED",
   "IN_REVIEW",
+  "UNDER_REVIEW",
+  "RETURNED_FOR_CORRECTION",
   "APPROVED",
   "LOCKED",
   "CLOSED",
@@ -52,12 +65,15 @@ export const MODEL_PLANNING_STATUSES = [
 type PlanningType = (typeof MODEL_PLANNING_TYPES)[number];
 type PlanningStatus = (typeof MODEL_PLANNING_STATUSES)[number];
 
-const STATUS_TRANSITIONS: Record<PlanningStatus, PlanningStatus[]> = {
-  DRAFT: ["DRAFT", "OPEN"],
-  OPEN: ["OPEN", "IN_REVIEW", "CLOSED"],
-  IN_REVIEW: ["IN_REVIEW", "OPEN", "APPROVED"],
+const STATUS_TRANSITIONS: Record<string, string[]> = {
+  DRAFT: ["DRAFT", "OPEN", "CLOSED"],
+  OPEN: ["OPEN", "SUBMITTED", "IN_REVIEW", "CLOSED", "RETURNED_FOR_CORRECTION"],
+  RETURNED_FOR_CORRECTION: ["RETURNED_FOR_CORRECTION", "OPEN", "SUBMITTED"],
+  SUBMITTED: ["SUBMITTED", "UNDER_REVIEW", "IN_REVIEW", "RETURNED_FOR_CORRECTION", "OPEN"],
+  IN_REVIEW: ["IN_REVIEW", "UNDER_REVIEW", "APPROVED", "RETURNED_FOR_CORRECTION", "OPEN"],
+  UNDER_REVIEW: ["UNDER_REVIEW", "APPROVED", "RETURNED_FOR_CORRECTION"],
   APPROVED: ["APPROVED", "LOCKED"],
-  LOCKED: ["LOCKED", "CLOSED"],
+  LOCKED: ["LOCKED", "CLOSED", "OPEN"],
   CLOSED: ["CLOSED"],
 };
 
@@ -194,6 +210,20 @@ export class FpaModelPlanningCycleService {
       forecastStartPeriod: body.forecastStartPeriod,
     });
 
+    const defaultSettings =
+      body.materialVariancePct == null ? await FpaSettingsService.get() : null;
+    const materialVariancePct =
+      body.materialVariancePct != null
+        ? Number(body.materialVariancePct)
+        : Number(defaultSettings?.variance?.commentaryThresholdPct ?? 5);
+    if (!Number.isFinite(materialVariancePct) || materialVariancePct < 0) {
+      throw new FpaModelPlanningError(
+        "materialVariancePct must be a non-negative number",
+        400,
+        "VALIDATION"
+      );
+    }
+
     const cycle = await prisma.modelPlanningCycle.create({
       data: {
         name,
@@ -204,6 +234,7 @@ export class FpaModelPlanningCycleService {
         actualsCutoffPeriod: cutoffs.actualsCutoffPeriod,
         forecastStartPeriod: cutoffs.forecastStartPeriod,
         planningHorizon: body.planningHorizon != null ? Number(body.planningHorizon) : null,
+        materialVariancePct,
         baseScenarioId: body.baseScenarioId ? String(body.baseScenarioId) : null,
         submissionDeadline: body.submissionDeadline
           ? toPeriodStartDate(body.submissionDeadline) || new Date(String(body.submissionDeadline))
@@ -326,6 +357,17 @@ export class FpaModelPlanningCycleService {
       }
     }
 
+    if (body.materialVariancePct != null) {
+      const mvp = Number(body.materialVariancePct);
+      if (!Number.isFinite(mvp) || mvp < 0) {
+        throw new FpaModelPlanningError(
+          "materialVariancePct must be a non-negative number",
+          400,
+          "VALIDATION"
+        );
+      }
+    }
+
     const cycle = await prisma.modelPlanningCycle.update({
       where: { id },
       data: {
@@ -337,6 +379,8 @@ export class FpaModelPlanningCycleService {
         actualsCutoffPeriod,
         forecastStartPeriod,
         planningHorizon: body.planningHorizon != null ? Number(body.planningHorizon) : undefined,
+        materialVariancePct:
+          body.materialVariancePct != null ? Number(body.materialVariancePct) : undefined,
         baseScenarioId:
           body.baseScenarioId != null ? (body.baseScenarioId ? String(body.baseScenarioId) : null) : undefined,
         submissionDeadline:
@@ -496,9 +540,11 @@ export class FpaModelPlanningCycleService {
 export class FpaModelPlanningError extends Error {
   statusCode: number;
   code: string;
-  constructor(message: string, statusCode = 500, code = "ERROR") {
+  data?: any;
+  constructor(message: string, statusCode = 500, code = "ERROR", data?: any) {
     super(message);
     this.statusCode = statusCode;
     this.code = code;
+    this.data = data;
   }
 }

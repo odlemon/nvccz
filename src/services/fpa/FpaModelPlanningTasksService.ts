@@ -96,6 +96,7 @@ export class FpaModelPlanningTasksService {
       userMap: Record<string, any>;
       ownerTaskIds: Set<string>;
       ownerByTaskId: Record<string, { status: string }>;
+      cycleId: string;
       modelId: string;
       versionId: string;
     }
@@ -119,6 +120,7 @@ export class FpaModelPlanningTasksService {
       submittedOn: t.submittedAt,
       changeNotes: t.changeNotes || null,
       description: !isOwnerSlice && t.changeNotes ? t.changeNotes : null,
+      cycleId: ctx.cycleId,
       modelId: ctx.modelId,
       versionId: ctx.versionId,
       taskKind: isOwnerSlice ? "OWNER_SLICE" : "PLANNING",
@@ -187,6 +189,7 @@ export class FpaModelPlanningTasksService {
       userMap,
       ownerTaskIds,
       ownerByTaskId,
+      cycleId: cycle.id,
       modelId: cycle.sourceModelId,
       versionId: cycle.sourceModelVersionId,
     };
@@ -310,6 +313,7 @@ export class FpaModelPlanningTasksService {
       userMap,
       ownerTaskIds: new Set(),
       ownerByTaskId: {},
+      cycleId: cycle.id,
       modelId: input.modelId ? String(input.modelId) : cycle.sourceModelId,
       versionId: input.versionId ? String(input.versionId) : cycle.sourceModelVersionId,
     });

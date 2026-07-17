@@ -54,10 +54,14 @@ export class FpaWorkflowCollabService {
 
   static async cycleForTask(taskId: string) {
     const task = await FpaWorkflowCollabService.assertTask(taskId);
-    const cycle = await prisma.planningBudgetCycle.findFirst({
+    const budgetCycle = await prisma.planningBudgetCycle.findFirst({
       where: { workflowId: task.workflowId },
     });
-    return { task, cycle };
+    if (budgetCycle) return { task, cycle: budgetCycle, kind: "budget" };
+    const modelCycle = await prisma.modelPlanningCycle.findFirst({
+      where: { workflowId: task.workflowId },
+    });
+    return { task, cycle: modelCycle, kind: modelCycle ? "model" : null };
   }
 
   static buildStages(cycle: any) {
@@ -296,6 +300,9 @@ export class FpaWorkflowCollabService {
       visibility: r.visibility || "ALL",
       cycleId: r.cycleId,
       taskId: r.taskId,
+      parentCommentId: r.parentCommentId || null,
+      type: "COMMENT",
+      status: r.status || "OPEN",
       authorId: r.createdById,
       authorName: userDisplayName(byId[r.createdById]),
       createdAt: r.createdAt,
@@ -318,6 +325,7 @@ export class FpaWorkflowCollabService {
     let modelId: string | null = null;
     let cycleId = opts.cycleId ? String(opts.cycleId) : null;
     let taskId = opts.taskId ? String(opts.taskId) : null;
+    const parentCommentId = input?.parentCommentId ? String(input.parentCommentId) : null;
 
     if (taskId) {
       const { task, cycle } = await FpaWorkflowCollabService.cycleForTask(taskId);
@@ -334,12 +342,23 @@ export class FpaWorkflowCollabService {
       }
     }
     if (!modelId) throw new FpaError(400, "VALIDATION", "Unable to resolve model for comment");
+    if (parentCommentId) {
+      const parent = await prisma.planningComment.findUnique({ where: { id: parentCommentId } });
+      if (
+        !parent ||
+        (cycleId && parent.cycleId !== cycleId) ||
+        (taskId && parent.taskId !== taskId)
+      ) {
+        throw new FpaError(404, "PARENT_COMMENT_NOT_FOUND", "Parent comment not found in this thread");
+      }
+    }
 
     const created = await prisma.planningComment.create({
       data: {
         modelId,
         cycleId,
         taskId,
+        parentCommentId,
         visibility,
         body,
         createdById: user.id,
@@ -355,6 +374,9 @@ export class FpaWorkflowCollabService {
       visibility: created.visibility,
       cycleId: created.cycleId,
       taskId: created.taskId,
+      parentCommentId: created.parentCommentId || null,
+      type: "COMMENT",
+      status: created.status || "OPEN",
       authorId: user.id,
       authorName: userDisplayName(user),
       createdAt: created.createdAt,
@@ -650,9 +672,12 @@ export class FpaWorkflowCollabService {
 
     return approvals.map((a) => ({
       id: a.id,
+      cycleId,
       actorId: a.actorId,
       actorName: userDisplayName(a.actor),
       action: actionMap[String(a.action).toUpperCase()] || String(a.action).toUpperCase(),
+      type: "WORKFLOW_EVENT",
+      status: actionMap[String(a.action).toUpperCase()] || String(a.action).toUpperCase(),
       rawAction: a.action,
       target: a.taskId
         ? { type: "TASK", id: a.taskId, title: a.task?.title || null, departmentId: a.task?.departmentId || null }

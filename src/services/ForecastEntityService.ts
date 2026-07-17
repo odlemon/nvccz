@@ -4,6 +4,8 @@
  * Formerly ForecastingEntityService (hypercube scenarios removed).
  */
 import { prisma } from "../utils/database";
+import { FpaAccessService } from "./fpa/FpaAccessService";
+import { FpaError } from "./fpa/FpaError";
 
 export class ForecastEntityService {
   static async list() {
@@ -263,5 +265,60 @@ export class ForecastEntityService {
     }
 
     return { entity_id: entityId, accounts_added: added, accounts_updated: updated };
+  }
+
+  static async archive(entityId: string, input: any, user: any) {
+    FpaAccessService.assertCanApprove(user);
+    const entity = await prisma.forecastEntity.findUnique({
+      where: { id: entityId },
+    });
+    if (!entity) throw new FpaError(404, "NOT_FOUND", "Forecast entity not found");
+    if (!input?.archive) {
+      throw new FpaError(
+        400,
+        "ARCHIVE_REQUIRED",
+        "Destructive deletion is not supported; send archive=true"
+      );
+    }
+    const reason = String(input?.reason || "").trim();
+    if (!reason) throw new FpaError(400, "VALIDATION", "reason is required");
+    if (entity.isDefault) {
+      throw new FpaError(409, "ENTITY_IN_USE", "The default entity cannot be archived", undefined, {
+        references: [{ type: "DEFAULT_ENTITY", count: 1 }],
+      });
+    }
+
+    const [taxPacks, modelLinks, cells, actuals] = await Promise.all([
+      prisma.taxReturnPack.count({ where: { forecastEntityId: entityId } }),
+      prisma.planningModelEntity.count({ where: { entityId } }),
+      prisma.planningCell.count({ where: { entityId } }),
+      prisma.planningActualsSnapshot.count({ where: { entityId } }),
+    ]);
+    const references = [
+      { type: "TAX_RETURN_PACK", count: taxPacks },
+      { type: "PLANNING_MODEL", count: modelLinks },
+      { type: "PLANNING_CELL", count: cells },
+      { type: "ACTUALS_SNAPSHOT", count: actuals },
+    ].filter((reference) => reference.count > 0);
+    if (references.length) {
+      throw new FpaError(
+        409,
+        "ENTITY_IN_USE",
+        "Forecast entity is referenced and cannot be archived",
+        undefined,
+        { references }
+      );
+    }
+
+    const archived = await prisma.forecastEntity.update({
+      where: { id: entityId },
+      data: { isActive: false },
+    });
+    return {
+      id: archived.id,
+      status: "ARCHIVED",
+      reason,
+      archivedAt: archived.updatedAt,
+    };
   }
 }

@@ -33,8 +33,15 @@ function normalizeBook(raw: string): string {
 
 export class FpaVarianceService {
   static async calculate(input: any, userId: string, ip?: string) {
-    const { modelId, versionId, scenarioId, varianceType } = input;
+    const { modelId, versionId, scenarioId, varianceType, cycleId } = input;
     if (!modelId || !versionId) throw new FpaError(400, "VALIDATION", "modelId and versionId required");
+
+    let materialThreshold = input.materialVariancePct != null ? Number(input.materialVariancePct) : 10;
+    if (cycleId) {
+      const cycle = await prisma.modelPlanningCycle.findUnique({ where: { id: String(cycleId) } });
+      if (cycle?.materialVariancePct != null) materialThreshold = Number(cycle.materialVariancePct);
+    }
+    if (!Number.isFinite(materialThreshold) || materialThreshold < 0) materialThreshold = 10;
 
     const lineItems = await prisma.planningLineItem.findMany({ where: { modelId } });
     const planCells = await prisma.planningCell.findMany({
@@ -78,7 +85,7 @@ export class FpaVarianceService {
             varianceAmount,
             variancePercent,
             direction,
-            commentaryRequired: Math.abs(Number(variancePercent || 0)) >= 10,
+            commentaryRequired: Math.abs(Number(variancePercent || 0)) >= materialThreshold,
           },
         });
         results.push(created);
@@ -94,12 +101,136 @@ export class FpaVarianceService {
     if (query.modelId) where.modelId = String(query.modelId);
     if (query.varianceType) where.varianceType = String(query.varianceType);
     if (query.direction) where.direction = String(query.direction);
-    return prisma.planningVarianceResult.findMany({
+    if (query.versionId) {
+      /* version filter applied via optional post-enrich; results are model-scoped */
+    }
+    const rows = await prisma.planningVarianceResult.findMany({
       where,
-      include: { lineItem: true, comments: true },
+      include: { lineItem: true, comments: { orderBy: { createdAt: "desc" }, take: 5 } },
       orderBy: { createdAt: "desc" },
       take: Math.min(500, Number(query.limit || 100)),
     });
+
+    const deptIds = [...new Set(rows.map((r) => r.departmentId).filter(Boolean))] as string[];
+    const depts = deptIds.length
+      ? await prisma.department.findMany({
+          where: { id: { in: deptIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const deptName = Object.fromEntries(depts.map((d) => [d.id, d.name]));
+
+    // Forecast book from planning cells (source FORECAST) when version provided
+    let forecastByKey: Record<string, number> = {};
+    if (query.modelId && query.versionId) {
+      const fCells = await prisma.planningCell.findMany({
+        where: {
+          modelId: String(query.modelId),
+          versionId: String(query.versionId),
+          OR: [{ sourceType: "FORECAST" }, { valueType: "FORECAST" }],
+        },
+        select: { lineItemId: true, periodDate: true, departmentId: true, value: true },
+      });
+      for (const c of fCells) {
+        const k = `${c.lineItemId}|${c.periodDate.toISOString().slice(0, 10)}|${c.departmentId || ""}`;
+        forecastByKey[k] = (forecastByKey[k] || 0) + Number(c.value || 0);
+      }
+    }
+
+    return rows.map((r) => {
+      const period = r.periodDate.toISOString().slice(0, 10);
+      const fk = `${r.lineItemId}|${period}|${r.departmentId || ""}`;
+      const forecast =
+        forecastByKey[fk] != null
+          ? forecastByKey[fk]
+          : r.planValue != null
+            ? Number(r.planValue)
+            : null;
+      const commentary = r.comments?.[0]?.body || null;
+      return {
+        ...r,
+        departmentName: r.departmentId ? deptName[r.departmentId] || null : null,
+        lineItemName: r.lineItem?.name || null,
+        actual: r.actualValue != null ? Number(r.actualValue) : null,
+        plan: r.planValue != null ? Number(r.planValue) : null,
+        forecast,
+        varianceAbs: Number(r.varianceAmount || 0),
+        variancePct: r.variancePercent != null ? Number(r.variancePercent) : null,
+        commentary,
+        commentaryStatus: r.comments?.[0]?.status || null,
+      };
+    });
+  }
+
+  static async summary(query: any = {}) {
+    const modelId = query.modelId ? String(query.modelId) : null;
+    if (!modelId) throw new FpaError(400, "VALIDATION", "modelId required");
+    const rows = await FpaVarianceService.listResults({
+      ...query,
+      modelId,
+      limit: query.limit || 500,
+    });
+
+    const byCode = (code: string) =>
+      rows
+        .filter((r) => String(r.lineItem?.code || "").toUpperCase() === code)
+        .reduce((s, r) => s + Number(r.varianceAbs || 0), 0);
+
+    const kpis = {
+      revenueVar: byCode("REVENUE"),
+      opexVar: byCode("OPEX") || byCode("EXPENSE"),
+      ebitdaVar: byCode("EBITDA"),
+    };
+
+    const byPeriod: Record<string, number> = {};
+    for (const r of rows) {
+      const p = r.periodDate.toISOString().slice(0, 10);
+      byPeriod[p] = (byPeriod[p] || 0) + Number(r.varianceAbs || 0);
+    }
+    const trend = Object.keys(byPeriod)
+      .sort()
+      .map((period) => ({ period, variance: byPeriod[period] }));
+
+    const byDept: Record<
+      string,
+      { departmentName: string | null; actual: number; plan: number; forecast: number; varianceAbs: number }
+    > = {};
+    for (const r of rows) {
+      const id = r.departmentId || "_none";
+      if (!byDept[id]) {
+        byDept[id] = {
+          departmentName: r.departmentName || null,
+          actual: 0,
+          plan: 0,
+          forecast: 0,
+          varianceAbs: 0,
+        };
+      }
+      byDept[id].actual += Number(r.actual || 0);
+      byDept[id].plan += Number(r.plan || 0);
+      byDept[id].forecast += Number(r.forecast || 0);
+      byDept[id].varianceAbs += Number(r.varianceAbs || 0);
+    }
+    const departments = Object.entries(byDept)
+      .filter(([id]) => id !== "_none")
+      .map(([departmentId, v]) => ({
+        departmentId,
+        departmentName: v.departmentName,
+        actual: v.actual,
+        plan: v.plan,
+        forecast: v.forecast,
+        varianceAbs: v.varianceAbs,
+        variancePct:
+          v.plan !== 0 ? Number(((v.varianceAbs / Math.abs(v.plan)) * 100).toFixed(1)) : null,
+      }))
+      .sort((a, b) => Math.abs(b.varianceAbs) - Math.abs(a.varianceAbs));
+
+    const tornado = departments.slice(0, 10).map((d) => ({
+      departmentName: d.departmentName,
+      varianceAbs: d.varianceAbs,
+    }));
+
+    return { kpis, trend, tornado, departments };
   }
 
   static async addCommentary(varianceId: string, input: any, userId: string, ip?: string) {

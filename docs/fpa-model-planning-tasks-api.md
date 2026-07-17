@@ -126,7 +126,12 @@ POST /api/v1/fpa/model-planning/cycles/{id}/comments
 GET  /api/v1/fpa/model-planning/cycles/{id}/activity
 ```
 
-Same shapes as budget cycle collab. `POST` body: `{ "body": "…" }`.
+`POST` body: `{ "body": "…", "parentCommentId": null }`. Replies persist the
+parent id. Comment/activity records include `cycleId`, actor identity,
+`type`/`status`, and ISO timestamps.
+
+Task decisions use `POST /api/v1/fpa/tasks/{taskId}/approve` and `/return`.
+Return requires a non-blank comment.
 
 ---
 
@@ -139,6 +144,9 @@ Same shapes as budget cycle collab. `POST` body: `{ "body": "…" }`.
 | `TASK_ASSIGN_FORBIDDEN` | 403 | Caller cannot assign |
 | `CYCLE_LOCKED` | 403 | Cycle not open for new tasks |
 | `OWNER_SUBMIT_REQUIRED` | 403 | Complete on owner slice task |
+| `COMMENT_REQUIRED` | 400 | Task return omitted its comment |
+| `INVALID_STATUS` | 409 | Task cannot be approved/returned from current state |
+| `MAKER_CHECKER` | 409 | Submitter attempted to approve the same task |
 
 ---
 
@@ -146,9 +154,12 @@ Same shapes as budget cycle collab. `POST` body: `{ "body": "…" }`.
 
 ```bash
 npm run uat:fpa:model-planning-cycle
+npm run uat:fpa:model-planning-workflow   # also smokes GET/POST comments + GET activity on MPC ids
+npm run uat:fpa:cross-tab-gaps            # threading + approve/return decisions
 ```
 
 Covers: list owner slices (≥2), create ad-hoc task, list includes it, Ada completes ad-hoc via PATCH.
+Stage 5 collab residuals (MPC comments/activity) are **Done** — do not use budget-cycle endpoints for MPC ids.
 
 ## Source files
 

@@ -5,6 +5,7 @@ globs: scripts/**/*uat*.ts, scripts/run-*-uat*.ts, scripts/test-*-uat*.ts
 
 # UAT scripts — self-sufficient fixtures (NVCCZ)
 
+- **DEV DB only (`nts`).** Call `assertDevDatabase` from `scripts/lib/assert-dev-database.ts` at the start of every UAT. Never run UAT on `client1_db` / `demo_env` (see `nvccz-uat-dev-db-only.mdc`).
 - When a UAT script needs entities (performance goals, KPIs, funds, users, vendors, etc.) and **none suitable exist**, **create minimal valid records** in the script instead of failing with “create manually” or waiting for the user to tell you what to add.
 - Prefer **idempotent** setup: fixed marker names or titles (e.g. `UAT B.xx — …`) and **reuse** if already present so re-runs are safe.
 - Only require **env overrides** when unavoidable (e.g. a specific production-like ID the test must target).

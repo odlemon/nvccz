@@ -11,5 +11,6 @@ router.post("/", ForecastEntityController.create);
 router.get("/:id", ForecastEntityController.get);
 router.get("/:id/chart-of-accounts", ForecastEntityController.listAccounts);
 router.post("/:id/resync-coa", ForecastEntityController.resyncCoa);
+router.delete("/:id", ForecastEntityController.archive);
 
 export default router;

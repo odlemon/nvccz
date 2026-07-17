@@ -4,10 +4,13 @@ import { ForecastEntityService } from "../services/ForecastEntityService";
 
 function handleError(res: Response, e: any) {
   const status = e?.statusCode || 500;
-  res.status(status).json({
+  const body: any = {
     success: false,
+    code: e?.code || "ERROR",
     message: e?.message || "Internal error",
-  });
+  };
+  if (e?.data != null) body.data = e.data;
+  res.status(status).json(body);
 }
 
 export class ForecastEntityController {
@@ -65,6 +68,19 @@ export class ForecastEntityController {
   static async resyncCoa(req: Request, res: Response) {
     try {
       const data = await ForecastEntityService.resyncFromGlobalCoa(req.params.id);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async archive(req: Request, res: Response) {
+    try {
+      const data = await ForecastEntityService.archive(
+        req.params.id,
+        req.body || {},
+        (req as any).user
+      );
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);

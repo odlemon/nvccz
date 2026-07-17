@@ -463,11 +463,11 @@ export class FpaModelPlanningOwnersService {
         status: { notIn: ["SUBMITTED", "APPROVED"] },
       },
     });
-    // Coordinator consolidates later — cycle stays OPEN until all owners submit, then IN_REVIEW.
+    // All owner slices submitted — stay OPEN until FP&A consolidates via POST …/submit
     if (remaining === 0) {
       await prisma.modelPlanningCycle.update({
         where: { id: cycle.id },
-        data: { status: "IN_REVIEW" },
+        data: { currentStage: "READY_TO_CONSOLIDATE" },
       });
     }
     return cycle.id;

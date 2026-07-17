@@ -168,6 +168,7 @@ Optional `?modelId=` to scope versions/scenarios to one model.
 | `actualsCutoffPeriod` | date | — | Normalized to period start `YYYY-MM-01` (e.g. `2026-07-15` → `2026-07-01`) |
 | `forecastStartPeriod` | date | — | Period start `YYYY-MM-01`; **defaults to cutoff + 1 month** if omitted when cutoff is set |
 | `planningHorizon` | int | — | number of periods |
+| `materialVariancePct` | number | `5` | Absolute variance % requiring commentary (Stage 3 / Stage 5). See [fpa-model-planning-stage3-api.md](./fpa-model-planning-stage3-api.md) |
 | `baseScenarioId` | string | — | scenario on the source model |
 | `submissionDeadline` | date | — | `YYYY-MM-DD` |
 | `approvalWorkflowId` | string | — | optional workflow |
