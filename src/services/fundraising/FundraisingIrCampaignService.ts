@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { prisma } from "../../utils/database";
 import { FundraisingIrError } from "./FundraisingIrError";
-import { stageSeedForCampaignType } from "./FundraisingIrStageSeeds";
+import { FundraisingFeGapsService } from "./FundraisingFeGapsService";
 import { FundraisingFxService } from "./FundraisingFxService";
 
 const PE_FUND_REQUIRED = new Set([
@@ -79,7 +79,7 @@ export class FundraisingIrCampaignService {
     const currency = FundraisingFxService.normalizeCurrency(
       body.primaryCurrency || body.currency || "USD"
     );
-    const seed = stageSeedForCampaignType(campaignType);
+    const seed = await FundraisingFeGapsService.getSeedStagesForCampaignType(campaignType);
 
     const { campaign, stagePairs } = await prisma.$transaction(
       async (tx) => {
@@ -199,10 +199,25 @@ export class FundraisingIrCampaignService {
     if (!campaign.startDate) unmet.push("startDate required");
     if (!campaign.closeDate) unmet.push("closeDate required");
     if (!campaign.stages || campaign.stages.length < 1) {
-      unmet.push("at least one pipeline stage required");
+      unmet.push("pipeline configured: at least one stage required");
+    }
+    if (!campaign.campaignOwnerId) {
+      unmet.push("campaign owner / team assigned required");
     }
     if (PE_FUND_REQUIRED.has(String(campaign.campaignType || "").toUpperCase()) && !campaign.fundId) {
-      unmet.push("fundId required for PE/VC campaign types");
+      unmet.push("fundId / product link required for PE/VC campaign types");
+    }
+    if (String(campaign.approvalStatus || "").toUpperCase() === "REJECTED") {
+      unmet.push("compliance approval must not be REJECTED");
+    }
+    if (campaign.activationApprovalId) {
+      const approval = await prisma.fundraisingApprovalRequest.findUnique({
+        where: { id: campaign.activationApprovalId },
+        select: { status: true },
+      });
+      if (String(approval?.status || "").toUpperCase() !== "APPROVED") {
+        unmet.push("campaign activation approval must be APPROVED");
+      }
     }
 
     if (unmet.length) {

@@ -174,7 +174,10 @@ export class FundraisingIrOpportunityService {
       });
 
       return opp;
-    });
+    }, { timeout: 20000 });
+
+    // Seed outside interactive tx — avoids timeout under concurrent login sync load
+    await FundraisingIrOpportunityService.seedChecklistForStage(prisma, created.id, firstStage.id);
 
     return FundraisingIrOpportunityService.get(created.id);
   }
@@ -224,26 +227,31 @@ export class FundraisingIrOpportunityService {
       }
     }
 
+    if (amountChanges.length && !body.reason && !body.amountReason) {
+      throw FundraisingIrError.badRequest(
+        "reason (or amountReason) is required when changing opportunity amounts",
+        "VALIDATION_ERROR"
+      );
+    }
+
     if (!Object.keys(data).length && !amountChanges.length) {
       return existing;
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.fundraisingOpportunity.update({ where: { id }, data });
-      for (const change of amountChanges) {
-        await tx.opportunityAmountHistory.create({
-          data: {
-            opportunityId: id,
-            amountType: change.amountType,
-            oldValue: change.oldValue,
-            newValue: change.newValue,
-            currency: data.opportunityCurrency || existing.opportunityCurrency,
-            reason: body.reason || body.amountReason || `Updated ${change.field}`,
-            changedById: userId,
-          },
-        });
-      }
-    });
+    await prisma.fundraisingOpportunity.update({ where: { id }, data });
+    for (const change of amountChanges) {
+      await prisma.opportunityAmountHistory.create({
+        data: {
+          opportunityId: id,
+          amountType: change.amountType,
+          oldValue: change.oldValue,
+          newValue: change.newValue,
+          currency: data.opportunityCurrency || existing.opportunityCurrency,
+          reason: body.reason || body.amountReason || `Updated ${change.field}`,
+          changedById: userId,
+        },
+      });
+    }
 
     return FundraisingIrOpportunityService.get(id);
   }
@@ -283,12 +291,90 @@ export class FundraisingIrOpportunityService {
         unmet.push(`requiresKycNotBlocked: investor sanctionsStatus is ${sanctions}`);
       }
     }
-    // requiresPreviousStageChecklist — soft-pass for IR foundation (no opp checklist yet)
-    if (rules.requiresPreviousStageChecklist) {
-      // intentionally soft-pass
+    return unmet;
+  }
+
+  static async getIncompleteRequiredChecklist(
+    tx: any,
+    opportunityId: string,
+    stageId: string
+  ): Promise<string[]> {
+    const incomplete = await tx.fundraisingOpportunityChecklistItem.findMany({
+      where: { opportunityId, stageId, isRequired: true, isComplete: false },
+      select: { itemKey: true, label: true },
+    });
+    return incomplete.map(
+      (i: any) => `requiresPreviousStageChecklist: ${i.itemKey} (${i.label}) incomplete`
+    );
+  }
+
+  static async checkComplianceBlocked(investorId: string): Promise<string[]> {
+    const unmet: string[] = [];
+    const investor = await prisma.investorOrganisation.findUnique({ where: { id: investorId } });
+    if (!investor) return ["investor not found"];
+
+    const kyc = String(investor.kycStatus || "").toUpperCase();
+    const sanctions = String(investor.sanctionsStatus || "").toUpperCase();
+    if (investor.complianceHoldActive) {
+      const hold = await prisma.fundraisingComplianceHold.findFirst({
+        where: { investorId, status: "ACTIVE" },
+        orderBy: { placedAt: "desc" },
+      });
+      unmet.push(
+        hold
+          ? `compliance: active hold ${hold.id} — ${hold.reason}`
+          : "compliance: investor is on hold"
+      );
+    }
+    if (kyc === "REJECTED" || kyc === "EXPIRED") {
+      unmet.push(`compliance: investor kycStatus is ${kyc}`);
+    }
+    if (sanctions === "BLOCKED" || sanctions === "FAILED") {
+      unmet.push(`compliance: investor sanctionsStatus is ${sanctions}`);
+    }
+
+    const openKyc = await prisma.fundraisingKycCase.findFirst({
+      where: {
+        investorId,
+        status: { notIn: ["APPROVED", "CLOSED", "CANCELLED"] },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (openKyc && !String(openKyc.status).toUpperCase().startsWith("APPROVED")) {
+      unmet.push(`compliance: open KYC case ${openKyc.id} status ${openKyc.status}`);
     }
 
     return unmet;
+  }
+
+  static isComplianceSensitiveStage(stageCode: string): boolean {
+    const code = String(stageCode || "").toUpperCase();
+    return ["ADMITTED", "FUNDED", "ACTIVATED", "ASSETS_IN_TRANSITION"].includes(code);
+  }
+
+  static async seedChecklistForStage(db: any, opportunityId: string, stageId: string) {
+    const templates = await db.fundraisingStageChecklistTemplate.findMany({
+      where: { stageId },
+      orderBy: { sortOrder: "asc" },
+    });
+    if (!templates.length) return;
+    for (const tpl of templates) {
+      const existing = await db.fundraisingOpportunityChecklistItem.findFirst({
+        where: { opportunityId, stageId, itemKey: tpl.itemKey },
+        select: { id: true },
+      });
+      if (existing) continue;
+      await db.fundraisingOpportunityChecklistItem.create({
+        data: {
+          opportunityId,
+          stageId,
+          itemKey: tpl.itemKey,
+          label: tpl.label,
+          isRequired: tpl.isRequired,
+          isComplete: false,
+        },
+      });
+    }
   }
 
   static async transition(
@@ -320,6 +406,23 @@ export class FundraisingIrOpportunityService {
     let unmetRequirements: string[] = [];
     if (movingForward) {
       unmetRequirements = FundraisingIrOpportunityService.evaluateGates(toStage, opp, opp.investor);
+
+      if (FundraisingIrOpportunityService.isComplianceSensitiveStage(toStage.stageCode)) {
+        const complianceUnmet = await FundraisingIrOpportunityService.checkComplianceBlocked(opp.investorId);
+        unmetRequirements.push(...complianceUnmet);
+      }
+
+      if (fromStage) {
+        const toRules = (toStage.gateRules || {}) as Record<string, unknown>;
+        if (toRules.requiresPreviousStageChecklist) {
+          const checklistUnmet = await FundraisingIrOpportunityService.getIncompleteRequiredChecklist(
+            prisma,
+            id,
+            fromStage.id
+          );
+          unmetRequirements.push(...checklistUnmet);
+        }
+      }
     }
 
     if (unmetRequirements.length) {
@@ -328,27 +431,34 @@ export class FundraisingIrOpportunityService {
       });
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.fundraisingOpportunity.update({
-        where: { id },
-        data: {
-          currentStageId: toStage.id,
-          stageProbability: toStage.winProbabilityPct,
-        },
-      });
-      await tx.opportunityStageHistory.create({
-        data: {
-          opportunityId: id,
-          fromStageId: fromStage?.id ?? opp.currentStageId,
-          toStageId: toStage.id,
-          fromStageCode: fromStage?.stageCode ?? opp.currentStage?.stageCode ?? null,
-          toStageCode: toStage.stageCode,
-          reason: body.reason || null,
-          changedById: userId,
-          gateResult: { passed: true, movingForward, softPassChecklist: true },
-        },
-      });
-    });
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.fundraisingOpportunity.update({
+          where: { id },
+          data: {
+            currentStageId: toStage.id,
+            stageProbability: toStage.winProbabilityPct,
+          },
+        });
+        await tx.opportunityStageHistory.create({
+          data: {
+            opportunityId: id,
+            fromStageId: fromStage?.id ?? opp.currentStageId,
+            toStageId: toStage.id,
+            fromStageCode: fromStage?.stageCode ?? opp.currentStage?.stageCode ?? null,
+            toStageCode: toStage.stageCode,
+            reason: body.reason || null,
+            changedById: userId,
+            gateResult: { passed: true, movingForward },
+          },
+        });
+      },
+      { timeout: 20000 }
+    );
+
+    if (movingForward) {
+      await FundraisingIrOpportunityService.seedChecklistForStage(prisma, id, toStage.id);
+    }
 
     return FundraisingIrOpportunityService.get(id);
   }

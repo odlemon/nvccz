@@ -15,6 +15,8 @@ function sendError(res: Response, e: any) {
     };
     if (e.unmetRequirements) error.unmetRequirements = e.unmetRequirements;
     if (e.unmet) error.unmet = e.unmet;
+    if (e.field) error.field = e.field;
+    if (e.existingId) error.existingId = e.existingId;
     return res.status(e.statusCode || 400).json({ success: false, error });
   }
   if (e?.statusCode) {
@@ -258,6 +260,18 @@ export class FundraisingIrController {
         q: req.query.q as string | undefined,
         status: req.query.status as string | undefined,
         investorType: req.query.investorType as string | undefined,
+        country: req.query.country as string | undefined,
+        countryCode: req.query.countryCode as string | undefined,
+        jurisdiction: req.query.jurisdiction as string | undefined,
+        kycStatus: req.query.kycStatus as string | undefined,
+        sanctionsStatus: req.query.sanctionsStatus as string | undefined,
+        riskRating: req.query.riskRating as string | undefined,
+        investorClassification: req.query.investorClassification as string | undefined,
+        campaignId: req.query.campaignId as string | undefined,
+        relationshipOwnerId: req.query.relationshipOwnerId as string | undefined,
+        ownerId: req.query.ownerId as string | undefined,
+        minAum: req.query.minAum as string | undefined,
+        maxAum: req.query.maxAum as string | undefined,
         page: req.query.page ? Number(req.query.page) : undefined,
         pageSize: req.query.pageSize ? Number(req.query.pageSize) : undefined,
       });

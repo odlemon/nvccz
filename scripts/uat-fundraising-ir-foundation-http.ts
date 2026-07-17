@@ -59,7 +59,7 @@ async function main() {
 
   const investorRes = await api(
     "POST",
-    "/v1/investors",
+    "/investors",
     {
       legalName: `UAT IR Investor ${stamp}`,
       investorType: "PENSION_FUND",
@@ -73,7 +73,7 @@ async function main() {
 
   const contactRes = await api(
     "POST",
-    `/v1/investors/${investorId}/contacts`,
+    `/investors/${investorId}/contacts`,
     {
       fullName: "UAT Contact",
       email: `uat-ir-${stamp}@example.com`,
@@ -86,7 +86,7 @@ async function main() {
 
   const campaignRes = await api(
     "POST",
-    "/v1/fundraising/campaigns",
+    "/fundraising/campaigns",
     {
       campaignType: "PE_FUNDRAISE",
       name: `UAT IR Campaign ${stamp}`,
@@ -106,7 +106,7 @@ async function main() {
     `status ${campaignRes.status} stages ${stageCount}`
   );
 
-  const activateRes = await api("POST", `/v1/fundraising/campaigns/${campaignId}/activate`, {}, token);
+  const activateRes = await api("POST", `/fundraising/campaigns/${campaignId}/activate`, {}, token);
   log(
     "activate campaign",
     activateRes.status === 200 && activateRes.json?.data?.status === "ACTIVE",
@@ -115,7 +115,7 @@ async function main() {
 
   const oppRes = await api(
     "POST",
-    "/v1/fundraising/opportunities",
+    "/fundraising/opportunities",
     {
       campaignId,
       investorId,
@@ -130,7 +130,7 @@ async function main() {
 
   const patchRes = await api(
     "PATCH",
-    `/v1/fundraising/opportunities/${opportunityId}`,
+    `/fundraising/opportunities/${opportunityId}`,
     { softCircleAmount: 2000000, reason: "UAT soft circle" },
     token
   );
@@ -144,7 +144,7 @@ async function main() {
   const nextStage = stages.find((s: any) => s.stageCode === "CONTACTED") || stages[1];
   const transitionRes = await api(
     "POST",
-    `/v1/fundraising/opportunities/${opportunityId}/transition`,
+    `/fundraising/opportunities/${opportunityId}/transition`,
     { toStageCode: nextStage?.stageCode || "CONTACTED", reason: "UAT stage move" },
     token
   );
@@ -155,25 +155,25 @@ async function main() {
     `status ${transitionRes.status}`
   );
 
-  const timelineRes = await api("GET", `/v1/fundraising/opportunities/${opportunityId}/timeline`, undefined, token);
+  const timelineRes = await api("GET", `/fundraising/opportunities/${opportunityId}/timeline`, undefined, token);
   const events = timelineRes.json?.data?.events?.length ?? 0;
   log("timeline", timelineRes.status === 200 && events >= 2, `status ${timelineRes.status} events ${events}`);
 
-  const dashRes = await api("GET", `/v1/fundraising/dashboard?campaignId=${campaignId}`, undefined, token);
+  const dashRes = await api("GET", `/fundraising/dashboard?campaignId=${campaignId}`, undefined, token);
   log(
     "executive dashboard",
     dashRes.status === 200 && dashRes.json?.data?.targetTotal != null,
     `status ${dashRes.status}`
   );
 
-  const campDash = await api("GET", `/v1/fundraising/campaigns/${campaignId}/dashboard`, undefined, token);
+  const campDash = await api("GET", `/fundraising/campaigns/${campaignId}/dashboard`, undefined, token);
   log(
     "campaign dashboard",
     campDash.status === 200 && Array.isArray(campDash.json?.data?.stages),
     `status ${campDash.status}`
   );
 
-  const summaryRes = await api("GET", `/v1/investors/${investorId}/relationship-summary`, undefined, token);
+  const summaryRes = await api("GET", `/investors/${investorId}/relationship-summary`, undefined, token);
   log(
     "relationship summary",
     summaryRes.status === 200 && summaryRes.json?.data?.opportunityCount >= 1,
