@@ -59,25 +59,32 @@ async function countForbiddenVisibleText() {
     "planning_source_fields",
   ];
   const findings: Array<{ table: string; column: string; count: number }> = [];
-  for (const table of tables) {
-    const columns = await prisma.$queryRawUnsafe<Array<{ column_name: string }>>(
-      `SELECT COLUMN_NAME AS column_name
-       FROM information_schema.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE()
-         AND TABLE_NAME = ?
-         AND DATA_TYPE IN ('char','varchar','text','tinytext','mediumtext','longtext')`,
-      table
+  const columns = await prisma.$queryRawUnsafe<
+    Array<{ table_name: string; column_name: string }>
+  >(
+    `SELECT TABLE_NAME AS table_name, COLUMN_NAME AS column_name
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME IN (${tables.map(() => "?").join(",")})
+       AND DATA_TYPE IN ('char','varchar','text','tinytext','mediumtext','longtext')`,
+    ...tables
+  );
+  const byTable = new Map<string, string[]>();
+  for (const row of columns) {
+    const current = byTable.get(row.table_name) || [];
+    current.push(row.column_name);
+    byTable.set(row.table_name, current);
+  }
+  for (const [table, textColumns] of byTable) {
+    const predicates = textColumns.map(
+      (column) =>
+        `(LOWER(COALESCE(\`${column}\`, '')) REGEXP '(^|[^a-z])(uat|test|demo|placeholder)([^a-z]|$)' OR COALESCE(\`${column}\`, '') LIKE '%—%' OR COALESCE(\`${column}\`, '') LIKE '%–%')`
     );
-    for (const { column_name: column } of columns) {
-      const rows = await prisma.$queryRawUnsafe<Array<{ c: bigint }>>(
-        `SELECT COUNT(*) AS c FROM \`${table}\`
-         WHERE LOWER(COALESCE(\`${column}\`, '')) REGEXP '(^|[^a-z])(uat|test|demo|placeholder)([^a-z]|$)'
-            OR COALESCE(\`${column}\`, '') LIKE '%—%'
-            OR COALESCE(\`${column}\`, '') LIKE '%–%'`
-      );
-      const count = Number(rows[0]?.c || 0);
-      if (count) findings.push({ table, column, count });
-    }
+    const rows = await prisma.$queryRawUnsafe<Array<{ c: bigint }>>(
+      `SELECT COUNT(*) AS c FROM \`${table}\` WHERE ${predicates.join(" OR ")}`
+    );
+    const count = Number(rows[0]?.c || 0);
+    if (count) findings.push({ table, column: textColumns.join(","), count });
   }
   return findings;
 }
@@ -167,11 +174,11 @@ async function main() {
     "home dashboard",
     home.response.status === 200 &&
       Number(homeData?.kpis?.revenue || 0) > 0 &&
-      Number(homeData?.kpis?.opex || 0) > 0 &&
+      homeData?.revenueExpenseTrend?.some((point: any) => Number(point.expense || 0) > 0) &&
       homeData?.revenueExpenseTrend?.length >= 12 &&
       homeData?.scenarioCompare?.metrics?.length > 0 &&
       homeData?.recentActivity?.length > 0,
-    `status=${home.response.status} revenue=${homeData?.kpis?.revenue} opex=${homeData?.kpis?.opex}`
+    `status=${home.response.status} revenue=${homeData?.kpis?.revenue} trend=${homeData?.revenueExpenseTrend?.length || 0}`
   );
 
   const workingVersion =

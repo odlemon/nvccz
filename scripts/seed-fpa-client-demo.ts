@@ -10,6 +10,13 @@ import { randomBytes } from "crypto";
 import { PrismaClient } from "@prisma/client";
 import { assertDevDatabase } from "./lib/assert-dev-database";
 
+if (process.env.DATABASE_URL) {
+  const seedDatabaseUrl = new URL(process.env.DATABASE_URL);
+  seedDatabaseUrl.searchParams.set("connection_limit", "3");
+  seedDatabaseUrl.searchParams.set("pool_timeout", "60");
+  process.env.DATABASE_URL = seedDatabaseUrl.toString();
+}
+
 const prisma = new PrismaClient();
 const FIXED_NOW = new Date("2026-07-15T09:00:00.000Z");
 const FORBIDDEN_VISIBLE = /\b(?:uat|test|demo|placeholder)\b|[\u2013\u2014]/i;
@@ -48,7 +55,7 @@ async function create(delegate: any, data: Record<string, unknown>) {
 
 async function createMany(delegate: any, rows: Record<string, unknown>[], label: string) {
   inspectVisible(rows, label);
-  const batchSize = 500;
+  const batchSize = 1000;
   for (let offset = 0; offset < rows.length; offset += batchSize) {
     await delegate.createMany({
       data: rows.slice(offset, offset + batchSize),

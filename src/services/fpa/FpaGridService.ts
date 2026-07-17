@@ -823,21 +823,6 @@ export class FpaGridService {
     }
 
     if (!cell) throw new FpaError(404, "NOT_FOUND", "Cell not found");
-    const lineItemForEdit = await prisma.planningLineItem.findUnique({ where: { id: cell.lineItemId } });
-    if (isCalculatedLineItem(lineItemForEdit) || lineItemForEdit?.isEditable === false) {
-      await FpaAuditService.log("CELL_EDIT_BLOCKED", userId, {
-        modelId: cell.modelId,
-        versionId: cell.versionId,
-        cellId: cell.id,
-        lineItemId: cell.lineItemId,
-        moduleId: lineItemForEdit?.moduleId || null,
-        entityType: "CELL",
-        reason: "Calculated or non-editable line item",
-        ip,
-      });
-      throw new FpaError(409, "CELL_NOT_EDITABLE", "Calculated or non-editable line items cannot be edited");
-    }
-
     let allowLockedPublished = false;
     if (input.cycleId) {
       const mpc = await prisma.modelPlanningCycle.findUnique({
@@ -865,6 +850,24 @@ export class FpaGridService {
           allowLockedPublished = true;
         }
       }
+    }
+
+    const lineItemForEdit = await prisma.planningLineItem.findUnique({ where: { id: cell.lineItemId } });
+    if (isCalculatedLineItem(lineItemForEdit) || lineItemForEdit?.isEditable === false) {
+      await FpaAuditService.log("CELL_EDIT_BLOCKED", userId, {
+        modelId: cell.modelId,
+        versionId: cell.versionId,
+        cellId: cell.id,
+        lineItemId: cell.lineItemId,
+        moduleId: lineItemForEdit?.moduleId || null,
+        entityType: "CELL",
+        reason: "Calculated or non-editable line item",
+        ip,
+      });
+      throw new FpaError(409, "CELL_NOT_EDITABLE", "Calculated or non-editable line items cannot be edited");
+    }
+
+    if (input.cycleId) {
       const scoped = await FpaAccessService.resolveCycleDepartmentIds(user, input.cycleId);
       if (scoped && scoped.length === 0) {
         throw new FpaError(403, "FORBIDDEN", "You are not assigned to this planning cycle");
