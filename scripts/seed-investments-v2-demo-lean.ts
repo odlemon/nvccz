@@ -30,6 +30,27 @@ const EQUITIES = [
   { symbol: "INN", name: "Innscor Africa Limited", sector: "Consumer Staples", price: 42.1, qty: 5000, wac: 39.0 },
 ];
 
+const EXTRA_PORTFOLIOS = [
+  {
+    name: "Arcus Growth Equity Fund",
+    description: "Growth-oriented listed equity mandate focused on ZSE financials and telecoms",
+    holdings: [
+      { symbol: "ECO", qty: 80000, wac: 4.0, price: 4.55 },
+      { symbol: "CBZ", qty: 12000, wac: 11.0, price: 12.45 },
+      { symbol: "FBC", qty: 15000, wac: 7.5, price: 8.3 },
+    ],
+  },
+  {
+    name: "Arcus Income Mandate",
+    description: "Dividend-focused listed equity sleeve for institutional income clients",
+    holdings: [
+      { symbol: "DLTA", qty: 22000, wac: 16.0, price: 18.75 },
+      { symbol: "BAT", qty: 3500, wac: 76.0, price: 85.0 },
+      { symbol: "INN", qty: 8000, wac: 38.0, price: 42.1 },
+    ],
+  },
+];
+
 const SETTLED_TRADES = [
   { ref: "ALP-CBZ-2026", symbol: "CBZ", side: "BUY" as const, qty: 5000, price: 11.2, fees: 112, daysAgo: 45 },
   { ref: "ALP-DLTA-2026", symbol: "DLTA", side: "BUY" as const, qty: 3000, price: 16.5, fees: 99, daysAgo: 40 },
@@ -597,6 +618,1294 @@ async function ensureOrder(opts: {
   return order;
 }
 
+async function cleanupOrphanComplianceResults() {
+  const orphans = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT r.id FROM investment_compliance_results r
+    LEFT JOIN investment_orders o ON o.id = r.order_id
+    WHERE o.id IS NULL
+  `;
+  if (orphans.length) {
+    await prisma.investmentComplianceResult.deleteMany({
+      where: { id: { in: orphans.map((r) => r.id) } },
+    });
+    console.log(`[ok] removed ${orphans.length} orphan compliance result(s)`);
+  }
+}
+
+async function upsertSettingCatalog(
+  type: string,
+  items: Array<Record<string, unknown>>,
+  adminId: string
+) {
+  const key = `reference.${type}`;
+  await prisma.investmentOpsSetting.upsert({
+    where: { settingKey: key },
+    create: {
+      settingKey: key,
+      settingValue: { version: 1, items },
+      updatedById: adminId,
+    },
+    update: {
+      settingValue: { version: 1, items },
+      updatedById: adminId,
+    },
+  });
+}
+
+async function ensureSetupCatalogs(adminId: string) {
+  const now = new Date().toISOString();
+  const mk = (name: string, extra: Record<string, unknown> = {}) => ({
+    id: `seed-${name.toLowerCase().replace(/\s+/g, "-")}`,
+    name,
+    version: 1,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+    ...extra,
+  });
+  await upsertSettingCatalog(
+    "tags",
+    [
+      mk("Core ZSE", { code: "CORE_ZSE", color: "#1e40af" }),
+      mk("Income Sleeve", { code: "INCOME", color: "#047857" }),
+      mk("Watchlist", { code: "WATCH", color: "#b45309" }),
+    ],
+    adminId
+  );
+  await upsertSettingCatalog(
+    "coupon-frequencies",
+    [
+      mk("Semi-Annual", { code: "SEMI_ANNUAL", periodsPerYear: 2 }),
+      mk("Quarterly", { code: "QUARTERLY", periodsPerYear: 4 }),
+      mk("Annual", { code: "ANNUAL", periodsPerYear: 1 }),
+    ],
+    adminId
+  );
+  await upsertSettingCatalog(
+    "instrument-subcategories",
+    [
+      mk("Large Cap Financials", { code: "LC_FIN", instrumentTypeCode: "EQUITY" }),
+      mk("Telecoms", { code: "TELCO", instrumentTypeCode: "EQUITY" }),
+      mk("Consumer Staples", { code: "CONS_STAP", instrumentTypeCode: "EQUITY" }),
+    ],
+    adminId
+  );
+  await upsertSettingCatalog(
+    "corporate-action-mappings",
+    [
+      mk("Cash Dividend", { actionType: "DIVIDEND_CASH", glDebit: "1200", glCredit: "4010" }),
+      mk("Stock Split", { actionType: "SPLIT", glDebit: "1501", glCredit: "1501" }),
+      mk("Rights Issue", { actionType: "RIGHTS", glDebit: "1501", glCredit: "3010" }),
+    ],
+    adminId
+  );
+  await upsertSettingCatalog(
+    "icons",
+    EQUITIES.slice(0, 5).map((eq) =>
+      mk(`${eq.symbol} Logo`, {
+        code: eq.symbol,
+        imageUrl: `storage/local-upload-mock/investment-ops-icons/${eq.symbol.toLowerCase()}.png`,
+        mimeType: "image/png",
+        linkedTicker: eq.symbol,
+      })
+    ),
+    adminId
+  );
+  console.log(`[ok] setup catalogs (tags, coupons, subcategories, corp actions, icons)`);
+}
+
+async function ensurePortfolioFolders(
+  fundId: string,
+  cfgId: string,
+  adminId: string,
+  folderSpecs: Array<{ path: string; name: string; sortOrder: number }>
+) {
+  const folders = [];
+  for (const spec of folderSpecs) {
+    let folder = await prisma.investmentPortfolioFolder.findFirst({
+      where: { fundId, path: spec.path },
+    });
+    if (!folder) {
+      folder = await prisma.investmentPortfolioFolder.create({
+        data: {
+          fundId,
+          name: spec.name,
+          path: spec.path,
+          sortOrder: spec.sortOrder,
+          createdById: adminId,
+        },
+      });
+    }
+    folders.push(folder);
+  }
+  const primaryFolder = folders[0];
+  if (primaryFolder) {
+    const existing = await prisma.investmentPortfolioAssignment.findFirst({
+      where: {
+        portfolioConfigId: cfgId,
+        userId: adminId,
+        assignmentRole: "PORTFOLIO_MANAGER",
+      },
+    });
+    if (!existing) {
+      await prisma.investmentPortfolioAssignment.create({
+        data: {
+          portfolioConfigId: cfgId,
+          folderId: primaryFolder.id,
+          userId: adminId,
+          assignmentRole: "PORTFOLIO_MANAGER",
+          createdById: adminId,
+        },
+      });
+    } else if (!existing.folderId) {
+      await prisma.investmentPortfolioAssignment.update({
+        where: { id: existing.id },
+        data: { folderId: primaryFolder.id },
+      });
+    }
+  }
+  return folders;
+}
+
+async function ensurePriceAndFxLifecycle(
+  securityBySymbol: Record<string, string>,
+  adminId: string,
+  approverId: string
+) {
+  const ecoId = securityBySymbol.ECO;
+  if (ecoId) {
+    for (const [key, status, price] of [
+      ["seed-tick-pending-eco", "PENDING_REVIEW", 4.62],
+      ["seed-tick-rejected-eco", "REJECTED", 9.99],
+    ] as const) {
+      const existing = await prisma.listedEquityPriceTick.findFirst({ where: { idempotencyKey: key } });
+      if (!existing) {
+        await prisma.listedEquityPriceTick.create({
+          data: {
+            securityId: ecoId,
+            price: new Decimal(price),
+            priceType: "CLOSE",
+            validationStatus: status,
+            pricedAt: new Date(),
+            tickFrequency: "EOD",
+            sourceStatus: "OK",
+            sourceCode: "MANUAL",
+            idempotencyKey: key,
+            ...(status === "REJECTED"
+              ? { reviewedById: approverId, reviewedAt: new Date(), approvalReason: "Outlier vs prior close" }
+              : {}),
+          },
+        });
+      }
+    }
+  }
+
+  const fxApprovedKey = "seed-fx-usd-zwg-approved";
+  let fxApproved = await prisma.investmentFxRateSnapshot.findFirst({
+    where: { idempotencyKey: fxApprovedKey },
+  });
+  if (!fxApproved) {
+    fxApproved = await prisma.investmentFxRateSnapshot.create({
+      data: {
+        baseCurrencyCode: "USD",
+        quoteCurrencyCode: "ZWG",
+        rate: new Decimal(26.5),
+        rateType: "SPOT",
+        sourceCode: "RBZ",
+        sourceObservedAt: new Date(),
+        approvalStatus: "APPROVED",
+        approvedById: approverId,
+        approvedAt: new Date(),
+        idempotencyKey: fxApprovedKey,
+      },
+    });
+  }
+
+  const fxPendingKey = "seed-fx-usd-zar-pending";
+  if (!(await prisma.investmentFxRateSnapshot.findFirst({ where: { idempotencyKey: fxPendingKey } }))) {
+    await prisma.investmentFxRateSnapshot.create({
+      data: {
+        baseCurrencyCode: "USD",
+        quoteCurrencyCode: "ZAR",
+        rate: new Decimal(18.2),
+        rateType: "SPOT",
+        sourceCode: "MANUAL",
+        sourceObservedAt: new Date(),
+        approvalStatus: "PENDING",
+        idempotencyKey: fxPendingKey,
+      },
+    });
+  }
+  console.log(`[ok] FX snapshots + price validation ticks`);
+  return fxApproved;
+}
+
+async function ensureValuationInputs(
+  runId: string,
+  holdings: Array<{ instrumentId: string; price: number; securityId: string }>,
+  fxSnapshotId?: string
+) {
+  for (const h of holdings) {
+    const tick = await prisma.listedEquityPriceTick.findFirst({
+      where: { securityId: h.securityId, validationStatus: "APPROVED" },
+      orderBy: { pricedAt: "desc" },
+    });
+    const valueJson = { price: h.price, ticker: EQUITIES.find((e) => e.price === h.price)?.symbol };
+    const contentHash = sha(`${runId}:PRICE:${h.instrumentId}:${h.price}`);
+    await prisma.investmentValuationInputSnapshot.upsert({
+      where: {
+        valuationRunId_inputType_instrumentId: {
+          valuationRunId: runId,
+          inputType: "PRICE",
+          instrumentId: h.instrumentId,
+        },
+      },
+      create: {
+        valuationRunId: runId,
+        inputType: "PRICE",
+        instrumentId: h.instrumentId,
+        priceTickId: tick?.id ?? null,
+        sourceCode: tick?.sourceCode ?? "SEED_EOD",
+        sourceObservedAt: tick?.pricedAt ?? new Date(),
+        valueJson,
+        contentHash,
+      },
+      update: {
+        priceTickId: tick?.id ?? null,
+        valueJson,
+        contentHash,
+      },
+    });
+  }
+  if (fxSnapshotId) {
+    const contentHash = sha(`${runId}:FX:${fxSnapshotId}`);
+    const existingFx = await prisma.investmentValuationInputSnapshot.findFirst({
+      where: { valuationRunId: runId, inputType: "FX" },
+    });
+    if (!existingFx) {
+      await prisma.investmentValuationInputSnapshot.create({
+        data: {
+          valuationRunId: runId,
+          inputType: "FX",
+          fxSnapshotId,
+          sourceCode: "RBZ",
+          sourceObservedAt: new Date(),
+          valueJson: { base: "USD", quote: "ZWG", rate: "26.5" },
+          contentHash,
+        },
+      });
+    } else {
+      await prisma.investmentValuationInputSnapshot.update({
+        where: { id: existingFx.id },
+        data: {
+          fxSnapshotId,
+          valueJson: { base: "USD", quote: "ZWG", rate: "26.5" },
+          contentHash,
+        },
+      });
+    }
+  }
+  console.log(`[ok] valuation input snapshots for run ${runId}`);
+}
+
+async function ensureAccountingDemo(opts: {
+  fundId: string;
+  adminId: string;
+  approverId: string;
+  tradeRef: string;
+  tradeId: string;
+  amount: number;
+}) {
+  const usd = await prisma.currency.findFirst({ where: { code: "USD", isActive: true } });
+  const assetAcct = await prisma.chartOfAccounts.findFirst({
+    where: { OR: [{ accountNo: "1501" }, { accountName: { contains: "Portfolio" } }], isActive: true },
+  });
+  const bankAcct = await prisma.chartOfAccounts.findFirst({
+    where: { accountNo: { in: ["1100", "1010", "1000"] }, isActive: true },
+  });
+  if (!usd || !assetAcct || !bankAcct) {
+    console.log("[skip] accounting journals — chart of accounts / USD currency missing");
+    return;
+  }
+
+  const jeRef = `IO-SEED-${opts.tradeRef}`.slice(0, 60);
+  let journal = await prisma.journalEntry.findFirst({ where: { referenceNumber: jeRef } });
+  if (!journal) {
+    journal = await prisma.journalEntry.create({
+      data: {
+        transactionDate: new Date(),
+        referenceNumber: jeRef,
+        description: `Listed equity purchase — ${opts.tradeRef}`,
+        totalAmount: new Decimal(opts.amount),
+        currencyId: usd.id,
+        status: "POSTED",
+        createdById: opts.adminId,
+        journalEntryLines: {
+          create: [
+            {
+              chartOfAccountId: assetAcct.id,
+              debitAmount: new Decimal(opts.amount),
+              creditAmount: new Decimal(0),
+              description: "Dr Listed securities",
+            },
+            {
+              chartOfAccountId: bankAcct.id,
+              debitAmount: new Decimal(0),
+              creditAmount: new Decimal(opts.amount),
+              description: "Cr Bank clearing",
+            },
+          ],
+        },
+      },
+    });
+  }
+
+  const acctEvent = await prisma.investmentAccountingEvent.findFirst({
+    where: { tradeRef: opts.tradeRef, fundId: opts.fundId },
+  });
+  if (acctEvent) {
+    await prisma.investmentAccountingEvent.update({
+      where: { id: acctEvent.id },
+      data: { journalEntryId: journal.id, status: "POSTED", postedAt: new Date() },
+    });
+    await prisma.listedEquityTradeSettlement.updateMany({
+      where: { tradeId: opts.tradeId },
+      data: { journalEntryId: journal.id },
+    });
+
+    if (
+      !(await prisma.investmentAccountingJournalWorkflow.findFirst({
+        where: { accountingEventId: acctEvent.id, action: "POST" },
+      }))
+    ) {
+      await prisma.investmentAccountingJournalWorkflow.create({
+        data: {
+          accountingEventId: acctEvent.id,
+          journalEntryId: journal.id,
+          workflowStatus: "POSTED",
+          sequenceNo: 1,
+          action: "POST",
+          actorId: opts.adminId,
+          idempotencyKey: `seed-wf-post-${acctEvent.id}`,
+        },
+      });
+      await prisma.investmentAccountingJournalWorkflow.create({
+        data: {
+          accountingEventId: acctEvent.id,
+          journalEntryId: journal.id,
+          workflowStatus: "APPROVED",
+          sequenceNo: 2,
+          action: "APPROVE",
+          actorId: opts.approverId,
+          idempotencyKey: `seed-wf-appr-${acctEvent.id}`,
+        },
+      });
+    }
+
+    const failedEvent = await prisma.investmentAccountingEvent.findFirst({
+      where: { fundId: opts.fundId, status: "FAILED" },
+    });
+    if (!failedEvent) {
+      await prisma.investmentAccountingEvent.create({
+        data: {
+          fundId: opts.fundId,
+          sourceType: "LISTED_EQUITY_TRADE",
+          sourceId: opts.tradeId,
+          eventType: "PURCHASE",
+          status: "FAILED",
+          tradeRef: `${opts.tradeRef}-RETRY`,
+          amount: new Decimal(opts.amount),
+          currencyCode: "USD",
+          idempotencyKey: `seed-acct-failed-${opts.tradeRef}`,
+        },
+      });
+    }
+
+    const pendingEvent = await prisma.investmentAccountingEvent.findFirst({
+      where: { fundId: opts.fundId, status: "NOT_POSTED" },
+    });
+    if (!pendingEvent) {
+      await prisma.investmentAccountingEvent.create({
+        data: {
+          fundId: opts.fundId,
+          sourceType: "INVESTMENT_ORDER",
+          sourceId: opts.tradeId,
+          eventType: "SETTLEMENT",
+          status: "NOT_POSTED",
+          tradeRef: `${opts.tradeRef}-PENDING`,
+          amount: new Decimal(opts.amount * 0.5),
+          currencyCode: "USD",
+          idempotencyKey: `seed-acct-pending-${opts.tradeRef}`,
+        },
+      });
+    }
+
+    if (
+      !(await prisma.investmentAccountingReversal.findFirst({
+        where: { accountingEventId: acctEvent.id },
+      }))
+    ) {
+      await prisma.investmentAccountingReversal.create({
+        data: {
+          accountingEventId: acctEvent.id,
+          originalJournalEntryId: journal.id,
+          status: "REQUESTED",
+          reason: "Demo reversal — duplicate settlement posting review",
+          requestedById: opts.adminId,
+          idempotencyKey: `seed-reversal-${acctEvent.id}`,
+        },
+      });
+    }
+
+    const exportRef = `SEED-GL-EXPORT-${opts.fundId.slice(0, 8)}`;
+    const exportPath = `storage/local-upload-mock/investment-ops-ledger-exports/${exportRef}.json`;
+    if (
+      !(await prisma.investmentAccountingExportLink.findFirst({
+        where: { exportBatchRef: exportRef },
+      }))
+    ) {
+      await prisma.investmentAccountingExportLink.create({
+        data: {
+          accountingEventId: acctEvent.id,
+          exportSystem: "CORE_GL",
+          exportBatchRef: exportRef,
+          externalRef: exportPath,
+          status: "COMPLETED",
+          payloadHash: sha(exportRef),
+          exportedAt: new Date(),
+          idempotencyKey: `seed-export-${acctEvent.id}`,
+        },
+      });
+    }
+    console.log(`[ok] accounting journals/workflows/reversal/export for ${opts.tradeRef}`);
+  }
+}
+
+async function ensureSpCashRich(opts: {
+  fund: { id: string; name: string };
+  cashAccountId: string;
+  adminId: string;
+  approverId: string;
+}) {
+  const { fund, cashAccountId, adminId, approverId } = opts;
+  const valueDate = new Date("2025-06-01");
+  const openingKey = `seed:opening:${cashAccountId}`;
+
+  if (!(await prisma.spCashJournal.findFirst({ where: { idempotencyKey: openingKey } }))) {
+    await prisma.spCashJournal.create({
+      data: {
+        sourceSystem: "SEED",
+        sourceEventId: `OPENING-${fund.id.slice(0, 8)}`,
+        postingPurpose: "OPENING",
+        idempotencyKey: openingKey,
+        valueDate,
+        settlementDate: valueDate,
+        postingBusinessDate: valueDate,
+        currency: CURRENCY,
+        status: "POSTED",
+        makerId: adminId,
+        checkerId: approverId !== adminId ? approverId : adminId,
+        cashAccountId,
+        portfolioId: fund.id,
+        postedAt: new Date(),
+        version: 1,
+        lines: {
+          create: [
+            {
+              ledgerAccountCode: "CASH",
+              cashAccountId,
+              debit: new Decimal("2500000"),
+              credit: new Decimal(0),
+              signedCashAmount: new Decimal("2500000"),
+              currency: CURRENCY,
+              description: `Opening cash — ${fund.name}`,
+              matchStatus: "UNMATCHED",
+            },
+            {
+              ledgerAccountCode: "OPENING_EQUITY",
+              debit: new Decimal(0),
+              credit: new Decimal("2500000"),
+              signedCashAmount: new Decimal(0),
+              currency: CURRENCY,
+              description: "Opening equity balancing line",
+              matchStatus: null,
+            },
+          ],
+        },
+      },
+    });
+  }
+
+  const tradeKey = `seed:trade-settle:${fund.id.slice(0, 8)}`;
+  if (!(await prisma.spCashJournal.findFirst({ where: { idempotencyKey: tradeKey } }))) {
+    await prisma.spCashJournal.create({
+      data: {
+        sourceSystem: "SEED",
+        sourceEventId: `TRADE-SETTLE-${fund.id.slice(0, 8)}`,
+        postingPurpose: "TRADE_SETTLEMENT",
+        idempotencyKey: tradeKey,
+        valueDate: new Date(),
+        settlementDate: new Date(),
+        postingBusinessDate: new Date(),
+        currency: CURRENCY,
+        status: "POSTED",
+        makerId: adminId,
+        checkerId: approverId !== adminId ? approverId : adminId,
+        cashAccountId,
+        portfolioId: fund.id,
+        postedAt: new Date(),
+        version: 1,
+        lines: {
+          create: [
+            {
+              ledgerAccountCode: "CASH",
+              cashAccountId,
+              debit: new Decimal(0),
+              credit: new Decimal("125000"),
+              signedCashAmount: new Decimal("-125000"),
+              currency: CURRENCY,
+              description: "CBZ purchase settlement",
+              matchStatus: "UNMATCHED",
+            },
+            {
+              ledgerAccountCode: "TRADE_PAYABLE",
+              debit: new Decimal("125000"),
+              credit: new Decimal(0),
+              signedCashAmount: new Decimal(0),
+              currency: CURRENCY,
+              description: "Trade payable clearing",
+              matchStatus: null,
+            },
+          ],
+        },
+      },
+    });
+  }
+
+  let reconBatch = await prisma.spCashReconciliationBatch.findFirst({
+    where: { cashAccountId, fundId: fund.id },
+  });
+  if (!reconBatch) {
+    reconBatch = await prisma.spCashReconciliationBatch.create({
+      data: {
+        cashAccountId,
+        currency: CURRENCY,
+        periodFrom: new Date("2025-06-01"),
+        periodTo: new Date(),
+        reconType: "BANK",
+        openingInternal: new Decimal("2500000"),
+        closingInternal: new Decimal("2375000"),
+        openingExternal: new Decimal("2500000"),
+        closingExternal: new Decimal("2374800"),
+        variance: new Decimal("200"),
+        toleranceAmount: new Decimal("500"),
+        status: "IN_PROGRESS",
+        makerId: adminId,
+        checkerId: approverId,
+        fundId: fund.id,
+        autoMatchEnabled: true,
+        version: 1,
+      },
+    });
+  }
+
+  if (
+    !(await prisma.spCashReconciliationException.findFirst({
+      where: { cashAccountId, category: "TIMING" },
+    }))
+  ) {
+    await prisma.spCashReconciliationException.create({
+      data: {
+        batchId: reconBatch.id,
+        cashAccountId,
+        clientOrVehicleId: `vehicle:${fund.id}`,
+        category: "TIMING",
+        severity: "MEDIUM",
+        status: "OPEN",
+        amountTxn: new Decimal("200"),
+        currencyTxn: CURRENCY,
+        assignedToId: adminId,
+        source: "AUTO_RECON",
+        counterparty: "CBZ Custody",
+        version: 1,
+      },
+    });
+  }
+
+  if (!(await prisma.spCashBrokerCustodianItem.findFirst({ where: { portfolioId: fund.id } }))) {
+    await prisma.spCashBrokerCustodianItem.create({
+      data: {
+        portfolioId: fund.id,
+        instrumentIsin: "ZW000901RFT6",
+        instrumentName: "Delta Corporation",
+        symbol: "DLTA",
+        quantity: new Decimal("800"),
+        price: new Decimal("18.75"),
+        tradeDate: new Date(),
+        settleDate: new Date(),
+        internalStatus: "MATCHED",
+        brokerStatus: "MATCHED",
+        custodianStatus: "PENDING",
+        overallStatus: "POTENTIAL",
+        differenceAmount: new Decimal("0"),
+        currency: CURRENCY,
+        version: 1,
+      },
+    });
+    await prisma.spCashBrokerCustodianItem.create({
+      data: {
+        portfolioId: fund.id,
+        instrumentIsin: "ZW000901ECO1",
+        instrumentName: "Econet Wireless",
+        symbol: "ECO",
+        quantity: new Decimal("5000"),
+        price: new Decimal("4.55"),
+        tradeDate: new Date(Date.now() - 86400000),
+        settleDate: new Date(),
+        internalStatus: "MATCHED",
+        brokerStatus: "UNMATCHED",
+        custodianStatus: "MATCHED",
+        overallStatus: "BREAK",
+        differenceAmount: new Decimal("2275"),
+        currency: CURRENCY,
+        version: 1,
+      },
+    });
+  }
+
+  console.log(`[ok] sp cash journals, recon batch, broker-custodian, exception`);
+}
+
+async function ensureMarketDataBatch(_adminId: string) {
+  let config = await prisma.listedEquityMarketDataSourceConfig.findFirst({
+    where: { sourceCode: "SEED_EOD" },
+  });
+  if (!config) {
+    config = await prisma.listedEquityMarketDataSourceConfig.create({
+      data: {
+        sourceCode: "SEED_EOD",
+        displayName: "Seed EOD Prices",
+        isEnabled: true,
+      },
+    });
+  }
+  const asOf = new Date();
+  asOf.setUTCHours(0, 0, 0, 0);
+  let batch = await prisma.listedEquityMarketDataIngestBatch.findFirst({
+    where: { sourceCode: "SEED_EOD", asOfDate: asOf },
+  });
+  if (!batch) {
+    batch = await prisma.listedEquityMarketDataIngestBatch.create({
+      data: {
+        sourceType: "EOD",
+        sourceCode: "SEED_EOD",
+        asOfDate: asOf,
+        sha256Checksum: sha("seed-ingest-batch-zse"),
+        recordCount: EQUITIES.length,
+        status: "COMPLETED",
+        sourceStatus: "OK",
+      },
+    });
+  }
+  console.log(`[ok] market data ingest batch ${batch.id}`);
+}
+
+const LP_DEMO_MARKER = "IO-V2-DEMO";
+
+type LpSeedClient = {
+  investorId: string;
+  email: string;
+  legalName: string;
+  commitment: number;
+};
+
+const LP_FULL_ROSTER: LpSeedClient[] = [
+  {
+    investorId: "LP-IOV2-HPF",
+    email: "lp-harare-pension@arcus.co.zw",
+    legalName: "Harare Pension Fund Trustees",
+    commitment: 5_000_000,
+  },
+  {
+    investorId: "LP-IOV2-NSSA",
+    email: "lp-nssa-equity@arcus.co.zw",
+    legalName: "NSSA Equity Sleeve",
+    commitment: 10_000_000,
+  },
+  {
+    investorId: "LP-IOV2-ZAM",
+    email: "lp-zambezi-inst@arcus.co.zw",
+    legalName: "Zambezi Institutional Investors",
+    commitment: 2_500_000,
+  },
+];
+
+const LP_LITE_ROSTER: LpSeedClient[] = [
+  {
+    investorId: "LP-IOV2-SLEEVE",
+    email: "lp-inst-sleeve@arcus.co.zw",
+    legalName: "Arcus Institutional Sleeve LP",
+    commitment: 1_000_000,
+  },
+];
+
+async function ensureLpClient(fixture: LpSeedClient) {
+  let client = await prisma.client.findFirst({
+    where: { OR: [{ investorId: fixture.investorId }, { email: fixture.email }] },
+  });
+  if (!client) {
+    client = await prisma.client.create({
+      data: {
+        investorId: fixture.investorId,
+        type: "institutional",
+        legalName: fixture.legalName,
+        email: fixture.email,
+        country: "ZW",
+        status: "ACTIVE",
+      },
+    });
+  } else {
+    client = await prisma.client.update({
+      where: { id: client.id },
+      data: {
+        investorId: fixture.investorId,
+        legalName: fixture.legalName,
+        email: fixture.email,
+        country: "ZW",
+        status: "ACTIVE",
+        type: "institutional",
+      },
+    });
+  }
+  return client;
+}
+
+async function ensureLpCommitment(clientId: string, fundId: string, amount: number) {
+  return prisma.investmentCommitment.upsert({
+    where: { clientId_fundId: { clientId, fundId } },
+    create: {
+      clientId,
+      fundId,
+      amount: new Decimal(amount),
+      currency: "USD",
+      effectiveDate: new Date("2024-06-01"),
+      status: "ACTIVE",
+      notes: LP_DEMO_MARKER,
+    },
+    update: {
+      amount: new Decimal(amount),
+      status: "ACTIVE",
+      currency: "USD",
+      notes: LP_DEMO_MARKER,
+    },
+  });
+}
+
+async function ensureFundFeePolicy(fundId: string) {
+  await prisma.fund.update({
+    where: { id: fundId },
+    data: {
+      managementFeeRate: new Decimal("0.0150"),
+      managementFeeBase: "COMMITTED",
+      managementFeeFrequency: "QUARTERLY",
+      managementFeeStartDate: new Date("2024-01-01"),
+      carryRate: new Decimal("0.10"),
+      hurdleRate: new Decimal("0.08"),
+    },
+  });
+}
+
+function lpShare(total: number, part: number, whole: number) {
+  if (!whole) return 0;
+  return Math.round((total * part) / whole * 100) / 100;
+}
+
+/** Capital calls, distributions, management fees for Fund Cash tabs (`/funds/:id/...`). */
+async function ensureLpFundCash(opts: {
+  fundId: string;
+  fundName: string;
+  currencyId: string;
+  adminId: string;
+  full?: boolean;
+}) {
+  const roster = opts.full ? LP_FULL_ROSTER : LP_LITE_ROSTER;
+  await ensureFundFeePolicy(opts.fundId);
+
+  const lpRows: Array<{
+    clientId: string;
+    commitmentId: string;
+    legalName: string;
+    commitment: number;
+  }> = [];
+  for (const lp of roster) {
+    const client = await ensureLpClient(lp);
+    const commit = await ensureLpCommitment(client.id, opts.fundId, lp.commitment);
+    lpRows.push({
+      clientId: client.id,
+      commitmentId: commit.id,
+      legalName: lp.legalName,
+      commitment: lp.commitment,
+    });
+  }
+
+  const totalCommitment = lpRows.reduce((s, r) => s + r.commitment, 0);
+  const ccMarker1 = `${LP_DEMO_MARKER}|CC1|${opts.fundId.slice(0, 8)}`;
+  const ccMarker2 = `${LP_DEMO_MARKER}|CC2|${opts.fundId.slice(0, 8)}`;
+  const distMarker1 = `${LP_DEMO_MARKER}|DIST1|${opts.fundId.slice(0, 8)}`;
+  const distMarker2 = `${LP_DEMO_MARKER}|DIST2|${opts.fundId.slice(0, 8)}`;
+  const feeMarker1 = `${LP_DEMO_MARKER}|FEE-Q1-2026|${opts.fundId.slice(0, 8)}`;
+  const feeMarker2 = `${LP_DEMO_MARKER}|FEE-Q4-2025|${opts.fundId.slice(0, 8)}`;
+
+  const due = new Date();
+  due.setDate(due.getDate() + 21);
+  const wiring = (ref: string) =>
+    JSON.stringify({
+      marker: LP_DEMO_MARKER,
+      bankName: "CBZ Bank",
+      accountName: opts.fundName,
+      accountNumber: "****4821",
+      reference: ref,
+    });
+
+  // Capital call 1 — notices sent, one LP partially paid
+  let cc1 = await prisma.capitalCall.findFirst({
+    where: { fundId: opts.fundId, bankInstructions: { contains: ccMarker1 } },
+  });
+  const call1Pct = opts.full ? 0.05 : 0.03;
+  if (!cc1) {
+    cc1 = await prisma.capitalCall.create({
+      data: {
+        fundId: opts.fundId,
+        currencyId: opts.currencyId,
+        callPercent: new Decimal(String(call1Pct)),
+        paymentDueDate: due,
+        bankInstructions: wiring(ccMarker1),
+        transactionDate: new Date(),
+        status: "NOTICES_SENT",
+        noticesSentAt: new Date(),
+        createdById: opts.adminId,
+      },
+    });
+  } else {
+    cc1 = await prisma.capitalCall.update({
+      where: { id: cc1.id },
+      data: { status: "NOTICES_SENT", noticesSentAt: cc1.noticesSentAt || new Date() },
+    });
+  }
+
+  for (const row of lpRows) {
+    const callAmt = lpShare(totalCommitment * call1Pct, row.commitment, totalCommitment);
+    const uncalled = row.commitment * 0.55;
+    let alloc = await prisma.capitalCallAllocation.findFirst({
+      where: { capitalCallId: cc1.id, clientId: row.clientId },
+    });
+    const isFirst = row.clientId === lpRows[0]?.clientId;
+    const paid = isFirst && opts.full ? callAmt * 0.5 : 0;
+    const status = paid > 0 ? (paid < callAmt ? "PARTIALLY_PAID" : "PAID") : "PENDING";
+    if (!alloc) {
+      alloc = await prisma.capitalCallAllocation.create({
+        data: {
+          capitalCallId: cc1.id,
+          clientId: row.clientId,
+          investmentCommitmentId: row.commitmentId,
+          lpLegalNameSnapshot: row.legalName,
+          totalCommitmentSnapshot: new Decimal(row.commitment),
+          uncalledCapitalBeforeSnapshot: new Decimal(uncalled),
+          currentCallAmount: new Decimal(callAmt),
+          amountPaid: new Decimal(paid),
+          status,
+        },
+      });
+    } else {
+      alloc = await prisma.capitalCallAllocation.update({
+        where: { id: alloc.id },
+        data: {
+          currentCallAmount: new Decimal(callAmt),
+          amountPaid: new Decimal(paid),
+          status,
+          investmentCommitmentId: row.commitmentId,
+        },
+      });
+    }
+    if (paid > 0 && opts.full && isFirst) {
+      const existingPay = await prisma.capitalCallAllocationPayment.findFirst({
+        where: { capitalCallAllocationId: alloc.id },
+      });
+      if (!existingPay) {
+        await prisma.capitalCallAllocationPayment.create({
+          data: {
+            capitalCallAllocationId: alloc.id,
+            amount: new Decimal(paid),
+            recordedAt: new Date(Date.now() - 3 * 86400000),
+          },
+        });
+      }
+    }
+  }
+
+  // Capital call 2 — initiated (draft notices)
+  let cc2 = await prisma.capitalCall.findFirst({
+    where: { fundId: opts.fundId, bankInstructions: { contains: ccMarker2 } },
+  });
+  const call2Pct = 0.02;
+  if (!cc2) {
+    cc2 = await prisma.capitalCall.create({
+      data: {
+        fundId: opts.fundId,
+        currencyId: opts.currencyId,
+        callPercent: new Decimal(String(call2Pct)),
+        paymentDueDate: new Date(Date.now() + 45 * 86400000),
+        bankInstructions: wiring(ccMarker2),
+        transactionDate: new Date(),
+        status: "INITIATED",
+        createdById: opts.adminId,
+      },
+    });
+    for (const row of lpRows) {
+      const callAmt = lpShare(totalCommitment * call2Pct, row.commitment, totalCommitment);
+      await prisma.capitalCallAllocation.create({
+        data: {
+          capitalCallId: cc2.id,
+          clientId: row.clientId,
+          investmentCommitmentId: row.commitmentId,
+          lpLegalNameSnapshot: row.legalName,
+          totalCommitmentSnapshot: new Decimal(row.commitment),
+          uncalledCapitalBeforeSnapshot: new Decimal(row.commitment * 0.48),
+          currentCallAmount: new Decimal(callAmt),
+          amountPaid: new Decimal(0),
+          status: "PENDING",
+        },
+      });
+    }
+  }
+
+  // Distribution 1 — dividend, notices sent
+  let dist1 = await prisma.distribution.findFirst({
+    where: { fundId: opts.fundId, notes: { contains: distMarker1 } },
+  });
+  const gross1 = opts.full ? 350_000 : 75_000;
+  const carry1 = opts.full ? 35_000 : 0;
+  const net1 = gross1 - carry1;
+  if (!dist1) {
+    dist1 = await prisma.distribution.create({
+      data: {
+        fundId: opts.fundId,
+        currencyId: opts.currencyId,
+        distributionDate: new Date("2026-03-31"),
+        source: "DIVIDEND",
+        grossAmount: new Decimal(gross1),
+        carryAmount: new Decimal(carry1),
+        netToLPs: new Decimal(net1),
+        status: "NOTICES_SENT",
+        noticesSentAt: new Date(),
+        notes: distMarker1,
+        createdById: opts.adminId,
+      },
+    });
+  }
+  for (const row of lpRows) {
+    const paidIn = row.commitment * 0.4;
+    const share = lpShare(net1, paidIn, totalCommitment * 0.4);
+    const existing = await prisma.distributionAllocation.findFirst({
+      where: { distributionId: dist1!.id, clientId: row.clientId },
+    });
+    if (!existing) {
+      await prisma.distributionAllocation.create({
+        data: {
+          distributionId: dist1!.id,
+          clientId: row.clientId,
+          investmentCommitmentId: row.commitmentId,
+          lpLegalNameSnapshot: row.legalName,
+          commitmentSnapshot: new Decimal(row.commitment),
+          paidInSnapshot: new Decimal(paidIn),
+          shareAmount: new Decimal(share),
+          amountPaid: new Decimal(0),
+          status: "PENDING",
+        },
+      });
+    }
+  }
+
+  // Distribution 2 — exit proceeds, partially paid (full book only)
+  if (opts.full) {
+    let dist2 = await prisma.distribution.findFirst({
+      where: { fundId: opts.fundId, notes: { contains: distMarker2 } },
+    });
+    if (!dist2) {
+      dist2 = await prisma.distribution.create({
+        data: {
+          fundId: opts.fundId,
+          currencyId: opts.currencyId,
+          distributionDate: new Date("2025-12-15"),
+          source: "EXIT_PROCEEDS",
+          grossAmount: new Decimal(120_000),
+          carryAmount: new Decimal(12_000),
+          netToLPs: new Decimal(108_000),
+          status: "PARTIALLY_PAID",
+          notes: distMarker2,
+          createdById: opts.adminId,
+        },
+      });
+      const first = lpRows[0];
+      const share = lpShare(108_000, first.commitment * 0.4, totalCommitment * 0.4);
+      const paid = share * 0.6;
+      const alloc = await prisma.distributionAllocation.create({
+        data: {
+          distributionId: dist2.id,
+          clientId: first.clientId,
+          investmentCommitmentId: first.commitmentId,
+          lpLegalNameSnapshot: first.legalName,
+          commitmentSnapshot: new Decimal(first.commitment),
+          paidInSnapshot: new Decimal(first.commitment * 0.4),
+          shareAmount: new Decimal(share),
+          amountPaid: new Decimal(paid),
+          status: "PARTIALLY_PAID",
+        },
+      });
+      await prisma.distributionAllocationPayment.create({
+        data: {
+          distributionAllocationId: alloc.id,
+          amount: new Decimal(paid),
+          recordedAt: new Date("2025-12-20"),
+        },
+      });
+    }
+  }
+
+  // Management fee Q1 2026 — accrued
+  const q1Fee = Math.round(totalCommitment * 0.015 * (90 / 365) * 100) / 100;
+  let fee1 = await prisma.managementFeePeriod.findFirst({
+    where: { fundId: opts.fundId, notes: { contains: feeMarker1 } },
+  });
+  if (!fee1) {
+    fee1 = await prisma.managementFeePeriod.create({
+      data: {
+        fundId: opts.fundId,
+        currencyId: opts.currencyId,
+        periodStart: new Date("2026-01-01"),
+        periodEnd: new Date("2026-03-31"),
+        feeBase: "COMMITTED",
+        feeBaseAmount: new Decimal(totalCommitment),
+        rate: new Decimal("0.0150"),
+        totalFee: new Decimal(q1Fee),
+        status: "ACCRUED",
+        notes: feeMarker1,
+        createdById: opts.adminId,
+        allocations: {
+          create: lpRows.map((row) => ({
+            clientId: row.clientId,
+            investmentCommitmentId: row.commitmentId,
+            lpLegalNameSnapshot: row.legalName,
+            commitmentSnapshot: new Decimal(row.commitment),
+            shareOfFee: new Decimal(lpShare(q1Fee, row.commitment, totalCommitment)),
+            amountPaid: new Decimal(0),
+            status: "PENDING",
+          })),
+        },
+      },
+    });
+  }
+
+  // Management fee Q4 2025 — invoiced, partial payment on first LP
+  const q4Fee = Math.round(totalCommitment * 0.015 * (92 / 365) * 100) / 100;
+  let fee2 = await prisma.managementFeePeriod.findFirst({
+    where: { fundId: opts.fundId, notes: { contains: feeMarker2 } },
+  });
+  if (!fee2) {
+    fee2 = await prisma.managementFeePeriod.create({
+      data: {
+        fundId: opts.fundId,
+        currencyId: opts.currencyId,
+        periodStart: new Date("2025-10-01"),
+        periodEnd: new Date("2025-12-31"),
+        feeBase: "COMMITTED",
+        feeBaseAmount: new Decimal(totalCommitment),
+        rate: new Decimal("0.0150"),
+        totalFee: new Decimal(q4Fee),
+        status: "INVOICED",
+        invoicesSentAt: new Date("2026-01-05"),
+        notes: feeMarker2,
+        createdById: opts.adminId,
+      },
+    });
+    for (const [idx, row] of lpRows.entries()) {
+      const share = lpShare(q4Fee, row.commitment, totalCommitment);
+      const paid = idx === 0 ? share * 0.5 : 0;
+      const status = paid > 0 ? "PARTIALLY_PAID" : "PENDING";
+      const alloc = await prisma.managementFeeAllocation.create({
+        data: {
+          managementFeePeriodId: fee2!.id,
+          clientId: row.clientId,
+          investmentCommitmentId: row.commitmentId,
+          lpLegalNameSnapshot: row.legalName,
+          commitmentSnapshot: new Decimal(row.commitment),
+          shareOfFee: new Decimal(share),
+          amountPaid: new Decimal(paid),
+          status,
+        },
+      });
+      if (paid > 0) {
+        await prisma.managementFeeAllocationPayment.create({
+          data: {
+            managementFeeAllocationId: alloc.id,
+            amount: new Decimal(paid),
+            recordedAt: new Date("2026-01-10"),
+          },
+        });
+      }
+    }
+  }
+
+  // Fund-cash documents (investment docs bucket)
+  const fundCashDocs = opts.full
+    ? [
+        { title: "Capital Call Notice — CC1", type: "CAPITAL_CALL_NOTICE", file: "cc-notice-1.pdf" },
+        { title: "Q1 2026 Distribution Notice", type: "DISTRIBUTION_NOTICE", file: "dist-q1.pdf" },
+        { title: "Management Fee Invoice — Q4 2025", type: "MANAGEMENT_FEE_INVOICE", file: "mfee-q4.pdf" },
+        { title: "LP Subscription Agreement — HPF", type: "SUBSCRIPTION", file: "sub-hpf.pdf" },
+      ]
+    : [{ title: "Capital Call Notice — Sleeve", type: "CAPITAL_CALL_NOTICE", file: "cc-sleeve.pdf" }];
+  for (const d of fundCashDocs) {
+    if (await prisma.investmentDocument.findFirst({ where: { fundId: opts.fundId, title: d.title } }))
+      continue;
+    const fileRef = `storage/local-upload-mock/investment-ops-fund-cash/${opts.fundId}/${d.file}`;
+    await prisma.investmentDocument.create({
+      data: {
+        fundId: opts.fundId,
+        documentType: d.type,
+        title: d.title,
+        fileRef,
+        checksumSha256: sha(fileRef),
+        classification: "CONFIDENTIAL",
+        approvalStatus: "APPROVED",
+        uploadedById: opts.adminId,
+      },
+    });
+  }
+
+  console.log(
+    `[ok] LP fund cash ${opts.fundName}: LPs=${lpRows.length} CC=2 dist=${opts.full ? 2 : 1} fees=2`
+  );
+}
+
+async function ensureExtraPortfolios(opts: {
+  adminId: string;
+  bankId: string | null;
+  brokerId: string;
+  custodianId: string;
+  securityBySymbol: Record<string, string>;
+  instrumentBySymbol: Record<string, string>;
+}) {
+  const fundIds: string[] = [];
+  for (const pf of EXTRA_PORTFOLIOS) {
+    const { fund, cfg } = await ensureListedFund({
+      name: pf.name,
+      description: pf.description,
+      adminId: opts.adminId,
+      bankId: opts.bankId,
+      brokerId: opts.brokerId,
+      custodianId: opts.custodianId,
+    });
+    fundIds.push(fund.id);
+
+    const holdMeta: Array<{
+      securityId: string;
+      instrumentId: string;
+      qty: number;
+      price: number;
+      wac: number;
+      currency: string;
+    }> = [];
+    for (const h of pf.holdings) {
+      await ensureHolding(fund.id, opts.securityBySymbol[h.symbol], h.qty, h.wac);
+      holdMeta.push({
+        securityId: opts.securityBySymbol[h.symbol],
+        instrumentId: opts.instrumentBySymbol[h.symbol],
+        qty: h.qty,
+        price: h.price,
+        wac: h.wac,
+        currency: "USD",
+      });
+    }
+    await ensureValuationWithItems(
+      fund.id,
+      opts.adminId,
+      holdMeta,
+      `seed-val-run-${fund.id.slice(0, 8)}`
+    );
+    await ensurePortfolioFolders(fund.id, cfg.id, opts.adminId, [
+      { path: "/Listed Equities", name: "Listed Equities", sortOrder: 1 },
+      { path: "/Listed Equities/Core Holdings", name: "Core Holdings", sortOrder: 2 },
+      { path: "/Compliance & Legal", name: "Compliance & Legal", sortOrder: 3 },
+    ]);
+    const snapNav = holdMeta.reduce((s, h) => s + h.qty * h.price, 0);
+    await prisma.listedEquityValuationSnapshot.create({
+      data: {
+        fundId: fund.id,
+        asOf: new Date(),
+        navBaseCurrency: new Decimal(snapNav),
+        unrealizedPnlUsd: new Decimal(snapNav * 0.08),
+        status: "OK",
+      },
+    }).catch(() => {});
+  }
+  console.log(`[ok] extra portfolios=${EXTRA_PORTFOLIOS.length} ids=${fundIds.join(", ")}`);
+  return fundIds;
+}
+
+async function ensureComplianceResultsForOrders(opts: {
+  fundId: string;
+  orderIds: string[];
+  adminId: string;
+}) {
+  const rules = await prisma.investmentComplianceRule.findMany({
+    where: { fundId: opts.fundId, isActive: true },
+    take: 2,
+  });
+  if (!rules.length) return;
+
+  for (const [idx, orderId] of opts.orderIds.slice(0, 4).entries()) {
+    const rule = rules[idx % rules.length];
+    let run = await prisma.investmentComplianceRun.findFirst({
+      where: { idempotencyKey: `seed-compliance-run-${orderId.slice(0, 8)}` },
+    });
+    if (!run) {
+      run = await prisma.investmentComplianceRun.create({
+        data: {
+          fundId: opts.fundId,
+          orderId,
+          runType: "PRE_TRADE",
+          status: "COMPLETED",
+          ruleSetVersion: 1,
+          inputSnapshot: { seed: true, revisionNo: 1 },
+          idempotencyKey: `seed-compliance-run-${orderId.slice(0, 8)}`,
+          startedById: opts.adminId,
+          completedAt: new Date(),
+        },
+      });
+    }
+    if (
+      !(await prisma.investmentComplianceResult.findFirst({
+        where: { orderId, ruleId: rule.id },
+      }))
+    ) {
+      await prisma.investmentComplianceResult.create({
+        data: {
+          orderId,
+          ruleId: rule.id,
+          complianceRunId: run.id,
+          outcome: idx % 2 === 0 ? "PASS" : "BREACH",
+          message:
+            idx % 2 === 0
+              ? "Within mandate limits"
+              : "Projected weight exceeds single-name limit",
+        },
+      });
+    }
+  }
+  console.log(`[ok] compliance results for ${Math.min(opts.orderIds.length, 4)} orders`);
+}
+
 async function ensureTransactionsFromTrades(fundId: string) {
   const trades = await prisma.listedEquityTrade.findMany({
     where: { fundId, status: "SETTLED" },
@@ -605,12 +1914,32 @@ async function ensureTransactionsFromTrades(fundId: string) {
   let n = 0;
   for (const t of trades) {
     const key = `seed-txn-${t.tradeRef}`;
-    if (await prisma.investmentTransaction.findFirst({ where: { idempotencyKey: key } })) continue;
+    const order = await prisma.investmentOrder.findFirst({ where: { tradeId: t.id } });
+    const instrument = await prisma.investmentInstrument.findFirst({
+      where: { listedEquitySecurityId: t.securityId },
+      select: { id: true },
+    });
+    const existing = await prisma.investmentTransaction.findFirst({ where: { idempotencyKey: key } });
+    if (existing) {
+      if (!existing.instrumentId || !existing.orderId) {
+        await prisma.investmentTransaction.update({
+          where: { id: existing.id },
+          data: {
+            instrumentId: existing.instrumentId ?? instrument?.id ?? null,
+            orderId: existing.orderId ?? order?.id ?? null,
+          },
+        });
+        n++;
+      }
+      continue;
+    }
     const amt = Number(t.quantity) * Number(t.executionPrice);
     await prisma.investmentTransaction.create({
       data: {
         transactionRef: t.tradeRef,
         fundId,
+        orderId: order?.id ?? null,
+        instrumentId: instrument?.id ?? null,
         transactionType: t.side === "BUY" ? "PURCHASE" : "SALE",
         tradeDate: t.executedAt || new Date(),
         settlementDate: t.settledAt || t.executedAt,
@@ -638,10 +1967,11 @@ async function ensureValuationWithItems(
     price: number;
     wac: number;
     currency: string;
-  }>
+  }>,
+  idempotencyKey = "seed-val-run-primary"
 ) {
   let run = await prisma.investmentValuationRun.findFirst({
-    where: { fundId, idempotencyKey: "seed-val-run-primary" },
+    where: { fundId, idempotencyKey },
   });
   const asOf = new Date();
   asOf.setUTCHours(0, 0, 0, 0);
@@ -665,7 +1995,7 @@ async function ensureValuationWithItems(
           unrealizedPnl: String(unrealized),
           totalPnl: String(unrealized),
         },
-        idempotencyKey: "seed-val-run-primary",
+        idempotencyKey,
         startedById: adminId,
         completedAt: new Date(),
       },
@@ -949,6 +2279,11 @@ async function ensureDocsReports(fundId: string, adminId: string, orderId?: stri
     { title: "CBZ Custody Statement — June 2026", type: "CUSTODY_STATEMENT", file: "custody-jun.pdf" },
     { title: "Single-name Concentration Waiver Draft", type: "COMPLIANCE", file: "waiver.pdf" },
     { title: "Trade Ticket — ALP-DLTA-2026", type: "TRADE_CONFIRM", file: "ticket-dlta.pdf" },
+    { title: "July 2026 Valuation Pack", type: "VALUATION_PACK", file: "valuation-jul-2026.pdf" },
+    { title: "Legal Opinion — Exchange Control", type: "LEGAL", file: "legal-opinion.pdf" },
+    { title: "Client Custom Investment Instruction", type: "CUSTOM_INSTRUCTION", file: "custom-instruction.pdf" },
+    { title: "Board Resolution — Mandate Amendment", type: "BOARD_RESOLUTION", file: "board-res.pdf" },
+    { title: "Custodian Statement — Q2 2026", type: "CUSTODIAN_STATEMENT", file: "custodian-q2.pdf" },
   ];
   for (const d of docs) {
     if (await prisma.investmentDocument.findFirst({ where: { fundId, title: d.title } })) continue;
@@ -1092,6 +2427,8 @@ async function ensureModelsAndSims(fundId: string, adminId: string, _instrumentB
     { name: "+10% ECO shock", key: "seed-sim-eco-shock" },
     { name: "CBZ trim 5%", key: "seed-sim-cbz-trim" },
     { name: "Raise cash to 10%", key: "seed-sim-cash-10" },
+    { name: "DLTA overweight scenario", key: "seed-sim-dlta-over" },
+    { name: "Rate shock + FX stress", key: "seed-sim-fx-stress" },
   ];
   for (const s of sims) {
     const existing = await prisma.investmentSimulationRun.findFirst({
@@ -1118,6 +2455,56 @@ async function ensureModelsAndSims(fundId: string, adminId: string, _instrumentB
     });
   }
   console.log(`[ok] model + simulations seeded`);
+
+  for (const [name, strategy, weights] of [
+    [
+      "Arcus Income Model",
+      "INCOME",
+      [
+        ["DLTA", 30],
+        ["BAT", 25],
+        ["INN", 20],
+        ["CBZ", 15],
+        ["FBC", 10],
+      ],
+    ],
+    [
+      "Arcus Defensive Model",
+      "DEFENSIVE",
+      [
+        ["BAT", 35],
+        ["INN", 25],
+        ["SEED", 20],
+        ["OKZ", 20],
+      ],
+    ],
+  ] as const) {
+    let extra = await prisma.investmentModelPortfolio.findFirst({ where: { name } });
+    if (!extra) {
+      extra = await prisma.investmentModelPortfolio.create({
+        data: {
+          name,
+          strategyCode: strategy,
+          baseCurrencyCode: "USD",
+          linkedFundId: fundId,
+          isActive: true,
+        },
+      });
+    }
+    await prisma.investmentModelPortfolioAllocation.deleteMany({
+      where: { modelPortfolioId: extra.id },
+    });
+    for (const [sym, w] of weights) {
+      await prisma.investmentModelPortfolioAllocation.create({
+        data: {
+          modelPortfolioId: extra.id,
+          allocationType: "INSTRUMENT",
+          allocationKey: sym,
+          targetWeightPct: new Decimal(w),
+        },
+      });
+    }
+  }
 }
 
 async function ensurePriceQueue(securityBySymbol: Record<string, string>) {
@@ -1241,6 +2628,7 @@ async function ensureSpCash(fund: { id: string; name: string }, adminId: string)
 async function main() {
   console.log("Seeding RICH Investments V2 demo (DEV nts)…\n");
   await assertDevDatabase(prisma, "seed:investments-v2-demo");
+  await cleanupOrphanComplianceResults();
 
   const admin = await prisma.user.findFirst({
     where: { role: { name: { in: ["admin", "Admin", "System Administrator"] } } },
@@ -1296,6 +2684,14 @@ async function main() {
     custodianId: custodian.id,
   });
   await ensureCashLedger(cfg.id);
+  await ensurePortfolioFolders(fund.id, cfg.id, admin.id, [
+    { path: "/Listed Equities", name: "Listed Equities", sortOrder: 1 },
+    { path: "/Listed Equities/Financials", name: "Financials", sortOrder: 2 },
+    { path: "/Listed Equities/Telecoms", name: "Telecoms", sortOrder: 3 },
+    { path: "/Compliance & Legal", name: "Compliance & Legal", sortOrder: 4 },
+    { path: "/Valuation & Reporting", name: "Valuation & Reporting", sortOrder: 5 },
+  ]);
+  await ensureSetupCatalogs(admin.id);
 
   const holdMeta: Array<{
     securityId: string;
@@ -1399,19 +2795,76 @@ async function main() {
   console.log(`[ok] orders=${orderSpecs.length}`);
 
   await ensureTransactionsFromTrades(fund.id);
-  await ensureValuationWithItems(fund.id, admin.id, holdMeta);
+  const valRun = await ensureValuationWithItems(fund.id, admin.id, holdMeta);
+  const fxApproved = await ensurePriceAndFxLifecycle(securityBySymbol, admin.id, approver.id);
+  await ensureValuationInputs(valRun.id, holdMeta, fxApproved?.id);
   await ensureComplianceChain({
     fundId: fund.id,
     orderId: approvedOrderId || orderIds[2],
     adminId: admin.id,
     approverId: approver.id,
   });
+  await ensureComplianceResultsForOrders({
+    fundId: fund.id,
+    orderIds,
+    adminId: admin.id,
+  });
+  const firstTrade = await prisma.listedEquityTrade.findFirst({
+    where: { fundId: fund.id, tradeRef: SETTLED_TRADES[0].ref },
+  });
+  if (firstTrade) {
+    await ensureAccountingDemo({
+      fundId: fund.id,
+      adminId: admin.id,
+      approverId: approver.id,
+      tradeRef: firstTrade.tradeRef,
+      tradeId: firstTrade.id,
+      amount: Number(firstTrade.quantity) * Number(firstTrade.executionPrice),
+    });
+  }
   await ensureRecon(fund.id, admin.id);
   await ensureDocsReports(fund.id, admin.id, approvedOrderId || orderIds[0]);
   await ensureBlotters(fund.id, admin.id, orderIds);
   await ensureModelsAndSims(fund.id, admin.id, instrumentBySymbol);
   await ensurePriceQueue(securityBySymbol);
   const cash = await ensureSpCash(fund, admin.id);
+  await ensureSpCashRich({
+    fund,
+    cashAccountId: cash.cash.id,
+    adminId: admin.id,
+    approverId: approver.id,
+  });
+  await ensureMarketDataBatch(admin.id);
+  const extraFundIds = await ensureExtraPortfolios({
+    adminId: admin.id,
+    bankId: bank?.id ?? null,
+    brokerId: broker.id,
+    custodianId: custodian.id,
+    securityBySymbol,
+    instrumentBySymbol,
+  });
+
+  const usd =
+    (await prisma.currency.findFirst({ where: { code: "USD", isActive: true } })) ||
+    (await prisma.currency.findFirst({ where: { isActive: true } }));
+  if (!usd) throw new Error("No active currency for LP fund-cash seed");
+  await ensureLpFundCash({
+    fundId: fund.id,
+    fundName: fund.name,
+    currencyId: usd.id,
+    adminId: admin.id,
+    full: true,
+  });
+  for (const efId of extraFundIds) {
+    const ef = await prisma.fund.findUnique({ where: { id: efId }, select: { name: true } });
+    await ensureLpFundCash({
+      fundId: efId,
+      fundName: ef?.name || "Arcus sleeve",
+      currencyId: usd.id,
+      adminId: admin.id,
+      full: false,
+    });
+  }
 
   const summary = {
     portfolioId: fund.id,
@@ -1428,9 +2881,27 @@ async function main() {
       where: { batch: { fundId: fund.id } },
     }),
     accountingEvents: await prisma.investmentAccountingEvent.count({ where: { fundId: fund.id } }),
+    journalEntries: await prisma.journalEntry.count(),
+    accountingReversals: await prisma.investmentAccountingReversal.count(),
+    ledgerExports: await prisma.investmentAccountingExportLink.count(),
+    valuationInputs: await prisma.investmentValuationInputSnapshot.count({
+      where: { valuationRunId: valRun.id },
+    }),
+    fxSnapshots: await prisma.investmentFxRateSnapshot.count(),
+    complianceResults: await prisma.investmentComplianceResult.count(),
     documents: await prisma.investmentDocument.count({ where: { fundId: fund.id } }),
     reports: await prisma.investmentReportRun.count({ where: { fundId: fund.id } }),
     blotters: await prisma.investmentBlotter.count({ where: { fundId: fund.id } }),
+    spCashJournals: await prisma.spCashJournal.count({ where: { portfolioId: fund.id } }),
+    brokerCustodianItems: await prisma.spCashBrokerCustodianItem.count({ where: { portfolioId: fund.id } }),
+    reconExceptions: await prisma.spCashReconciliationException.count({
+      where: { cashAccountId: cash.cash.id },
+    }),
+    extraPortfolios: EXTRA_PORTFOLIOS.length,
+    lpCommitments: await prisma.investmentCommitment.count({ where: { fundId: fund.id } }),
+    capitalCalls: await prisma.capitalCall.count({ where: { fundId: fund.id } }),
+    distributions: await prisma.distribution.count({ where: { fundId: fund.id } }),
+    managementFeePeriods: await prisma.managementFeePeriod.count({ where: { fundId: fund.id } }),
     cashAccountId: cash.cash.id,
   };
 

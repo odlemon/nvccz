@@ -287,16 +287,42 @@ export class InvestmentComplianceService {
       ...(query.fundId ? { fundId: query.fundId } : scope === "ALL" ? {} : { fundId: { in: scope } }),
       ...(query.orderId ? { id: query.orderId } : {}),
     };
+    const scopedOrders = await db.investmentOrder.findMany({
+      where: orderWhere,
+      select: {
+        id: true,
+        orderRef: true,
+        fundId: true,
+        side: true,
+        instrumentId: true,
+      },
+    });
+    const orderById = Object.fromEntries(scopedOrders.map((o: any) => [o.id, o]));
+    const scopedOrderIds = scopedOrders.map((o: any) => o.id);
+    if (!scopedOrderIds.length) {
+      return paginatedResult([], 0, page.page, page.pageSize);
+    }
     const where: any = {
-      order: orderWhere,
+      orderId: { in: scopedOrderIds },
       ...(query.outcome ? { outcome: String(query.outcome) } : {}),
     };
+    const instrumentIds = [
+      ...new Set(scopedOrders.map((o: any) => o.instrumentId).filter(Boolean)),
+    ] as string[];
+    const instruments = instrumentIds.length
+      ? await db.investmentInstrument.findMany({
+          where: { id: { in: instrumentIds } },
+          select: { id: true, ticker: true },
+        })
+      : [];
+    const tickerByInstrumentId = Object.fromEntries(
+      instruments.map((i: any) => [i.id, i.ticker])
+    );
     const [rows, total] = await Promise.all([
       db.investmentComplianceResult.findMany({
         where,
         include: {
           rule: true,
-          order: { include: { instrument: true } },
           complianceRun: true,
         },
         orderBy: { createdAt: "desc" },
@@ -306,15 +332,18 @@ export class InvestmentComplianceService {
       db.investmentComplianceResult.count({ where }),
     ]);
     const items = rows.map((r: any) => {
+      const order = orderById[r.orderId];
       const snap = (r.complianceRun?.inputSnapshot || {}) as any;
       const details = snap?.checks?.find?.((c: any) => c.ruleId === r.ruleId) || snap || {};
       return {
         id: r.id,
         orderId: r.orderId,
-        orderRef: r.order?.orderRef ?? null,
-        fundId: r.order?.fundId ?? r.complianceRun?.fundId ?? null,
-        instrumentTicker: r.order?.instrument?.ticker ?? null,
-        side: r.order?.side ?? null,
+        orderRef: order?.orderRef ?? null,
+        fundId: order?.fundId ?? r.complianceRun?.fundId ?? null,
+        instrumentTicker: order?.instrumentId
+          ? tickerByInstrumentId[order.instrumentId] ?? null
+          : null,
+        side: order?.side ?? null,
         ruleId: r.ruleId,
         ruleName: r.rule?.name ?? r.rule?.ruleName ?? null,
         ruleType: r.rule?.ruleType ?? r.rule?.typeCode ?? null,
@@ -366,24 +395,34 @@ export class InvestmentComplianceService {
     if (query.fundId) await ListedEquityAccessService.assertFundAccess(userId, query.fundId, user);
     const scope = await ListedEquityAccessService.getAccessibleFundIds(userId, user);
     const page = parsePagination(query);
+    const orderWhere: any = {
+      ...(query.fundId
+        ? { fundId: query.fundId }
+        : scope === "ALL"
+          ? {}
+          : { fundId: { in: scope } }),
+      ...(query.orderId ? { id: query.orderId } : {}),
+    };
+    const scopedOrders = await db.investmentOrder.findMany({
+      where: orderWhere,
+      select: { id: true, orderRef: true, fundId: true },
+    });
+    const orderById = Object.fromEntries(scopedOrders.map((o: any) => [o.id, o]));
+    const scopedOrderIds = scopedOrders.map((o: any) => o.id);
+    if (!scopedOrderIds.length) {
+      return paginatedResult([], 0, page.page, page.pageSize);
+    }
     const where: any = {
       ...(query.status ? { status: query.status } : {}),
       complianceResult: {
-        ...(query.orderId ? { orderId: query.orderId } : {}),
-        order: {
-          ...(query.fundId
-            ? { fundId: query.fundId }
-            : scope === "ALL"
-              ? {}
-              : { fundId: { in: scope } }),
-        },
+        orderId: query.orderId ? query.orderId : { in: scopedOrderIds },
       },
     };
     const [rows, total] = await Promise.all([
       db.investmentComplianceOverride.findMany({
         where,
         include: {
-          complianceResult: { include: { order: true, complianceRun: true, rule: true } },
+          complianceResult: { include: { complianceRun: true, rule: true } },
         },
         orderBy: { createdAt: "desc" },
         skip: page.skip,
@@ -404,11 +443,15 @@ export class InvestmentComplianceService {
         `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.email || u.id,
       ])
     );
-    const items = rows.map((r: any) => ({
+    const items = rows.map((r: any) => {
+      const order = r.complianceResult?.orderId
+        ? orderById[r.complianceResult.orderId]
+        : null;
+      return {
       id: r.id,
       orderId: r.complianceResult?.orderId ?? null,
-      orderRef: r.complianceResult?.order?.orderRef ?? null,
-      fundId: r.complianceResult?.order?.fundId ?? null,
+      orderRef: order?.orderRef ?? null,
+      fundId: order?.fundId ?? null,
       complianceResultId: r.complianceResultId,
       reason: r.reason,
       reasonCode: r.reasonCode,
@@ -419,7 +462,8 @@ export class InvestmentComplianceService {
       version: r.version,
       decidedAt: r.decidedAt,
       decidedById: r.decidedById,
-    }));
+    };
+    });
     return paginatedResult(items, total, page.page, page.pageSize);
   }
 

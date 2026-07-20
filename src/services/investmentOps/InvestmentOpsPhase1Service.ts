@@ -589,7 +589,6 @@ export class InvestmentOpsPhase1Service {
       db.investmentTransaction.findMany({
         where,
         include: {
-          instrument: { select: { ticker: true, shortName: true } },
           order: { select: { id: true, tradeId: true, orderRef: true } },
           execution: { select: { id: true } },
         },
@@ -599,6 +598,16 @@ export class InvestmentOpsPhase1Service {
       }),
       db.investmentTransaction.count({ where }),
     ]);
+    const instrumentIds = [
+      ...new Set(items.map((t: any) => t.instrumentId).filter(Boolean)),
+    ] as string[];
+    const instruments = instrumentIds.length
+      ? await db.investmentInstrument.findMany({
+          where: { id: { in: instrumentIds } },
+          select: { id: true, ticker: true, shortName: true },
+        })
+      : [];
+    const instrumentById = Object.fromEntries(instruments.map((i: any) => [i.id, i]));
     const tradeIds = [
       ...new Set(items.map((t: any) => t.order?.tradeId).filter(Boolean)),
     ];
@@ -621,14 +630,15 @@ export class InvestmentOpsPhase1Service {
     const docByTrade = Object.fromEntries(docs.map((d: any) => [d.tradeId, d.id]));
     const mapped = items.map((t: any) => {
       const tradeId = t.order?.tradeId ?? null;
+      const instrument = t.instrumentId ? instrumentById[t.instrumentId] : null;
       return {
         id: t.id,
         type: t.transactionType,
         transactionType: t.transactionType,
         tradeRef: t.transactionRef,
         transactionRef: t.transactionRef,
-        symbol: t.instrument?.ticker ?? null,
-        instrumentTicker: t.instrument?.ticker ?? null,
+        symbol: instrument?.ticker ?? null,
+        instrumentTicker: instrument?.ticker ?? null,
         quantity: t.quantity != null ? String(t.quantity) : null,
         price: t.unitPrice != null ? String(t.unitPrice) : null,
         unitPrice: t.unitPrice != null ? String(t.unitPrice) : null,

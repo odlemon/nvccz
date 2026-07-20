@@ -50,14 +50,7 @@ P5 Instrument restrict/archive UI: WONT for T1 | APIs exist; FE optional (F11)
 
 ---
 
-## Demo seed (lean — preferred)
-
-```powershell
-Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
-npm run db:reset:investments-v2-demo
-```
-
-See `docs/investments-v2-lean-demo.md`. Clears UAT/excess LE funds, then seeds **1** Arcus portfolio + **4** ZSE names (not the old 8-fund pack).
+Leaves nonempty (rich Arcus book): 8 ZSE instruments/holdings, 12 trades (10 settled + 2 routing), 8 orders, 10 transactions, valuation run + items, recon, accounting, docs/reports, blotters, model/sims, PENDING_REVIEW prices, cash masters.
 
 ---
 
