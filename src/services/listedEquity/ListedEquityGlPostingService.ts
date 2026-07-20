@@ -51,77 +51,71 @@ export class ListedEquityGlPostingService {
     });
     const wac = holding ? Number(holding.wac) : 0;
     let realizedPnl: number | null = null;
+    let lines: Array<{
+      chartOfAccountId: string;
+      debitAmount: number;
+      creditAmount: number;
+      description: string;
+    }>;
+    let totalAmount: number;
 
     if (trade.side === "BUY") {
       const cost = qty * price;
       const total = cost + fees;
-      const lines = [
-        { chartOfAccountId: securitiesId, debitAmount: cost, creditAmount: 0, description: "Listed securities buy" },
-        { chartOfAccountId: clearingId, debitAmount: 0, creditAmount: total, description: "Bank clearing" },
+      totalAmount = total;
+      // Capitalize fees into asset cost so debit=credit without requiring a fee expense COA.
+      lines = [
+        {
+          chartOfAccountId: securitiesId,
+          debitAmount: total,
+          creditAmount: 0,
+          description: fees > 0 ? "Listed securities buy (incl. fees)" : "Listed securities buy",
+        },
+        {
+          chartOfAccountId: clearingId,
+          debitAmount: 0,
+          creditAmount: total,
+          description: "Bank clearing",
+        },
       ];
-      if (fees > 0) {
-        // fees included in clearing credit for simplicity
+    } else {
+      realizedPnl = WacCalculatorService.realizedPnl(qty, price, wac);
+      const proceeds = qty * price - fees;
+      const costBasis = qty * wac;
+      lines = [
+        {
+          chartOfAccountId: clearingId,
+          debitAmount: proceeds,
+          creditAmount: 0,
+          description: "Bank clearing",
+        },
+        {
+          chartOfAccountId: securitiesId,
+          debitAmount: 0,
+          creditAmount: costBasis,
+          description: "Securities at WAC",
+        },
+      ];
+      if (realizedPnl > 0) {
+        const gainId = await this.findAccountId(coa.realizedGain);
+        lines.push({
+          chartOfAccountId: gainId,
+          debitAmount: 0,
+          creditAmount: realizedPnl,
+          description: "Realized gain",
+        });
+      } else if (realizedPnl < 0) {
+        const lossId = await this.findAccountId(coa.realizedLoss);
+        lines.push({
+          chartOfAccountId: lossId,
+          debitAmount: Math.abs(realizedPnl),
+          creditAmount: 0,
+          description: "Realized loss",
+        });
       }
       const debit = lines.reduce((s, l) => s + l.debitAmount, 0);
       const credit = lines.reduce((s, l) => s + l.creditAmount, 0);
-      if (Math.abs(debit - credit) > 0.01) {
-        await this.failSettlement(tradeId, hopId, "LISTED_EQUITY_JE_IMBALANCED");
-        throw new Error("LISTED_EQUITY_JE_IMBALANCED");
-      }
-
-      const currency = await prisma.currency.findFirst({ where: { code: trade.executionCurrencyCode } });
-      if (!currency) throw new Error("Currency not found");
-
-      const je = await createJournalEntryWithAuditSequence({
-        transactionDate: new Date(),
-        referenceNumber: `LE-${trade.tradeRef}`,
-        description: `Listed equity buy ${trade.security.symbol}`,
-        totalAmount: total,
-        currencyId: currency.id,
-        status: "POSTED",
-        createdById: userId,
-      });
-
-      for (const l of lines) {
-        await prisma.journalEntryLine.create({
-          data: {
-            journalEntryId: je.id,
-            chartOfAccountId: l.chartOfAccountId,
-            debitAmount: l.debitAmount,
-            creditAmount: l.creditAmount,
-            description: l.description,
-          },
-        });
-      }
-
-      await this.completeSettlement(tradeId, hopId, je.id, null);
-      return je;
-    }
-
-    // SELL
-    realizedPnl = WacCalculatorService.realizedPnl(qty, price, wac);
-    const proceeds = qty * price - fees;
-    const costBasis = qty * wac;
-    const lines = [
-      { chartOfAccountId: clearingId, debitAmount: proceeds, creditAmount: 0, description: "Bank clearing" },
-      { chartOfAccountId: securitiesId, debitAmount: 0, creditAmount: costBasis, description: "Securities at WAC" },
-    ];
-    if (realizedPnl > 0) {
-      const gainId = await this.findAccountId(coa.realizedGain);
-      lines.push({
-        chartOfAccountId: gainId,
-        debitAmount: 0,
-        creditAmount: realizedPnl,
-        description: "Realized gain",
-      });
-    } else if (realizedPnl < 0) {
-      const lossId = await this.findAccountId(coa.realizedLoss);
-      lines.push({
-        chartOfAccountId: lossId,
-        debitAmount: Math.abs(realizedPnl),
-        creditAmount: 0,
-        description: "Realized loss",
-      });
+      totalAmount = Math.max(debit, credit);
     }
 
     const debit = lines.reduce((s, l) => s + l.debitAmount, 0);
@@ -131,36 +125,42 @@ export class ListedEquityGlPostingService {
       throw new Error("LISTED_EQUITY_JE_IMBALANCED");
     }
 
-    const currency = await prisma.currency.findFirst({ where: { code: trade.executionCurrencyCode } });
+    const currency = await prisma.currency.findFirst({
+      where: { code: trade.executionCurrencyCode },
+    });
     if (!currency) throw new Error("Currency not found");
 
-    const je = await createJournalEntryWithAuditSequence({
-      transactionDate: new Date(),
-      referenceNumber: `LE-${trade.tradeRef}`,
-      description: `Listed equity sell ${trade.security.symbol}`,
-      totalAmount: Math.max(debit, credit),
-      currencyId: currency.id,
-      status: "POSTED",
-      createdById: userId,
-    });
-
-    for (const l of lines) {
-      await prisma.journalEntryLine.create({
-        data: {
-          journalEntryId: je.id,
-          chartOfAccountId: l.chartOfAccountId,
-          debitAmount: l.debitAmount,
-          creditAmount: l.creditAmount,
-          description: l.description,
-        },
+    try {
+      const je = await createJournalEntryWithAuditSequence({
+        transactionDate: new Date(),
+        referenceNumber: `LE-${trade.tradeRef}`,
+        description: `Listed equity ${trade.side.toLowerCase()} ${trade.security.symbol}`,
+        totalAmount,
+        currencyId: currency.id,
+        status: "POSTED",
+        createdById: userId,
       });
-    }
 
-    await this.completeSettlement(tradeId, hopId, je.id, realizedPnl);
-    return je;
+      return await InvestmentAccountingFacadeService.commitSettlementBundle({
+        tradeId,
+        hopId,
+        userId,
+        journalEntryId: je.id,
+        realizedPnl,
+        lines,
+      });
+    } catch (error: any) {
+      await this.failSettlement(tradeId, hopId, error?.code || error?.message || "SETTLEMENT_FAILED");
+      throw error;
+    }
   }
 
-  static async completeSettlement(tradeId: string, hopId: string, journalEntryId: string, realizedPnl: number | null) {
+  static async completeSettlement(
+    tradeId: string,
+    hopId: string,
+    journalEntryId: string,
+    realizedPnl: number | null
+  ) {
     await prisma.listedEquityTradeSettlement.upsert({
       where: { tradeId },
       create: { tradeId, journalEntryId, realizedPnl },
@@ -174,7 +174,9 @@ export class ListedEquityGlPostingService {
       where: { id: tradeId },
       data: { status: "SETTLED", settledAt: new Date() },
     });
-    await ListedEquityAuditService.log("TRADE_GL_POSTED", "ListedEquityTrade", tradeId, { journalEntryId });
+    await ListedEquityAuditService.log("TRADE_GL_POSTED", "ListedEquityTrade", tradeId, {
+      journalEntryId,
+    });
     const trade = await prisma.listedEquityTrade.findUnique({ where: { id: tradeId } });
     if (trade) {
       await InvestmentAccountingFacadeService.recordFromTradeSettlement(

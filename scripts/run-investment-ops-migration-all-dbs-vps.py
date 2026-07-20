@@ -24,6 +24,7 @@ URLS = [
 MIGRATIONS = [
     "db:migrate:investment-ops-v2",
     "db:migrate:investment-ops-gap",
+    "db:migrate:investment-ops-schema-hardening",
 ]
 
 

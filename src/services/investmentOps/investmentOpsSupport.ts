@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { randomBytes } from "crypto";
+import { parseInvestmentListQuery } from "../../middleware/investmentOpsFoundation";
 
 export function orderRef(): string {
   return `ORD-${Date.now().toString(36)}${randomBytes(2).toString("hex")}`.toUpperCase();
@@ -74,16 +75,23 @@ export function periodRange(
 }
 
 export function parsePagination(query: Record<string, unknown>) {
-  const page = Math.max(1, Number(query.page) || 1);
-  const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || Number(query.limit) || 50));
-  const skip = (page - 1) * pageSize;
-  const sortBy = (query.sortBy as string) || "createdAt";
-  const sortDir = String(query.sortDir || "desc").toLowerCase() === "asc" ? "asc" : "desc";
-  return { page, pageSize, skip, take: pageSize, sortBy, sortDir };
+  return parseInvestmentListQuery(query);
 }
 
 export function paginatedResult<T>(rows: T[], total: number, page: number, pageSize: number) {
   return { items: rows, total, page, pageSize, totalPages: Math.ceil(total / pageSize) || 1 };
+}
+
+/** Canonical money/qty display: always a decimal string (never invent values). */
+export function moneyStr(value: unknown, fractionDigits = 2): string | null {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return n.toFixed(fractionDigits);
+}
+
+export function moneyStr0(value: unknown, fractionDigits = 2): string {
+  return moneyStr(value, fractionDigits) ?? (0).toFixed(fractionDigits);
 }
 
 const ALLOCATION_BUCKET: Record<string, string> = {

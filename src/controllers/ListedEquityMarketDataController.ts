@@ -190,22 +190,100 @@ export class ListedEquityMarketDataController {
   }
 
   static async webhookIngress(req: Request, res: Response) {
-    const secret = process.env.MARKET_DATA_WEBHOOK_SECRET;
-    if (secret) {
-      const sig = String(req.headers["x-market-data-signature"] || "");
-      const expected = createHmac("sha256", secret).update(JSON.stringify(req.body)).digest("hex");
-      const ok =
-        sig.length === expected.length &&
-        timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
-      if (!ok) {
-        return res.status(403).json({ success: false, message: "Invalid webhook signature" });
-      }
+    const secret = process.env.MARKET_DATA_WEBHOOK_SECRET?.trim();
+    if (!secret) {
+      return res.status(503).json({
+        success: false,
+        code: "WEBHOOK_SECRET_MISSING",
+        message: "MARKET_DATA_WEBHOOK_SECRET is not configured",
+      });
     }
+
+    const sigHeader = String(req.headers["x-market-data-signature"] || "");
+    const timestampHeader = String(req.headers["x-market-data-timestamp"] || "");
+    const nonceHeader = String(req.headers["x-market-data-nonce"] || "");
+    const rawBody =
+      (req as any).rawBody instanceof Buffer
+        ? (req as any).rawBody
+        : Buffer.from(
+            typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {}),
+            "utf8"
+          );
+
+    const ts = Number(timestampHeader);
+    if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > 5 * 60 * 1000) {
+      return res.status(403).json({
+        success: false,
+        code: "WEBHOOK_REPLAY_REJECTED",
+        message: "Webhook timestamp outside replay window",
+      });
+    }
+    if (!nonceHeader || nonceHeader.length < 8) {
+      return res.status(403).json({
+        success: false,
+        code: "WEBHOOK_NONCE_REQUIRED",
+        message: "x-market-data-nonce is required",
+      });
+    }
+
+    const expected = createHmac("sha256", secret)
+      .update(`${timestampHeader}.${nonceHeader}.`)
+      .update(rawBody)
+      .digest("hex");
+    const provided = sigHeader.replace(/^sha256=/i, "");
+    const ok =
+      provided.length === expected.length &&
+      timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+    if (!ok) {
+      return res.status(403).json({ success: false, message: "Invalid webhook signature" });
+    }
+
+    const replayKey = `webhook-replay:${String(req.params.providerCode || "WEBHOOK").toUpperCase()}:${timestampHeader}:${nonceHeader}`;
+    try {
+      const existing = await prisma.investmentJob.findUnique({
+        where: { idempotencyKey: replayKey },
+      });
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          code: "WEBHOOK_REPLAY",
+          message: "Webhook replay rejected",
+        });
+      }
+      await prisma.investmentJob.create({
+        data: {
+          jobType: "WEBHOOK_REPLAY_GUARD",
+          aggregateType: "WEBHOOK",
+          aggregateId: String(req.params.providerCode || "WEBHOOK"),
+          payloadJson: { timestamp: timestampHeader, nonce: nonceHeader },
+          idempotencyKey: replayKey,
+          status: "COMPLETED",
+          completedAt: new Date(),
+          maxAttempts: 1,
+          attemptCount: 1,
+        },
+      });
+    } catch (e: any) {
+      if (String(e?.code) === "P2002") {
+        return res.status(409).json({
+          success: false,
+          code: "WEBHOOK_REPLAY",
+          message: "Webhook replay rejected",
+        });
+      }
+      throw e;
+    }
+
     res.status(202).json({ success: true, accepted: true });
     setImmediate(async () => {
       try {
         const providerCode = String(req.params.providerCode || "WEBHOOK").toUpperCase();
-        const body = req.body;
+        const body =
+          typeof req.body === "string"
+            ? JSON.parse(req.body || "{}")
+            : req.body && typeof req.body === "object"
+              ? req.body
+              : JSON.parse(rawBody.toString("utf8") || "{}");
         const rows = Array.isArray(body) ? body : body.ticks || [body];
         const ticks = [];
         for (const row of rows) {

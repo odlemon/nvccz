@@ -1,9 +1,8 @@
 /** Mansa Markets API client — https://mansaapi.com/docs */
 import { marketDataFetch } from "./listedEquityExternalFetch";
 
-export const MANSA_API_BASE_URL = "https://mansaapi.com";
-/** Free-tier key (user-approved hardcode for ZSE domestic feed). */
-export const MANSA_API_KEY = "mansa_live_sk_jcu08iffpue0qplc";
+export const MANSA_API_BASE_URL =
+  process.env.MANSA_API_BASE_URL?.trim() || "https://mansaapi.com";
 
 /** Arcus source_code → Mansa exchange code */
 export const MANSA_EXCHANGE_BY_SOURCE: Record<string, string> = {
@@ -27,9 +26,17 @@ type MansaStocksResponse = {
   error?: { message?: string };
 };
 
+function requireMansaApiKey(): string {
+  const key = process.env.MANSA_API_KEY?.trim();
+  if (!key) {
+    throw new Error("MANSA_API_KEY is not configured");
+  }
+  return key;
+}
+
 async function mansaFetch<T>(path: string): Promise<T> {
   const res = await marketDataFetch(`${MANSA_API_BASE_URL}${path}`, {
-    headers: { Authorization: `Bearer ${MANSA_API_KEY}` },
+    headers: { Authorization: `Bearer ${requireMansaApiKey()}` },
     signal: AbortSignal.timeout(30_000),
   });
   const body = (await res.json().catch(() => ({}))) as T & { error?: { message?: string } };
@@ -63,3 +70,6 @@ export class MansaMarketDataClient {
     };
   }
 }
+
+/** @deprecated use MANSA_API_KEY env — kept only so accidental imports fail closed */
+export const MANSA_API_KEY = "";

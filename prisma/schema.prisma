@@ -529,6 +529,7 @@ model Currency {
   code                 String                @unique
   name                 String
   symbol               String
+  decimalPlaces        Int                   @default(2) @map("decimal_places")
   isActive             Boolean               @default(true)
   isDefault            Boolean               @default(false)
   createdAt            DateTime              @default(now())
@@ -1385,6 +1386,14 @@ model Fund {
   quarterlyStatementRuns      QuarterlyStatementRun[]
   dealExecutionPacks          DealExecutionPack[]
   taxReturnPacks              TaxReturnPack[]
+  lpFundPortalContext         LpFundPortalContext?
+  lpDealingRules              LpDealingRules?
+  lpHoldingPositions          LpHoldingPosition[]
+  lpBankAccounts              LpBankAccount[]
+  lpDealingRequests           LpDealingRequest[]
+  lpNotices                   LpNotice[]
+  lpServiceRequests           LpServiceRequest[]
+  lpMessageThreads            LpMessageThread[]
 
   @@index([fundPurpose], map: "funds_fund_purpose_idx")
   @@map("funds")
@@ -1439,6 +1448,18 @@ model Client {
   lpPortalMetricSnapshots LpPortalMetricSnapshot[]
   fundraisingDeals        FundraisingPipelineDeal[]
   quarterlyStatementRecipients QuarterlyStatementRecipient[]
+  lpCapitalCallPortalStates LpCapitalCallPortalState[]
+  lpCapitalCallPaymentConfirmations LpCapitalCallPaymentConfirmation[]
+  lpHoldingPositions      LpHoldingPosition[]
+  lpBankAccounts          LpBankAccount[]
+  lpDealingRequests       LpDealingRequest[]
+  lpComplianceStatus      LpComplianceStatus?
+  lpDocumentAccessAudits  LpDocumentAccessAudit[]
+  lpNotices               LpNotice[]
+  lpNoticeReceipts        LpNoticeReceipt[]
+  lpServiceRequests       LpServiceRequest[]
+  lpMessageThreads        LpMessageThread[]
+  lpPortalJobs            LpPortalJob[]
 
   @@map("clients")
 }
@@ -1511,6 +1532,8 @@ model CapitalCallAllocation {
   client               Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
   investmentCommitment InvestmentCommitment @relation(fields: [investmentCommitmentId], references: [id], onDelete: Restrict)
   payments             CapitalCallAllocationPayment[]
+  portalState          LpCapitalCallPortalState?
+  paymentConfirmations LpCapitalCallPaymentConfirmation[]
 
   @@index([capitalCallId], map: "capital_call_allocations_call_idx")
   @@index([clientId], map: "capital_call_allocations_client_idx")
@@ -4050,6 +4073,7 @@ model LpPortalDocument {
   client        Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
   fund          Fund?     @relation(fields: [fundId], references: [id], onDelete: SetNull)
   publishedBy   User?     @relation("LpPortalDocumentPublisher", fields: [publishedById], references: [id], onDelete: SetNull)
+  accessAudits  LpDocumentAccessAudit[]
 
   @@index([clientId], map: "lp_portal_documents_client_idx")
   @@index([category], map: "lp_portal_documents_category_idx")
@@ -4094,6 +4118,335 @@ model LpPortalMfaPolicy {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   @@map("lp_portal_mfa_policy")
+}
+
+/// SRD — idempotent investor write keys
+model LpPortalIdempotencyKey {
+  id             String   @id @default(cuid())
+  clientId       String   @map("client_id")
+  userId         String?  @map("user_id")
+  scope          String   @db.VarChar(512)
+  idempotencyKey String   @map("idempotency_key") @db.VarChar(200)
+  payloadHash    String   @map("payload_hash") @db.VarChar(64)
+  statusCode     Int      @map("status_code")
+  responseJson   String   @map("response_json") @db.LongText
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([scope, idempotencyKey], map: "lp_portal_idempotency_scope_key")
+  @@index([clientId], map: "lp_portal_idempotency_client_idx")
+  @@map("lp_portal_idempotency_keys")
+}
+
+/// Per-fund operating context for portal (PRIVATE_CAPITAL | OPEN_ENDED)
+model LpFundPortalContext {
+  id                      String   @id @default(cuid())
+  fundId                  String   @unique @map("fund_id")
+  operatingModel          String   @default("PRIVATE_CAPITAL") @map("operating_model") @db.VarChar(32)
+  currencyCode            String   @default("USD") @map("currency_code") @db.VarChar(8)
+  publicReference         String?  @map("public_reference") @db.VarChar(64)
+  shortName               String?  @map("short_name") @db.VarChar(128)
+  defaultShareClass       String?  @map("default_share_class") @db.VarChar(64)
+  valuationStatus         String   @default("FINAL") @map("valuation_status") @db.VarChar(16)
+  asOfDate                DateTime? @map("as_of_date") @db.Date
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+  fund                    Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@map("lp_fund_portal_contexts")
+}
+
+/// Investor acknowledgement / payment-confirmation workflow on a capital-call allocation
+model LpCapitalCallPortalState {
+  id                      String    @id @default(cuid())
+  capitalCallAllocationId String    @unique @map("capital_call_allocation_id")
+  clientId                String    @map("client_id")
+  acknowledgedAt          DateTime? @map("acknowledged_at")
+  acknowledgedById        String?   @map("acknowledged_by_id")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  capitalCallAllocation   CapitalCallAllocation @relation(fields: [capitalCallAllocationId], references: [id], onDelete: Cascade)
+  client                  Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId], map: "lp_cc_portal_state_client_idx")
+  @@map("lp_capital_call_portal_states")
+}
+
+model LpCapitalCallPaymentConfirmation {
+  id                      String   @id @default(cuid())
+  capitalCallAllocationId String   @map("capital_call_allocation_id")
+  clientId                String   @map("client_id")
+  uploadedById            String?  @map("uploaded_by_id")
+  fileName                String   @map("file_name") @db.VarChar(255)
+  mimeType                String   @map("mime_type") @db.VarChar(128)
+  storagePath             String   @map("storage_path") @db.VarChar(512)
+  sha256                  String?  @db.VarChar(64)
+  amountClaimed           Decimal? @map("amount_claimed") @db.Decimal(15, 2)
+  notes                   String?  @db.Text
+  createdAt               DateTime @default(now()) @map("created_at")
+  capitalCallAllocation   CapitalCallAllocation @relation(fields: [capitalCallAllocationId], references: [id], onDelete: Cascade)
+  client                  Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([capitalCallAllocationId], map: "lp_cc_pay_confirm_alloc_idx")
+  @@index([clientId], map: "lp_cc_pay_confirm_client_idx")
+  @@map("lp_capital_call_payment_confirmations")
+}
+
+model LpDealingRules {
+  id                    String   @id @default(cuid())
+  fundId                String   @unique @map("fund_id")
+  minBalanceAmount      Decimal  @default(1000000) @map("min_balance_amount") @db.Decimal(15, 2)
+  minBalanceUnits       Decimal  @default(100000) @map("min_balance_units") @db.Decimal(18, 6)
+  noticePeriodDays      Int      @default(30) @map("notice_period_days")
+  dealingSuspended      Boolean  @default(false) @map("dealing_suspended")
+  subscriptionFeeBps    Decimal  @default(0) @map("subscription_fee_bps") @db.Decimal(10, 4)
+  redemptionFeeBps      Decimal  @default(0) @map("redemption_fee_bps") @db.Decimal(10, 4)
+  nextDealingDate       DateTime? @map("next_dealing_date") @db.Date
+  rulesJson             Json?    @map("rules_json")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  fund                  Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@map("lp_dealing_rules")
+}
+
+model LpHoldingPosition {
+  id              String   @id @default(cuid())
+  clientId        String   @map("client_id")
+  fundId          String   @map("fund_id")
+  shareClass      String?  @map("share_class") @db.VarChar(64)
+  units           Decimal  @default(0) @db.Decimal(18, 6)
+  navPerUnit      Decimal  @default(0) @map("nav_per_unit") @db.Decimal(18, 8)
+  accountValue    Decimal  @default(0) @map("account_value") @db.Decimal(15, 2)
+  currencyCode    String   @default("USD") @map("currency_code") @db.VarChar(8)
+  accountRef      String?  @map("account_ref") @db.VarChar(64)
+  asOfDate        DateTime @map("as_of_date") @db.Date
+  valuationStatus String   @default("FINAL") @map("valuation_status") @db.VarChar(16)
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fund            Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, fundId, shareClass], map: "lp_holding_positions_client_fund_class_key")
+  @@index([clientId], map: "lp_holding_positions_client_idx")
+  @@map("lp_holding_positions")
+}
+
+model LpBankAccount {
+  id                String   @id @default(cuid())
+  clientId          String   @map("client_id")
+  fundId            String?  @map("fund_id")
+  label             String   @db.VarChar(128)
+  bankName          String   @map("bank_name") @db.VarChar(128)
+  accountName       String   @map("account_name") @db.VarChar(128)
+  accountNumberMasked String @map("account_number_masked") @db.VarChar(32)
+  currencyCode      String   @default("USD") @map("currency_code") @db.VarChar(8)
+  isDefault         Boolean  @default(false) @map("is_default")
+  status            String   @default("ACTIVE") @db.VarChar(16)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fund              Fund?    @relation(fields: [fundId], references: [id], onDelete: SetNull)
+
+  @@index([clientId], map: "lp_bank_accounts_client_idx")
+  @@map("lp_bank_accounts")
+}
+
+model LpDealingRequest {
+  id                 String    @id @default(cuid())
+  clientId           String    @map("client_id")
+  fundId             String    @map("fund_id")
+  requestType        String    @map("request_type") @db.VarChar(16) // SUBSCRIPTION | REDEMPTION
+  status             String    @default("SUBMITTED") @db.VarChar(32)
+  amount             Decimal?  @db.Decimal(15, 2)
+  units              Decimal?  @db.Decimal(18, 6)
+  redemptionMode     String?   @map("redemption_mode") @db.VarChar(16) // PARTIAL | FULL
+  currencyCode       String    @default("USD") @map("currency_code") @db.VarChar(8)
+  requestedDealingDate DateTime? @map("requested_dealing_date") @db.Date
+  estimateSnapshotId String?   @map("estimate_snapshot_id")
+  estimateJson       Json?     @map("estimate_json")
+  payloadHash        String?   @map("payload_hash") @db.VarChar(64)
+  bankAccountId      String?   @map("bank_account_id")
+  submittedById      String?   @map("submitted_by_id")
+  notes              String?   @db.Text
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  client             Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fund               Fund      @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, fundId], map: "lp_dealing_requests_client_fund_idx")
+  @@index([status], map: "lp_dealing_requests_status_idx")
+  @@map("lp_dealing_requests")
+}
+
+model LpComplianceStatus {
+  id             String   @id @default(cuid())
+  clientId       String   @unique @map("client_id")
+  kycStatus      String   @default("CLEAR") @map("kyc_status") @db.VarChar(32)
+  accredited     Boolean  @default(true)
+  onHold         Boolean  @default(false) @map("on_hold")
+  holdReason     String?  @map("hold_reason") @db.VarChar(255)
+  detailsJson    Json?    @map("details_json")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("lp_compliance_statuses")
+}
+
+model LpDocumentAccessAudit {
+  id         String   @id @default(cuid())
+  documentId String   @map("document_id")
+  clientId   String   @map("client_id")
+  userId     String?  @map("user_id")
+  action     String   @db.VarChar(16) // VIEW | DOWNLOAD | PREVIEW
+  ipAddress  String?  @map("ip_address") @db.VarChar(64)
+  userAgent  String?  @map("user_agent") @db.VarChar(512)
+  createdAt  DateTime @default(now()) @map("created_at")
+  document   LpPortalDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([documentId], map: "lp_doc_access_audit_doc_idx")
+  @@index([clientId], map: "lp_doc_access_audit_client_idx")
+  @@map("lp_document_access_audits")
+}
+
+model LpNotice {
+  id          String    @id @default(cuid())
+  title       String    @db.VarChar(512)
+  body        String    @db.Text
+  status      String    @default("PUBLISHED") @db.VarChar(32)
+  targetType  String    @default("ALL") @map("target_type") @db.VarChar(32) // ALL | FUND | ORG | USER
+  fundId      String?   @map("fund_id")
+  clientId    String?   @map("client_id")
+  userId      String?   @map("user_id")
+  shareClass  String?   @map("share_class") @db.VarChar(64)
+  publishedAt DateTime? @map("published_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  fund        Fund?     @relation(fields: [fundId], references: [id], onDelete: SetNull)
+  client      Client?   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  receipts    LpNoticeReceipt[]
+
+  @@index([status, publishedAt], map: "lp_notices_status_pub_idx")
+  @@map("lp_notices")
+}
+
+model LpNoticeReceipt {
+  id             String    @id @default(cuid())
+  noticeId       String    @map("notice_id")
+  clientId       String    @map("client_id")
+  userId         String?   @map("user_id")
+  openedAt       DateTime? @map("opened_at")
+  acknowledgedAt DateTime? @map("acknowledged_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  notice         LpNotice  @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  client         Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([noticeId, clientId, userId], map: "lp_notice_receipts_unique")
+  @@index([clientId], map: "lp_notice_receipts_client_idx")
+  @@map("lp_notice_receipts")
+}
+
+model LpServiceRequest {
+  id          String   @id @default(cuid())
+  reference   String   @unique @db.VarChar(32)
+  clientId    String   @map("client_id")
+  fundId      String?  @map("fund_id")
+  requestType String   @map("request_type") @db.VarChar(64)
+  status      String   @default("OPEN") @db.VarChar(32)
+  subject     String   @db.VarChar(512)
+  body        String   @db.Text
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fund        Fund?    @relation(fields: [fundId], references: [id], onDelete: SetNull)
+  messages    LpServiceRequestMessage[]
+
+  @@index([clientId], map: "lp_service_requests_client_idx")
+  @@map("lp_service_requests")
+}
+
+model LpServiceRequestMessage {
+  id         String   @id @default(cuid())
+  requestId  String   @map("request_id")
+  authorType String   @map("author_type") @db.VarChar(16) // INVESTOR | OPS
+  authorId   String?  @map("author_id")
+  body       String   @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+  request    LpServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId], map: "lp_service_request_messages_req_idx")
+  @@map("lp_service_request_messages")
+}
+
+model LpMessageThread {
+  id             String    @id @default(cuid())
+  clientId       String    @map("client_id")
+  fundId         String?   @map("fund_id")
+  subject        String    @db.VarChar(512)
+  relatedType    String?   @map("related_type") @db.VarChar(32)
+  relatedId      String?   @map("related_id")
+  status         String    @default("OPEN") @db.VarChar(16)
+  lastMessageAt  DateTime? @map("last_message_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  client         Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fund           Fund?     @relation(fields: [fundId], references: [id], onDelete: SetNull)
+  messages       LpMessage[]
+
+  @@index([clientId], map: "lp_message_threads_client_idx")
+  @@map("lp_message_threads")
+}
+
+model LpMessage {
+  id         String   @id @default(cuid())
+  threadId   String   @map("thread_id")
+  authorType String   @map("author_type") @db.VarChar(16)
+  authorId   String?  @map("author_id")
+  body       String   @db.Text
+  readAt     DateTime? @map("read_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  thread     LpMessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId], map: "lp_messages_thread_idx")
+  @@map("lp_messages")
+}
+
+model LpNotificationPrefs {
+  id                 String   @id @default(cuid())
+  clientId           String   @map("client_id")
+  userId             String   @map("user_id")
+  emailCapitalCalls  Boolean  @default(true) @map("email_capital_calls")
+  emailDistributions Boolean  @default(true) @map("email_distributions")
+  emailDocuments     Boolean  @default(true) @map("email_documents")
+  emailMessages      Boolean  @default(true) @map("email_messages")
+  emailNotices       Boolean  @default(true) @map("email_notices")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@unique([clientId, userId], map: "lp_notification_prefs_user_client_key")
+  @@map("lp_notification_prefs")
+}
+
+model LpPortalJob {
+  id           String    @id @default(cuid())
+  clientId     String    @map("client_id")
+  jobType      String    @map("job_type") @db.VarChar(64)
+  status       String    @default("QUEUED") @db.VarChar(32)
+  requestJson  Json?     @map("request_json")
+  resultJson   Json?     @map("result_json")
+  downloadPath String?   @map("download_path") @db.VarChar(512)
+  errorMessage String?   @map("error_message") @db.Text
+  createdById  String?   @map("created_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  completedAt  DateTime? @map("completed_at")
+  client       Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, status], map: "lp_portal_jobs_client_status_idx")
+  @@map("lp_portal_jobs")
 }
 
 model AuthMfaPending {
@@ -6631,6 +6984,7 @@ model ListedEquityPriceTick {
   id               String   @id @default(cuid())
   securityId       String   @map("security_id")
   batchId          String?  @map("batch_id")
+  sourceCode       String?  @map("source_code") @db.VarChar(32)
   priceType        String   @map("price_type") @db.VarChar(16)
   price            Decimal  @db.Decimal(18, 6)
   previousClose    Decimal? @map("previous_close") @db.Decimal(18, 6)
@@ -6640,6 +6994,11 @@ model ListedEquityPriceTick {
   fxRateUsed       Decimal? @map("fx_rate_used") @db.Decimal(18, 8)
   fxRateSource     String?  @map("fx_rate_source") @db.VarChar(32)
   sourceStatus     String   @default("OK") @map("source_status") @db.VarChar(16)
+  sourceObservedAt DateTime? @map("source_observed_at")
+  sourceChecksum   String?  @map("source_checksum") @db.VarChar(64)
+  approvalReason   String?  @map("approval_reason") @db.Text
+  idempotencyKey   String?  @unique(map: "listed_equity_price_ticks_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  version          Int      @default(1)
   pricedAt         DateTime @map("priced_at")
   reviewedById     String?  @map("reviewed_by_id")
   reviewedAt       DateTime? @map("reviewed_at")
@@ -6651,6 +7010,7 @@ model ListedEquityPriceTick {
 
   @@index([securityId, pricedAt], map: "listed_equity_price_ticks_security_priced_idx")
   @@index([validationStatus, pricedAt], map: "listed_equity_price_ticks_validation_idx")
+  @@index([sourceCode, pricedAt], map: "listed_equity_price_ticks_source_priced_idx")
   @@map("listed_equity_price_ticks")
 }
 
@@ -6675,6 +7035,10 @@ model ListedEquityFundConfig {
   coaMappingJson    Json?    @map("coa_mapping_json")
   brokerProfileId   String?  @map("broker_profile_id")
   custodianProfileId String? @map("custodian_profile_id")
+  costBasisMethod   String?  @map("cost_basis_method") @db.VarChar(32)
+  pricingSource     String?  @map("pricing_source") @db.VarChar(64)
+  settlementCycle   String?  @map("settlement_cycle") @db.VarChar(16)
+  cutoffTime        String?  @map("cutoff_time") @db.VarChar(16)
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -6949,7 +7313,10 @@ model InvestmentInstrument {
 model InvestmentOrder {
   id                 String    @id @default(cuid())
   orderRef           String    @unique @map("order_ref") @db.VarChar(64)
+  idempotencyKey     String?   @unique(map: "investment_orders_idempotency_key") @map("idempotency_key") @db.VarChar(191)
   fundId             String    @map("fund_id")
+  portfolioConfigId  String?   @map("portfolio_config_id")
+  folderId           String?   @map("folder_id")
   instrumentId       String?   @map("instrument_id")
   securityId         String?   @map("security_id")
   side               String    @db.VarChar(8)
@@ -6967,6 +7334,8 @@ model InvestmentOrder {
   complianceStatus   String?   @map("compliance_status") @db.VarChar(24)
   notes              String?   @db.Text
   tradeId            String?   @map("trade_id")
+  version             Int       @default(1)
+  currentRevisionNo  Int       @default(1) @map("current_revision_no")
   createdById        String?   @map("created_by_id")
   submittedAt        DateTime? @map("submitted_at")
   approvedAt         DateTime? @map("approved_at")
@@ -6974,11 +7343,23 @@ model InvestmentOrder {
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
   instrument         InvestmentInstrument?      @relation(fields: [instrumentId], references: [id], onDelete: SetNull)
+  portfolioConfig    InvestmentPortfolioConfig? @relation(fields: [portfolioConfigId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  folder             InvestmentPortfolioFolder? @relation(fields: [folderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   approvals          InvestmentOrderApproval[]
   complianceResults  InvestmentComplianceResult[]
+  previews           InvestmentOrderPreview[]
+  revisions          InvestmentOrderRevision[]
+  statusEvents       InvestmentOrderStatusEvent[]
+  routes             InvestmentOrderRoute[]
+  executions         InvestmentOrderExecution[]
+  transactions       InvestmentTransaction[]
+  blotterItems       InvestmentBlotterItem[]
+  complianceRuns     InvestmentComplianceRun[]
 
   @@index([fundId, status], map: "investment_orders_fund_status_idx")
   @@index([tradeId], map: "investment_orders_trade_idx")
+  @@index([portfolioConfigId, status], map: "investment_orders_portfolio_status_idx")
+  @@index([folderId, createdAt], map: "investment_orders_folder_created_idx")
   @@map("investment_orders")
 }
 
@@ -6991,11 +7372,16 @@ model InvestmentOrderApproval {
   reason       String?  @db.Text
   oldStatus    String?  @map("old_status") @db.VarChar(24)
   newStatus    String?  @map("new_status") @db.VarChar(24)
+  approvalSequence Int  @default(1) @map("approval_sequence")
+  revisionNo   Int      @default(1) @map("revision_no")
+  idempotencyKey String? @unique(map: "investment_order_approvals_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  decidedAt    DateTime? @map("decided_at")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  order InvestmentOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order InvestmentOrder @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([orderId], map: "investment_order_approvals_order_idx")
+  @@unique([orderId, approvalSequence, revisionNo], map: "investment_order_approvals_sequence_key")
   @@map("investment_order_approvals")
 }
 
@@ -7007,11 +7393,15 @@ model InvestmentValuationRun {
   navBaseCurrency Decimal?  @map("nav_base_currency") @db.Decimal(18, 2)
   errorMessage    String?   @map("error_message") @db.Text
   parametersJson  Json?     @map("parameters_json")
+  idempotencyKey  String?   @unique(map: "investment_valuation_runs_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  version         Int       @default(1)
   startedById     String?   @map("started_by_id")
   completedAt     DateTime? @map("completed_at")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   exceptions InvestmentValuationException[]
+  inputSnapshots InvestmentValuationInputSnapshot[]
+  itemSnapshots InvestmentValuationItemSnapshot[]
 
   @@index([fundId, asOf], map: "investment_valuation_runs_fund_asof_idx")
   @@map("investment_valuation_runs")
@@ -7050,7 +7440,13 @@ model InvestmentAccountingEvent {
   tradeRef               String?   @map("trade_ref") @db.VarChar(64)
   amount                 Decimal?  @db.Decimal(18, 2)
   currencyCode           String?   @map("currency_code") @db.VarChar(3)
+  idempotencyKey         String?   @unique(map: "investment_accounting_events_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  version                Int       @default(1)
   postedAt               DateTime? @map("posted_at")
+  journalWorkflows       InvestmentAccountingJournalWorkflow[]
+  reversals              InvestmentAccountingReversal[]
+  exportLinks            InvestmentAccountingExportLink[]
+
   createdAt              DateTime  @default(now()) @map("created_at")
   updatedAt              DateTime  @updatedAt @map("updated_at")
 
@@ -7075,8 +7471,10 @@ model InvestmentComplianceRule {
   isActive           Boolean  @default(true) @map("is_active")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
+  version            Int      @default(1)
 
   results InvestmentComplianceResult[]
+  limits  InvestmentPortfolioLimit[]
 
   @@index([fundId], map: "investment_compliance_rules_fund_idx")
   @@map("investment_compliance_rules")
@@ -7085,6 +7483,7 @@ model InvestmentComplianceRule {
 model InvestmentComplianceResult {
   id                 String   @id @default(cuid())
   orderId            String   @map("order_id")
+  complianceRunId    String?  @map("compliance_run_id")
   ruleId             String?  @map("rule_id")
   outcome            String   @db.VarChar(24)
   message            String?  @db.Text
@@ -7093,10 +7492,13 @@ model InvestmentComplianceResult {
   overrideDocumentId String?  @map("override_document_id")
   createdAt          DateTime @default(now()) @map("created_at")
 
-  order InvestmentOrder           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  rule  InvestmentComplianceRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  order InvestmentOrder           @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  rule  InvestmentComplianceRule? @relation(fields: [ruleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  complianceRun InvestmentComplianceRun? @relation(fields: [complianceRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  overrides InvestmentComplianceOverride[]
 
   @@index([orderId], map: "investment_compliance_results_order_idx")
+  @@index([complianceRunId, outcome], map: "investment_compliance_results_run_outcome_idx")
   @@map("investment_compliance_results")
 }
 
@@ -7142,19 +7544,24 @@ model InvestmentOpsSetting {
 model InvestmentReconciliationBatch {
   id               String    @id @default(cuid())
   fundId           String    @map("fund_id")
+  sourceId         String?   @map("source_id")
   reconType        String    @map("recon_type") @db.VarChar(32)
   asOfDate         DateTime  @map("as_of_date") @db.Date
   status           String    @default("RUNNING") @db.VarChar(24)
   matchedCount     Int       @default(0) @map("matched_count")
   unmatchedCount   Int       @default(0) @map("unmatched_count")
   externalFileName String?   @map("external_file_name") @db.VarChar(255)
+  idempotencyKey   String?   @unique(map: "investment_reconciliation_batches_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  version          Int       @default(1)
   createdById      String?   @map("created_by_id")
   completedAt      DateTime? @map("completed_at")
   createdAt        DateTime  @default(now()) @map("created_at")
 
   items InvestmentReconciliationItem[]
+  source InvestmentReconciliationSource? @relation(fields: [sourceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([fundId, reconType], map: "investment_reconciliation_batches_fund_idx")
+  @@index([sourceId, asOfDate], map: "investment_reconciliation_batches_source_date_idx")
   @@map("investment_reconciliation_batches")
 }
 
@@ -7175,6 +7582,8 @@ model InvestmentReconciliationItem {
   createdAt              DateTime  @default(now()) @map("created_at")
 
   batch InvestmentReconciliationBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  history InvestmentReconciliationItemHistory[]
+  resolutions InvestmentReconciliationResolution[]
 
   @@index([batchId], map: "investment_reconciliation_items_batch_idx")
   @@map("investment_reconciliation_items")
@@ -7186,6 +7595,12 @@ model InvestmentDocument {
   documentType   String   @map("document_type") @db.VarChar(32)
   title          String   @db.VarChar(255)
   fileRef        String   @map("file_ref") @db.Text
+  currentVersionNo Int    @default(1) @map("current_version_no")
+  checksumSha256 String?  @map("checksum_sha256") @db.VarChar(64)
+  encryptionKeyRef String? @map("encryption_key_ref") @db.VarChar(512)
+  classification String   @default("CONFIDENTIAL") @db.VarChar(24)
+  retentionUntil DateTime? @map("retention_until") @db.Date
+  isDeleted      Boolean  @default(false) @map("is_deleted")
   orderId        String?  @map("order_id")
   tradeId        String?  @map("trade_id")
   versionNo      Int      @default(1) @map("version_no")
@@ -7194,7 +7609,12 @@ model InvestmentDocument {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
+  versions InvestmentDocumentVersion[]
+  aclEntries InvestmentDocumentAcl[]
+  links InvestmentDocumentLink[]
+
   @@index([fundId, documentType], map: "investment_documents_fund_type_idx")
+  @@index([orderId, documentType], map: "investment_documents_order_type_idx")
   @@map("investment_documents")
 }
 
@@ -7220,12 +7640,17 @@ model InvestmentModelPortfolio {
   name             String   @db.VarChar(255)
   strategyCode     String?  @map("strategy_code") @db.VarChar(64)
   baseCurrencyCode String   @default("USD") @map("base_currency_code") @db.VarChar(3)
+  linkedFundId     String?  @map("linked_fund_id")
+  currentVersionNo Int      @default(1) @map("current_version_no")
   isActive         Boolean  @default(true) @map("is_active")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   allocations InvestmentModelPortfolioAllocation[]
+  versions InvestmentModelPortfolioVersion[]
+  rebalances InvestmentRebalanceRun[]
 
+  @@index([linkedFundId], map: "investment_model_portfolios_linked_fund_idx")
   @@map("investment_model_portfolios")
 }
 
@@ -7254,6 +7679,818 @@ model InvestmentSimulationRun {
 
   @@index([fundId], map: "investment_simulation_runs_fund_idx")
   @@map("investment_simulation_runs")
+}
+
+// ─── Investment Operations schema hardening ─────────────────────────────────
+
+model InvestmentPortfolioAccessCapability {
+  id             String   @id @default(cuid())
+  fundId         String   @map("fund_id")
+  userId         String   @map("user_id")
+  capabilityCode String   @map("capability_code") @db.VarChar(64)
+  scopeJson      Json?    @map("scope_json")
+  grantedById    String?  @map("granted_by_id")
+  expiresAt      DateTime? @map("expires_at")
+  revokedAt      DateTime? @map("revoked_at")
+  version        Int      @default(1)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([fundId, userId, capabilityCode], map: "investment_portfolio_access_capability_key")
+  @@index([userId, revokedAt, expiresAt], map: "investment_portfolio_access_user_active_idx")
+  @@map("investment_portfolio_access_capabilities")
+}
+
+model InvestmentPortfolioFolder {
+  id          String   @id @default(cuid())
+  fundId      String   @map("fund_id")
+  parentId    String?  @map("parent_id")
+  name        String   @db.VarChar(191)
+  path        String   @db.VarChar(500)
+  sortOrder   Int      @default(0) @map("sort_order")
+  version     Int      @default(1)
+  isArchived  Boolean  @default(false) @map("is_archived")
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  parent      InvestmentPortfolioFolder?  @relation("InvestmentPortfolioFolderTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children    InvestmentPortfolioFolder[] @relation("InvestmentPortfolioFolderTree")
+  assignments InvestmentPortfolioAssignment[]
+  orders      InvestmentOrder[]
+
+  @@unique([fundId, path], map: "investment_portfolio_folders_fund_path_key")
+  @@index([parentId, sortOrder], map: "investment_portfolio_folders_parent_sort_idx")
+  @@map("investment_portfolio_folders")
+}
+
+model InvestmentPortfolioConfig {
+  id                   String   @id @default(cuid())
+  fundId               String   @unique(map: "investment_portfolio_configs_fund_key") @map("fund_id")
+  baseCurrencyCode     String   @map("base_currency_code") @db.VarChar(3)
+  valuationPolicyJson  Json?    @map("valuation_policy_json")
+  settlementPolicyJson Json?    @map("settlement_policy_json")
+  approvalPolicyJson   Json?    @map("approval_policy_json")
+  version              Int      @default(1)
+  isActive             Boolean  @default(true) @map("is_active")
+  createdById          String?  @map("created_by_id")
+  updatedById          String?  @map("updated_by_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  assignments InvestmentPortfolioAssignment[]
+  limits      InvestmentPortfolioLimit[]
+  orders      InvestmentOrder[]
+  cashAccounts InvestmentCashAccount[]
+
+  @@map("investment_portfolio_configs")
+}
+
+model InvestmentPortfolioAssignment {
+  id                String   @id @default(cuid())
+  portfolioConfigId String   @map("portfolio_config_id")
+  folderId          String?  @map("folder_id")
+  userId            String   @map("user_id")
+  assignmentRole    String   @map("assignment_role") @db.VarChar(32)
+  effectiveFrom     DateTime @default(now()) @map("effective_from")
+  effectiveTo       DateTime? @map("effective_to")
+  version           Int      @default(1)
+  createdById       String?  @map("created_by_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  portfolioConfig InvestmentPortfolioConfig @relation(fields: [portfolioConfigId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  folder          InvestmentPortfolioFolder? @relation(fields: [folderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([portfolioConfigId, userId, assignmentRole], map: "investment_portfolio_assignments_role_key")
+  @@index([userId, effectiveTo], map: "investment_portfolio_assignments_user_active_idx")
+  @@map("investment_portfolio_assignments")
+}
+
+model InvestmentPortfolioLimit {
+  id                String   @id @default(cuid())
+  portfolioConfigId String   @map("portfolio_config_id")
+  complianceRuleId  String?  @map("compliance_rule_id")
+  limitCode         String   @map("limit_code") @db.VarChar(64)
+  dimensionType     String   @map("dimension_type") @db.VarChar(32)
+  dimensionValue    String?  @map("dimension_value") @db.VarChar(191)
+  warningValue      Decimal? @map("warning_value") @db.Decimal(20, 8)
+  hardValue         Decimal? @map("hard_value") @db.Decimal(20, 8)
+  unit              String   @db.VarChar(24)
+  effectiveFrom     DateTime @map("effective_from") @db.Date
+  effectiveTo       DateTime? @map("effective_to") @db.Date
+  version           Int      @default(1)
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  portfolioConfig InvestmentPortfolioConfig @relation(fields: [portfolioConfigId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  complianceRule  InvestmentComplianceRule? @relation(fields: [complianceRuleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([portfolioConfigId, limitCode, effectiveFrom], map: "investment_portfolio_limits_effective_key")
+  @@index([portfolioConfigId, isActive, effectiveTo], map: "investment_portfolio_limits_active_idx")
+  @@map("investment_portfolio_limits")
+}
+
+model InvestmentOrderPreview {
+  id               String   @id @default(cuid())
+  orderId          String   @map("order_id")
+  revisionNo       Int      @map("revision_no")
+  idempotencyKey   String   @unique(map: "investment_order_previews_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  inputJson        Json     @map("input_json")
+  estimatedJson    Json     @map("estimated_json")
+  complianceJson   Json?    @map("compliance_json")
+  priceSnapshotId  String?  @map("price_snapshot_id")
+  fxSnapshotId     String?  @map("fx_snapshot_id")
+  expiresAt        DateTime @map("expires_at")
+  createdById      String?  @map("created_by_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  order      InvestmentOrder @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  fxSnapshot InvestmentFxRateSnapshot? @relation(fields: [fxSnapshotId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([orderId, revisionNo], map: "investment_order_previews_revision_key")
+  @@index([orderId, expiresAt], map: "investment_order_previews_expiry_idx")
+  @@map("investment_order_previews")
+}
+
+model InvestmentOrderRevision {
+  id             String   @id @default(cuid())
+  orderId        String   @map("order_id")
+  revisionNo     Int      @map("revision_no")
+  snapshotJson   Json     @map("snapshot_json")
+  changeReason   String?  @map("change_reason") @db.Text
+  contentHash    String   @map("content_hash") @db.VarChar(64)
+  createdById    String?  @map("created_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  order InvestmentOrder @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([orderId, revisionNo], map: "investment_order_revisions_number_key")
+  @@index([orderId, createdAt], map: "investment_order_revisions_created_idx")
+  @@map("investment_order_revisions")
+}
+
+model InvestmentOrderStatusEvent {
+  id             String   @id @default(cuid())
+  orderId        String   @map("order_id")
+  sequenceNo     Int      @map("sequence_no")
+  fromStatus     String?  @map("from_status") @db.VarChar(24)
+  toStatus       String   @map("to_status") @db.VarChar(24)
+  reasonCode     String?  @map("reason_code") @db.VarChar(64)
+  reason         String?  @db.Text
+  actorId        String?  @map("actor_id")
+  idempotencyKey String?  @unique(map: "investment_order_status_events_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  order InvestmentOrder @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([orderId, sequenceNo], map: "investment_order_status_events_sequence_key")
+  @@index([orderId, createdAt], map: "investment_order_status_events_created_idx")
+  @@map("investment_order_status_events")
+}
+
+model InvestmentOrderRoute {
+  id              String    @id @default(cuid())
+  orderId         String    @map("order_id")
+  routeSequence   Int       @map("route_sequence")
+  venueCode       String    @map("venue_code") @db.VarChar(32)
+  brokerProfileId String?   @map("broker_profile_id")
+  status          String    @default("PENDING") @db.VarChar(24)
+  externalOrderRef String?  @map("external_order_ref") @db.VarChar(191)
+  requestPayload  Json?     @map("request_payload")
+  responsePayload Json?     @map("response_payload")
+  idempotencyKey  String    @unique(map: "investment_order_routes_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  routedAt        DateTime? @map("routed_at")
+  acknowledgedAt  DateTime? @map("acknowledged_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  order      InvestmentOrder @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  executions InvestmentOrderExecution[]
+
+  @@unique([orderId, routeSequence], map: "investment_order_routes_sequence_key")
+  @@index([status, routedAt], map: "investment_order_routes_status_idx")
+  @@map("investment_order_routes")
+}
+
+model InvestmentOrderExecution {
+  id               String   @id @default(cuid())
+  orderId          String   @map("order_id")
+  routeId          String?  @map("route_id")
+  executionRef     String   @map("execution_ref") @db.VarChar(191)
+  quantity         Decimal  @db.Decimal(20, 8)
+  price            Decimal  @db.Decimal(20, 8)
+  grossAmount      Decimal  @map("gross_amount") @db.Decimal(20, 8)
+  feeAmount        Decimal  @default(0) @map("fee_amount") @db.Decimal(20, 8)
+  taxAmount        Decimal  @default(0) @map("tax_amount") @db.Decimal(20, 8)
+  currencyCode     String   @map("currency_code") @db.VarChar(3)
+  executedAt       DateTime @map("executed_at")
+  settlementDate   DateTime? @map("settlement_date") @db.Date
+  idempotencyKey   String   @unique(map: "investment_order_executions_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  rawPayload       Json?    @map("raw_payload")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  order        InvestmentOrder @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  route        InvestmentOrderRoute? @relation(fields: [routeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transactions InvestmentTransaction[]
+
+  @@unique([orderId, executionRef], map: "investment_order_executions_ref_key")
+  @@index([orderId, executedAt], map: "investment_order_executions_order_time_idx")
+  @@map("investment_order_executions")
+}
+
+model InvestmentBlotter {
+  id             String   @id @default(cuid())
+  fundId         String   @map("fund_id")
+  blotterDate    DateTime @map("blotter_date") @db.Date
+  blotterType    String   @map("blotter_type") @db.VarChar(24)
+  status         String   @default("OPEN") @db.VarChar(24)
+  version        Int      @default(1)
+  createdById    String?  @map("created_by_id")
+  closedById     String?  @map("closed_by_id")
+  closedAt       DateTime? @map("closed_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  items InvestmentBlotterItem[]
+
+  @@unique([fundId, blotterDate, blotterType], map: "investment_blotters_fund_date_type_key")
+  @@index([status, blotterDate], map: "investment_blotters_status_date_idx")
+  @@map("investment_blotters")
+}
+
+model InvestmentBlotterItem {
+  id          String   @id @default(cuid())
+  blotterId   String   @map("blotter_id")
+  orderId     String   @map("order_id")
+  lineNo      Int      @map("line_no")
+  snapshotJson Json    @map("snapshot_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  blotter InvestmentBlotter @relation(fields: [blotterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  order   InvestmentOrder @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([blotterId, lineNo], map: "investment_blotter_items_line_key")
+  @@unique([blotterId, orderId], map: "investment_blotter_items_order_key")
+  @@map("investment_blotter_items")
+}
+
+model InvestmentTransaction {
+  id               String   @id @default(cuid())
+  transactionRef   String   @unique(map: "investment_transactions_ref_key") @map("transaction_ref") @db.VarChar(64)
+  fundId           String   @map("fund_id")
+  orderId          String?  @map("order_id")
+  executionId      String?  @map("execution_id")
+  instrumentId     String?  @map("instrument_id")
+  transactionType  String   @map("transaction_type") @db.VarChar(32)
+  tradeDate        DateTime @map("trade_date") @db.Date
+  settlementDate   DateTime? @map("settlement_date") @db.Date
+  quantity         Decimal? @db.Decimal(20, 8)
+  unitPrice        Decimal? @map("unit_price") @db.Decimal(20, 8)
+  grossAmount      Decimal  @map("gross_amount") @db.Decimal(20, 8)
+  netAmount        Decimal  @map("net_amount") @db.Decimal(20, 8)
+  currencyCode     String   @map("currency_code") @db.VarChar(3)
+  status           String   @default("PENDING") @db.VarChar(24)
+  idempotencyKey   String   @unique(map: "investment_transactions_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  version          Int      @default(1)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  order        InvestmentOrder? @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  execution    InvestmentOrderExecution? @relation(fields: [executionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cashEntries  InvestmentCashLedgerEntry[]
+
+  @@index([fundId, tradeDate, status], map: "investment_transactions_fund_date_idx")
+  @@index([instrumentId, tradeDate], map: "investment_transactions_instrument_date_idx")
+  @@map("investment_transactions")
+}
+
+model InvestmentCashAccount {
+  id                String   @id @default(cuid())
+  portfolioConfigId String   @map("portfolio_config_id")
+  accountCode       String   @map("account_code") @db.VarChar(64)
+  currencyCode      String   @map("currency_code") @db.VarChar(3)
+  bankId            String?  @map("bank_id")
+  status            String   @default("ACTIVE") @db.VarChar(16)
+  version           Int      @default(1)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  portfolioConfig InvestmentPortfolioConfig @relation(fields: [portfolioConfigId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ledgerEntries   InvestmentCashLedgerEntry[]
+
+  @@unique([portfolioConfigId, accountCode, currencyCode], map: "investment_cash_accounts_code_currency_key")
+  @@index([bankId, status], map: "investment_cash_accounts_bank_status_idx")
+  @@map("investment_cash_accounts")
+}
+
+model InvestmentCashLedgerEntry {
+  id              String   @id @default(cuid())
+  cashAccountId   String   @map("cash_account_id")
+  transactionId   String?  @map("transaction_id")
+  entryType       String   @map("entry_type") @db.VarChar(24)
+  amount          Decimal  @db.Decimal(20, 8)
+  currencyCode    String   @map("currency_code") @db.VarChar(3)
+  effectiveAt     DateTime @map("effective_at")
+  valueDate       DateTime? @map("value_date") @db.Date
+  status          String   @default("POSTED") @db.VarChar(16)
+  idempotencyKey  String   @unique(map: "investment_cash_ledger_entries_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  runningBalance  Decimal? @map("running_balance") @db.Decimal(20, 8)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  cashAccount InvestmentCashAccount @relation(fields: [cashAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transaction InvestmentTransaction? @relation(fields: [transactionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([cashAccountId, effectiveAt, id], map: "investment_cash_ledger_account_time_idx")
+  @@index([transactionId], map: "investment_cash_ledger_transaction_idx")
+  @@map("investment_cash_ledger_entries")
+}
+
+model InvestmentFxRateSnapshot {
+  id               String   @id @default(cuid())
+  baseCurrencyCode String   @map("base_currency_code") @db.VarChar(3)
+  quoteCurrencyCode String  @map("quote_currency_code") @db.VarChar(3)
+  rate             Decimal  @db.Decimal(20, 10)
+  rateType         String   @map("rate_type") @db.VarChar(24)
+  sourceCode       String   @map("source_code") @db.VarChar(64)
+  sourceReference  String?  @map("source_reference") @db.VarChar(512)
+  sourceObservedAt DateTime @map("source_observed_at")
+  sourceChecksum   String?  @map("source_checksum") @db.VarChar(64)
+  approvalStatus   String   @default("PENDING") @map("approval_status") @db.VarChar(16)
+  approvedById     String?  @map("approved_by_id")
+  approvedAt       DateTime? @map("approved_at")
+  approvalReason   String?  @map("approval_reason") @db.Text
+  idempotencyKey   String   @unique(map: "investment_fx_rate_snapshots_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  version          Int      @default(1)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  orderPreviews InvestmentOrderPreview[]
+  valuationInputs InvestmentValuationInputSnapshot[]
+
+  @@index([baseCurrencyCode, quoteCurrencyCode, sourceObservedAt], map: "investment_fx_snapshots_pair_time_idx")
+  @@index([approvalStatus, sourceObservedAt], map: "investment_fx_snapshots_approval_idx")
+  @@map("investment_fx_rate_snapshots")
+}
+
+model InvestmentValuationInputSnapshot {
+  id               String   @id @default(cuid())
+  valuationRunId   String   @map("valuation_run_id")
+  inputType        String   @map("input_type") @db.VarChar(32)
+  instrumentId     String?  @map("instrument_id")
+  priceTickId      String?  @map("price_tick_id")
+  fxSnapshotId     String?  @map("fx_snapshot_id")
+  sourceCode       String?  @map("source_code") @db.VarChar(64)
+  sourceObservedAt DateTime? @map("source_observed_at")
+  valueJson        Json     @map("value_json")
+  contentHash      String   @map("content_hash") @db.VarChar(64)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  valuationRun InvestmentValuationRun @relation(fields: [valuationRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  fxSnapshot   InvestmentFxRateSnapshot? @relation(fields: [fxSnapshotId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([valuationRunId, inputType, instrumentId], map: "investment_valuation_inputs_run_type_instrument_key")
+  @@index([priceTickId], map: "investment_valuation_inputs_price_tick_idx")
+  @@map("investment_valuation_input_snapshots")
+}
+
+model InvestmentValuationItemSnapshot {
+  id                String   @id @default(cuid())
+  valuationRunId    String   @map("valuation_run_id")
+  fundId            String   @map("fund_id")
+  instrumentId      String?  @map("instrument_id")
+  securityId        String?  @map("security_id")
+  quantity          Decimal  @db.Decimal(20, 8)
+  price             Decimal  @db.Decimal(20, 8)
+  marketValue       Decimal  @map("market_value") @db.Decimal(20, 8)
+  baseMarketValue   Decimal  @map("base_market_value") @db.Decimal(20, 8)
+  costValue         Decimal? @map("cost_value") @db.Decimal(20, 8)
+  unrealizedPnl     Decimal? @map("unrealized_pnl") @db.Decimal(20, 8)
+  currencyCode      String   @map("currency_code") @db.VarChar(3)
+  methodCode        String   @map("method_code") @db.VarChar(32)
+  inputFingerprint  String   @map("input_fingerprint") @db.VarChar(64)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  valuationRun InvestmentValuationRun @relation(fields: [valuationRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([valuationRunId, instrumentId, securityId], map: "investment_valuation_items_run_instrument_security_key")
+  @@index([fundId, instrumentId], map: "investment_valuation_items_fund_instrument_idx")
+  @@map("investment_valuation_item_snapshots")
+}
+
+model InvestmentComplianceRun {
+  id             String   @id @default(cuid())
+  fundId         String   @map("fund_id")
+  orderId        String?  @map("order_id")
+  runType        String   @map("run_type") @db.VarChar(24)
+  status         String   @default("RUNNING") @db.VarChar(24)
+  ruleSetVersion Int      @map("rule_set_version")
+  inputSnapshot  Json     @map("input_snapshot")
+  idempotencyKey String   @unique(map: "investment_compliance_runs_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  startedById    String?  @map("started_by_id")
+  completedAt    DateTime? @map("completed_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  order   InvestmentOrder? @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  results InvestmentComplianceResult[]
+
+  @@index([fundId, createdAt], map: "investment_compliance_runs_fund_created_idx")
+  @@index([orderId, status], map: "investment_compliance_runs_order_status_idx")
+  @@map("investment_compliance_runs")
+}
+
+model InvestmentComplianceOverride {
+  id                 String   @id @default(cuid())
+  complianceResultId String   @map("compliance_result_id")
+  status             String   @default("PENDING") @db.VarChar(16)
+  reasonCode         String   @map("reason_code") @db.VarChar(64)
+  reason             String   @db.Text
+  requestedById      String?  @map("requested_by_id")
+  decidedById        String?  @map("decided_by_id")
+  decidedAt          DateTime? @map("decided_at")
+  expiresAt          DateTime? @map("expires_at")
+  documentId         String?  @map("document_id")
+  version            Int      @default(1)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  complianceResult InvestmentComplianceResult @relation(fields: [complianceResultId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([complianceResultId, status], map: "investment_compliance_overrides_result_status_idx")
+  @@map("investment_compliance_overrides")
+}
+
+model InvestmentReconciliationSource {
+  id               String   @id @default(cuid())
+  fundId           String?  @map("fund_id")
+  sourceCode       String   @map("source_code") @db.VarChar(64)
+  sourceType       String   @map("source_type") @db.VarChar(32)
+  displayName      String   @map("display_name") @db.VarChar(191)
+  configJson       Json?    @map("config_json")
+  credentialRef    String?  @map("credential_ref") @db.VarChar(512)
+  isActive         Boolean  @default(true) @map("is_active")
+  version          Int      @default(1)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  batches InvestmentReconciliationBatch[]
+
+  @@unique([fundId, sourceCode], map: "investment_reconciliation_sources_fund_code_key")
+  @@index([sourceType, isActive], map: "investment_reconciliation_sources_type_active_idx")
+  @@map("investment_reconciliation_sources")
+}
+
+model InvestmentReconciliationItemHistory {
+  id             String   @id @default(cuid())
+  itemId         String   @map("item_id")
+  sequenceNo     Int      @map("sequence_no")
+  fromStatus     String?  @map("from_status") @db.VarChar(24)
+  toStatus       String   @map("to_status") @db.VarChar(24)
+  snapshotJson   Json     @map("snapshot_json")
+  actorId        String?  @map("actor_id")
+  reason         String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  item InvestmentReconciliationItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([itemId, sequenceNo], map: "investment_reconciliation_item_history_sequence_key")
+  @@index([itemId, createdAt], map: "investment_reconciliation_item_history_created_idx")
+  @@map("investment_reconciliation_item_history")
+}
+
+model InvestmentReconciliationResolution {
+  id             String   @id @default(cuid())
+  itemId         String   @map("item_id")
+  resolutionType String   @map("resolution_type") @db.VarChar(32)
+  status         String   @default("PROPOSED") @db.VarChar(24)
+  reason         String   @db.Text
+  adjustmentJson Json?    @map("adjustment_json")
+  documentId     String?  @map("document_id")
+  proposedById   String?  @map("proposed_by_id")
+  approvedById   String?  @map("approved_by_id")
+  approvedAt     DateTime? @map("approved_at")
+  version        Int      @default(1)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  item InvestmentReconciliationItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([itemId, status], map: "investment_reconciliation_resolutions_item_status_idx")
+  @@map("investment_reconciliation_resolutions")
+}
+
+model InvestmentAccountingJournalWorkflow {
+  id                String   @id @default(cuid())
+  accountingEventId String   @map("accounting_event_id")
+  journalEntryId    String?  @map("journal_entry_id")
+  workflowStatus    String   @default("DRAFT") @map("workflow_status") @db.VarChar(24)
+  sequenceNo        Int      @map("sequence_no")
+  action            String   @db.VarChar(32)
+  actorId           String?  @map("actor_id")
+  reason            String?  @db.Text
+  idempotencyKey    String?  @unique(map: "investment_accounting_workflows_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  accountingEvent InvestmentAccountingEvent @relation(fields: [accountingEventId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([accountingEventId, sequenceNo], map: "investment_accounting_workflows_sequence_key")
+  @@index([workflowStatus, createdAt], map: "investment_accounting_workflows_status_idx")
+  @@map("investment_accounting_journal_workflows")
+}
+
+model InvestmentAccountingReversal {
+  id                     String   @id @default(cuid())
+  accountingEventId      String   @map("accounting_event_id")
+  originalJournalEntryId String   @map("original_journal_entry_id")
+  reversalJournalEntryId String?  @map("reversal_journal_entry_id")
+  status                 String   @default("REQUESTED") @db.VarChar(24)
+  reason                 String   @db.Text
+  requestedById          String?  @map("requested_by_id")
+  approvedById           String?  @map("approved_by_id")
+  approvedAt             DateTime? @map("approved_at")
+  idempotencyKey         String   @unique(map: "investment_accounting_reversals_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  accountingEvent InvestmentAccountingEvent @relation(fields: [accountingEventId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([originalJournalEntryId, status], map: "investment_accounting_reversals_original_idx")
+  @@map("investment_accounting_reversals")
+}
+
+model InvestmentAccountingExportLink {
+  id                String   @id @default(cuid())
+  accountingEventId String   @map("accounting_event_id")
+  exportSystem      String   @map("export_system") @db.VarChar(64)
+  exportBatchRef    String   @map("export_batch_ref") @db.VarChar(191)
+  externalRef       String?  @map("external_ref") @db.VarChar(191)
+  status            String   @default("PENDING") @db.VarChar(24)
+  payloadHash       String?  @map("payload_hash") @db.VarChar(64)
+  exportedAt        DateTime? @map("exported_at")
+  idempotencyKey    String   @unique(map: "investment_accounting_export_links_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  accountingEvent InvestmentAccountingEvent @relation(fields: [accountingEventId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([exportSystem, exportBatchRef, accountingEventId], map: "investment_accounting_export_links_batch_event_key")
+  @@index([status, createdAt], map: "investment_accounting_export_links_status_idx")
+  @@map("investment_accounting_export_links")
+}
+
+model InvestmentDocumentVersion {
+  id               String   @id @default(cuid())
+  documentId       String   @map("document_id")
+  versionNo        Int      @map("version_no")
+  storageProvider  String   @map("storage_provider") @db.VarChar(32)
+  storageKey       String   @map("storage_key") @db.VarChar(700)
+  fileName         String   @map("file_name") @db.VarChar(255)
+  mimeType         String   @map("mime_type") @db.VarChar(128)
+  byteSize         BigInt   @map("byte_size")
+  checksumSha256   String   @map("checksum_sha256") @db.VarChar(64)
+  encryptionKeyRef String?  @map("encryption_key_ref") @db.VarChar(512)
+  malwareStatus    String   @default("PENDING") @map("malware_status") @db.VarChar(24)
+  uploadedById     String?  @map("uploaded_by_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  document InvestmentDocument @relation(fields: [documentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([documentId, versionNo], map: "investment_document_versions_number_key")
+  @@unique([storageProvider, storageKey], map: "investment_document_versions_storage_key")
+  @@index([checksumSha256], map: "investment_document_versions_checksum_idx")
+  @@map("investment_document_versions")
+}
+
+model InvestmentDocumentAcl {
+  id           String   @id @default(cuid())
+  documentId   String   @map("document_id")
+  principalType String  @map("principal_type") @db.VarChar(16)
+  principalId  String   @map("principal_id") @db.VarChar(191)
+  permission   String   @db.VarChar(24)
+  grantedById  String?  @map("granted_by_id")
+  expiresAt    DateTime? @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  document InvestmentDocument @relation(fields: [documentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([documentId, principalType, principalId, permission], map: "investment_document_acls_principal_permission_key")
+  @@index([principalType, principalId, revokedAt], map: "investment_document_acls_principal_active_idx")
+  @@map("investment_document_acls")
+}
+
+model InvestmentDocumentLink {
+  id          String   @id @default(cuid())
+  documentId  String   @map("document_id")
+  entityType  String   @map("entity_type") @db.VarChar(64)
+  entityId    String   @map("entity_id")
+  linkType    String   @default("ATTACHMENT") @map("link_type") @db.VarChar(24)
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  document InvestmentDocument @relation(fields: [documentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([documentId, entityType, entityId, linkType], map: "investment_document_links_entity_key")
+  @@index([entityType, entityId], map: "investment_document_links_lookup_idx")
+  @@map("investment_document_links")
+}
+
+model InvestmentJob {
+  id               String   @id @default(cuid())
+  jobType          String   @map("job_type") @db.VarChar(64)
+  aggregateType    String?  @map("aggregate_type") @db.VarChar(64)
+  aggregateId      String?  @map("aggregate_id")
+  payloadJson      Json     @map("payload_json")
+  status           String   @default("PENDING") @db.VarChar(24)
+  priority         Int      @default(100)
+  idempotencyKey   String   @unique(map: "investment_jobs_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  availableAt      DateTime @default(now()) @map("available_at")
+  lockedBy         String?  @map("locked_by") @db.VarChar(191)
+  lockedAt         DateTime? @map("locked_at")
+  leaseExpiresAt   DateTime? @map("lease_expires_at")
+  maxAttempts      Int      @default(5) @map("max_attempts")
+  attemptCount     Int      @default(0) @map("attempt_count")
+  lastError        String?  @map("last_error") @db.Text
+  completedAt      DateTime? @map("completed_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  attempts InvestmentJobAttempt[]
+
+  @@index([status, availableAt, priority], map: "investment_jobs_dequeue_idx")
+  @@index([leaseExpiresAt, status], map: "investment_jobs_lease_idx")
+  @@index([aggregateType, aggregateId], map: "investment_jobs_aggregate_idx")
+  @@map("investment_jobs")
+}
+
+model InvestmentJobAttempt {
+  id          String   @id @default(cuid())
+  jobId       String   @map("job_id")
+  attemptNo   Int      @map("attempt_no")
+  workerId    String   @map("worker_id") @db.VarChar(191)
+  status      String   @db.VarChar(24)
+  startedAt   DateTime @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  errorCode   String?  @map("error_code") @db.VarChar(64)
+  errorMessage String? @map("error_message") @db.Text
+  resultJson  Json?    @map("result_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  job InvestmentJob @relation(fields: [jobId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([jobId, attemptNo], map: "investment_job_attempts_number_key")
+  @@index([status, startedAt], map: "investment_job_attempts_status_idx")
+  @@map("investment_job_attempts")
+}
+
+model InvestmentOutboxEvent {
+  id             String   @id @default(cuid())
+  aggregateType  String   @map("aggregate_type") @db.VarChar(64)
+  aggregateId    String   @map("aggregate_id")
+  aggregateVersion Int    @map("aggregate_version")
+  eventType      String   @map("event_type") @db.VarChar(128)
+  payloadJson    Json     @map("payload_json")
+  headersJson    Json?    @map("headers_json")
+  idempotencyKey String   @unique(map: "investment_outbox_events_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  status         String   @default("PENDING") @db.VarChar(24)
+  availableAt    DateTime @default(now()) @map("available_at")
+  attemptCount   Int      @default(0) @map("attempt_count")
+  publishedAt    DateTime? @map("published_at")
+  lastError      String?  @map("last_error") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([aggregateType, aggregateId, aggregateVersion, eventType], map: "investment_outbox_events_aggregate_version_key")
+  @@index([status, availableAt, createdAt], map: "investment_outbox_events_publish_idx")
+  @@map("investment_outbox_events")
+}
+
+model InvestmentAuditEvent {
+  id             String   @id @default(cuid())
+  aggregateType  String   @map("aggregate_type") @db.VarChar(64)
+  aggregateId    String   @map("aggregate_id")
+  sequenceNo     Int      @map("sequence_no")
+  eventType      String   @map("event_type") @db.VarChar(128)
+  actorId        String?  @map("actor_id")
+  correlationId  String?  @map("correlation_id") @db.VarChar(191)
+  requestId      String?  @map("request_id") @db.VarChar(191)
+  beforeJson     Json?    @map("before_json")
+  afterJson      Json?    @map("after_json")
+  metadataJson   Json?    @map("metadata_json")
+  previousHash   String?  @map("previous_hash") @db.VarChar(64)
+  eventHash      String   @map("event_hash") @db.VarChar(64)
+  occurredAt     DateTime @default(now()) @map("occurred_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([aggregateType, aggregateId, sequenceNo], map: "investment_audit_events_sequence_key")
+  @@unique([eventHash], map: "investment_audit_events_hash_key")
+  @@index([actorId, occurredAt], map: "investment_audit_events_actor_time_idx")
+  @@index([correlationId], map: "investment_audit_events_correlation_idx")
+  @@map("investment_audit_events")
+}
+
+model InvestmentSavedView {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  viewType    String   @map("view_type") @db.VarChar(64)
+  name        String   @db.VarChar(191)
+  filterJson  Json     @map("filter_json")
+  columnJson  Json?    @map("column_json")
+  sortJson    Json?    @map("sort_json")
+  isDefault   Boolean  @default(false) @map("is_default")
+  version     Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, viewType, name], map: "investment_saved_views_user_type_name_key")
+  @@index([userId, viewType, isDefault], map: "investment_saved_views_default_idx")
+  @@map("investment_saved_views")
+}
+
+model InvestmentModelPortfolioVersion {
+  id               String   @id @default(cuid())
+  modelPortfolioId String   @map("model_portfolio_id")
+  versionNo        Int      @map("version_no")
+  status           String   @default("DRAFT") @db.VarChar(24)
+  effectiveFrom    DateTime? @map("effective_from") @db.Date
+  changeReason     String?  @map("change_reason") @db.Text
+  contentHash      String   @map("content_hash") @db.VarChar(64)
+  createdById      String?  @map("created_by_id")
+  approvedById     String?  @map("approved_by_id")
+  approvedAt       DateTime? @map("approved_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  modelPortfolio InvestmentModelPortfolio @relation(fields: [modelPortfolioId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  allocations    InvestmentModelPortfolioVersionAllocation[]
+  rebalances     InvestmentRebalanceRun[]
+
+  @@unique([modelPortfolioId, versionNo], map: "investment_model_portfolio_versions_number_key")
+  @@unique([modelPortfolioId, contentHash], map: "investment_model_portfolio_versions_hash_key")
+  @@index([status, effectiveFrom], map: "investment_model_portfolio_versions_status_idx")
+  @@map("investment_model_portfolio_versions")
+}
+
+model InvestmentModelPortfolioVersionAllocation {
+  id                       String   @id @default(cuid())
+  modelPortfolioVersionId  String   @map("model_portfolio_version_id")
+  allocationType           String   @map("allocation_type") @db.VarChar(24)
+  allocationKey            String   @map("allocation_key") @db.VarChar(64)
+  targetWeightPct          Decimal  @map("target_weight_pct") @db.Decimal(10, 4)
+  minWeightPct             Decimal? @map("min_weight_pct") @db.Decimal(10, 4)
+  maxWeightPct             Decimal? @map("max_weight_pct") @db.Decimal(10, 4)
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  modelPortfolioVersion InvestmentModelPortfolioVersion @relation(fields: [modelPortfolioVersionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([modelPortfolioVersionId, allocationType, allocationKey], map: "investment_model_version_allocations_key")
+  @@map("investment_model_portfolio_version_allocations")
+}
+
+model InvestmentRebalanceRun {
+  id                      String   @id @default(cuid())
+  fundId                  String   @map("fund_id")
+  modelPortfolioId        String   @map("model_portfolio_id")
+  modelPortfolioVersionId String?  @map("model_portfolio_version_id")
+  asOf                    DateTime @map("as_of")
+  status                  String   @default("DRAFT") @db.VarChar(24)
+  inputSnapshotJson       Json     @map("input_snapshot_json")
+  summaryJson             Json?    @map("summary_json")
+  idempotencyKey          String   @unique(map: "investment_rebalance_runs_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  version                 Int      @default(1)
+  createdById             String?  @map("created_by_id")
+  approvedById            String?  @map("approved_by_id")
+  approvedAt              DateTime? @map("approved_at")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  modelPortfolio        InvestmentModelPortfolio @relation(fields: [modelPortfolioId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  modelPortfolioVersion InvestmentModelPortfolioVersion? @relation(fields: [modelPortfolioVersionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  items                 InvestmentRebalanceItem[]
+
+  @@index([fundId, asOf], map: "investment_rebalance_runs_fund_asof_idx")
+  @@index([modelPortfolioId, status], map: "investment_rebalance_runs_model_status_idx")
+  @@map("investment_rebalance_runs")
+}
+
+model InvestmentRebalanceItem {
+  id                 String   @id @default(cuid())
+  rebalanceRunId     String   @map("rebalance_run_id")
+  instrumentId       String?  @map("instrument_id")
+  allocationKey      String   @map("allocation_key") @db.VarChar(64)
+  currentWeightPct   Decimal  @map("current_weight_pct") @db.Decimal(10, 4)
+  targetWeightPct    Decimal  @map("target_weight_pct") @db.Decimal(10, 4)
+  deltaWeightPct     Decimal  @map("delta_weight_pct") @db.Decimal(10, 4)
+  proposedQuantity   Decimal? @map("proposed_quantity") @db.Decimal(20, 8)
+  proposedAmount     Decimal? @map("proposed_amount") @db.Decimal(20, 8)
+  action             String   @db.VarChar(16)
+  generatedOrderId   String?  @map("generated_order_id")
+  rationaleJson      Json?    @map("rationale_json")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  rebalanceRun InvestmentRebalanceRun @relation(fields: [rebalanceRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([rebalanceRunId, allocationKey], map: "investment_rebalance_items_allocation_key")
+  @@index([generatedOrderId], map: "investment_rebalance_items_order_idx")
+  @@map("investment_rebalance_items")
 }
 
 // ─── Cap Table Management (Phase 2 §3.8) ─────────────────────────────────────
@@ -9393,3 +10630,628 @@ model TaxReturnPackAuditEvent {
   @@index([packId, createdAt], map: "tax_return_pack_audit_pack_idx")
   @@map("tax_return_pack_audit_events")
 }
+
+// ---------------------------------------------------------------------------
+// Stock Picker Cash (sp_cash_*)
+// ---------------------------------------------------------------------------
+
+model SpCashProvider {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  code        String   @unique @map("code") @db.VarChar(64)
+  displayName String   @map("display_name") @db.VarChar(255)
+  providerType String  @map("provider_type") @db.VarChar(64)
+  status      String   @default("DRAFT") @db.VarChar(16)
+  version     Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId], map: "sp_cash_providers_tenant_idx")
+  @@index([status], map: "sp_cash_providers_status_idx")
+  @@map("sp_cash_providers")
+}
+
+model SpCashFileLayout {
+  id           String    @id @default(cuid())
+  providerId   String    @map("provider_id")
+  layoutCode   String    @map("layout_code") @db.VarChar(64)
+  versionNo    Int       @default(1) @map("version_no")
+  signMapJson  Json      @map("sign_map_json")
+  dateMapJson  Json      @map("date_map_json")
+  status       String    @default("DRAFT") @db.VarChar(32)
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  effectiveTo  DateTime? @map("effective_to") @db.Date
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([providerId], map: "sp_cash_file_layouts_provider_idx")
+  @@index([layoutCode], map: "sp_cash_file_layouts_code_idx")
+  @@map("sp_cash_file_layouts")
+}
+
+model SpCashAccountMapping {
+  id                  String    @id @default(cuid())
+  providerId          String    @map("provider_id")
+  layoutId            String?   @map("layout_id")
+  externalFingerprint String    @map("external_fingerprint")
+  currency            String    @db.VarChar(8)
+  cashAccountId       String?   @map("cash_account_id")
+  status              String    @default("DRAFT") @db.VarChar(32)
+  version             Int       @default(1)
+  effectiveFrom       DateTime  @map("effective_from") @db.Date
+  effectiveTo         DateTime? @map("effective_to") @db.Date
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([providerId], map: "sp_cash_account_mappings_provider_idx")
+  @@index([externalFingerprint], map: "sp_cash_account_mappings_fingerprint_idx")
+  @@map("sp_cash_account_mappings")
+}
+
+model SpCashTolerancePolicy {
+  id                String    @id @default(cuid())
+  code              String    @unique @db.VarChar(64)
+  currency          String    @db.VarChar(8)
+  amountTolerance   Decimal   @default(0) @map("amount_tolerance") @db.Decimal(24, 6)
+  dateToleranceDays Int       @default(0) @map("date_tolerance_days")
+  status            String    @default("DRAFT") @db.VarChar(32)
+  version           Int       @default(1)
+  effectiveFrom     DateTime  @map("effective_from") @db.Date
+  effectiveTo       DateTime? @map("effective_to") @db.Date
+  configJson        Json?     @map("config_json")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("sp_cash_tolerance_policies")
+}
+
+model SpCashMatchWeightPolicy {
+  id                 String    @id @default(cuid())
+  code               String    @unique @db.VarChar(64)
+  amountWeight       Decimal   @map("amount_weight") @db.Decimal(8, 4)
+  dateWeight         Decimal   @map("date_weight") @db.Decimal(8, 4)
+  referenceWeight    Decimal   @map("reference_weight") @db.Decimal(8, 4)
+  counterpartyWeight Decimal   @map("counterparty_weight") @db.Decimal(8, 4)
+  autoMatchThreshold Decimal   @map("auto_match_threshold") @db.Decimal(8, 4)
+  suggestThreshold   Decimal   @map("suggest_threshold") @db.Decimal(8, 4)
+  weakThreshold      Decimal   @map("weak_threshold") @db.Decimal(8, 4)
+  status             String    @default("DRAFT") @db.VarChar(32)
+  version            Int       @default(1)
+  effectiveFrom      DateTime  @map("effective_from") @db.Date
+  effectiveTo        DateTime? @map("effective_to") @db.Date
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@map("sp_cash_match_weight_policies")
+}
+
+model SpCashClientAccount {
+  id                         String    @id @default(cuid())
+  tenantId                   String    @map("tenant_id")
+  legalEntityId              String    @map("legal_entity_id")
+  clientOrVehicleId          String    @map("client_or_vehicle_id")
+  mandateId                  String?   @map("mandate_id")
+  portfolioId                String    @map("portfolio_id")
+  ownerModel                 String    @map("owner_model") @db.VarChar(64)
+  moneyClass                 String    @map("money_class") @db.VarChar(64)
+  accountType                String    @map("account_type") @db.VarChar(64)
+  providerId                 String    @map("provider_id")
+  externalIdentifierEncrypted String?  @map("external_identifier_encrypted") @db.Text
+  externalFingerprint        String    @map("external_fingerprint")
+  maskedIdentifier           String?   @map("masked_identifier") @db.VarChar(64)
+  currency                   String    @db.VarChar(8)
+  status                     String    @default("DRAFT") @db.VarChar(32)
+  effectiveFrom              DateTime  @map("effective_from") @db.Date
+  effectiveTo                DateTime? @map("effective_to") @db.Date
+  calendarId                 String?   @map("calendar_id")
+  timezone                   String?   @db.VarChar(64)
+  tolerancePolicyId          String?   @map("tolerance_policy_id")
+  glMappingId                String?   @map("gl_mapping_id")
+  clientName                 String?   @map("client_name") @db.VarChar(255)
+  accountNumberMasked        String?   @map("account_number_masked") @db.VarChar(64)
+  reconciliationHealth       String?   @map("reconciliation_health") @db.VarChar(32)
+  version                    Int       @default(1)
+  createdById                String?   @map("created_by_id")
+  approvedById               String?   @map("approved_by_id")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+
+  @@unique([providerId, externalFingerprint, currency], map: "sp_cash_client_accounts_provider_fp_ccy_key")
+  @@index([portfolioId], map: "sp_cash_client_accounts_portfolio_idx")
+  @@index([status], map: "sp_cash_client_accounts_status_idx")
+  @@index([clientOrVehicleId], map: "sp_cash_client_accounts_client_vehicle_idx")
+  @@index([tenantId], map: "sp_cash_client_accounts_tenant_idx")
+  @@map("sp_cash_client_accounts")
+}
+
+model SpCashJournal {
+  id                   String    @id @default(cuid())
+  sourceSystem         String    @map("source_system") @db.VarChar(64)
+  sourceEventId        String?   @map("source_event_id")
+  postingPurpose       String    @map("posting_purpose") @db.VarChar(64)
+  idempotencyKey       String    @unique(map: "sp_cash_journals_idempotency_key") @map("idempotency_key") @db.VarChar(200)
+  tradeDate            DateTime? @map("trade_date") @db.Date
+  settlementDate       DateTime? @map("settlement_date") @db.Date
+  valueDate            DateTime? @map("value_date") @db.Date
+  postingBusinessDate  DateTime? @map("posting_business_date") @db.Date
+  currency             String    @db.VarChar(8)
+  status               String    @default("DRAFT") @db.VarChar(32)
+  makerId              String?   @map("maker_id")
+  checkerId            String?   @map("checker_id")
+  reversalOf           String?   @map("reversal_of")
+  configurationVersion Int?      @map("configuration_version")
+  auditHash            String?   @map("audit_hash") @db.VarChar(128)
+  cashAccountId        String?   @map("cash_account_id")
+  portfolioId          String?   @map("portfolio_id")
+  rejectReason         String?   @map("reject_reason") @db.Text
+  version              Int       @default(1)
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  postedAt             DateTime? @map("posted_at")
+
+  lines SpCashJournalLine[]
+
+  @@index([cashAccountId], map: "sp_cash_journals_cash_account_idx")
+  @@index([portfolioId], map: "sp_cash_journals_portfolio_idx")
+  @@index([status], map: "sp_cash_journals_status_idx")
+  @@map("sp_cash_journals")
+}
+
+model SpCashJournalLine {
+  id                String   @id @default(cuid())
+  journalId         String   @map("journal_id")
+  ledgerAccountCode String   @map("ledger_account_code") @db.VarChar(64)
+  cashAccountId     String?  @map("cash_account_id")
+  beneficialOwnerId String?  @map("beneficial_owner_id")
+  debit             Decimal  @default(0) @db.Decimal(24, 6)
+  credit            Decimal  @default(0) @db.Decimal(24, 6)
+  signedCashAmount  Decimal  @default(0) @map("signed_cash_amount") @db.Decimal(24, 6)
+  currency          String   @db.VarChar(8)
+  description       String?  @db.VarChar(512)
+  matchStatus       String?  @map("match_status") @db.VarChar(32)
+  residualAmount    Decimal? @map("residual_amount") @db.Decimal(24, 6)
+  lineVersion       Int      @default(1) @map("line_version")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  journal SpCashJournal @relation(fields: [journalId], references: [id], onDelete: Cascade)
+
+  @@index([journalId], map: "sp_cash_journal_lines_journal_idx")
+  @@index([cashAccountId], map: "sp_cash_journal_lines_cash_account_idx")
+  @@map("sp_cash_journal_lines")
+}
+
+model SpCashReservation {
+  id              String    @id @default(cuid())
+  idempotencyKey  String    @unique(map: "sp_cash_reservations_idempotency_key") @map("idempotency_key") @db.VarChar(200)
+  sourceEventId   String?   @map("source_event_id")
+  portfolioId     String    @map("portfolio_id")
+  cashAccountId   String    @map("cash_account_id")
+  currency        String    @db.VarChar(8)
+  originalAmount  Decimal   @map("original_amount") @db.Decimal(24, 6)
+  consumedAmount  Decimal   @default(0) @map("consumed_amount") @db.Decimal(24, 6)
+  releasedAmount  Decimal   @default(0) @map("released_amount") @db.Decimal(24, 6)
+  remainingAmount Decimal   @map("remaining_amount") @db.Decimal(24, 6)
+  requiredDate    DateTime? @map("required_date") @db.Date
+  expiryDate      DateTime? @map("expiry_date") @db.Date
+  purpose         String?   @db.VarChar(128)
+  status          String    @default("OPEN") @db.VarChar(32)
+  makerId         String?   @map("maker_id")
+  checkerId       String?   @map("checker_id")
+  version         Int       @default(1)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([portfolioId], map: "sp_cash_reservations_portfolio_idx")
+  @@index([cashAccountId], map: "sp_cash_reservations_cash_account_idx")
+  @@map("sp_cash_reservations")
+}
+
+model SpCashExpectation {
+  id                  String    @id @default(cuid())
+  cashAccountId       String    @map("cash_account_id")
+  portfolioId         String    @map("portfolio_id")
+  direction           String    @db.VarChar(16)
+  amount              Decimal   @db.Decimal(24, 6)
+  currency            String    @db.VarChar(8)
+  dueDate             DateTime? @map("due_date") @db.Date
+  status              String    @default("OPEN") @db.VarChar(32)
+  linkedReservationId String?   @map("linked_reservation_id")
+  linkedJournalId     String?   @map("linked_journal_id")
+  sourceEventId       String?   @map("source_event_id")
+  version             Int       @default(1)
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([cashAccountId], map: "sp_cash_expectations_cash_account_idx")
+  @@index([portfolioId], map: "sp_cash_expectations_portfolio_idx")
+  @@index([status], map: "sp_cash_expectations_status_idx")
+  @@map("sp_cash_expectations")
+}
+
+model SpCashStatementImport {
+  id            String    @id @default(cuid())
+  providerId    String    @map("provider_id")
+  cashAccountId String    @map("cash_account_id")
+  currency      String    @db.VarChar(8)
+  fileName      String    @map("file_name") @db.VarChar(512)
+  fileHash      String    @map("file_hash") @db.VarChar(128)
+  layoutId      String?   @map("layout_id")
+  status        String    @default("PENDING") @db.VarChar(32)
+  controlOpening Decimal? @map("control_opening") @db.Decimal(24, 6)
+  controlClosing Decimal? @map("control_closing") @db.Decimal(24, 6)
+  lineCount     Int?      @map("line_count")
+  maker         String?   @db.VarChar(128)
+  makerId       String?   @map("maker_id")
+  checkerId     String?   @map("checker_id")
+  rejectReason  String?   @map("reject_reason") @db.Text
+  version       Int       @default(1)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  committedAt   DateTime? @map("committed_at")
+
+  @@unique([cashAccountId, fileHash], map: "sp_cash_statement_imports_account_file_hash_key")
+  @@index([providerId], map: "sp_cash_statement_imports_provider_idx")
+  @@index([status], map: "sp_cash_statement_imports_status_idx")
+  @@map("sp_cash_statement_imports")
+}
+
+model SpCashExternalStatement {
+  id             String   @id @default(cuid())
+  importId       String   @map("import_id")
+  providerId     String   @map("provider_id")
+  cashAccountId  String   @map("cash_account_id")
+  periodFrom     DateTime @map("period_from") @db.Date
+  periodTo       DateTime @map("period_to") @db.Date
+  currency       String   @db.VarChar(8)
+  openingBalance Decimal  @map("opening_balance") @db.Decimal(24, 6)
+  closingBalance Decimal  @map("closing_balance") @db.Decimal(24, 6)
+  fileHash       String   @unique(map: "sp_cash_external_statements_file_hash_key") @map("file_hash") @db.VarChar(128)
+  parserVersion  String?  @map("parser_version") @db.VarChar(64)
+  status         String   @default("OPEN") @db.VarChar(32)
+  evidenceUri    String?  @map("evidence_uri") @db.VarChar(1024)
+  version        Int      @default(1)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  lines SpCashExternalStatementLine[]
+
+  @@index([importId], map: "sp_cash_external_statements_import_idx")
+  @@index([cashAccountId], map: "sp_cash_external_statements_cash_account_idx")
+  @@map("sp_cash_external_statements")
+}
+
+model SpCashExternalStatementLine {
+  id               String    @id @default(cuid())
+  statementId      String    @map("statement_id")
+  importId         String    @map("import_id")
+  rawPayloadJson   Json?     @map("raw_payload_json")
+  valueDate        DateTime? @map("value_date") @db.Date
+  tradeDate        DateTime? @map("trade_date") @db.Date
+  signedCashAmount Decimal   @map("signed_cash_amount") @db.Decimal(24, 6)
+  currency         String    @db.VarChar(8)
+  reference        String?   @db.VarChar(255)
+  counterparty     String?   @db.VarChar(255)
+  fingerprint      String
+  matchStatus      String?   @map("match_status") @db.VarChar(32)
+  residualAmount   Decimal?  @map("residual_amount") @db.Decimal(24, 6)
+  lineVersion      Int       @default(1) @map("line_version")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  statement SpCashExternalStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@unique([statementId, fingerprint], map: "sp_cash_ext_stmt_lines_stmt_fp_key")
+  @@index([importId], map: "sp_cash_external_statement_lines_import_idx")
+  @@map("sp_cash_external_statement_lines")
+}
+
+model SpCashReconciliationBatch {
+  id               String    @id @default(cuid())
+  cashAccountId    String    @map("cash_account_id")
+  currency         String    @db.VarChar(8)
+  periodFrom       DateTime  @map("period_from") @db.Date
+  periodTo         DateTime  @map("period_to") @db.Date
+  reconType        String    @map("recon_type") @db.VarChar(64)
+  openingInternal  Decimal?  @map("opening_internal") @db.Decimal(24, 6)
+  closingInternal  Decimal?  @map("closing_internal") @db.Decimal(24, 6)
+  openingExternal  Decimal?  @map("opening_external") @db.Decimal(24, 6)
+  closingExternal  Decimal?  @map("closing_external") @db.Decimal(24, 6)
+  adjustedExternal Decimal?  @map("adjusted_external") @db.Decimal(24, 6)
+  variance         Decimal?  @db.Decimal(24, 6)
+  toleranceAmount  Decimal?  @map("tolerance_amount") @db.Decimal(24, 6)
+  configVersion    Int?      @map("config_version")
+  status           String    @default("OPEN") @db.VarChar(32)
+  makerId          String?   @map("maker_id")
+  checkerId        String?   @map("checker_id")
+  autoMatchEnabled Boolean   @default(true) @map("auto_match_enabled")
+  fundId           String?   @map("fund_id")
+  version          Int       @default(1)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  matchLinks SpCashMatchLink[]
+  breaks     SpCashReconciliationBreak[]
+
+  @@index([cashAccountId], map: "sp_cash_recon_batches_cash_account_idx")
+  @@index([status], map: "sp_cash_recon_batches_status_idx")
+  @@map("sp_cash_reconciliation_batches")
+}
+
+model SpCashMatchLink {
+  id                  String   @id @default(cuid())
+  batchId             String   @map("batch_id")
+  internalLineId      String?  @map("internal_line_id")
+  externalLineId      String?  @map("external_line_id")
+  brokerRef           String?  @map("broker_ref")
+  custodianRef        String?  @map("custodian_ref")
+  matchedAmount       Decimal  @map("matched_amount") @db.Decimal(24, 6)
+  topology            String?  @db.VarChar(64)
+  scoreTotal          Decimal? @map("score_total") @db.Decimal(8, 4)
+  scoreComponentsJson Json?    @map("score_components_json")
+  method              String?  @db.VarChar(64)
+  status              String   @default("PROPOSED") @db.VarChar(32)
+  makerId             String?  @map("maker_id")
+  checkerId           String?  @map("checker_id")
+  reversalOf          String?  @map("reversal_of")
+  evidenceRefsJson    Json?    @map("evidence_refs_json")
+  version             Int      @default(1)
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  batch SpCashReconciliationBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId], map: "sp_cash_match_links_batch_idx")
+  @@index([internalLineId], map: "sp_cash_match_links_internal_line_idx")
+  @@index([externalLineId], map: "sp_cash_match_links_external_line_idx")
+  @@map("sp_cash_match_links")
+}
+
+model SpCashReconciliationBreak {
+  id             String    @id @default(cuid())
+  batchId        String    @map("batch_id")
+  breakCode      String    @map("break_code") @db.VarChar(64)
+  category       String    @db.VarChar(64)
+  valueDate      DateTime? @map("value_date") @db.Date
+  details        String?   @db.Text
+  amount         Decimal?  @db.Decimal(24, 6)
+  currency       String?   @db.VarChar(8)
+  status         String    @default("OPEN") @db.VarChar(32)
+  internalLineId String?   @map("internal_line_id")
+  externalLineId String?   @map("external_line_id")
+  exceptionId    String?   @map("exception_id")
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  batch SpCashReconciliationBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId], map: "sp_cash_recon_breaks_batch_idx")
+  @@index([status], map: "sp_cash_recon_breaks_status_idx")
+  @@map("sp_cash_reconciliation_breaks")
+}
+
+model SpCashReconciliationException {
+  id                String    @id @default(cuid())
+  batchId           String?   @map("batch_id")
+  cashAccountId     String    @map("cash_account_id")
+  clientOrVehicleId String?   @map("client_or_vehicle_id")
+  category          String    @db.VarChar(64)
+  severity          String    @db.VarChar(32)
+  status            String    @default("OPEN") @db.VarChar(32)
+  amountTxn         Decimal?  @map("amount_txn") @db.Decimal(24, 6)
+  currencyTxn       String?   @map("currency_txn") @db.VarChar(8)
+  amountReporting   Decimal?  @map("amount_reporting") @db.Decimal(24, 6)
+  currencyReporting String?   @map("currency_reporting") @db.VarChar(8)
+  assignedToId      String?   @map("assigned_to_id")
+  approverId        String?   @map("approver_id")
+  ownerRole         String?   @map("owner_role") @db.VarChar(64)
+  slaDueAt          DateTime? @map("sla_due_at")
+  resolutionJson    Json?     @map("resolution_json")
+  ageDays           Int?      @map("age_days")
+  instrumentJson    Json?     @map("instrument_json")
+  tradeDate         DateTime? @map("trade_date") @db.Date
+  settleDate        DateTime? @map("settle_date") @db.Date
+  source            String?   @db.VarChar(128)
+  counterparty      String?   @db.VarChar(255)
+  version           Int       @default(1)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  timeline SpCashExceptionTimeline[]
+
+  @@index([batchId], map: "sp_cash_recon_exceptions_batch_idx")
+  @@index([cashAccountId], map: "sp_cash_recon_exceptions_cash_account_idx")
+  @@index([status], map: "sp_cash_recon_exceptions_status_idx")
+  @@map("sp_cash_reconciliation_exceptions")
+}
+
+model SpCashExceptionTimeline {
+  id          String   @id @default(cuid())
+  exceptionId String   @map("exception_id")
+  eventType   String   @map("event_type") @db.VarChar(64)
+  actorId     String?  @map("actor_id")
+  notes       String?  @db.Text
+  payloadJson Json?    @map("payload_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  exception SpCashReconciliationException @relation(fields: [exceptionId], references: [id], onDelete: Cascade)
+
+  @@index([exceptionId], map: "sp_cash_exception_timeline_exception_idx")
+  @@map("sp_cash_exception_timeline")
+}
+
+model SpCashPeriodClose {
+  id               String    @id @default(cuid())
+  legalEntityId    String    @map("legal_entity_id")
+  periodCode       String    @map("period_code") @db.VarChar(64)
+  periodFrom       DateTime  @map("period_from") @db.Date
+  periodTo         DateTime  @map("period_to") @db.Date
+  status           String    @default("OPEN") @db.VarChar(32)
+  closeVersion     Int       @default(1) @map("close_version")
+  controlTotalsJson Json?    @map("control_totals_json")
+  blockersJson     Json?     @map("blockers_json")
+  makerId          String?   @map("maker_id")
+  checkerId        String?   @map("checker_id")
+  closedAt         DateTime? @map("closed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@unique([legalEntityId, periodCode, closeVersion], map: "sp_cash_period_closes_entity_period_ver_key")
+  @@index([status], map: "sp_cash_period_closes_status_idx")
+  @@map("sp_cash_period_closes")
+}
+
+model SpCashGlExport {
+  id                String   @id @default(cuid())
+  periodCloseId     String?  @map("period_close_id")
+  legalEntityId     String   @map("legal_entity_id")
+  status            String   @default("PENDING") @db.VarChar(32)
+  controlTotalsJson Json?    @map("control_totals_json")
+  externalPostingRef String? @map("external_posting_ref")
+  attemptCount      Int      @default(0) @map("attempt_count")
+  idempotencyKey    String   @unique(map: "sp_cash_gl_exports_idempotency_key") @map("idempotency_key") @db.VarChar(200)
+  lastError         String?  @map("last_error") @db.Text
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([periodCloseId], map: "sp_cash_gl_exports_period_close_idx")
+  @@index([legalEntityId], map: "sp_cash_gl_exports_legal_entity_idx")
+  @@map("sp_cash_gl_exports")
+}
+
+model SpCashClientStatementRun {
+  id                String   @id @default(cuid())
+  clientOrVehicleId String   @map("client_or_vehicle_id")
+  cashAccountId     String   @map("cash_account_id")
+  periodFrom        DateTime @map("period_from") @db.Date
+  periodTo          DateTime @map("period_to") @db.Date
+  statementType     String   @map("statement_type") @db.VarChar(64)
+  currency          String   @db.VarChar(8)
+  status            String   @default("PENDING") @db.VarChar(32)
+  createdById       String?  @map("created_by_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  statements SpCashClientStatement[]
+
+  @@index([clientOrVehicleId], map: "sp_cash_client_stmt_runs_client_idx")
+  @@index([cashAccountId], map: "sp_cash_client_stmt_runs_cash_account_idx")
+  @@map("sp_cash_client_statement_runs")
+}
+
+model SpCashClientStatement {
+  id           String    @id @default(cuid())
+  runId        String    @map("run_id")
+  openingCash  Decimal   @map("opening_cash") @db.Decimal(24, 6)
+  closingCash  Decimal   @map("closing_cash") @db.Decimal(24, 6)
+  sectionsJson Json?     @map("sections_json")
+  checksum     String?   @db.VarChar(128)
+  status       String    @default("DRAFT") @db.VarChar(32)
+  approvedById String?   @map("approved_by_id")
+  approvedAt   DateTime? @map("approved_at")
+  version      Int       @default(1)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  run         SpCashClientStatementRun         @relation(fields: [runId], references: [id], onDelete: Cascade)
+  deliveries  SpCashClientStatementDelivery[]
+
+  @@index([runId], map: "sp_cash_client_statements_run_idx")
+  @@map("sp_cash_client_statements")
+}
+
+model SpCashClientStatementDelivery {
+  id           String    @id @default(cuid())
+  statementId  String    @map("statement_id")
+  channel      String    @db.VarChar(64)
+  status       String    @default("PENDING") @db.VarChar(32)
+  deliveredAt  DateTime? @map("delivered_at")
+  errorMessage String?   @map("error_message") @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  statement SpCashClientStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@index([statementId], map: "sp_cash_client_stmt_deliveries_statement_idx")
+  @@map("sp_cash_client_statement_deliveries")
+}
+
+model SpCashBrokerCustodianItem {
+  id              String    @id @default(cuid())
+  portfolioId     String    @map("portfolio_id")
+  instrumentIsin  String?   @map("instrument_isin") @db.VarChar(32)
+  instrumentName  String?   @map("instrument_name") @db.VarChar(255)
+  symbol          String?   @db.VarChar(64)
+  quantity        Decimal?  @db.Decimal(24, 6)
+  price           Decimal?  @db.Decimal(24, 6)
+  tradeDate       DateTime? @map("trade_date") @db.Date
+  settleDate      DateTime? @map("settle_date") @db.Date
+  internalStatus  String?   @map("internal_status") @db.VarChar(32)
+  brokerStatus    String?   @map("broker_status") @db.VarChar(32)
+  custodianStatus String?   @map("custodian_status") @db.VarChar(32)
+  overallStatus   String?   @map("overall_status") @db.VarChar(32)
+  differenceAmount Decimal? @map("difference_amount") @db.Decimal(24, 6)
+  internalAmount  Decimal?  @map("internal_amount") @db.Decimal(24, 6)
+  brokerAmount    Decimal?  @map("broker_amount") @db.Decimal(24, 6)
+  custodianAmount Decimal?  @map("custodian_amount") @db.Decimal(24, 6)
+  internalRef     String?   @map("internal_ref") @db.VarChar(128)
+  brokerRef       String?   @map("broker_ref") @db.VarChar(128)
+  custodianRef    String?   @map("custodian_ref") @db.VarChar(128)
+  currency        String?   @db.VarChar(8)
+  assignedToId    String?   @map("assigned_to_id")
+  comments        String?   @db.Text
+  version         Int       @default(1)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([portfolioId], map: "sp_cash_broker_custodian_items_portfolio_idx")
+  @@index([overallStatus], map: "sp_cash_broker_custodian_items_overall_status_idx")
+  @@map("sp_cash_broker_custodian_items")
+}
+
+model SpCashAuditEvent {
+  id            String   @id @default(cuid())
+  actorId       String?  @map("actor_id")
+  roleName      String?  @map("role_name") @db.VarChar(64)
+  tenantId      String?  @map("tenant_id")
+  legalEntityId String?  @map("legal_entity_id")
+  objectType    String   @map("object_type") @db.VarChar(64)
+  objectId      String   @map("object_id")
+  objectVersion Int?     @map("object_version")
+  eventType     String   @map("event_type") @db.VarChar(64)
+  correlationId String?  @map("correlation_id")
+  reason        String?  @db.Text
+  beforeHash    String?  @map("before_hash") @db.VarChar(128)
+  afterHash     String?  @map("after_hash") @db.VarChar(128)
+  outcome       String?  @db.VarChar(32)
+  ipAddress     String?  @map("ip_address") @db.VarChar(64)
+  payloadJson   Json?    @map("payload_json")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([objectType, objectId], map: "sp_cash_audit_events_object_idx")
+  @@index([tenantId], map: "sp_cash_audit_events_tenant_idx")
+  @@map("sp_cash_audit_events")
+}
+
+model SpCashIdempotencyKey {
+  id             String   @id @default(cuid())
+  scope          String   @db.VarChar(512)
+  idempotencyKey String   @map("idempotency_key") @db.VarChar(200)
+  payloadHash    String   @map("payload_hash") @db.VarChar(64)
+  statusCode     Int      @map("status_code")
+  responseJson   String   @map("response_json") @db.LongText
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([scope, idempotencyKey], map: "sp_cash_idempotency_scope_key")
+  @@map("sp_cash_idempotency_keys")
+}
+
+model SpCashBreakComment {
+  id        String   @id @default(cuid())
+  breakId   String   @map("break_id")
+  authorId  String   @map("author_id")
+  body      String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([breakId], map: "sp_cash_break_comments_break_idx")
+  @@map("sp_cash_break_comments")
+}
+
+

@@ -10,6 +10,7 @@ export const DEFAULT_COA_MAPPING = {
   bankClearing: "1105",
   realizedGain: "4200",
   realizedLoss: "5200",
+  brokerageExpense: "5210",
   cgtPayable: "2180",
 };
 

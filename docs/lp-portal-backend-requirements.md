@@ -1,5 +1,7 @@
 # Limited Partner Portal — backend requirements specification
 
+> **Superseded for API routes/examples:** use [`docs/lp-portal-api.md`](./lp-portal-api.md) (and product SRD [`lp_portal_srd.md`](./lp_portal_srd.md)).
+
 Full backend specification for the **Arcus Limited Partner (LP) Portal**. Frontend design session companion: [`design-sessions/lp-portal.md`](../design-sessions/lp-portal.md).
 
 **Status:** Incremental — extends `Client`, capital-call/distribution ledgers, and integrates with [Fund Performance Reporting](./fund-performance-reporting-backend-requirements.md).

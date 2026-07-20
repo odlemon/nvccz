@@ -1,5 +1,7 @@
 # Investment Operations — API by UI Section
 
+> **Superseded for Investments V2.** Use [investments-v2-api.md](./investments-v2-api.md) and [investments-v2-frontend-handoff.md](./investments-v2-frontend-handoff.md). This file is kept as a historical UI → path cheat-sheet.
+
 Screen → endpoint mapping for frontend handoff. Base: `https://{host}/api/investment-ops`
 
 ---

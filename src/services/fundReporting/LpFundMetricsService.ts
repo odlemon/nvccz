@@ -12,6 +12,7 @@ export interface LpFundMetricsSnapshot {
   currencyCode: string;
   totalCommitment: number;
   totalPaidIn: number;
+  totalCalled: number;
   totalDistributions: number;
   unfundedCommitment: number;
   nav: number;
@@ -49,6 +50,26 @@ async function paidInByClientFund(
   for (const c of commitments) {
     const prev = out.get(c.clientId) ?? 0;
     out.set(c.clientId, prev + (paidByCommitment.get(c.id) ?? 0));
+  }
+  return out;
+}
+
+/** Sum of capital called (allocation amounts), not paid-in. SRD: Unfunded = Commitment − Called. */
+async function calledByClientFund(
+  fundId: string,
+  clientIds: string[]
+): Promise<Map<string, number>> {
+  const rows = await prisma.capitalCallAllocation.findMany({
+    where: {
+      clientId: { in: clientIds },
+      capitalCall: { fundId, status: { notIn: ["CANCELLED", "DRAFT"] } },
+    },
+    select: { clientId: true, currentCallAmount: true },
+  });
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    const prev = out.get(r.clientId) ?? 0;
+    out.set(r.clientId, prev + Number(r.currentCallAmount.toString()));
   }
   return out;
 }
@@ -107,13 +128,16 @@ export class LpFundMetricsService {
     if (!fund) throw new Error("Fund not found");
 
     const paidInMap = await paidInByClientFund(fundId, [clientId]);
+    const calledMap = await calledByClientFund(fundId, [clientId]);
     const distMap = await distributionsByClientFund(fundId, [clientId]);
     const commitMap = await commitmentsByClient(fundId, [clientId]);
 
     const totalPaidIn = paidInMap.get(clientId) ?? 0;
+    const totalCalled = calledMap.get(clientId) ?? 0;
     const totalDistributions = distMap.get(clientId) ?? 0;
     const totalCommitment = commitMap.get(clientId) ?? 0;
-    const unfundedCommitment = Math.max(0, totalCommitment - totalPaidIn);
+    // SRD: Unfunded Commitment = Total Commitment − Called Capital (not paid-in)
+    const unfundedCommitment = Math.max(0, totalCommitment - totalCalled);
 
     const fundPaidIn = fundDashboard.performanceOverview?.paidIn ?? 0;
     const totalInvested = fundDashboard.metrics?.totalInvested ?? 0;
@@ -140,6 +164,7 @@ export class LpFundMetricsService {
       currencyCode: "USD",
       totalCommitment,
       totalPaidIn,
+      totalCalled,
       totalDistributions,
       unfundedCommitment,
       nav,
@@ -168,5 +193,10 @@ export class LpFundMetricsService {
     const dpi = paidIn > 0 ? distributions / paidIn : 0;
     const rvpi = paidIn > 0 ? nav / paidIn : 0;
     return { tvpi, dpi, rvpi };
+  }
+
+  /** SRD: Unfunded = Commitment − Called (not paid-in). */
+  static unfunded(commitment: number, called: number) {
+    return Math.max(0, commitment - called);
   }
 }

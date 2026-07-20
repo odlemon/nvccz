@@ -1,6 +1,6 @@
 # Arcus Investment Operations — Frontend Design Session
 
-Backend contract: [`docs/investment-ops-backend-requirements.md`](../docs/investment-ops-backend-requirements.md) · Screen → API: [`docs/investment-ops-api-by-ui-section.md`](../docs/investment-ops-api-by-ui-section.md)
+Backend contract: [`docs/investments-v2-api.md`](../docs/investments-v2-api.md) · FE handoff: [`docs/investments-v2-frontend-handoff.md`](../docs/investments-v2-frontend-handoff.md) · Legacy matrix: [`docs/investment-ops-api-by-ui-section.md`](../docs/investment-ops-api-by-ui-section.md)
 
 ---
 

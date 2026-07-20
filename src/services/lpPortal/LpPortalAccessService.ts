@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { prisma } from "../../utils/database";
 
-export type LpPortalRole = "VIEWER" | "MANAGER";
+export type LpPortalRole = "VIEWER" | "SIGNATORY" | "MANAGER";
 
 export interface LpPortalContext {
   clientId: string;
@@ -9,6 +9,8 @@ export interface LpPortalContext {
   membershipId: string | null;
   fundScope: string[] | null;
   isStaff: boolean;
+  userId?: string;
+  displayName?: string | null;
 }
 
 const GP_ROLE_CODES = new Set(["admin", "fund_manager", "cfo", "FUND_MGR", "CFO"]);
@@ -40,18 +42,32 @@ export class LpPortalAccessService {
       orderBy: { createdAt: "asc" },
     });
 
+    const normalizeRole = (raw: string): LpPortalRole => {
+      const r = String(raw || "VIEWER").toUpperCase();
+      if (r === "SIGNATORY") return "SIGNATORY";
+      if (r === "MANAGER" || r === "LP_MANAGER" || r === "ADMIN") return "MANAGER";
+      return "VIEWER";
+    };
+
     if (relation) {
       const fundIds = Array.isArray(relation.fundIds)
         ? (relation.fundIds as string[])
         : relation.fundIds
           ? (relation.fundIds as string[])
           : null;
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { firstName: true, lastName: true, email: true },
+      });
       return {
         clientId: relation.clientId,
-        lpRole: relation.lpRole as LpPortalRole,
+        lpRole: normalizeRole(relation.lpRole),
         membershipId: relation.id,
         fundScope: fundIds?.length ? fundIds : null,
         isStaff: false,
+        userId,
+        displayName:
+          [user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.email || null,
       };
     }
 
@@ -65,6 +81,8 @@ export class LpPortalAccessService {
         membershipId: null,
         fundScope: null,
         isStaff: false,
+        userId,
+        displayName: null,
       };
     }
 
@@ -77,6 +95,8 @@ export class LpPortalAccessService {
         membershipId: null,
         fundScope: null,
         isStaff: true,
+        userId,
+        displayName: null,
       };
     }
 

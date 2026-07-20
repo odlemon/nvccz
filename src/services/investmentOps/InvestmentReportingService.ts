@@ -1,23 +1,36 @@
 // @ts-nocheck
+import { createHash } from "crypto";
 import { createReadStream } from "fs";
-import { mkdir, writeFile } from "fs/promises";
+import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import PDFDocument from "pdfkit";
 import * as XLSX from "xlsx";
+import { InvestmentOpsError } from "../../middleware/investmentOpsFoundation";
 import { prisma } from "../../utils/database";
 import { ListedEquityAccessService } from "../listedEquity/ListedEquityAccessService";
 import { ListedEquityPortfolioService } from "../listedEquity/ListedEquityPortfolioService";
 import { InvestmentOpsAuditService } from "./InvestmentOpsAuditService";
+import { InvestmentAuditEventService } from "./InvestmentAuditEventService";
+import { InvestmentOutboxService } from "./InvestmentOutboxService";
+import { permittedActionsFor } from "./InvestmentCapabilitiesService";
+import {
+  InvestmentJobWorkerService,
+  registerInvestmentJobHandler,
+} from "./InvestmentJobWorkerService";
+import "./InvestmentPlatformJobHandlers";
 import { reportRef } from "./investmentOpsSupport";
 import { DocxTemplateRenderService } from "./reporting/DocxTemplateRenderService";
 import { InvestmentReportDataBuilderRegistry } from "./reporting/InvestmentReportDataBuilderRegistry";
 import {
   getInvestmentReportTemplate,
   INVESTMENT_REPORT_TEMPLATES,
+  INVESTMENT_REPORT_TEMPLATE_VERSION,
   requiresClientIdForScope,
   requiresFundIdForScope,
   resolveDocxTemplatePath,
 } from "./reporting/investmentReportTemplates";
+
+const REPORT_EXPIRY_MS = Number(process.env.INVESTMENT_REPORT_EXPIRY_MS || 7 * 24 * 60 * 60 * 1000);
 
 type FlatReportPayload = {
   reportTitle: string;
@@ -25,6 +38,16 @@ type FlatReportPayload = {
   asOf: string;
   summary?: Array<{ label: string; value: string }>;
   sections: Array<{ title: string; columns: string[]; rows: Array<Record<string, string | number | null>> }>;
+};
+
+type ReportPlatformMeta = {
+  jobId?: string | null;
+  checksumSha256?: string | null;
+  expiresAt?: string | null;
+  templateVersion?: number;
+  errorMessage?: string | null;
+  cancelledAt?: string | null;
+  byteSize?: number | null;
 };
 
 function fmtNum(n: unknown, digits = 2): string {
@@ -136,7 +159,10 @@ const REPORT_BUILDERS: Record<string, (fundId: string, userId: string, user: any
       Code: r.ruleCode,
       Name: r.ruleName,
       Type: r.ruleType,
-      Threshold: r.thresholdValue != null ? `${fmtNum(r.thresholdValue, 2)}${r.thresholdUnit ? ` ${r.thresholdUnit}` : ""}` : "—",
+      Threshold:
+        r.thresholdValue != null
+          ? `${fmtNum(r.thresholdValue, 2)}${r.thresholdUnit ? ` ${r.thresholdUnit}` : ""}`
+          : "—",
       Active: r.isActive ? "Yes" : "No",
     }));
     const resultRows = results.map((r) => ({
@@ -156,7 +182,11 @@ const REPORT_BUILDERS: Record<string, (fundId: string, userId: string, user: any
       ],
       sections: [
         { title: "Compliance Rules", columns: Object.keys(ruleRows[0] || { Code: "" }), rows: ruleRows },
-        { title: "Recent Compliance Results", columns: Object.keys(resultRows[0] || { Outcome: "" }), rows: resultRows },
+        {
+          title: "Recent Compliance Results",
+          columns: Object.keys(resultRows[0] || { Outcome: "" }),
+          rows: resultRows,
+        },
       ],
     };
   },
@@ -196,8 +226,26 @@ const REPORT_BUILDERS: Record<string, (fundId: string, userId: string, user: any
   },
 };
 
+// FE report codes that share the flat PDF/XLSX/CSV builders (DOCX still preferred when format=DOCX).
+REPORT_BUILDERS.HOLDINGS_REPORT = REPORT_BUILDERS.HOLDINGS_SUMMARY;
+REPORT_BUILDERS.PERFORMANCE_REPORT = REPORT_BUILDERS.PORTFOLIO_VALUATION;
+REPORT_BUILDERS.TRANSACTION_REPORT = REPORT_BUILDERS.TRADE_BLOTTER;
+REPORT_BUILDERS.ASSET_ALLOCATION_REPORT = REPORT_BUILDERS.PORTFOLIO_VALUATION;
+REPORT_BUILDERS.INCOME_REPORT = REPORT_BUILDERS.PORTFOLIO_VALUATION;
+
 function isFlatReportPayload(payload: object): payload is FlatReportPayload {
   return Boolean((payload as FlatReportPayload)?.sections && (payload as FlatReportPayload)?.reportTitle);
+}
+
+function splitParameters(raw: any): { userParams: Record<string, unknown>; meta: ReportPlatformMeta } {
+  const obj = raw && typeof raw === "object" ? { ...raw } : {};
+  const meta = (obj._platform && typeof obj._platform === "object" ? obj._platform : {}) as ReportPlatformMeta;
+  delete obj._platform;
+  return { userParams: obj, meta };
+}
+
+function mergeParameters(userParams: Record<string, unknown>, meta: ReportPlatformMeta) {
+  return { ...userParams, _platform: meta };
 }
 
 async function writePdf(fileRef: string, title: string, payload: object) {
@@ -352,6 +400,34 @@ function writeCsv(fileRef: string, payload: object) {
   return writeFile(fileRef, lines.join("\n"), "utf8");
 }
 
+function serializeReport(run: any, user?: any) {
+  if (!run) return run;
+  const { userParams, meta } = splitParameters(run.parametersJson);
+  const expired = meta.expiresAt ? new Date(meta.expiresAt).getTime() < Date.now() : false;
+  return {
+    id: run.id,
+    fundId: run.fundId,
+    clientId: run.clientId,
+    scopeType: run.scopeType,
+    reportType: run.reportType,
+    format: run.format,
+    status: run.status,
+    parameters: userParams,
+    jobId: meta.jobId ?? null,
+    checksumSha256: meta.checksumSha256 ?? null,
+    expiresAt: meta.expiresAt ?? null,
+    expired,
+    templateVersion: meta.templateVersion ?? INVESTMENT_REPORT_TEMPLATE_VERSION,
+    errorMessage: meta.errorMessage ?? null,
+    byteSize: meta.byteSize ?? null,
+    requestedById: run.requestedById,
+    createdAt: run.createdAt,
+    completedAt: run.completedAt,
+    downloadAvailable: Boolean(run.fileRef && run.status === "COMPLETED" && !expired),
+    permittedActions: user ? permittedActionsFor(user, "report", run.status) : undefined,
+  };
+}
+
 export class InvestmentReportingService {
   static listTemplates() {
     return INVESTMENT_REPORT_TEMPLATES.map((t) => ({
@@ -363,6 +439,8 @@ export class InvestmentReportingService {
       requiresFundId: t.requiresFundId,
       requiresClientId: Boolean(t.requiresClientId),
       hasDocxTemplate: Boolean(t.docxTemplate),
+      version: t.version,
+      parameterSchema: t.parameterSchema,
     }));
   }
 
@@ -437,28 +515,22 @@ export class InvestmentReportingService {
     const items = rows.map((r) => {
       const requestedBy = r.requestedById ? userMap[r.requestedById] : null;
       const template = templateMap[r.reportType];
+      const serialized = serializeReport(r, user);
       return {
-        id: r.id,
-        fundId: r.fundId,
+        ...serialized,
         fundName: r.fundId ? fundMap[r.fundId]?.name ?? null : null,
-        clientId: r.clientId,
         clientName: r.clientId ? clientMap[r.clientId]?.legalName ?? null : null,
         scopeType: r.scopeType ?? template?.scopeType ?? null,
-        reportType: r.reportType,
         reportTypeName: template?.name ?? r.reportType,
-        format: r.format,
-        status: r.status,
-        parameters: r.parametersJson ?? null,
         requestedBy: requestedBy
           ? {
               id: requestedBy.id,
-              name: `${requestedBy.firstName ?? ""} ${requestedBy.lastName ?? ""}`.trim() || requestedBy.email,
+              name:
+                `${requestedBy.firstName ?? ""} ${requestedBy.lastName ?? ""}`.trim() ||
+                requestedBy.email,
               email: requestedBy.email,
             }
           : null,
-        createdAt: r.createdAt,
-        completedAt: r.completedAt,
-        downloadAvailable: Boolean(r.fileRef && r.status === "COMPLETED"),
       };
     });
 
@@ -480,32 +552,47 @@ export class InvestmentReportingService {
       reportType: string;
       format?: string;
       parameters?: Record<string, unknown>;
+      processNow?: boolean;
+      idempotencyKey?: string;
     }
   ) {
     const templateDef = getInvestmentReportTemplate(data.reportType);
     const fmt = String(data.format || templateDef.supportedFormats[0]).toUpperCase();
 
     if (!templateDef.supportedFormats.includes(fmt as any)) {
-      throw new Error(`Format ${fmt} not supported for ${templateDef.code}. Use: ${templateDef.supportedFormats.join(", ")}`);
+      throw new InvestmentOpsError(
+        "UNSUPPORTED_REPORT_FORMAT",
+        `Format ${fmt} not supported for ${templateDef.code}. Use: ${templateDef.supportedFormats.join(", ")}`,
+        400
+      );
     }
 
     const needsFund =
-      templateDef.requiresFundId ||
-      requiresFundIdForScope(templateDef.scopeType);
+      templateDef.requiresFundId || requiresFundIdForScope(templateDef.scopeType);
     const needsClient =
-      templateDef.requiresClientId ||
-      requiresClientIdForScope(templateDef.scopeType);
+      templateDef.requiresClientId || requiresClientIdForScope(templateDef.scopeType);
 
     if (needsFund && !data.fundId) {
-      throw new Error("fundId is required for this report");
+      throw new InvestmentOpsError("FUND_ID_REQUIRED", "fundId is required for this report", 400);
     }
     if (needsClient && !data.clientId) {
-      throw new Error("clientId is required for this report");
+      throw new InvestmentOpsError("CLIENT_ID_REQUIRED", "clientId is required for this report", 400);
     }
     if (data.fundId) {
       await ListedEquityAccessService.assertFundAccess(userId, data.fundId, user);
     }
 
+    const hasBuilder = Boolean(REPORT_BUILDERS[data.reportType]);
+    const hasDocx = Boolean(templateDef.docxTemplate);
+    if (!hasBuilder && !hasDocx) {
+      throw new InvestmentOpsError(
+        "REPORT_TEMPLATE_UNIMPLEMENTED",
+        `Report template ${data.reportType} has no production builder`,
+        501
+      );
+    }
+
+    const userParams = { ...(data.parameters || {}) };
     const run = await prisma.investmentReportRun.create({
       data: {
         fundId: data.fundId,
@@ -513,11 +600,96 @@ export class InvestmentReportingService {
         scopeType: templateDef.scopeType,
         reportType: data.reportType,
         format: fmt,
-        status: "RUNNING",
-        parametersJson: data.parameters ?? {},
+        status: "PENDING",
+        parametersJson: mergeParameters(userParams, {
+          templateVersion: templateDef.version,
+          jobId: null,
+        }),
         requestedById: userId,
       },
     });
+
+    const idempotencyKey =
+      data.idempotencyKey || `report-generate:${run.id}:${data.reportType}:${fmt}`;
+    const job = await InvestmentJobWorkerService.enqueue({
+      jobType: "REPORT_GENERATE",
+      aggregateType: "ReportRun",
+      aggregateId: run.id,
+      payloadJson: {
+        reportRunId: run.id,
+        fundId: data.fundId ?? null,
+        clientId: data.clientId ?? null,
+        reportType: data.reportType,
+        format: fmt,
+        userId,
+      },
+      idempotencyKey,
+      priority: 50,
+    });
+
+    await prisma.investmentReportRun.update({
+      where: { id: run.id },
+      data: {
+        status: "QUEUED",
+        parametersJson: mergeParameters(userParams, {
+          templateVersion: templateDef.version,
+          jobId: job.id,
+        }),
+      },
+    });
+
+    await InvestmentAuditEventService.append({
+      aggregateType: "ReportRun",
+      aggregateId: run.id,
+      eventType: "REPORT_QUEUED",
+      actorId: userId,
+      afterJson: { reportType: data.reportType, format: fmt, jobId: job.id },
+    });
+    await InvestmentOutboxService.enqueue({
+      aggregateType: "ReportRun",
+      aggregateId: run.id,
+      aggregateVersion: 1,
+      eventType: "REPORT_QUEUED",
+      payloadJson: { reportRunId: run.id, jobId: job.id, reportType: data.reportType },
+      idempotencyKey: `outbox:report-queued:${run.id}`,
+    });
+    await InvestmentOpsAuditService.log(
+      "REPORT_QUEUED",
+      "ReportRun",
+      run.id,
+      { reportType: data.reportType, format: fmt, jobId: job.id },
+      userId
+    );
+
+    if (data.processNow !== false) {
+      await InvestmentJobWorkerService.processJobById(job.id);
+    }
+
+    return this.getDetail(run.id, userId, user);
+  }
+
+  static async processGenerateJob(job: any) {
+    const reportRunId = job.payloadJson?.reportRunId || job.aggregateId;
+    const run = await prisma.investmentReportRun.findUnique({ where: { id: reportRunId } });
+    if (!run) throw new InvestmentOpsError("REPORT_NOT_FOUND", "Report run not found", 404);
+    if (run.status === "CANCELLED") return { skipped: true, reason: "cancelled" };
+    if (run.status === "COMPLETED" && run.fileRef) {
+      return { skipped: true, reason: "already completed" };
+    }
+
+    const { userParams, meta } = splitParameters(run.parametersJson);
+    await prisma.investmentReportRun.update({
+      where: { id: run.id },
+      data: {
+        status: "RUNNING",
+        parametersJson: mergeParameters(userParams, { ...meta, jobId: job.id, errorMessage: null }),
+      },
+    });
+
+    const templateDef = getInvestmentReportTemplate(run.reportType);
+    const fmt = String(run.format || "PDF").toUpperCase();
+    const userId = job.payloadJson?.userId || run.requestedById || "system";
+    const user = { role: { name: "admin" } };
 
     const dir = path.join(process.cwd(), "storage", "local-upload-mock", "investment-ops-reports");
     await mkdir(dir, { recursive: true });
@@ -528,63 +700,206 @@ export class InvestmentReportingService {
       if (templateDef.docxTemplate && fmt === "DOCX") {
         const templatePath = resolveDocxTemplatePath(templateDef);
         const mergeData = await InvestmentReportDataBuilderRegistry.build({
-          reportType: data.reportType,
-          fundId: data.fundId,
-          clientId: data.clientId,
+          reportType: run.reportType,
+          fundId: run.fundId || undefined,
+          clientId: run.clientId || undefined,
           scopeType: templateDef.scopeType,
           userId,
           user,
           reportRunId: run.id,
-          parameters: data.parameters as any,
+          parameters: userParams as any,
         });
         const buffer = DocxTemplateRenderService.render(templatePath, mergeData);
         fileRef = path.join(dir, `${base}.docx`);
         await writeFile(fileRef, buffer);
       } else {
-        const builder = REPORT_BUILDERS[data.reportType];
-        let payload: object = { message: "Report type stub", reportType: data.reportType };
-        if (builder && data.fundId) {
-          payload = await builder(data.fundId, userId, user);
+        const builder = REPORT_BUILDERS[run.reportType];
+        if (!builder || !run.fundId) {
+          throw new InvestmentOpsError(
+            "REPORT_TEMPLATE_UNIMPLEMENTED",
+            `No production builder for ${run.reportType}`,
+            501
+          );
         }
-
+        const payload = await builder(run.fundId, userId, user);
         if (fmt === "PDF") {
           fileRef = path.join(dir, `${base}.pdf`);
-          await writePdf(fileRef, templateDef.name || data.reportType, payload);
+          await writePdf(fileRef, templateDef.name || run.reportType, payload);
         } else if (fmt === "EXCEL" || fmt === "XLSX") {
           fileRef = path.join(dir, `${base}.xlsx`);
           await writeExcel(fileRef, payload);
         } else if (fmt === "CSV") {
           fileRef = path.join(dir, `${base}.csv`);
           await writeCsv(fileRef, payload);
-        } else {
+        } else if (fmt === "JSON") {
           fileRef = path.join(dir, `${base}.json`);
           await writeFile(fileRef, JSON.stringify(payload, null, 2), "utf8");
+        } else {
+          throw new InvestmentOpsError("UNSUPPORTED_REPORT_FORMAT", `Unsupported format ${fmt}`, 400);
         }
       }
 
+      const bytes = await readFile(fileRef);
+      const checksumSha256 = createHash("sha256").update(bytes).digest("hex");
+      const expiresAt = new Date(Date.now() + REPORT_EXPIRY_MS).toISOString();
+
+      await prisma.investmentReportRun.update({
+        where: { id: run.id },
+        data: {
+          status: "COMPLETED",
+          fileRef,
+          completedAt: new Date(),
+          parametersJson: mergeParameters(userParams, {
+            ...meta,
+            jobId: job.id,
+            checksumSha256,
+            expiresAt,
+            byteSize: bytes.length,
+            templateVersion: templateDef.version,
+            errorMessage: null,
+          }),
+        },
+      });
+
+      await InvestmentAuditEventService.append({
+        aggregateType: "ReportRun",
+        aggregateId: run.id,
+        eventType: "REPORT_GENERATED",
+        actorId: userId,
+        afterJson: { checksumSha256, expiresAt, format: fmt },
+      });
+      await InvestmentOutboxService.enqueue({
+        aggregateType: "ReportRun",
+        aggregateId: run.id,
+        aggregateVersion: 2,
+        eventType: "REPORT_GENERATED",
+        payloadJson: { reportRunId: run.id, checksumSha256, expiresAt },
+        idempotencyKey: `outbox:report-generated:${run.id}:${job.id}`,
+      });
       await InvestmentOpsAuditService.log(
         "REPORT_GENERATED",
         "ReportRun",
         run.id,
-        { reportType: data.reportType, format: fmt },
+        { reportType: run.reportType, format: fmt, checksumSha256 },
         userId
       );
 
-      return prisma.investmentReportRun.update({
-        where: { id: run.id },
-        data: { status: "COMPLETED", fileRef, completedAt: new Date() },
-      });
+      return { reportRunId: run.id, checksumSha256, expiresAt, byteSize: bytes.length };
     } catch (err: any) {
+      const message = err instanceof Error ? err.message : String(err);
       await prisma.investmentReportRun.update({
         where: { id: run.id },
-        data: { status: "FAILED", completedAt: new Date() },
+        data: {
+          status: "FAILED",
+          completedAt: new Date(),
+          parametersJson: mergeParameters(userParams, {
+            ...meta,
+            jobId: job.id,
+            errorMessage: message,
+          }),
+        },
+      });
+      await InvestmentAuditEventService.append({
+        aggregateType: "ReportRun",
+        aggregateId: run.id,
+        eventType: "REPORT_FAILED",
+        actorId: userId,
+        metadataJson: { errorMessage: message },
       });
       throw err;
     }
   }
 
-  static async get(id: string) {
-    return prisma.investmentReportRun.findUnique({ where: { id } });
+  static async get(id: string, userId: string, user: any) {
+    const run = await prisma.investmentReportRun.findUnique({ where: { id } });
+    if (!run) return null;
+    if (run.fundId) {
+      await ListedEquityAccessService.assertFundAccess(userId, run.fundId, user);
+    } else {
+      const scope = await ListedEquityAccessService.getAccessibleFundIds(userId, user);
+      if (scope !== "ALL") {
+        throw new InvestmentOpsError(
+          "FORBIDDEN_REPORT_ACCESS",
+          "Firm-scoped report access requires admin portfolio scope",
+          403
+        );
+      }
+    }
+    return run;
+  }
+
+  static async getDetail(id: string, userId: string, user: any) {
+    const run = await this.get(id, userId, user);
+    if (!run) throw new InvestmentOpsError("REPORT_NOT_FOUND", "Report run not found", 404);
+    return serializeReport(run, user);
+  }
+
+  static async audit(id: string, userId: string, user: any) {
+    await this.get(id, userId, user);
+    const events = await InvestmentAuditEventService.listForAggregate("ReportRun", id);
+    return { reportRunId: id, events };
+  }
+
+  static async cancel(id: string, userId: string, user: any, reason?: string) {
+    const run = await this.get(id, userId, user);
+    if (!run) throw new InvestmentOpsError("REPORT_NOT_FOUND", "Report run not found", 404);
+    if (["COMPLETED", "CANCELLED"].includes(run.status)) {
+      return serializeReport(run, user);
+    }
+    const { userParams, meta } = splitParameters(run.parametersJson);
+    if (meta.jobId) {
+      await InvestmentJobWorkerService.cancel(meta.jobId, reason || "report cancelled");
+    }
+    const updated = await prisma.investmentReportRun.update({
+      where: { id },
+      data: {
+        status: "CANCELLED",
+        completedAt: new Date(),
+        parametersJson: mergeParameters(userParams, {
+          ...meta,
+          cancelledAt: new Date().toISOString(),
+          errorMessage: reason || "cancelled",
+        }),
+      },
+    });
+    await InvestmentAuditEventService.append({
+      aggregateType: "ReportRun",
+      aggregateId: id,
+      eventType: "REPORT_CANCELLED",
+      actorId: userId,
+      metadataJson: { reason: reason || null },
+    });
+    await InvestmentOutboxService.enqueue({
+      aggregateType: "ReportRun",
+      aggregateId: id,
+      aggregateVersion: 3,
+      eventType: "REPORT_CANCELLED",
+      payloadJson: { reportRunId: id },
+      idempotencyKey: `outbox:report-cancelled:${id}`,
+    });
+    return serializeReport(updated, user);
+  }
+
+  static async retry(id: string, userId: string, user: any, idempotencyKey?: string) {
+    const run = await this.get(id, userId, user);
+    if (!run) throw new InvestmentOpsError("REPORT_NOT_FOUND", "Report run not found", 404);
+    if (!["FAILED", "CANCELLED"].includes(run.status)) {
+      throw new InvestmentOpsError(
+        "REPORT_RETRY_NOT_ALLOWED",
+        `Cannot retry report in status ${run.status}`,
+        409
+      );
+    }
+    const { userParams } = splitParameters(run.parametersJson);
+    return this.generate(userId, user, {
+      fundId: run.fundId || undefined,
+      clientId: run.clientId || undefined,
+      reportType: run.reportType,
+      format: run.format,
+      parameters: userParams,
+      idempotencyKey: idempotencyKey || `report-retry:${id}:${Date.now()}`,
+      processNow: true,
+    });
   }
 
   static contentTypeForRun(run: { format?: string; fileRef?: string | null }): string {
@@ -612,4 +927,21 @@ export class InvestmentReportingService {
   static openDownloadStream(fileRef: string) {
     return createReadStream(fileRef);
   }
+
+  static async assertDownloadable(id: string, userId: string, user: any) {
+    const run = await this.get(id, userId, user);
+    if (!run) throw new InvestmentOpsError("REPORT_NOT_FOUND", "Report run not found", 404);
+    if (run.status !== "COMPLETED" || !run.fileRef) {
+      throw new InvestmentOpsError("REPORT_NOT_READY", "Report output is not available", 409);
+    }
+    const { meta } = splitParameters(run.parametersJson);
+    if (meta.expiresAt && new Date(meta.expiresAt).getTime() < Date.now()) {
+      throw new InvestmentOpsError("REPORT_EXPIRED", "Report output has expired", 410);
+    }
+    return run;
+  }
 }
+
+registerInvestmentJobHandler("REPORT_GENERATE", async (job) =>
+  InvestmentReportingService.processGenerateJob(job)
+);

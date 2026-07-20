@@ -1,6 +1,7 @@
 /**
  * LP Portal — Swagger paths.
- * Requirements: docs/lp-portal-backend-requirements.md
+ * API catalogue: docs/lp-portal-api.md
+ * Product SRD: docs/lp_portal_srd.md
  * Design session: design-sessions/lp-portal.md
  *
  * Cron route POST /api/cron/lp-portal/snapshot-refresh is omitted from Swagger (ops only).
@@ -15,9 +16,10 @@ export const LP_PORTAL_TAG = "LP Portal";
 export const LP_PORTAL_TAG_DEFINITION = {
   name: LP_PORTAL_TAG,
   description:
-    "**Limited Partner Portal** — investor dashboard, capital ledger, document vault, performance reports, colleague access, MFA, and GP admin publish/revoke.\n\n" +
+    "**Limited Partner Portal** — session/shell, capital calls & distributions, open-ended dealing, performance, documents, notices, service desk, colleagues, MFA, and GP admin.\n\n" +
     "Base path: `/api/lp-portal/*`. Separate from Fund Performance Reporting (GP/ops only).\n\n" +
-    "See `docs/lp-portal-backend-requirements.md`.",
+    "**Docs:** `docs/lp-portal-api.md` (request/response catalogue) · `docs/lp_portal_srd.md` (product SRD).\n\n" +
+    "Seed: `npm run db:seed:lp-portal-srd`. UAT: `npm run uat:lp-portal:phase1` … `srd-acceptance`.",
 };
 
 const TAG = [LP_PORTAL_TAG];
@@ -44,6 +46,12 @@ const clientIdQuery = queryParam(
 );
 
 export const lpPortalSwaggerPaths: Record<string, unknown> = {
+  "/lp-portal/session": {
+    get: op("SRD — Session / shell bootstrap", {
+      description: `${LP_SCOPE}\n\nOrganisation, role, entitled funds (operating model), unread counters. See \`docs/lp-portal-api.md\`.`,
+      parameters: [clientIdQuery],
+    }),
+  },
   "/lp-portal/dashboard": {
     get: op("US-LP-1 — Investor dashboard", {
       description: `${LP_SCOPE}\n\nConsolidated metrics; optional \`fundId\`, \`presentationCurrency=USD|ZIG\`.`,
@@ -52,6 +60,89 @@ export const lpPortalSwaggerPaths: Record<string, unknown> = {
         queryParam("fundId", { type: "string" }, SWAGGER_EX.fundId),
         queryParam("presentationCurrency", { type: "string", enum: ["USD", "ZIG"] }, "USD"),
       ],
+    }),
+  },
+  "/lp-portal/capital-calls": {
+    get: op("SRD — List capital calls (investor allocations)", {
+      description: `${LP_SCOPE}\n\nVisible when notices sent / issued. Path \`:id\` elsewhere is **allocation id**.`,
+      parameters: [
+        clientIdQuery,
+        queryParam("fundId", { type: "string" }, SWAGGER_EX.fundId),
+        queryParam("status", { type: "string" }, "ISSUED"),
+      ],
+    }),
+  },
+  "/lp-portal/capital-calls/{id}/acknowledge": {
+    post: op("SRD — Acknowledge capital call", {
+      description: "SIGNATORY+. Requires `Idempotency-Key`. Does **not** mark paid.",
+      parameters: [pathParam("id", SWAGGER_EX.entryId), clientIdQuery],
+      requestBody: jsonRequestBody({
+        schema: { type: "object", properties: {} },
+        examples: { ack: { summary: "Acknowledge", value: {} } },
+      }),
+    }),
+  },
+  "/lp-portal/dealing/overview": {
+    get: op("SRD — Dealing overview (open-ended)", {
+      description: `${LP_SCOPE}\n\nHoldings, available redeemable value, next dealing date.`,
+      parameters: [clientIdQuery, queryParam("fundId", { type: "string" }, SWAGGER_EX.fundId)],
+    }),
+  },
+  "/lp-portal/dealing/subscriptions/estimate": {
+    post: op("SRD — Estimate subscription (isEstimate=true)", {
+      description: "Indicative units/fees; never final.",
+      parameters: [clientIdQuery],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["fundId", "amount"],
+          properties: {
+            fundId: { type: "string" },
+            shareClass: { type: "string" },
+            amount: { type: "number" },
+            currency: { type: "string" },
+          },
+        },
+        examples: {
+          est: {
+            summary: "Estimate $100k subscription",
+            value: { fundId: SWAGGER_EX.fundId, shareClass: "Class A", amount: 100000, currency: "USD" },
+          },
+        },
+      }),
+    }),
+  },
+  "/lp-portal/dealing/redemptions/estimate": {
+    post: op("SRD — Estimate redemption (min-balance / FULL)", {
+      description: "Partial may return `LP_MIN_BALANCE_BREACH`. FULL redeem bypasses min balance.",
+      parameters: [clientIdQuery],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["fundId"],
+          properties: {
+            fundId: { type: "string" },
+            shareClass: { type: "string" },
+            mode: { type: "string", enum: ["amount", "units", "FULL"] },
+            full: { type: "boolean" },
+            amount: { type: "number" },
+            units: { type: "number" },
+            earliestDealingDate: { type: "string", format: "date" },
+          },
+        },
+        examples: {
+          full: {
+            summary: "Full redemption estimate",
+            value: {
+              fundId: SWAGGER_EX.fundId,
+              shareClass: "Class A",
+              mode: "FULL",
+              full: true,
+              earliestDealingDate: "2025-08-15",
+            },
+          },
+        },
+      }),
     }),
   },
   "/lp-portal/ledger": {

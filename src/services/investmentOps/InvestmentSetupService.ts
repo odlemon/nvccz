@@ -1,16 +1,48 @@
 // @ts-nocheck
 import { prisma } from "../../utils/database";
+import { paginatedResult } from "./investmentOpsSupport";
+
+function presentStakeholder(row: any) {
+  return {
+    id: row.id,
+    name: row.name,
+    profileType: row.profileType,
+    status: row.isActive === false ? "INACTIVE" : "ACTIVE",
+    isActive: row.isActive !== false,
+    contactEmail: row.contactEmail ?? null,
+    contactPhone: null,
+    deliveryMode: row.deliveryMode ?? null,
+    effectiveFrom: row.createdAt ?? null,
+    effectiveTo: null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function presentCurrency(row: any) {
+  return {
+    id: row.id ?? row.code,
+    code: row.code,
+    name: row.name ?? row.code,
+    symbol: row.symbol ?? null,
+    decimalPlaces: 2,
+    status: row.isActive === false ? "INACTIVE" : "ACTIVE",
+    isActive: row.isActive !== false,
+  };
+}
 
 export class InvestmentSetupService {
   static async listBrokers() {
-    return prisma.listedEquityStakeholderProfile.findMany({
+    const rows = await prisma.listedEquityStakeholderProfile.findMany({
       where: { profileType: "BROKER", isActive: true },
       orderBy: { name: "asc" },
     });
+    const items = rows.map(presentStakeholder);
+    return paginatedResult(items, items.length, 1, items.length || 50);
   }
 
   static async createBroker(data: { name: string; contactEmail?: string; deliveryMode?: string }) {
-    return prisma.listedEquityStakeholderProfile.create({
+    const row = await prisma.listedEquityStakeholderProfile.create({
       data: {
         profileType: "BROKER",
         name: data.name,
@@ -18,17 +50,20 @@ export class InvestmentSetupService {
         deliveryMode: data.deliveryMode || "EMAIL",
       },
     });
+    return presentStakeholder(row);
   }
 
   static async listCustodians() {
-    return prisma.listedEquityStakeholderProfile.findMany({
+    const rows = await prisma.listedEquityStakeholderProfile.findMany({
       where: { profileType: "CUSTODIAN", isActive: true },
       orderBy: { name: "asc" },
     });
+    const items = rows.map(presentStakeholder);
+    return paginatedResult(items, items.length, 1, items.length || 50);
   }
 
   static async createCustodian(data: { name: string; contactEmail?: string; deliveryMode?: string }) {
-    return prisma.listedEquityStakeholderProfile.create({
+    const row = await prisma.listedEquityStakeholderProfile.create({
       data: {
         profileType: "CUSTODIAN",
         name: data.name,
@@ -36,6 +71,7 @@ export class InvestmentSetupService {
         deliveryMode: data.deliveryMode || "EMAIL",
       },
     });
+    return presentStakeholder(row);
   }
 
   static async listCommissions(stakeholderProfileId?: string) {
@@ -54,13 +90,16 @@ export class InvestmentSetupService {
         })
       : [];
     const byId = Object.fromEntries(profiles.map((p) => [p.id, p]));
-    return rows
-      .filter((r) => byId[r.stakeholderProfileId]) // drop orphan commission rows (e.g. cmbroker…)
+    const items = rows
+      .filter((r) => byId[r.stakeholderProfileId])
       .map((r) => ({
         ...r,
+        rateBps: String(r.rateBps),
+        flatFee: r.flatFee != null ? String(r.flatFee) : null,
         brokerName: byId[r.stakeholderProfileId]?.name ?? null,
         stakeholder: byId[r.stakeholderProfileId] ?? null,
       }));
+    return paginatedResult(items, items.length, 1, items.length || 50);
   }
 
   static async createCommission(data: Record<string, unknown>) {
@@ -77,13 +116,15 @@ export class InvestmentSetupService {
 
   static async listMarkets() {
     const rows = await prisma.investmentMarket.findMany({ where: { isActive: true } });
-    if (rows.length) return rows;
-    return [
-      { marketCode: "ZSE", marketName: "Zimbabwe Stock Exchange", exchangeCode: "ZSE", countryCode: "ZW" },
-      { marketCode: "VFEX", marketName: "Victoria Falls Exchange", exchangeCode: "VFEX", countryCode: "ZW" },
-      { marketCode: "NASDAQ", marketName: "NASDAQ", exchangeCode: "NASDAQ", countryCode: "US" },
-      { marketCode: "NYSE", marketName: "New York Stock Exchange", exchangeCode: "NYSE", countryCode: "US" },
-    ];
+    const items = rows.length
+      ? rows
+      : [
+          { marketCode: "ZSE", marketName: "Zimbabwe Stock Exchange", exchangeCode: "ZSE", countryCode: "ZW", isActive: true },
+          { marketCode: "VFEX", marketName: "Victoria Falls Exchange", exchangeCode: "VFEX", countryCode: "ZW", isActive: true },
+          { marketCode: "NASDAQ", marketName: "NASDAQ", exchangeCode: "NASDAQ", countryCode: "US", isActive: true },
+          { marketCode: "NYSE", marketName: "New York Stock Exchange", exchangeCode: "NYSE", countryCode: "US", isActive: true },
+        ];
+    return paginatedResult(items, items.length, 1, items.length || 50);
   }
 
   static async createMarket(data: Record<string, unknown>) {
@@ -98,7 +139,9 @@ export class InvestmentSetupService {
   }
 
   static async listCurrencies() {
-    return prisma.currency.findMany({ where: { isActive: true }, orderBy: { code: "asc" } });
+    const rows = await prisma.currency.findMany({ where: { isActive: true }, orderBy: { code: "asc" } });
+    const items = rows.map(presentCurrency);
+    return paginatedResult(items, items.length, 1, items.length || 50);
   }
 
   static async priceSources() {
@@ -115,11 +158,14 @@ export class InvestmentSetupService {
     const ticksToday = await prisma.listedEquityPriceTick.count({
       where: { createdAt: { gte: today } },
     });
-    return configs.map((c) => {
+    const items = configs.map((c) => {
       const b = batches.find((x) => x.sourceCode === c.sourceCode);
       return {
+        id: c.id ?? c.sourceCode,
         sourceCode: c.sourceCode,
+        name: c.displayName,
         displayName: c.displayName,
+        status: c.isEnabled ? "ACTIVE" : "DISABLED",
         isEnabled: c.isEnabled,
         apiStatus: c.isEnabled ? "OK" : "DISABLED",
         lastSuccessfulRun: b?._max.createdAt ?? null,
@@ -129,8 +175,10 @@ export class InvestmentSetupService {
         message: c.sourceUrl ? "Configured" : "Default adapter",
       };
     });
+    return paginatedResult(items, items.length, 1, items.length || 50);
   }
 
+  /** Flat settings map (not a list). FE treat `{ items }` as null — never wrap. */
   static async getSettings() {
     const rows = await prisma.investmentOpsSetting.findMany();
     const out: Record<string, unknown> = {};
@@ -154,12 +202,14 @@ export class InvestmentSetupService {
       where: { isActive: true },
       orderBy: { countryName: "asc" },
     });
-    if (rows.length) return rows;
-    return [
-      { countryCode: "ZW", countryName: "Zimbabwe", region: "Africa" },
-      { countryCode: "US", countryName: "United States", region: "Americas" },
-      { countryCode: "GB", countryName: "United Kingdom", region: "Europe" },
-    ];
+    const items = rows.length
+      ? rows
+      : [
+          { countryCode: "ZW", countryName: "Zimbabwe", region: "Africa", isActive: true },
+          { countryCode: "US", countryName: "United States", region: "Americas", isActive: true },
+          { countryCode: "GB", countryName: "United Kingdom", region: "Europe", isActive: true },
+        ];
+    return paginatedResult(items, items.length, 1, items.length || 50);
   }
 
   static async createCountry(data: { countryCode: string; countryName: string; region?: string }) {
@@ -175,13 +225,14 @@ export class InvestmentSetupService {
   }
 
   static async listIssuers(countryCode?: string) {
-    return prisma.investmentIssuer.findMany({
+    const rows = await prisma.investmentIssuer.findMany({
       where: {
         isActive: true,
         ...(countryCode ? { countryCode: countryCode.toUpperCase() } : {}),
       },
       orderBy: { legalName: "asc" },
     });
+    return paginatedResult(rows, rows.length, 1, rows.length || 50);
   }
 
   static async createIssuer(data: {

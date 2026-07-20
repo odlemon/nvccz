@@ -31,10 +31,11 @@ export class InvestmentOrderService {
     user: any,
     filters: { status?: string; fundId?: string; page?: number; pageSize?: number }
   ) {
-    const scope = await ListedEquityAccessService.getAccessibleFundIds(userId, user);
-    const where: any = {};
-    if (filters.fundId) where.fundId = filters.fundId;
-    else if (scope !== "ALL") where.fundId = { in: scope };
+    const where: any = await ListedEquityAccessService.accessibleFundIdFilter(
+      userId,
+      user,
+      filters.fundId
+    );
     if (filters.status) where.status = filters.status;
 
     const { page, pageSize, skip, take } = parsePagination(filters);
@@ -51,7 +52,22 @@ export class InvestmentOrderService {
     return paginatedResult(rows, total, page, pageSize);
   }
 
-  static async get(id: string) {
+  static async assertOrderAccess(id: string, userId: string, user: any) {
+    return ListedEquityAccessService.assertObjectFundAccess(
+      userId,
+      user,
+      "Order",
+      id,
+      async () =>
+        (await prisma.investmentOrder.findUnique({
+          where: { id },
+          select: { fundId: true },
+        }))?.fundId
+    );
+  }
+
+  static async get(id: string, userId: string, user: any) {
+    await this.assertOrderAccess(id, userId, user);
     return prisma.investmentOrder.findUnique({
       where: { id },
       include: { instrument: true, approvals: true, complianceResults: true },
@@ -65,7 +81,7 @@ export class InvestmentOrderService {
     let instrument = null;
     if (data.instrumentId) {
       instrument = await InvestmentInstrumentService.get(data.instrumentId as string);
-      if (instrument && instrument.status !== "APPROVED") {
+      if (instrument && !["ACTIVE", "APPROVED"].includes(instrument.status)) {
         return {
           blocked: true,
           blockReason: `Instrument ${instrument.instrumentCode} is not approved (status: ${instrument.status})`,
@@ -122,8 +138,8 @@ export class InvestmentOrderService {
     };
   }
 
-  static async create(data: Record<string, unknown>, userId: string) {
-    await ListedEquityAccessService.assertFundAccess(userId, data.fundId as string);
+  static async create(data: Record<string, unknown>, userId: string, user: any) {
+    await ListedEquityAccessService.assertFundAccess(userId, data.fundId as string, user);
     if (data.instrumentId) {
       await InvestmentInstrumentService.assertApprovedForTrade(data.instrumentId as string);
     }
@@ -173,8 +189,10 @@ export class InvestmentOrderService {
     userId: string,
     newStatus: string,
     approvalType: string,
-    reason?: string
+    reason?: string,
+    user?: any
   ) {
+    await this.assertOrderAccess(id, userId, user);
     const order = await prisma.investmentOrder.findUnique({ where: { id } });
     if (!order) throw new Error("Order not found");
     const oldStatus = order.status;
@@ -209,13 +227,14 @@ export class InvestmentOrderService {
     return updated;
   }
 
-  static async submit(id: string, userId: string) {
+  static async submit(id: string, userId: string, user: any) {
+    await this.assertOrderAccess(id, userId, user);
     const order = await prisma.investmentOrder.findUnique({ where: { id }, include: { instrument: true } });
     if (!order) throw new Error("Order not found");
     if (order.instrumentId) {
       await InvestmentInstrumentService.assertApprovedForTrade(order.instrumentId);
     }
-    const check = await InvestmentComplianceService.checkOrder(id);
+    const check = await InvestmentComplianceService.checkOrder(id, userId, user);
     if (check.outcome === "FAILED") {
       await prisma.investmentOrder.update({
         where: { id },
@@ -229,35 +248,38 @@ export class InvestmentOrderService {
       data: { complianceStatus: check.outcome },
     });
     if (check.outcome === "WARNING") {
-      await this.transition(id, userId, "COMPLIANCE_REVIEW", "SUBMIT_WITH_WARNING");
+      await this.transition(id, userId, "COMPLIANCE_REVIEW", "SUBMIT_WITH_WARNING", undefined, user);
     } else {
-      await this.transition(id, userId, "SUBMITTED", "SUBMIT");
+      await this.transition(id, userId, "SUBMITTED", "SUBMIT", undefined, user);
     }
-    return this.get(id);
+    return this.get(id, userId, user);
   }
 
-  static async approve(id: string, userId: string) {
+  static async approve(id: string, userId: string, user: any) {
+    await this.assertOrderAccess(id, userId, user);
     const order = await prisma.investmentOrder.findUnique({ where: { id } });
     if (!order) throw new Error("Order not found");
     await assertFourEyeApproval(order, userId);
     if (!["SUBMITTED", "COMPLIANCE_REVIEW"].includes(order.status)) {
       throw new Error(`Cannot approve order in status ${order.status}`);
     }
-    return this.transition(id, userId, "APPROVED", "COMPLIANCE_APPROVE");
+    return this.transition(id, userId, "APPROVED", "COMPLIANCE_APPROVE", undefined, user);
   }
 
-  static async sendToBroker(id: string, userId: string) {
+  static async sendToBroker(id: string, userId: string, user: any) {
+    await this.assertOrderAccess(id, userId, user);
     const order = await prisma.investmentOrder.findUnique({ where: { id } });
     if (!order) throw new Error("Order not found");
     if (order.status !== "APPROVED") throw new Error(`Cannot send to broker from status ${order.status}`);
-    return this.transition(id, userId, "SENT_TO_BROKER", "SEND_TO_BROKER");
+    return this.transition(id, userId, "SENT_TO_BROKER", "SEND_TO_BROKER", undefined, user);
   }
 
-  static async reject(id: string, userId: string, reason: string) {
-    return this.transition(id, userId, "REJECTED", "REJECT", reason);
+  static async reject(id: string, userId: string, reason: string, user: any) {
+    return this.transition(id, userId, "REJECTED", "REJECT", reason, user);
   }
 
-  static async cancel(id: string, userId: string, reason?: string) {
+  static async cancel(id: string, userId: string, reason?: string, user?: any) {
+    await this.assertOrderAccess(id, userId, user);
     const order = await prisma.investmentOrder.findUnique({ where: { id } });
     if (!order) throw new Error("Order not found");
     const cancellable = [
@@ -271,17 +293,38 @@ export class InvestmentOrderService {
     if (!cancellable.includes(order.status)) {
       throw new Error(`Cannot cancel order in status ${order.status}`);
     }
-    return this.transition(id, userId, "CANCELLED", "CANCEL", reason);
+    return this.transition(id, userId, "CANCELLED", "CANCEL", reason, user);
   }
 
-  static async executeOrder(id: string, userId: string, idempotencyKey?: string) {
+  static async executeOrder(id: string, userId: string, user: any, idempotencyKey: string) {
+    await this.assertOrderAccess(id, userId, user);
     const order = await prisma.investmentOrder.findUnique({ where: { id } });
     if (!order) throw new Error("Order not found");
+    const existingTrade = await prisma.listedEquityTrade.findUnique({
+      where: { idempotencyKey },
+    });
+    if (existingTrade) {
+      const owningOrder = await prisma.investmentOrder.findFirst({
+        where: { tradeId: existingTrade.id },
+        select: { id: true },
+      });
+      if (existingTrade.fundId !== order.fundId || (owningOrder && owningOrder.id !== id)) {
+        throw new Error("Idempotency key is already used for another command");
+      }
+      await prisma.investmentOrder.update({
+        where: { id },
+        data: { tradeId: existingTrade.id },
+      });
+      return {
+        order: await this.get(id, userId, user),
+        trade: await TradeOrchestratorService.getTradeDetail(existingTrade.id),
+      };
+    }
     if (!["APPROVED", "SENT_TO_BROKER"].includes(order.status)) {
       throw new Error(`Cannot execute order in status ${order.status}`);
     }
     if (order.status === "APPROVED") {
-      await this.sendToBroker(id, userId);
+      await this.sendToBroker(id, userId, user);
     }
     if (!order.securityId) throw new Error("Order has no linked security for execution");
     if (order.instrumentId) {
@@ -329,7 +372,7 @@ export class InvestmentOrderService {
       }
     }
 
-    return { order: await this.get(id), trade: executed };
+    return { order: await this.get(id, userId, user), trade: executed };
   }
 
   static enrichTradeBlotter(trade: any) {
@@ -342,14 +385,30 @@ export class InvestmentOrderService {
       trade.brokerProfileId ?? fundCfg?.brokerProfileId ?? fundCfg?.brokerProfile?.id ?? null;
     const custodianProfileId =
       trade.custodianProfileId ?? fundCfg?.custodianProfileId ?? fundCfg?.custodianProfile?.id ?? null;
+    const qty = Number(trade.quantity || 0);
+    const px = Number(trade.executionPrice || 0);
+    const fees = Number(trade.fees || 0);
+    const taxes = Number(trade.taxes ?? trade.taxAmount ?? 0);
     return {
       ...trade,
       accountingStatus: accountingPosted ? "POSTED" : "NOT_POSTED",
       confirmationStatus: trade.routingHops?.find((h: any) => h.target === "BROKER")?.status ?? "STAGED",
       settlementStatus: trade.status,
-      grossConsideration: Number(trade.quantity) * Number(trade.executionPrice),
-      netConsideration:
-        Number(trade.quantity) * Number(trade.executionPrice) + Number(trade.fees || 0),
+      quantity: String(trade.quantity ?? ""),
+      executionPrice: String(trade.executionPrice ?? ""),
+      filledQuantity: String(trade.filledQuantity ?? trade.quantity ?? ""),
+      orderRef: trade.orderRef ?? trade.investmentOrder?.orderRef ?? trade.order?.orderRef ?? null,
+      fundName: trade.fund?.name ?? trade.fundName ?? null,
+      fund: trade.fund
+        ? { id: trade.fund.id, name: trade.fund.name }
+        : trade.fundId
+          ? { id: trade.fundId, name: trade.fundName ?? null }
+          : null,
+      grossConsideration: String(qty * px),
+      netConsideration: String(qty * px + fees + taxes),
+      fees: String(fees),
+      taxes: String(taxes),
+      feesBreakdown: { fees: String(fees), taxes: String(taxes) },
       brokerProfileId,
       custodianProfileId,
       brokerName: fundCfg?.brokerProfile?.name ?? trade.brokerName ?? null,

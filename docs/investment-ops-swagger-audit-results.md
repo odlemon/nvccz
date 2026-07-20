@@ -1,5 +1,7 @@
 # Investment Operations — Swagger audit results
 
+> **Superseded snapshot (2026-07-07).** Current contract: [investments-v2-api.md](./investments-v2-api.md). Re-run `npm run verify:investment-ops:swagger-vps` after migrate-verify for live counts.
+
 **Date:** 2026-07-07  
 **Commit:** `1fcb082` — Investment Operations Swagger audit: full spec, strict VPS verify  
 **Swagger UI:** https://dev-api.arcus.co.zw/api-docs#/  

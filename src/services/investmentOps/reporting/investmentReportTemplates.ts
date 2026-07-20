@@ -35,6 +35,20 @@ export type InvestmentReportTemplateCode =
 
 export type InvestmentReportOutputFormat = "JSON" | "PDF" | "CSV" | "EXCEL" | "XLSX" | "DOCX";
 
+export type ReportParameterSchema = {
+  type: "object";
+  required?: string[];
+  properties: Record<
+    string,
+    {
+      type: string | string[];
+      description?: string;
+      enum?: string[];
+      format?: string;
+    }
+  >;
+};
+
 export interface InvestmentReportTemplateDef {
   code: InvestmentReportTemplateCode;
   name: string;
@@ -44,11 +58,48 @@ export interface InvestmentReportTemplateDef {
   supportedFormats: InvestmentReportOutputFormat[];
   requiresFundId: boolean;
   requiresClientId?: boolean;
+  /** Template contract version for FE clients. */
+  version: number;
+  parameterSchema: ReportParameterSchema;
+}
+
+export const INVESTMENT_REPORT_TEMPLATE_VERSION = 1;
+
+function baseParameterSchema(opts: {
+  requiresFundId: boolean;
+  requiresClientId?: boolean;
+  extra?: ReportParameterSchema["properties"];
+}): ReportParameterSchema {
+  const properties: ReportParameterSchema["properties"] = {
+    format: {
+      type: "string",
+      description: "Output format",
+    },
+    asOf: {
+      type: "string",
+      format: "date",
+      description: "Optional as-of date (ISO)",
+    },
+    ...(opts.extra || {}),
+  };
+  if (opts.requiresFundId) {
+    properties.fundId = { type: "string", description: "Fund / portfolio id" };
+  }
+  if (opts.requiresClientId) {
+    properties.clientId = { type: "string", description: "Client mandate id" };
+  }
+  const required: string[] = [];
+  if (opts.requiresFundId) required.push("fundId");
+  if (opts.requiresClientId) required.push("clientId");
+  return { type: "object", required, properties };
 }
 
 const TEMPLATE_DIR = path.join(process.cwd(), "storage", "report-templates", "investment-ops");
 
-const DOCX_REPORTS: Omit<InvestmentReportTemplateDef, "supportedFormats">[] = [
+const DOCX_REPORTS: Omit<
+  InvestmentReportTemplateDef,
+  "supportedFormats" | "version" | "parameterSchema"
+>[] = [
   {
     code: "PERFORMANCE_REPORT",
     name: "Performance Report",
@@ -180,48 +231,69 @@ const DOCX_REPORTS: Omit<InvestmentReportTemplateDef, "supportedFormats">[] = [
   },
 ];
 
+function withTemplateContract(
+  def: Omit<InvestmentReportTemplateDef, "version" | "parameterSchema" | "supportedFormats"> & {
+    supportedFormats: InvestmentReportOutputFormat[];
+  }
+): InvestmentReportTemplateDef {
+  return {
+    ...def,
+    version: INVESTMENT_REPORT_TEMPLATE_VERSION,
+    parameterSchema: baseParameterSchema({
+      requiresFundId: def.requiresFundId,
+      requiresClientId: def.requiresClientId,
+    }),
+  };
+}
+
 export const INVESTMENT_REPORT_TEMPLATES: InvestmentReportTemplateDef[] = [
-  ...DOCX_REPORTS.map((d) => ({ ...d, supportedFormats: ["DOCX"] as InvestmentReportOutputFormat[] })),
-  {
+  ...DOCX_REPORTS.map((d) =>
+    withTemplateContract({
+      ...d,
+      // DOCX is preferred; also allow PDF/JSON/CSV so FE generate pickers are not blocked.
+      supportedFormats: ["DOCX", "PDF", "JSON", "CSV", "XLSX"] as InvestmentReportOutputFormat[],
+    })
+  ),
+  withTemplateContract({
     code: "PORTFOLIO_VALUATION",
     name: "Portfolio Valuation",
     description: "Holdings and P&L snapshot (JSON/PDF/CSV/Excel).",
     scopeType: "FUND",
     supportedFormats: ["PDF", "EXCEL", "XLSX", "CSV", "JSON"],
     requiresFundId: true,
-  },
-  {
+  }),
+  withTemplateContract({
     code: "TRADE_BLOTTER",
     name: "Trade Blotter",
     description: "Recent trades for the fund.",
     scopeType: "FUND",
     supportedFormats: ["PDF", "EXCEL", "XLSX", "CSV", "JSON"],
     requiresFundId: true,
-  },
-  {
+  }),
+  withTemplateContract({
     code: "HOLDINGS_SUMMARY",
     name: "Holdings Summary",
     description: "Current positions with market values.",
     scopeType: "FUND",
     supportedFormats: ["PDF", "EXCEL", "XLSX", "CSV", "JSON"],
     requiresFundId: true,
-  },
-  {
+  }),
+  withTemplateContract({
     code: "COMPLIANCE_SUMMARY",
     name: "Compliance Summary",
     description: "Rules and recent compliance check results.",
     scopeType: "FUND",
     supportedFormats: ["PDF", "EXCEL", "XLSX", "CSV", "JSON"],
     requiresFundId: true,
-  },
-  {
+  }),
+  withTemplateContract({
     code: "RECONCILIATION_SUMMARY",
     name: "Reconciliation Summary",
     description: "Recent reconciliation batches and items.",
     scopeType: "FUND",
     supportedFormats: ["PDF", "EXCEL", "XLSX", "CSV", "JSON"],
     requiresFundId: true,
-  },
+  }),
 ];
 
 export function getInvestmentReportTemplate(code: string): InvestmentReportTemplateDef {

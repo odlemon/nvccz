@@ -8,9 +8,10 @@ const LISTED_EQUITY_WHERE = {
 };
 
 export class ListedEquityAccessService {
-  static async isAdmin(user: { role?: { name?: string } }): Promise<boolean> {
+  static async isAdmin(user: { role?: { name?: string }; roleCode?: string }): Promise<boolean> {
     const roleName = String(user?.role?.name || "").toLowerCase();
-    return roleName === "admin" || roleName === "system administrator";
+    const roleCode = String(user?.roleCode || "").toLowerCase();
+    return roleName === "admin" || roleName === "system administrator" || roleCode === "admin";
   }
 
   /** Funds eligible for Investment Operations (listed equity module). */
@@ -71,6 +72,45 @@ export class ListedEquityAccessService {
   static fundIdFilter(scope: string[] | "ALL"): { fundId?: { in: string[] } } {
     if (scope === "ALL") return {};
     return { fundId: { in: scope } };
+  }
+
+  /**
+   * Builds a fund filter without allowing an explicit fundId to override the
+   * caller's portfolio scope.
+   */
+  static async accessibleFundIdFilter(
+    userId: string,
+    user: { role?: { name?: string }; roleCode?: string } | undefined,
+    explicitFundId?: string
+  ): Promise<{ fundId: string | { in: string[] } } | Record<string, never>> {
+    if (explicitFundId) {
+      await this.assertListedEquityFundAccess(userId, explicitFundId, user);
+      return { fundId: explicitFundId };
+    }
+    const scope = await this.getAccessibleListedEquityFundIds(userId, user);
+    return this.fundIdFilter(scope);
+  }
+
+  /**
+   * Resolves an object's owning fund and applies the same fund-scope policy.
+   * Object endpoints should use this before returning or mutating by ID.
+   */
+  static async assertObjectFundAccess(
+    userId: string,
+    user: { role?: { name?: string }; roleCode?: string } | undefined,
+    resourceType: string,
+    resourceId: string,
+    resolveFundId: () => Promise<string | null | undefined>
+  ): Promise<string> {
+    const fundId = await resolveFundId();
+    if (!fundId) throw new Error(`${resourceType} not found`);
+    await this.assertListedEquityFundAccess(
+      userId,
+      fundId,
+      user,
+      `${resourceType}:${resourceId}`
+    );
+    return fundId;
   }
 
   static async listedEquityFundIdFilter(

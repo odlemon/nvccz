@@ -49,8 +49,16 @@ export class LpPortalVaultService {
     const doc = await this.getDocumentForClient(ctx, documentId);
     if (!doc.fileUrl && !doc.storagePath)
       throw Object.assign(new Error("File not available"), { statusCode: 404 });
-    const RemoteUploadService = (await import("../RemoteUploadService")).default;
-    const buffer = await new RemoteUploadService().downloadFile(doc.fileUrl || doc.storagePath!);
+
+    const fs = await import("fs");
+    const localPath = doc.storagePath || "";
+    let buffer: Buffer;
+    if (localPath && fs.existsSync(localPath)) {
+      buffer = fs.readFileSync(localPath);
+    } else {
+      const RemoteUploadService = (await import("../RemoteUploadService")).default;
+      buffer = await new RemoteUploadService().downloadFile(doc.fileUrl || doc.storagePath!);
+    }
     const filename = doc.title.replace(/[^\w.-]+/g, "-") + ".pdf";
     return { buffer, filename, sha256: doc.sha256 };
   }

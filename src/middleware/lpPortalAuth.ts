@@ -41,7 +41,27 @@ export function requireLpManager(req: LpPortalRequest, res: Response, next: Next
   const ctx = req.lpPortal;
   if (!ctx) return res.status(401).json({ success: false, message: "Unauthorized" });
   if (ctx.isStaff || ctx.lpRole === "MANAGER") return next();
-  return res.status(403).json({ success: false, message: "LP Manager access required" });
+  return res.status(403).json({
+    success: false,
+    message: "LP Manager access required",
+    error: { code: "LP_FORBIDDEN", message: "LP Manager access required", retryable: false },
+  });
+}
+
+/** Signatory or Manager (investor write workflows). */
+export function requireLpSignatory(req: LpPortalRequest, res: Response, next: NextFunction) {
+  const ctx = req.lpPortal;
+  if (!ctx) return res.status(401).json({ success: false, message: "Unauthorized" });
+  if (ctx.isStaff || ctx.lpRole === "SIGNATORY" || ctx.lpRole === "MANAGER") return next();
+  return res.status(403).json({
+    success: false,
+    message: "Authorised Signatory access required",
+    error: {
+      code: "LP_FORBIDDEN",
+      message: "Authorised Signatory access required",
+      retryable: false,
+    },
+  });
 }
 
 export function requireGpAdmin(req: LpPortalRequest, res: Response, next: NextFunction) {

@@ -100,7 +100,11 @@ async function main() {
     });
 
     await pass("POST valuation/runs (sync)", async () => {
-      await req("POST", "/investment-ops/valuation/runs", token, { fundId, costBasisMethod: "WAC" });
+      await req("POST", "/investment-ops/valuation/runs", token, {
+        fundId,
+        costBasisMethod: "WAC",
+        processNow: true,
+      });
     });
 
     await pass("POST reconciliation/run HOLDINGS", async () => {

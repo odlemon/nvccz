@@ -6,11 +6,16 @@ export class FundReportingWebhookController {
   static async emailDelivery(req: Request, res: Response) {
     try {
       const secret = process.env.FUND_REPORTING_WEBHOOK_SECRET?.trim();
-      if (secret) {
-        const header = String(req.headers["x-fund-reporting-webhook-secret"] || "");
-        if (header !== secret) {
-          return res.status(401).json({ success: false, message: "Unauthorized" });
-        }
+      if (!secret) {
+        return res.status(503).json({
+          success: false,
+          code: "WEBHOOK_SECRET_MISSING",
+          message: "FUND_REPORTING_WEBHOOK_SECRET is not configured",
+        });
+      }
+      const header = String(req.headers["x-fund-reporting-webhook-secret"] || "");
+      if (header !== secret) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
       }
 
       const body = req.body || {};

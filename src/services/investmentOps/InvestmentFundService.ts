@@ -2,6 +2,7 @@
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../../utils/database";
 import { ListedEquityAccessService } from "../listedEquity/ListedEquityAccessService";
+import { paginatedResult } from "./investmentOpsSupport";
 
 const DEFAULT_COA_MAPPING = {
   listedSecuritiesAsset: "1501",
@@ -33,17 +34,27 @@ export class InvestmentFundService {
       },
       orderBy: { name: "asc" },
     });
-    return funds.map((f) => ({
-      id: f.id,
-      name: f.name,
-      description: f.description,
-      status: f.status,
-      fundPurpose: f.fundPurpose,
-      config: f.listedEquityFundConfig,
-      managers: f.fundManagers,
-      createdAt: f.createdAt,
-      updatedAt: f.updatedAt,
-    }));
+    return paginatedResult(
+      funds.map((f) => ({
+        id: f.id,
+        name: f.name,
+        description: f.description,
+        status: f.status,
+        fundPurpose: f.fundPurpose,
+        baseCurrency: f.listedEquityFundConfig?.baseCurrencyCode ?? null,
+        brokerProfileId: f.listedEquityFundConfig?.brokerProfileId ?? null,
+        brokerName: f.listedEquityFundConfig?.brokerProfile?.name ?? null,
+        custodianProfileId: f.listedEquityFundConfig?.custodianProfileId ?? null,
+        custodianName: f.listedEquityFundConfig?.custodianProfile?.name ?? null,
+        config: f.listedEquityFundConfig,
+        managers: f.fundManagers,
+        createdAt: f.createdAt,
+        updatedAt: f.updatedAt,
+      })),
+      funds.length,
+      1,
+      funds.length || 50
+    );
   }
 
   static async getById(fundId: string, userId: string, user: any) {
@@ -65,7 +76,13 @@ export class InvestmentFundService {
       },
     });
     if (!fund) throw new Error("FUND_NOT_FOUND");
-    return fund;
+    const config = fund.listedEquityFundConfig
+      ? {
+          ...fund.listedEquityFundConfig,
+          cutoff: fund.listedEquityFundConfig.cutoffTime ?? null,
+        }
+      : null;
+    return { ...fund, listedEquityFundConfig: config, config };
   }
 
   static async create(
@@ -113,6 +130,17 @@ export class InvestmentFundService {
       },
       include: { listedEquityFundConfig: true },
     });
+    // Parity with POST /portfolios — order/folder config for listed-equity books
+    await prisma.investmentPortfolioConfig.upsert({
+      where: { fundId: fund.id },
+      create: {
+        fundId: fund.id,
+        baseCurrencyCode: data.baseCurrencyCode || "USD",
+        createdById: userId,
+        updatedById: userId,
+      },
+      update: { updatedById: userId },
+    });
     return fund;
   }
 
@@ -141,6 +169,11 @@ export class InvestmentFundService {
       brokerProfileId?: string | null;
       custodianProfileId?: string | null;
       coaMappingJson?: Record<string, string>;
+      costBasisMethod?: string | null;
+      pricingSource?: string | null;
+      settlementCycle?: string | null;
+      cutoffTime?: string | null;
+      cutoff?: string | null;
     },
     userId: string,
     user: any
@@ -151,6 +184,8 @@ export class InvestmentFundService {
     const cfg = await prisma.listedEquityFundConfig.findUnique({ where: { fundId } });
     if (!cfg) throw new Error("LISTED_EQUITY_CONFIG_NOT_FOUND");
 
+    const cutoffTime = data.cutoffTime !== undefined ? data.cutoffTime : data.cutoff;
+
     return prisma.listedEquityFundConfig.update({
       where: { fundId },
       data: {
@@ -159,6 +194,10 @@ export class InvestmentFundService {
         ...(data.brokerProfileId !== undefined ? { brokerProfileId: data.brokerProfileId } : {}),
         ...(data.custodianProfileId !== undefined ? { custodianProfileId: data.custodianProfileId } : {}),
         ...(data.coaMappingJson != null ? { coaMappingJson: data.coaMappingJson } : {}),
+        ...(data.costBasisMethod !== undefined ? { costBasisMethod: data.costBasisMethod } : {}),
+        ...(data.pricingSource !== undefined ? { pricingSource: data.pricingSource } : {}),
+        ...(data.settlementCycle !== undefined ? { settlementCycle: data.settlementCycle } : {}),
+        ...(cutoffTime !== undefined ? { cutoffTime } : {}),
       },
     });
   }

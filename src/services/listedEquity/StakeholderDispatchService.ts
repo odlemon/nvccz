@@ -16,10 +16,69 @@ export class StakeholderDispatchService {
     return filePath;
   }
 
+  /**
+   * Mark hop DISPATCHED only when delivery evidence exists.
+   * Local durable payload write is accepted as evidence for UAT/file-store mode.
+   * Email is recorded as additional evidence only when the transport accepts the message.
+   */
+  static async markDispatched(
+    hopId: string,
+    data: {
+      payloadRef: string;
+      receiptRef?: string;
+      externalRef?: string;
+      deliveryEvidence: "FILE" | "EMAIL" | "BOTH";
+    }
+  ) {
+    if (!data.payloadRef || !data.deliveryEvidence) {
+      throw new Error("DISPATCH_EVIDENCE_REQUIRED");
+    }
+    return prisma.listedEquityTradeRoutingHop.update({
+      where: { id: hopId },
+      data: {
+        status: "DISPATCHED",
+        payloadRef: data.payloadRef,
+        receiptRef: data.receiptRef,
+        dispatchedAt: new Date(),
+        attemptCount: { increment: 1 },
+        externalRef: data.externalRef,
+      },
+    });
+  }
+
+  static async trySendEmail(opts: {
+    to: string;
+    subject: string;
+    text: string;
+  }): Promise<{ delivered: boolean; error?: string }> {
+    if (!emailTransport) {
+      return { delivered: false, error: "EMAIL_TRANSPORT_UNAVAILABLE" };
+    }
+    try {
+      const info = await emailTransport.sendMail({
+        to: opts.to,
+        subject: opts.subject,
+        text: opts.text,
+      });
+      const accepted = Array.isArray(info?.accepted)
+        ? info.accepted.length > 0
+        : Boolean(info?.messageId);
+      if (!accepted) {
+        return { delivered: false, error: "EMAIL_NOT_ACCEPTED" };
+      }
+      return { delivered: true };
+    } catch (e: any) {
+      return { delivered: false, error: e?.message || "EMAIL_SEND_FAILED" };
+    }
+  }
+
   static async dispatchBroker(tradeId: string, hopId: string) {
     const trade = await prisma.listedEquityTrade.findUnique({
       where: { id: tradeId },
-      include: { security: true, fund: { include: { listedEquityFundConfig: { include: { brokerProfile: true } } } } },
+      include: {
+        security: true,
+        fund: { include: { listedEquityFundConfig: { include: { brokerProfile: true } } } },
+      },
     });
     if (!trade) throw new Error("Trade not found");
 
@@ -35,34 +94,33 @@ export class StakeholderDispatchService {
     };
     const payloadRef = await this.storePayload(tradeId, "BROKER", payload);
     const profile = trade.fund.listedEquityFundConfig?.brokerProfile;
+    let deliveryEvidence: "FILE" | "EMAIL" | "BOTH" = "FILE";
 
-    if (profile?.contactEmail && emailTransport) {
-      try {
-        await emailTransport.sendMail({
-          to: profile.contactEmail,
-          subject: `[Arcus] Broker instruction ${trade.tradeRef}`,
-          text: `Trade ${trade.tradeRef} — see attached payload at ${payloadRef}`,
-        });
-      } catch (e) {
-        console.warn("[StakeholderDispatch] broker email failed:", e);
+    if (profile?.contactEmail) {
+      const emailResult = await this.trySendEmail({
+        to: profile.contactEmail,
+        subject: `[Arcus] Broker instruction ${trade.tradeRef}`,
+        text: `Trade ${trade.tradeRef} — payload stored at ${payloadRef}`,
+      });
+      if (!emailResult.delivered) {
+        console.warn("[StakeholderDispatch] broker email not verified:", emailResult.error);
+      } else {
+        deliveryEvidence = "BOTH";
       }
     }
 
-    await prisma.listedEquityTradeRoutingHop.update({
-      where: { id: hopId },
-      data: {
-        status: "DISPATCHED",
-        payloadRef,
-        dispatchedAt: new Date(),
-        attemptCount: { increment: 1 },
-        externalRef: `BRK-${trade.tradeRef}`,
-      },
+    await this.markDispatched(hopId, {
+      payloadRef,
+      externalRef: `BRK-${trade.tradeRef}`,
+      deliveryEvidence,
     });
 
-    await ListedEquityAuditService.log("ROUTING_HOP_DISPATCHED", "ListedEquityTradeRoutingHop", hopId, {
-      target: "BROKER",
-      tradeId,
-    });
+    await ListedEquityAuditService.log(
+      "ROUTING_HOP_DISPATCHED",
+      "ListedEquityTradeRoutingHop",
+      hopId,
+      { target: "BROKER", tradeId, deliveryEvidence }
+    );
 
     if (process.env.LISTED_EQUITY_AUTO_CONFIRM_STAKEHOLDER === "true") {
       await this.confirmHop(hopId, "AUTO_CONFIRM_DEV");
@@ -74,23 +132,30 @@ export class StakeholderDispatchService {
   static async dispatchCustodian(tradeId: string, hopId: string) {
     const trade = await prisma.listedEquityTrade.findUnique({
       where: { id: tradeId },
-      include: { fund: { include: { listedEquityFundConfig: { include: { custodianProfile: true } } } } },
+      include: {
+        fund: { include: { listedEquityFundConfig: { include: { custodianProfile: true } } } },
+      },
     });
     if (!trade) throw new Error("Trade not found");
 
     const pdfRef = await CustodianSettlementDocService.storeSettlementPdf(tradeId);
-    const payloadRef = await this.storePayload(tradeId, "CUSTODIAN", { pdfRef, tradeRef: trade.tradeRef });
+    const payloadRef = await this.storePayload(tradeId, "CUSTODIAN", {
+      pdfRef,
+      tradeRef: trade.tradeRef,
+    });
     const profile = trade.fund.listedEquityFundConfig?.custodianProfile;
+    let deliveryEvidence: "FILE" | "EMAIL" | "BOTH" = "FILE";
 
-    if (profile?.contactEmail && emailTransport) {
-      try {
-        await emailTransport.sendMail({
-          to: profile.contactEmail,
-          subject: `[Arcus] Custodian settlement ${trade.tradeRef}`,
-          text: `Settlement PDF: ${pdfRef}`,
-        });
-      } catch (e) {
-        console.warn("[StakeholderDispatch] custodian email failed:", e);
+    if (profile?.contactEmail) {
+      const emailResult = await this.trySendEmail({
+        to: profile.contactEmail,
+        subject: `[Arcus] Custodian settlement ${trade.tradeRef}`,
+        text: `Settlement PDF: ${pdfRef}`,
+      });
+      if (!emailResult.delivered) {
+        console.warn("[StakeholderDispatch] custodian email not verified:", emailResult.error);
+      } else {
+        deliveryEvidence = "BOTH";
       }
     }
 
@@ -100,22 +165,19 @@ export class StakeholderDispatchService {
       update: { settlementDocumentRef: pdfRef },
     });
 
-    await prisma.listedEquityTradeRoutingHop.update({
-      where: { id: hopId },
-      data: {
-        status: "DISPATCHED",
-        payloadRef,
-        receiptRef: pdfRef,
-        dispatchedAt: new Date(),
-        attemptCount: { increment: 1 },
-        externalRef: `CUS-${trade.tradeRef}`,
-      },
+    await this.markDispatched(hopId, {
+      payloadRef,
+      receiptRef: pdfRef,
+      externalRef: `CUS-${trade.tradeRef}`,
+      deliveryEvidence,
     });
 
-    await ListedEquityAuditService.log("ROUTING_HOP_DISPATCHED", "ListedEquityTradeRoutingHop", hopId, {
-      target: "CUSTODIAN",
-      tradeId,
-    });
+    await ListedEquityAuditService.log(
+      "ROUTING_HOP_DISPATCHED",
+      "ListedEquityTradeRoutingHop",
+      hopId,
+      { target: "CUSTODIAN", tradeId, deliveryEvidence }
+    );
 
     if (process.env.LISTED_EQUITY_AUTO_CONFIRM_STAKEHOLDER === "true") {
       await this.confirmHop(hopId, "AUTO_CONFIRM_DEV");

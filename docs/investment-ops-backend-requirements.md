@@ -1,5 +1,7 @@
 # Arcus Investment Operations v2.0 — Backend Requirements
 
+> **Superseded for API contract and FE wiring.** Canonical docs: [investments-v2-api.md](./investments-v2-api.md), [investments-v2-frontend-handoff.md](./investments-v2-frontend-handoff.md). This file remains useful for glossary and historical requirements narrative.
+
 Companion to client SRD v2.0. Frontend design session: [`design-sessions/investment-operations.md`](../design-sessions/investment-operations.md). UI → endpoint matrix: [`investment-ops-api-by-ui-section.md`](./investment-ops-api-by-ui-section.md).
 
 **Status:** Wave 1–4 backend under `/api/investment-ops`. Legacy `/api/investments/*` routes remain as aliases.

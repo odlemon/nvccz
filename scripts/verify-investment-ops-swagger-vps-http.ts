@@ -615,7 +615,11 @@ async function discoverContext(token: string) {
     });
     if (sim.json?.data?.id) ctx.simulationRunId = sim.json.data.id;
 
-    const val = await call("POST", "/investment-ops/valuation/runs", token, { fundId: ctx.fundId, costBasisMethod: "WAC" });
+    const val = await call("POST", "/investment-ops/valuation/runs", token, {
+      fundId: ctx.fundId,
+      costBasisMethod: "WAC",
+      processNow: true,
+    });
     if (val.json?.data?.id) ctx.valuationRunId = val.json.data.id;
 
     const report = await call("POST", "/investment-ops/reports/generate", token, {
@@ -629,16 +633,42 @@ async function discoverContext(token: string) {
   console.log("Discovered context:", JSON.stringify(ctx, null, 2));
 }
 
+const REFERENCE_TYPES = [
+  "countries",
+  "currencies",
+  "issuers",
+  "markets",
+  "stakeholders",
+  "commissions",
+  "settlement-accounts",
+  "ssis",
+  "instrument-types",
+  "instrument-subcategories",
+  "instrument-mappings",
+  "tags",
+  "coupon-frequencies",
+  "price-sources",
+];
+
+/** Runtime-equivalent route ops (expands setup/${type} catalogs). */
 function countRoutesInFile(): number {
   const routesPath = join(process.cwd(), "src/routes/investmentOpsRoutes.ts");
   const src = readFileSync(routesPath, "utf8");
-  return (src.match(/router\.(get|post|put|delete|patch)\(/g) || []).length;
+  const re = /router\.(get|post|put|delete|patch)\(\s*[`'"]([^`'"]+)[`'"]/g;
+  let count = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src))) {
+    count += m[2].includes("${type}") ? REFERENCE_TYPES.length : 1;
+  }
+  return count;
 }
 
 function countSwaggerOps(): number {
   const swaggerPath = join(process.cwd(), "src/config/investment-ops-swagger-paths.ts");
   const src = readFileSync(swaggerPath, "utf8");
-  return (src.match(/^\s+(get|post|put|delete):/gm) || []).length;
+  const exported = src.match(/INVESTMENT_OPS_SWAGGER_OP_COUNT\s*=\s*(\d+)/);
+  if (exported) return Number(exported[1]);
+  return (src.match(/^\s+(get|post|put|delete|patch):/gm) || []).length;
 }
 
 async function checkSwaggerSpec() {
