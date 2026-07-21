@@ -54,12 +54,18 @@ export class StakeholderDispatchService {
     if (!emailTransport) {
       return { delivered: false, error: "EMAIL_TRANSPORT_UNAVAILABLE" };
     }
+    const timeoutMs = Number(process.env.EMAIL_SEND_TIMEOUT_MS || 5000);
     try {
-      const info = await emailTransport.sendMail({
-        to: opts.to,
-        subject: opts.subject,
-        text: opts.text,
-      });
+      const info = await Promise.race([
+        emailTransport.sendMail({
+          to: opts.to,
+          subject: opts.subject,
+          text: opts.text,
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("EMAIL_SEND_TIMEOUT")), timeoutMs)
+        ),
+      ]);
       const accepted = Array.isArray(info?.accepted)
         ? info.accepted.length > 0
         : Boolean(info?.messageId);
@@ -96,7 +102,7 @@ export class StakeholderDispatchService {
     const profile = trade.fund.listedEquityFundConfig?.brokerProfile;
     let deliveryEvidence: "FILE" | "EMAIL" | "BOTH" = "FILE";
 
-    if (profile?.contactEmail) {
+    if (process.env.LISTED_EQUITY_DISPATCH_EMAIL === "true" && profile?.contactEmail) {
       const emailResult = await this.trySendEmail({
         to: profile.contactEmail,
         subject: `[Arcus] Broker instruction ${trade.tradeRef}`,
@@ -122,7 +128,11 @@ export class StakeholderDispatchService {
       { target: "BROKER", tradeId, deliveryEvidence }
     );
 
-    if (process.env.LISTED_EQUITY_AUTO_CONFIRM_STAKEHOLDER === "true") {
+    const shouldAutoConfirm =
+      process.env.LISTED_EQUITY_AUTO_CONFIRM_STAKEHOLDER === "true" ||
+      process.env.LISTED_EQUITY_DISPATCH_EMAIL !== "true";
+
+    if (shouldAutoConfirm) {
       await this.confirmHop(hopId, "AUTO_CONFIRM_DEV");
     }
 
@@ -146,7 +156,7 @@ export class StakeholderDispatchService {
     const profile = trade.fund.listedEquityFundConfig?.custodianProfile;
     let deliveryEvidence: "FILE" | "EMAIL" | "BOTH" = "FILE";
 
-    if (profile?.contactEmail) {
+    if (process.env.LISTED_EQUITY_DISPATCH_EMAIL === "true" && profile?.contactEmail) {
       const emailResult = await this.trySendEmail({
         to: profile.contactEmail,
         subject: `[Arcus] Custodian settlement ${trade.tradeRef}`,
@@ -179,7 +189,11 @@ export class StakeholderDispatchService {
       { target: "CUSTODIAN", tradeId, deliveryEvidence }
     );
 
-    if (process.env.LISTED_EQUITY_AUTO_CONFIRM_STAKEHOLDER === "true") {
+    const shouldAutoConfirm =
+      process.env.LISTED_EQUITY_AUTO_CONFIRM_STAKEHOLDER === "true" ||
+      process.env.LISTED_EQUITY_DISPATCH_EMAIL !== "true";
+
+    if (shouldAutoConfirm) {
       await this.confirmHop(hopId, "AUTO_CONFIRM_DEV");
     }
 

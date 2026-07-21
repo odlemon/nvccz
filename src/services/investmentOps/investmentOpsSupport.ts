@@ -112,3 +112,34 @@ const ALLOCATION_BUCKET: Record<string, string> = {
 export function allocationBucketForType(typeCode: string): string {
   return ALLOCATION_BUCKET[String(typeCode).toUpperCase()] || "other";
 }
+
+export function userDisplayName(user: {
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+} | null | undefined): string | null {
+  if (!user) return null;
+  const name = `${user.firstName || ""} ${user.lastName || ""}`.trim();
+  return name || user.email || null;
+}
+
+/** Compact instrument snapshot for positions/holdings list rows. */
+export function instrumentListSnapshot(row: any) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    symbol: row.ticker || row.instrumentCode || null,
+    shortName: row.shortName || null,
+    fullName: row.fullName || null,
+    sector: row.sector || null,
+    countryCode: row.countryCode || null,
+    exchangeCode: row.exchangeCode || null,
+    instrumentTypeCode: row.instrumentTypeCode || null,
+  };
+}
+
+const REVIEWABLE_PRICE_STATUSES = new Set(["PENDING_REVIEW", "PENDING", "VALIDATED"]);
+
+export function priceTickReviewable(validationStatus: string | null | undefined): boolean {
+  return REVIEWABLE_PRICE_STATUSES.has(String(validationStatus || "").toUpperCase());
+}

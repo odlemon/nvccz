@@ -8,6 +8,7 @@ import {
 import { prisma } from "../../utils/database";
 import { InvestmentAuditEventService } from "../investmentOps/InvestmentAuditEventService";
 import { InvestmentOutboxService } from "../investmentOps/InvestmentOutboxService";
+import { investmentOpsIsAdmin } from "../investmentOps/investmentOpsFourEye";
 
 export const db = prisma as any;
 
@@ -106,13 +107,126 @@ export function maskAccount(id: string): string {
   return `${s.slice(0, 3)}***${s.slice(-3)}`;
 }
 
+/** Prisma/cuid-style opaque ids — never use these as operator-facing labels. */
+export function isOpaqueDbId(value: unknown): boolean {
+  const s = String(value || "").trim();
+  return /^c[a-z0-9]{20,}$/i.test(s);
+}
+
+export function formatUserDisplayName(user: {
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  id?: string;
+} | null | undefined): string | null {
+  if (!user) return null;
+  const name = `${user.firstName || ""} ${user.lastName || ""}`.trim();
+  if (name) return name;
+  if (user.email) return user.email;
+  return null;
+}
+
+/**
+ * Human labels for recon tables. Never surfaces Prisma cuids as account/client labels.
+ * Cleartext bank numbers stay encrypted; operators get masked + client name.
+ */
+export function presentCashAccountLabels(account: any | null | undefined): {
+  accountNumber: string | null;
+  accountNumberMasked: string | null;
+  cashAccountLabel: string | null;
+  cashAccountName: string | null;
+  clientName: string | null;
+} {
+  if (!account) {
+    return {
+      accountNumber: null,
+      accountNumberMasked: null,
+      cashAccountLabel: null,
+      cashAccountName: null,
+      clientName: null,
+    };
+  }
+  const maskedRaw = account.accountNumberMasked || account.maskedIdentifier || null;
+  const masked =
+    maskedRaw && !isOpaqueDbId(maskedRaw) ? String(maskedRaw) : null;
+  const clientName =
+    account.clientName && !isOpaqueDbId(account.clientName)
+      ? String(account.clientName)
+      : null;
+  const label = masked || (clientName ? `${clientName} cash` : null);
+  return {
+    // FE field name — display-safe (masked), never cleartext bank number / cuid.
+    accountNumber: label,
+    accountNumberMasked: masked,
+    cashAccountLabel: label,
+    cashAccountName: label,
+    clientName,
+  };
+}
+
+export async function loadCashAccountLabelMap(
+  accountIds: string[]
+): Promise<Record<string, ReturnType<typeof presentCashAccountLabels>>> {
+  const ids = [...new Set(accountIds.filter(Boolean))];
+  if (!ids.length) return {};
+  const rows = await db.spCashClientAccount.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      clientName: true,
+      accountNumberMasked: true,
+      maskedIdentifier: true,
+      accountType: true,
+      moneyClass: true,
+      portfolioId: true,
+    },
+  });
+  return Object.fromEntries(
+    rows.map((r: any) => [r.id, presentCashAccountLabels(r)])
+  );
+}
+
+export async function loadUserDisplayMap(
+  userIds: string[]
+): Promise<Record<string, { name: string | null; email: string | null }>> {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  if (!ids.length) return {};
+  const users = await db.user.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, firstName: true, lastName: true, email: true },
+  });
+  return Object.fromEntries(
+    users.map((u: any) => [
+      u.id,
+      { name: formatUserDisplayName(u), email: u.email || null },
+    ])
+  );
+}
+
+export async function loadFundNameMap(
+  fundIds: string[]
+): Promise<Record<string, string | null>> {
+  const ids = [...new Set(fundIds.filter(Boolean))];
+  if (!ids.length) return {};
+  const funds = await db.fund.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true },
+  });
+  return Object.fromEntries(funds.map((f: any) => [f.id, f.name || null]));
+}
+
 export function hashFile(content: string | Buffer): string {
   return createHash("sha256")
     .update(typeof content === "string" ? content : content)
     .digest("hex");
 }
 
-export function assertMakerNotChecker(makerId: string | null | undefined, checkerId: string): void {
+export function assertMakerNotChecker(
+  makerId: string | null | undefined,
+  checkerId: string,
+  actorUser?: any
+): void {
+  if (actorUser && investmentOpsIsAdmin(actorUser)) return;
   if (makerId && String(makerId) === String(checkerId)) {
     throw new InvestmentOpsError(
       "MAKER_CHECKER_CONFLICT",

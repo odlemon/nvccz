@@ -209,11 +209,11 @@ export class StockPickerCashController {
   }
 
   static commitImport(req: AuthRequest, res: Response) {
-    handle(res, SpCashImportService.commit(req.params.id, req.body, req.user!.id));
+    handle(res, SpCashImportService.commit(req.params.id, req.body, req.user!.id, req.user));
   }
 
   static rejectImport(req: AuthRequest, res: Response) {
-    handle(res, SpCashImportService.reject(req.params.id, req.body, req.user!.id));
+    handle(res, SpCashImportService.reject(req.params.id, req.body, req.user!.id, req.user));
   }
 
   // ─── 14.6 Reconciliation batches ─────────────────────────────────────────
@@ -272,6 +272,13 @@ export class StockPickerCashController {
 
   static reverseMatch(req: AuthRequest, res: Response) {
     handle(res, SpCashMatchingService.reverseMatch(req.params.linkId, req.body, req.user!.id));
+  }
+
+  /** Body-based unmatch: { linkId } or { internalLineId, externalLineId }. */
+  static reverseMatchBody(req: AuthRequest, res: Response) {
+    const linkId =
+      req.body?.linkId || req.body?.matchId || req.body?.id || req.params.linkId || "";
+    handle(res, SpCashMatchingService.reverseMatch(String(linkId), req.body, req.user!.id));
   }
 
   // ─── 14.8 Broker & custodian ─────────────────────────────────────────────
@@ -341,7 +348,7 @@ export class StockPickerCashController {
   }
 
   static approveException(req: AuthRequest, res: Response) {
-    handle(res, SpCashExceptionService.approve(req.params.id, req.body, req.user!.id));
+    handle(res, SpCashExceptionService.approve(req.params.id, req.body, req.user!.id, req.user));
   }
 
   static requestInfoException(req: AuthRequest, res: Response) {
@@ -349,7 +356,7 @@ export class StockPickerCashController {
   }
 
   static rejectException(req: AuthRequest, res: Response) {
-    handle(res, SpCashExceptionService.reject(req.params.id, req.body, req.user!.id));
+    handle(res, SpCashExceptionService.reject(req.params.id, req.body, req.user!.id, req.user));
   }
 
   static closeException(req: AuthRequest, res: Response) {
@@ -461,10 +468,21 @@ export class StockPickerCashController {
   }
 
   static downloadStatement(req: AuthRequest, res: Response) {
-    handle(
-      res,
-      SpCashStatementService.download(req.params.id, req.headers.accept as string | undefined)
-    );
+    SpCashStatementService.download(req.params.id, req.headers.accept as string | undefined)
+      .then((data: any) => {
+        if (data?.mode === "binary" && data.buffer) {
+          res.setHeader("Content-Type", "application/pdf");
+          res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="${String(data.fileName || "statement.pdf").replace(/"/g, "")}"`
+          );
+          res.setHeader("Content-Length", String(data.buffer.length));
+          return res.status(200).send(data.buffer);
+        }
+        const { mode, buffer, ...rest } = data || {};
+        return res.status(200).json({ success: true, data: rest });
+      })
+      .catch((e: any) => sendInvestmentOpsError(res, e));
   }
 
   // ─── 14.13 Setup ─────────────────────────────────────────────────────────

@@ -1,0 +1,10 @@
+{
+  "tradeRef": "TXN-MRTCCQ4E8B4BFC",
+  "side": "BUY",
+  "symbol": "SEED",
+  "exchange": "ZSE",
+  "quantity": 500,
+  "price": 6.15,
+  "currency": "USD",
+  "executedAt": "2026-07-20T14:50:05.742Z"
+}

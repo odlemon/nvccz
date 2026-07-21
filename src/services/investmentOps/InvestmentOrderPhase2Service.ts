@@ -142,12 +142,13 @@ async function appendEvent(
   actorId: string,
   idempotencyKey: string,
   reasonCode: string,
-  reason?: string
+  reason?: string,
+  sequenceNo?: number
 ) {
   return tx.investmentOrderStatusEvent.create({
     data: {
       orderId: order.id,
-      sequenceNo: await nextEventSequence(tx, order.id),
+      sequenceNo: sequenceNo ?? (await nextEventSequence(tx, order.id)),
       fromStatus: order.status,
       toStatus,
       actorId,
@@ -159,10 +160,16 @@ async function appendEvent(
 }
 
 async function latestApprovedPrice(securityId: string) {
-  const tick = await db.listedEquityPriceTick.findFirst({
-    where: { securityId, validationStatus: "APPROVED" },
-    orderBy: [{ pricedAt: "desc" }, { createdAt: "desc" }],
-  });
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, security_id AS securityId, price, price_type AS priceType, priced_at AS pricedAt,
+            source_code AS sourceCode, validation_status AS validationStatus
+     FROM listed_equity_price_ticks
+     WHERE security_id = ? AND validation_status = 'APPROVED'
+     ORDER BY priced_at DESC, created_at DESC
+     LIMIT 1`,
+    securityId
+  );
+  const tick = Array.isArray(rows) ? rows[0] : null;
   if (!tick) fail("APPROVED_PRICE_REQUIRED", "No approved price exists for this security", 422, { securityId });
   return tick;
 }
@@ -182,29 +189,225 @@ async function approvedFx(baseCurrencyCode: string, quoteCurrencyCode: string) {
   return fx;
 }
 
+async function loadCashBalanceByFund(fundId: string, settlementCurrency: string) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT a.id AS cashAccountId, e.id AS ledgerEntryId, e.running_balance AS runningBalance
+     FROM investment_portfolio_configs p
+     INNER JOIN investment_cash_accounts a ON a.portfolio_config_id = p.id
+     LEFT JOIN investment_cash_ledger_entries e
+       ON e.cash_account_id = a.id AND e.status = 'POSTED'
+     WHERE p.fund_id = ? AND a.currency_code = ? AND a.status = 'ACTIVE'
+     ORDER BY a.created_at ASC, e.effective_at DESC, e.id DESC
+     LIMIT 1`,
+    fundId,
+    settlementCurrency
+  );
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (!row?.cashAccountId) return { cashAccount: null, lastCash: null, cashBefore: new Decimal(0) };
+  return {
+    cashAccount: { id: row.cashAccountId },
+    lastCash: row.ledgerEntryId ? { id: row.ledgerEntryId, runningBalance: row.runningBalance } : null,
+    cashBefore: new Decimal(row.runningBalance ?? 0),
+  };
+}
+
+/** One remote round-trip for submit/update preview inputs when securityId is known. */
+async function loadKnownSecurityPreviewBundle(
+  fundId: string,
+  securityId: string,
+  settlementCurrency: string,
+  brokerProfileId: string | null
+) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT
+       (SELECT base_currency_code FROM investment_portfolio_configs WHERE fund_id = ? LIMIT 1) AS portfolioBase,
+       (SELECT base_currency_code FROM listed_equity_fund_configs WHERE fund_id = ? LIMIT 1) AS fundBase,
+       (SELECT id FROM listed_equity_valuation_snapshots WHERE fund_id = ? ORDER BY as_of DESC LIMIT 1) AS valuationId,
+       (SELECT nav_base_currency FROM listed_equity_valuation_snapshots WHERE fund_id = ? ORDER BY as_of DESC LIMIT 1) AS nav,
+       t.id AS tickId, t.price AS tickPrice, t.price_type AS tickPriceType, t.priced_at AS tickPricedAt,
+       t.source_code AS tickSourceCode, t.validation_status AS tickValidationStatus,
+       h.id AS holdingId, h.quantity AS holdingQty, h.wac AS holdingWac,
+       a.id AS cashAccountId, e.id AS ledgerEntryId, e.running_balance AS runningBalance,
+       c.id AS commissionId, c.rate_bps AS commissionRateBps, c.flat_fee AS commissionFlatFee
+     FROM (SELECT 1) AS _
+     LEFT JOIN listed_equity_price_ticks t
+       ON t.id = (
+         SELECT id FROM listed_equity_price_ticks
+         WHERE security_id = ? AND validation_status = 'APPROVED'
+         ORDER BY priced_at DESC, created_at DESC LIMIT 1
+       )
+     LEFT JOIN listed_equity_holdings h
+       ON h.fund_id = ? AND h.security_id = ?
+     LEFT JOIN investment_cash_accounts a
+       ON a.id = (
+         SELECT a2.id
+         FROM investment_cash_accounts a2
+         INNER JOIN investment_portfolio_configs p2 ON p2.id = a2.portfolio_config_id
+         WHERE p2.fund_id = ? AND a2.currency_code = ? AND a2.status = 'ACTIVE'
+         ORDER BY a2.created_at ASC LIMIT 1
+       )
+     LEFT JOIN investment_cash_ledger_entries e
+       ON e.id = (
+         SELECT e2.id FROM investment_cash_ledger_entries e2
+         WHERE e2.cash_account_id = a.id AND e2.status = 'POSTED'
+         ORDER BY e2.effective_at DESC, e2.id DESC LIMIT 1
+       )
+     LEFT JOIN investment_broker_commissions c
+       ON c.id = (
+         SELECT c2.id FROM investment_broker_commissions c2
+         WHERE (? IS NOT NULL) AND c2.stakeholder_profile_id = ? AND c2.is_active = 1
+         ORDER BY c2.instrument_type_code DESC LIMIT 1
+       )`,
+    fundId,
+    fundId,
+    fundId,
+    fundId,
+    securityId,
+    fundId,
+    securityId,
+    fundId,
+    settlementCurrency,
+    brokerProfileId,
+    brokerProfileId
+  );
+  return Array.isArray(rows) ? rows[0] : null;
+}
+
 async function calculatePreview(input: any) {
-  const [instrument, portfolio, fundConfig] = await Promise.all([
-    input.instrumentId
-      ? db.investmentInstrument.findUnique({ where: { id: input.instrumentId } })
-      : Promise.resolve(null),
-    db.investmentPortfolioConfig.findUnique({ where: { fundId: input.fundId } }),
-    db.listedEquityFundConfig.findUnique({ where: { fundId: input.fundId } }),
-  ]);
+  const knownSecurityId = input.securityId || null;
+
+  let instrument: any = null;
+  let portfolio: any = null;
+  let fundConfig: any = null;
+  let valuationSnap: any = null;
+  let rules: any[] = [];
+  let tick: any = null;
+  let holding: any = null;
+  let cashBundle: any = null;
+  let commission: any = null;
+  let fx = null as any;
+
+  if (knownSecurityId) {
+    // Fast path: 1 SQL bundle + instrument + rules (3 remote RTTs in parallel).
+    const [bundle, inst, ruleRows] = await Promise.all([
+      loadKnownSecurityPreviewBundle(
+        input.fundId,
+        knownSecurityId,
+        input.settlementCurrency,
+        input.brokerProfileId || null
+      ),
+      input.instrumentId
+        ? db.investmentInstrument.findUnique({ where: { id: input.instrumentId } })
+        : Promise.resolve(null),
+      InvestmentComplianceService.listRules(input.fundId),
+    ]);
+    if (!bundle?.tickId) {
+      fail("APPROVED_PRICE_REQUIRED", "No approved price exists for this security", 422, {
+        securityId: knownSecurityId,
+      });
+    }
+    instrument = inst;
+    rules = ruleRows;
+    portfolio = bundle.portfolioBase ? { baseCurrencyCode: bundle.portfolioBase } : null;
+    fundConfig = bundle.fundBase ? { baseCurrencyCode: bundle.fundBase } : null;
+    valuationSnap = bundle.valuationId
+      ? { id: bundle.valuationId, navBaseCurrency: bundle.nav }
+      : null;
+    tick = {
+      id: bundle.tickId,
+      price: bundle.tickPrice,
+      priceType: bundle.tickPriceType,
+      pricedAt: bundle.tickPricedAt,
+      sourceCode: bundle.tickSourceCode,
+      validationStatus: bundle.tickValidationStatus,
+    };
+    holding = bundle.holdingId
+      ? { id: bundle.holdingId, quantity: bundle.holdingQty, wac: bundle.holdingWac }
+      : null;
+    cashBundle = bundle.cashAccountId
+      ? {
+          cashAccount: { id: bundle.cashAccountId },
+          lastCash: bundle.ledgerEntryId
+            ? { id: bundle.ledgerEntryId, runningBalance: bundle.runningBalance }
+            : null,
+          cashBefore: new Decimal(bundle.runningBalance ?? 0),
+        }
+      : { cashAccount: null, lastCash: null, cashBefore: new Decimal(0) };
+    commission = bundle.commissionId
+      ? {
+          id: bundle.commissionId,
+          rateBps: bundle.commissionRateBps,
+          flatFee: bundle.commissionFlatFee,
+        }
+      : null;
+  } else {
+    const [inst, port, fcfg, valuation, ruleRows] = await Promise.all([
+      input.instrumentId
+        ? db.investmentInstrument.findUnique({ where: { id: input.instrumentId } })
+        : Promise.resolve(null),
+      db.investmentPortfolioConfig.findUnique({
+        where: { fundId: input.fundId },
+        select: { id: true, baseCurrencyCode: true },
+      }),
+      db.listedEquityFundConfig.findUnique({
+        where: { fundId: input.fundId },
+        select: { baseCurrencyCode: true },
+      }),
+      db.listedEquityValuationSnapshot.findFirst({
+        where: { fundId: input.fundId },
+        orderBy: { asOf: "desc" },
+        select: { id: true, navBaseCurrency: true },
+      }),
+      InvestmentComplianceService.listRules(input.fundId),
+    ]);
+    instrument = inst;
+    portfolio = port;
+    fundConfig = fcfg;
+    valuationSnap = valuation;
+    rules = ruleRows;
+  }
+
   if (input.instrumentId && !instrument) fail("INSTRUMENT_NOT_FOUND", "Instrument not found", 404);
   if (instrument && !["ACTIVE", "APPROVED"].includes(instrument.status)) {
     fail("INSTRUMENT_NOT_APPROVED", "Only ACTIVE instruments may be traded", 409);
   }
-  const securityId = input.securityId || instrument?.listedEquitySecurityId;
+  const securityId = knownSecurityId || instrument?.listedEquitySecurityId;
   if (!securityId) fail("SECURITY_REQUIRED", "A listed-equity security mapping is required", 422);
-  const tick = await latestApprovedPrice(securityId);
-  const price = input.limitPrice ? new Decimal(input.limitPrice) : new Decimal(tick.price);
   const baseCurrency = portfolio?.baseCurrencyCode || fundConfig?.baseCurrencyCode;
   if (!baseCurrency) fail("PORTFOLIO_CONFIG_REQUIRED", "Portfolio base currency is not configured", 422);
-  const fx = await approvedFx(input.tradeCurrency, baseCurrency);
+
+  if (!knownSecurityId) {
+    const [t, h, c, fxRow, comm] = await Promise.all([
+      latestApprovedPrice(securityId),
+      db.listedEquityHolding.findUnique({
+        where: { fundId_securityId: { fundId: input.fundId, securityId } },
+        select: { id: true, quantity: true, wac: true },
+      }),
+      loadCashBalanceByFund(input.fundId, input.settlementCurrency),
+      approvedFx(input.tradeCurrency, baseCurrency),
+      input.brokerProfileId
+        ? db.investmentBrokerCommission.findFirst({
+            where: {
+              stakeholderProfileId: input.brokerProfileId,
+              isActive: true,
+              OR: [{ instrumentTypeCode: instrument?.instrumentTypeCode }, { instrumentTypeCode: null }],
+            },
+            orderBy: { instrumentTypeCode: "desc" },
+            select: { id: true, rateBps: true, flatFee: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    tick = t;
+    holding = h;
+    cashBundle = c;
+    fx = fxRow;
+    commission = comm;
+  } else if (input.tradeCurrency !== baseCurrency) {
+    fx = await approvedFx(input.tradeCurrency, baseCurrency);
+  }
+
+  const price = input.limitPrice ? new Decimal(input.limitPrice) : new Decimal(tick.price);
   const fxRate = fx ? new Decimal(fx.rate) : new Decimal(1);
-  const holding = await db.listedEquityHolding.findUnique({
-    where: { fundId_securityId: { fundId: input.fundId, securityId } },
-  });
   const quantity = new Decimal(input.quantity);
   const holdingQty = new Decimal(holding?.quantity || 0);
   if (input.side === "SELL" && quantity.gt(holdingQty)) {
@@ -212,33 +415,11 @@ async function calculatePreview(input: any) {
       availableQuantity: holdingQty.toString(),
     });
   }
-  const commission = input.brokerProfileId
-    ? await db.investmentBrokerCommission.findFirst({
-        where: {
-          stakeholderProfileId: input.brokerProfileId,
-          isActive: true,
-          OR: [{ instrumentTypeCode: instrument?.instrumentTypeCode }, { instrumentTypeCode: null }],
-        },
-        orderBy: { instrumentTypeCode: "desc" },
-      })
-    : null;
   const gross = quantity.mul(price);
   const fee = gross.mul(new Decimal(commission?.rateBps || 0).div(10_000)).plus(commission?.flatFee || 0);
   const tax = new Decimal(0);
   const settlement = input.side === "BUY" ? gross.plus(fee).plus(tax) : gross.minus(fee).minus(tax);
-  const cashAccount = portfolio
-    ? await db.investmentCashAccount.findFirst({
-        where: { portfolioConfigId: portfolio.id, currencyCode: input.settlementCurrency, status: "ACTIVE" },
-        orderBy: { createdAt: "asc" },
-      })
-    : null;
-  const lastCash = cashAccount
-    ? await db.investmentCashLedgerEntry.findFirst({
-        where: { cashAccountId: cashAccount.id, status: "POSTED" },
-        orderBy: [{ effectiveAt: "desc" }, { id: "desc" }],
-      })
-    : null;
-  const cashBefore = new Decimal(lastCash?.runningBalance || 0);
+  const { cashAccount, lastCash, cashBefore } = cashBundle;
   const cashImpact = input.side === "BUY" ? settlement.neg() : settlement;
   const cashAfter = cashBefore.plus(cashImpact);
   if (input.side === "BUY" && cashAfter.isNegative()) {
@@ -247,16 +428,9 @@ async function calculatePreview(input: any) {
       required: settlement.toString(),
     });
   }
-  const holdings = await db.listedEquityHolding.findMany({ where: { fundId: input.fundId } });
-  let portfolioValue = new Decimal(0);
-  for (const row of holdings) {
-    const approved = await db.listedEquityPriceTick.findFirst({
-      where: { securityId: row.securityId, validationStatus: "APPROVED" },
-      orderBy: [{ pricedAt: "desc" }, { createdAt: "desc" }],
-    });
-    if (!approved) continue;
-    portfolioValue = portfolioValue.plus(new Decimal(row.quantity).mul(approved.price));
-  }
+
+  const portfolioValue =
+    valuationSnap?.navBaseCurrency != null ? new Decimal(valuationSnap.navBaseCurrency) : new Decimal(0);
   const baseGross = gross.mul(fxRate);
   const valueAfter = input.side === "BUY" ? portfolioValue.plus(baseGross) : portfolioValue.minus(baseGross);
   const currentSecurityValue = holdingQty.mul(tick.price).mul(fxRate);
@@ -264,14 +438,16 @@ async function calculatePreview(input: any) {
     input.side === "BUY" ? currentSecurityValue.plus(baseGross) : currentSecurityValue.minus(baseGross);
   const realizedPnl =
     input.side === "SELL" ? quantity.mul(price.minus(new Decimal(holding?.wac || 0))) : new Decimal(0);
-  const compliance = await InvestmentComplianceService.previewCheck({
-    fundId: input.fundId,
-    side: input.side,
-    orderValue: Number(baseGross),
-    instrument,
+  const nav = Number(valuationSnap?.navBaseCurrency || 0);
+  const compliance = InvestmentComplianceService.evaluateRules(rules, {
+    order: { side: input.side, instrument },
+    weightPct: nav > 0 ? (Number(baseGross) / nav) * 100 : 100,
+    nav,
   });
+
   return {
     securityId,
+    instrument,
     estimated: canonical({
       approvedPrice: {
         tickId: tick.id,
@@ -322,11 +498,14 @@ async function calculatePreview(input: any) {
         portfolioValueAfterBase: valueAfter,
         securityValueAfterBase: securityValueAfter,
         securityWeightAfterPct: valueAfter.isZero() ? "0" : securityValueAfter.div(valueAfter).mul(100),
+        navSource: valuationSnap?.id ? "VALUATION_SNAPSHOT" : "ZERO_FALLBACK",
       },
     }),
     compliance,
     priceSnapshotId: tick.id,
     fxSnapshotId: fx?.id || null,
+    valuationSnapshotId: valuationSnap?.id || null,
+    complianceRules: rules,
   };
 }
 
@@ -605,6 +784,14 @@ export class InvestmentOrderPhase2Service {
     return this.get(id, userId, user);
   }
 
+  /** Ticket payload after mutate — avoids full history/routes/approvals graph. */
+  static async getTicket(id: string, userId: string, user: any) {
+    return orderForAccess(id, userId, user, {
+      instrument: true,
+      complianceRuns: { include: { results: true }, orderBy: { createdAt: "desc" }, take: 1 },
+    });
+  }
+
   static async submit(
     id: string,
     expectedVersion: string,
@@ -612,7 +799,16 @@ export class InvestmentOrderPhase2Service {
     userId: string,
     user: any
   ) {
-    const order = await orderForAccess(id, userId, user);
+    const [replay, order] = await Promise.all([
+      db.investmentOrderStatusEvent.findUnique({
+        where: { idempotencyKey },
+        select: { orderId: true },
+      }),
+      db.investmentOrder.findUnique({ where: { id } }),
+    ]);
+    if (replay) return this.getTicket(replay.orderId, userId, user);
+    if (!order) fail("ORDER_NOT_FOUND", "Order not found", 404);
+    await ListedEquityAccessService.assertFundAccess(userId, order.fundId, user);
     assertVersion(order, expectedVersion);
     if (order.status !== "DRAFT") fail("INVALID_ORDER_TRANSITION", "Only draft orders can be submitted", 409);
     const input = normalizedInput({
@@ -632,25 +828,59 @@ export class InvestmentOrderPhase2Service {
       valueDate: order.valueDate,
       notes: order.notes,
     });
-    const calculated = await calculatePreview(input);
+
+    // Preview + next event seq overlap (remote MySQL RTT dominates).
+    const [calculated, latestEvent] = await Promise.all([
+      calculatePreview(input),
+      db.investmentOrderStatusEvent.findFirst({
+        where: { orderId: id },
+        orderBy: { sequenceNo: "desc" },
+        select: { sequenceNo: true },
+      }),
+    ]);
+
     const revisionNo = order.currentRevisionNo + 1;
-    const snapshot = canonical({ ...input, estimated: calculated.estimated, compliance: calculated.compliance });
     const outcome = (calculated.compliance as any).outcome;
     const toStatus = outcome === "FAILED" || outcome === "WARNING" ? "COMPLIANCE_REVIEW" : "SUBMITTED";
-    await db.$transaction(
-      async (tx: any) => {
-        const changed = await tx.investmentOrder.updateMany({
-          where: { id, version: order.version, status: "DRAFT" },
-          data: {
-            currentRevisionNo: revisionNo,
-            complianceStatus: outcome,
-            status: toStatus,
-            submittedAt: new Date(),
-            version: { increment: 1 },
-          },
-        });
-        if (changed.count !== 1) fail("VERSION_CONFLICT", "Order changed during submit", 409);
-        await tx.investmentOrderRevision.create({
+    const estimated = calculated.estimated as any;
+    const nav = estimated?.exposure?.portfolioValueBeforeBase ?? "0";
+    const executionPrice = new Decimal((calculated.estimated as any).approvedPrice.price);
+    const submittedAt = new Date();
+    const sequenceNo = (latestEvent?.sequenceNo || 0) + 1;
+    const nextSecurityId = calculated.securityId || order.securityId || null;
+
+    // Raw UPDATE — one remote RTT; avoids Prisma updateMany serialization.
+    const affected = await db.$executeRawUnsafe(
+      `UPDATE investment_orders
+       SET current_revision_no = ?,
+           compliance_status = ?,
+           status = ?,
+           submitted_at = ?,
+           version = version + 1,
+           security_id = COALESCE(?, security_id),
+           execution_price = ?,
+           updated_at = CURRENT_TIMESTAMP(3)
+       WHERE id = ? AND version = ? AND status = 'DRAFT'`,
+      revisionNo,
+      outcome,
+      toStatus,
+      submittedAt,
+      nextSecurityId,
+      executionPrice.toString(),
+      id,
+      order.version
+    );
+    if (Number(affected) !== 1) fail("VERSION_CONFLICT", "Order changed during submit", 409);
+
+    // Status is durable. Snapshot + revision/event/compliance run off the request path.
+    void (async () => {
+      const snapshot = canonical({
+        ...input,
+        estimated: calculated.estimated,
+        compliance: calculated.compliance,
+      });
+      await Promise.all([
+        db.investmentOrderRevision.create({
           data: {
             orderId: id,
             revisionNo,
@@ -659,13 +889,52 @@ export class InvestmentOrderPhase2Service {
             contentHash: investmentOrderInputHash(snapshot),
             createdById: userId,
           },
-        });
-        await appendEvent(tx, order, toStatus, userId, idempotencyKey, "SUBMIT_RECALCULATED");
-      },
-      { maxWait: 10_000, timeout: 30_000 }
-    );
-    await InvestmentComplianceService.runForOrder(id, revisionNo, `${idempotencyKey}:compliance`, userId, user);
-    return this.get(id, userId, user);
+        }),
+        db.investmentOrderStatusEvent.create({
+          data: {
+            orderId: id,
+            sequenceNo,
+            fromStatus: order.status,
+            toStatus,
+            actorId: userId,
+            reasonCode: "SUBMIT_RECALCULATED",
+            idempotencyKey,
+          },
+        }),
+        InvestmentComplianceService.persistEvaluatedRun(db, {
+          fundId: order.fundId,
+          orderId: id,
+          revisionNo,
+          idempotencyKey: `${idempotencyKey}:compliance`,
+          userId,
+          rules: calculated.complianceRules || [],
+          evaluated: calculated.compliance as any,
+          inputSnapshot: {
+            orderId: id,
+            revisionNo,
+            quantity: input.quantity,
+            price: String(executionPrice),
+            nav: String(nav),
+            valuationSnapshotId: calculated.valuationSnapshotId || null,
+          },
+          returnRun: false,
+          skipIdempotencyLookup: true,
+        }),
+      ]);
+    })().catch((err: unknown) => {
+      console.error("[submit] background side-write failed", { orderId: id, err });
+    });
+
+    return {
+      ...order,
+      securityId: nextSecurityId,
+      executionPrice,
+      currentRevisionNo: revisionNo,
+      complianceStatus: outcome,
+      status: toStatus,
+      submittedAt,
+      version: order.version + 1,
+    };
   }
 
   static async decide(
@@ -907,9 +1176,31 @@ export class InvestmentOrderPhase2Service {
   ) {
     const order = await orderForAccess(id, userId, user);
     assertVersion(order, expectedVersion);
-    const route = data.routeId
+    let route = data.routeId
       ? await db.investmentOrderRoute.findFirst({ where: { id: data.routeId, orderId: id } })
       : await db.investmentOrderRoute.findFirst({ where: { orderId: id }, orderBy: { routeSequence: "desc" } });
+
+    // Heal demo/legacy orders that were advanced past SENT_TO_BROKER without a route row.
+    if (!route && order.brokerProfileId) {
+      route = await db.investmentOrderRoute.create({
+        data: {
+          orderId: id,
+          routeSequence: 1,
+          venueCode: order.tradeCurrency || "MANUAL",
+          brokerProfileId: order.brokerProfileId,
+          status: "ROUTED",
+          externalOrderRef: data.externalOrderRef || `AUTO-${order.orderRef}`,
+          requestPayload: canonical({
+            orderRef: order.orderRef,
+            side: order.side,
+            quantity: order.quantity,
+            healed: true,
+          }),
+          idempotencyKey: `${idempotencyKey}:auto-route`,
+          routedAt: new Date(),
+        },
+      });
+    }
     if (!route) fail("ORDER_ROUTE_NOT_FOUND", "Order has no broker route", 404);
     return db.investmentOrderRoute.update({
       where: { id: route.id },

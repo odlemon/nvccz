@@ -83,7 +83,17 @@ export class TradeOrchestratorService {
       });
     }
 
-    await this.processRouting(tradeId, userId);
+    const asyncRouting =
+      process.env.LISTED_EQUITY_ASYNC_ROUTING === "true" ||
+      (process.env.LISTED_EQUITY_ASYNC_ROUTING !== "false" && isInternalSettlementMode());
+
+    if (asyncRouting) {
+      void this.processRouting(tradeId, userId).catch((e) =>
+        console.error("[TradeOrchestrator] async routing failed", tradeId, e?.message || e)
+      );
+    } else {
+      await this.processRouting(tradeId, userId);
+    }
     return this.getTradeDetail(tradeId);
   }
 

@@ -173,7 +173,7 @@ export class InvestmentMarketDataFacadeService {
         currentVersion: String(current.version),
       });
     }
-    if (!["PENDING", "VALIDATED"].includes(current.validationStatus)) {
+    if (!["PENDING", "VALIDATED", "PENDING_REVIEW"].includes(current.validationStatus)) {
       throw new InvestmentOpsError("PRICE_TICK_ALREADY_REVIEWED", "Price tick is not reviewable", 409);
     }
     return prisma.listedEquityPriceTick.update({

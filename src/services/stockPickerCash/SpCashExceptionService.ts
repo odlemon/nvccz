@@ -6,9 +6,12 @@ import {
   assertVersion,
   db,
   emitCash,
+  loadCashAccountLabelMap,
+  loadUserDisplayMap,
   moneyStr,
   paginated,
   parsePagination,
+  presentCashAccountLabels,
   requireStr,
 } from "./spCashSupport";
 
@@ -40,23 +43,41 @@ async function appendTimeline(
   });
 }
 
-function presentException(row: any) {
+function presentException(
+  row: any,
+  accountLabels?: ReturnType<typeof presentCashAccountLabels> | null,
+  userMap?: Record<string, { name: string | null; email: string | null }>
+) {
   const instrument = row.instrumentJson || null;
   const overdue =
     Boolean(row.slaDueAt) &&
     new Date(row.slaDueAt).getTime() < Date.now() &&
     !["CLOSED", "REJECTED", "APPROVED"].includes(String(row.status || "").toUpperCase());
+  const labels = accountLabels || presentCashAccountLabels(null);
+  const assigned = row.assignedToId ? userMap?.[row.assignedToId] : null;
+  const approver = row.approverId ? userMap?.[row.approverId] : null;
+  const amountDifference =
+    row.amountTxn != null
+      ? moneyStr(row.amountTxn)
+      : row.amountReporting != null
+        ? moneyStr(row.amountReporting)
+        : null;
   return {
     exceptionId: row.id,
     id: row.id,
     batchId: row.batchId,
     cashAccountId: row.cashAccountId,
+    accountNumber: labels.accountNumber,
+    accountNumberMasked: labels.accountNumberMasked,
+    cashAccountLabel: labels.cashAccountLabel,
+    clientName: labels.clientName,
     clientOrVehicleId: row.clientOrVehicleId,
     category: row.category,
     severity: row.severity,
     status: row.status,
     overdue,
     amountTxn: row.amountTxn != null ? moneyStr(row.amountTxn) : null,
+    amountDifference,
     currencyTxn: row.currencyTxn,
     amountReporting: row.amountReporting != null ? moneyStr(row.amountReporting) : null,
     currencyReporting: row.currencyReporting,
@@ -77,9 +98,15 @@ function presentException(row: any) {
           }
         : null,
     assignedToId: row.assignedToId,
-    assignedTo: row.assignedToId ? { userId: row.assignedToId } : null,
+    assignedTo: row.assignedToId
+      ? { userId: row.assignedToId, name: assigned?.name || null, email: assigned?.email || null }
+      : null,
+    assignedToName: assigned?.name || null,
     approverId: row.approverId,
-    approver: row.approverId ? { userId: row.approverId } : null,
+    approver: row.approverId
+      ? { userId: row.approverId, name: approver?.name || null, email: approver?.email || null }
+      : null,
+    approverName: approver?.name || null,
     ownerRole: row.ownerRole,
     slaDueAt: row.slaDueAt,
     resolutionJson: row.resolutionJson,
@@ -93,6 +120,18 @@ function presentException(row: any) {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+async function enrichExceptions(rows: any[]) {
+  const accountIds = rows.map((r) => r.cashAccountId).filter(Boolean);
+  const userIds = rows.flatMap((r) => [r.assignedToId, r.approverId]).filter(Boolean);
+  const [accountMap, userMap] = await Promise.all([
+    loadCashAccountLabelMap(accountIds),
+    loadUserDisplayMap(userIds),
+  ]);
+  return rows.map((r) =>
+    presentException(r, r.cashAccountId ? accountMap[r.cashAccountId] : null, userMap)
+  );
 }
 
 export class SpCashExceptionService {
@@ -115,13 +154,14 @@ export class SpCashExceptionService {
       }),
       db.spCashReconciliationException.count({ where }),
     ]);
-    return paginated(items.map(presentException), total, page, pageSize);
+    return paginated(await enrichExceptions(items), total, page, pageSize);
   }
 
   static async get(id: string) {
     const row = await db.spCashReconciliationException.findUnique({ where: { id } });
     if (!row) throw new InvestmentOpsError("NOT_FOUND", "Exception not found", 404);
-    return presentException(row);
+    const [presented] = await enrichExceptions([row]);
+    return presented;
   }
 
   static async summary(query: any = {}) {
@@ -398,7 +438,7 @@ export class SpCashExceptionService {
         amount: updated.amountTxn,
       },
     });
-    return presentException(updated);
+    return (await enrichExceptions([updated]))[0];
   }
 
   static assign(id: string, body: any, actorId: string) {
@@ -418,10 +458,10 @@ export class SpCashExceptionService {
     });
   }
 
-  static async approve(id: string, body: any, actorId: string) {
+  static async approve(id: string, body: any, actorId: string, actorUser?: any) {
     const row = await db.spCashReconciliationException.findUnique({ where: { id } });
     if (!row) throw new InvestmentOpsError("NOT_FOUND", "Exception not found", 404);
-    if (row.assignedToId) assertMakerNotChecker(row.assignedToId, actorId);
+    if (row.assignedToId) assertMakerNotChecker(row.assignedToId, actorId, actorUser);
     return this.transition(id, "APPROVED", "APPROVED", body, actorId, {
       approverId: actorId,
       resolutionJson: {
@@ -437,10 +477,10 @@ export class SpCashExceptionService {
     return this.transition(id, "INFO_REQUESTED", "REQUEST_INFO", body, actorId);
   }
 
-  static async reject(id: string, body: any, actorId: string) {
+  static async reject(id: string, body: any, actorId: string, actorUser?: any) {
     const row = await db.spCashReconciliationException.findUnique({ where: { id } });
     if (!row) throw new InvestmentOpsError("NOT_FOUND", "Exception not found", 404);
-    if (row.assignedToId) assertMakerNotChecker(row.assignedToId, actorId);
+    if (row.assignedToId) assertMakerNotChecker(row.assignedToId, actorId, actorUser);
     return this.transition(id, "REJECTED", "REJECTED", body, actorId, {
       approverId: actorId,
     });
@@ -456,14 +496,14 @@ export class SpCashExceptionService {
 
   // —— Break actions ——
   static async getBreak(breakId: string) {
-    const row = await db.spCashReconciliationBreak.findUnique({ where: { id: breakId } });
-    if (!row) throw new InvestmentOpsError("NOT_FOUND", "Break not found", 404);
+    const row = await this.resolveBreakRow(breakId);
     const comments = await db.spCashBreakComment.findMany({
-      where: { breakId },
+      where: { breakId: row.id },
       orderBy: { createdAt: "asc" },
     });
     return {
       breakId: row.id,
+      id: row.id,
       batchId: row.batchId,
       breakCode: row.breakCode,
       category: row.category,
@@ -480,6 +520,93 @@ export class SpCashExceptionService {
     };
   }
 
+  /**
+   * FE often passes an exception id (or a stale id) into /reconciliation-breaks/:id/*.
+   * Resolve by break PK, then by exceptionId, then heal a break row from the exception.
+   */
+  static async resolveBreakRow(breakId: string) {
+    const id = requireStr(breakId, "breakId");
+    let row = await db.spCashReconciliationBreak.findUnique({ where: { id } });
+    if (row) return row;
+
+    row = await db.spCashReconciliationBreak.findFirst({
+      where: { exceptionId: id },
+      orderBy: { createdAt: "desc" },
+    });
+    if (row) return row;
+
+    const exc = await db.spCashReconciliationException.findUnique({ where: { id } });
+    if (exc) return this.ensureBreakForException(exc);
+
+    throw new InvestmentOpsError(
+      "NOT_FOUND",
+      "Break not found (pass a break id or exception id linked to a recon batch)",
+      404,
+      { breakId: id }
+    );
+  }
+
+  static async ensureBreakForException(exc: any) {
+    const existing = await db.spCashReconciliationBreak.findFirst({
+      where: { exceptionId: exc.id },
+      orderBy: { createdAt: "desc" },
+    });
+    if (existing) return existing;
+
+    let batchId = exc.batchId || null;
+    if (!batchId && exc.cashAccountId) {
+      const batch = await db.spCashReconciliationBatch.findFirst({
+        where: { cashAccountId: exc.cashAccountId },
+        orderBy: { updatedAt: "desc" },
+      });
+      batchId = batch?.id || null;
+    }
+    if (!batchId) {
+      const account = await db.spCashClientAccount.findUnique({
+        where: { id: exc.cashAccountId },
+        select: { id: true, currency: true, portfolioId: true },
+      });
+      const today = new Date();
+      const periodFrom = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+      const created = await db.spCashReconciliationBatch.create({
+        data: {
+          cashAccountId: exc.cashAccountId,
+          currency: exc.currencyTxn || account?.currency || "USD",
+          periodFrom,
+          periodTo: today,
+          reconType: "EXCEPTION_HEAL",
+          status: "OPEN",
+          fundId: account?.portfolioId || null,
+          version: 1,
+        },
+      });
+      batchId = created.id;
+      if (!exc.batchId) {
+        await db.spCashReconciliationException.update({
+          where: { id: exc.id },
+          data: { batchId },
+        });
+      }
+    }
+
+    return db.spCashReconciliationBreak.create({
+      data: {
+        batchId,
+        breakCode: `EXC_${String(exc.category || "BREAK").toUpperCase()}`,
+        category: exc.category || "EXCEPTION",
+        valueDate: exc.settleDate || exc.tradeDate || null,
+        details: `Healed from exception ${exc.id}${exc.source ? ` (${exc.source})` : ""}`,
+        amount: exc.amountTxn ?? exc.amountReporting ?? null,
+        currency: exc.currencyTxn || exc.currencyReporting || null,
+        status: ["CLOSED", "REJECTED", "APPROVED"].includes(String(exc.status || "").toUpperCase())
+          ? "REVIEWED"
+          : "OPEN",
+        exceptionId: exc.id,
+        version: 1,
+      },
+    });
+  }
+
   static async adjustInternal(breakId: string, body: any, actorId: string) {
     const brk = await this.getBreak(breakId);
     let journalDraftId = body.adjustmentJournalDraftId;
@@ -492,7 +619,7 @@ export class SpCashExceptionService {
       journalDraftId = draft.id;
     }
     const updated = await db.spCashReconciliationBreak.update({
-      where: { id: breakId },
+      where: { id: brk.breakId },
       data: {
         status: "ADJUSTMENT_DRAFTED",
         details: `${brk.details || ""}\nLinked journal draft ${journalDraftId || ""}`.trim(),
@@ -508,23 +635,56 @@ export class SpCashExceptionService {
   }
 
   static async markReviewed(breakId: string, body: any, actorId: string) {
+    const brk = await this.resolveBreakRow(breakId);
+    if (String(brk.status || "").toUpperCase() === "REVIEWED") {
+      if (body?.notes) {
+        await db.spCashBreakComment.create({
+          data: {
+            breakId: brk.id,
+            authorId: actorId,
+            body: `Review note: ${body.notes}`,
+          },
+        });
+      }
+      return this.getBreak(brk.id);
+    }
+
     const updated = await db.spCashReconciliationBreak.update({
-      where: { id: breakId },
-      data: { status: "REVIEWED", version: { increment: 1 } },
+      where: { id: brk.id },
+      data: {
+        status: "REVIEWED",
+        details: body?.notes
+          ? `${brk.details || ""}\nReviewed: ${body.notes}`.trim()
+          : brk.details,
+        version: { increment: 1 },
+      },
     });
+    if (brk.exceptionId) {
+      const exc = await db.spCashReconciliationException.findUnique({
+        where: { id: brk.exceptionId },
+      });
+      if (exc && ["OPEN", "ASSIGNED", "INVESTIGATING"].includes(String(exc.status || "").toUpperCase())) {
+        await db.spCashReconciliationException.update({
+          where: { id: exc.id },
+          data: { status: "INVESTIGATING", version: { increment: 1 } },
+        });
+        await appendTimeline(exc.id, "MARK_REVIEWED", actorId, body?.notes || "Break marked reviewed", {
+          breakId: updated.id,
+        });
+      }
+    }
     return this.getBreak(updated.id);
   }
 
   static async createManualEntry(breakId: string, body: any, actorId: string) {
-    const brk = await db.spCashReconciliationBreak.findUnique({ where: { id: breakId } });
-    if (!brk) throw new InvestmentOpsError("NOT_FOUND", "Break not found", 404);
+    const brkRow = await this.resolveBreakRow(breakId);
     const journal = await SpCashJournalService.create(
       {
         sourceSystem: "RECON",
-        sourceEventId: `BREAK-${breakId}`,
+        sourceEventId: `BREAK-${brkRow.id}`,
         postingPurpose: "MANUAL_ENTRY",
-        currency: body.currency || brk.currency || "USD",
-        valueDate: body.valueDate || brk.valueDate,
+        currency: body.currency || brkRow.currency || "USD",
+        valueDate: body.valueDate || brkRow.valueDate,
         lines: body.lines,
         cashAccountId: body.cashAccountId,
         portfolioId: body.portfolioId,
@@ -533,21 +693,21 @@ export class SpCashExceptionService {
       body.idempotencyKey
     );
     await db.spCashReconciliationBreak.update({
-      where: { id: breakId },
+      where: { id: brkRow.id },
       data: {
         status: "MANUAL_ENTRY_CREATED",
-        details: `${brk.details || ""}\nManual entry ${journal.id}`.trim(),
+        details: `${brkRow.details || ""}\nManual entry ${journal.id}`.trim(),
         version: { increment: 1 },
       },
     });
-    return { breakId, journal };
+    return { breakId: brkRow.id, journal };
   }
 
   static async addBreakComment(breakId: string, body: any, actorId: string) {
-    await this.getBreak(breakId);
+    const brk = await this.resolveBreakRow(breakId);
     const comment = await db.spCashBreakComment.create({
       data: {
-        breakId,
+        breakId: brk.id,
         authorId: actorId,
         body: requireStr(body.body || body.comment || body.notes, "body"),
       },

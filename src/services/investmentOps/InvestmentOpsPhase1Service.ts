@@ -5,7 +5,7 @@ import { InvestmentOpsError } from "../../middleware/investmentOpsFoundation";
 import { prisma } from "../../utils/database";
 import { ListedEquityAccessService } from "../listedEquity/ListedEquityAccessService";
 import { ListedEquityPortfolioService } from "../listedEquity/ListedEquityPortfolioService";
-import { paginatedResult, parsePagination } from "./investmentOpsSupport";
+import { paginatedResult, parsePagination, instrumentListSnapshot } from "./investmentOpsSupport";
 import { InvestmentOpsAuditService } from "./InvestmentOpsAuditService";
 
 const db = prisma as any;
@@ -307,22 +307,42 @@ export class InvestmentOpsPhase1Service {
   static async reorderFolders(
     fundId: string,
     parentId: string | null,
-    ids: string[],
+    ids: unknown,
     userId: string,
     user: any
   ) {
     await access(fundId, userId, user);
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new InvestmentOpsError(
+        "VALIDATION_ERROR",
+        "ids must be a non-empty array",
+        400,
+        { field: "ids", acceptedFields: ["ids", "folderIds", "order", "items"] }
+      );
+    }
+    const folderIds = ids.map((id) => String(id).trim()).filter(Boolean);
+    let resolvedParentId = parentId;
+    if (resolvedParentId === undefined || resolvedParentId === null) {
+      const anchor = await db.investmentPortfolioFolder.findFirst({
+        where: { id: { in: folderIds }, fundId, isArchived: false },
+        select: { parentId: true },
+      });
+      if (!anchor) {
+        throw new InvestmentOpsError("FOLDER_NOT_FOUND", "No matching folders for reorder", 404);
+      }
+      resolvedParentId = anchor.parentId;
+    }
     const siblings = await db.investmentPortfolioFolder.findMany({
-      where: { fundId, parentId, isArchived: false },
+      where: { fundId, parentId: resolvedParentId, isArchived: false },
       orderBy: { sortOrder: "asc" },
       select: { id: true },
     });
     validateAtomicSiblingOrder(
       siblings.map((row: any) => row.id),
-      ids
+      folderIds
     );
     return db.$transaction(
-      ids.map((id, sortOrder) =>
+      folderIds.map((id, sortOrder) =>
         db.investmentPortfolioFolder.update({
           where: { id },
           data: { sortOrder, version: { increment: 1 } },
@@ -556,7 +576,34 @@ export class InvestmentOpsPhase1Service {
       where: { valuationRunId: run.id },
       orderBy: { baseMarketValue: "desc" },
     });
-    return { valuationRunId: run.id, asOf: run.asOf, navBaseCurrency: run.navBaseCurrency, items };
+    const instrumentIds = [...new Set(items.map((i: any) => i.instrumentId).filter(Boolean))];
+    const securityIds = [...new Set(items.map((i: any) => i.securityId).filter(Boolean))];
+    const [byId, bySecurity] = await Promise.all([
+      instrumentIds.length
+        ? db.investmentInstrument.findMany({ where: { id: { in: instrumentIds } } })
+        : Promise.resolve([]),
+      securityIds.length
+        ? db.investmentInstrument.findMany({
+            where: { listedEquitySecurityId: { in: securityIds } },
+          })
+        : Promise.resolve([]),
+    ]);
+    const instrumentById = new Map(byId.map((i: any) => [i.id, instrumentListSnapshot(i)]));
+    const instrumentBySecurityId = new Map(
+      bySecurity.map((i: any) => [i.listedEquitySecurityId, instrumentListSnapshot(i)])
+    );
+    return {
+      valuationRunId: run.id,
+      asOf: run.asOf,
+      navBaseCurrency: run.navBaseCurrency,
+      items: items.map((item: any) => ({
+        ...item,
+        instrument:
+          (item.instrumentId ? instrumentById.get(item.instrumentId) : null) ??
+          (item.securityId ? instrumentBySecurityId.get(item.securityId) : null) ??
+          null,
+      })),
+    };
   }
 
   static async position(id: string, userId: string, user: any) {
@@ -566,7 +613,17 @@ export class InvestmentOpsPhase1Service {
     });
     if (!item) throw new InvestmentOpsError("POSITION_NOT_FOUND", "Position not found", 404);
     await access(item.fundId, userId, user);
-    return item;
+    let instrument = null;
+    if (item.instrumentId) {
+      const row = await db.investmentInstrument.findUnique({ where: { id: item.instrumentId } });
+      instrument = instrumentListSnapshot(row);
+    } else if (item.securityId) {
+      const row = await db.investmentInstrument.findFirst({
+        where: { listedEquitySecurityId: item.securityId },
+      });
+      instrument = instrumentListSnapshot(row);
+    }
+    return { ...item, instrument };
   }
 
   static async transactions(fundId: string, query: any, userId: string, user: any) {

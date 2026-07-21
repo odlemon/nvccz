@@ -50,6 +50,8 @@ export class ListedEquityAccessService {
     user?: { role?: { name?: string } },
     resource = `fund:${fundId}`
   ): Promise<void> {
+    // Admin short-circuit before fund round-trip (remote MySQL RTT is expensive).
+    if (user && (await this.isAdmin(user))) return;
     await this.assertListedEquityFund(fundId);
     const scope = await this.getAccessibleListedEquityFundIds(userId, user);
     if (scope === "ALL") return;

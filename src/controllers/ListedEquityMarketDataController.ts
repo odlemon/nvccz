@@ -10,6 +10,7 @@ import { ListedEquityAuditService } from "../services/listedEquity/ListedEquityA
 import { PortfolioValuationEngine } from "../services/listedEquity/PortfolioValuationEngine";
 import { verifyMarketDataCronSecret } from "../services/listedEquity/listedEquityCronAuth";
 import { ingestLog } from "../services/listedEquity/listedEquityIngestLogger";
+import { priceTickReviewable } from "../services/investmentOps/investmentOpsSupport";
 
 export class ListedEquityMarketDataController {
   static async listSecurities(req: Request, res: Response) {
@@ -136,7 +137,16 @@ export class ListedEquityMarketDataController {
         include: { security: true },
         orderBy: { pricedAt: "desc" },
       });
-      res.json({ success: true, data: rows });
+      res.json({
+        success: true,
+        data: rows.map((tick) => ({
+          ...tick,
+          price: tick.price != null ? String(tick.price) : null,
+          previousClose: tick.previousClose != null ? String(tick.previousClose) : null,
+          deviationPct: tick.deviationPct != null ? String(tick.deviationPct) : null,
+          reviewable: priceTickReviewable(tick.validationStatus),
+        })),
+      });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
     }

@@ -2,8 +2,9 @@
 import { prisma } from "../../utils/database";
 import { InvestmentOpsError } from "../../middleware/investmentOpsFoundation";
 import { ListedEquityAccessService } from "../listedEquity/ListedEquityAccessService";
+import { assertFourEyeSeparation } from "./investmentOpsFourEye";
 
-import { paginatedResult, parsePagination } from "./investmentOpsSupport";
+import { paginatedResult, parsePagination, userDisplayName } from "./investmentOpsSupport";
 
 /** Active trading status per SRD. Legacy APPROVED is accepted as equivalent during transition. */
 export const INSTRUMENT_TRADEABLE_STATUSES = new Set(["ACTIVE", "APPROVED"]);
@@ -121,15 +122,27 @@ export class InvestmentInstrumentService {
         ...row,
         latestPrice: latest?.price ?? null,
         pricedAt: latest?.pricedAt ?? null,
+        createdByName: null as string | null,
       };
     });
+    const creatorIds = [...new Set(items.map((i) => i.createdById).filter(Boolean))] as string[];
+    if (creatorIds.length) {
+      const users = await prisma.user.findMany({
+        where: { id: { in: creatorIds } },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      });
+      const nameById = new Map(users.map((u) => [u.id, userDisplayName(u)]));
+      for (const item of items) {
+        item.createdByName = item.createdById ? nameById.get(item.createdById) ?? null : null;
+      }
+    }
     return paginatedResult(items, total, page, pageSize);
   }
 
   static async get(id: string) {
     const row = await prisma.investmentInstrument.findUnique({ where: { id } });
     if (!row) throw new Error("Not found");
-    const [market, latestPrice] = await Promise.all([
+    const [market, latestPrice, creator] = await Promise.all([
       row.marketCode
         ? prisma.investmentMarket.findUnique({ where: { marketCode: row.marketCode } })
         : Promise.resolve(null),
@@ -142,9 +155,16 @@ export class InvestmentInstrumentService {
             orderBy: { pricedAt: "desc" },
           })
         : Promise.resolve(null),
+      row.createdById
+        ? prisma.user.findUnique({
+            where: { id: row.createdById },
+            select: { firstName: true, lastName: true, email: true },
+          })
+        : Promise.resolve(null),
     ]);
     return {
       ...row,
+      createdByName: userDisplayName(creator),
       marketContext: {
         market,
         latestPrice: latestPrice
@@ -380,7 +400,8 @@ export class InvestmentInstrumentService {
     status: string,
     userId: string,
     expectedVersion: string,
-    reason?: string
+    reason?: string,
+    user?: any
   ) {
     const current = await prisma.investmentInstrument.findUnique({ where: { id } });
     if (!current) throw new InvestmentOpsError("INSTRUMENT_NOT_FOUND", "Instrument not found", 404);
@@ -393,11 +414,11 @@ export class InvestmentInstrumentService {
     assertInstrumentTransition(current.status, status);
 
     if (status === "ACTIVE" && current.createdById && current.createdById === userId) {
-      throw new InvestmentOpsError(
-        "FOUR_EYE_SELF_APPROVAL",
-        "Instrument creator cannot approve their own instrument",
-        403,
-        { code: "FOUR_EYE_VIOLATION" }
+      assertFourEyeSeparation(
+        current.createdById,
+        userId,
+        user,
+        "Instrument creator cannot approve their own instrument"
       );
     }
 

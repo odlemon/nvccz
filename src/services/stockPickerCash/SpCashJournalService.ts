@@ -9,6 +9,8 @@ import {
   d,
   db,
   emitCash,
+  loadCashAccountLabelMap,
+  loadFundNameMap,
   moneyStr,
   paginated,
   parseDateOnly,
@@ -401,12 +403,15 @@ export class SpCashJournalService {
           { accountType: { contains: "TRADING" } },
           { moneyClass: { contains: "TRADING" } },
           { accountType: "CLIENT" },
+          { accountType: "CUSTODY_CASH" },
+          { moneyClass: "CLIENT_CASH" },
         ];
       } else if (accountPurposeFilter === "FUND") {
         purposeWhere.OR = [
           { accountType: { contains: "FUND" } },
           { moneyClass: { contains: "FUND" } },
           { accountType: "OMNIBUS" },
+          { moneyClass: "OMNIBUS" },
         ];
       }
       const accounts = await db.spCashClientAccount.findMany({
@@ -435,7 +440,15 @@ export class SpCashJournalService {
     const accounts = accountIds.length
       ? await db.spCashClientAccount.findMany({
           where: { id: { in: accountIds } },
-          select: { id: true, accountType: true, moneyClass: true },
+          select: {
+            id: true,
+            accountType: true,
+            moneyClass: true,
+            clientName: true,
+            accountNumberMasked: true,
+            maskedIdentifier: true,
+            portfolioId: true,
+          },
         })
       : [];
     const purposeByAccount = Object.fromEntries(
@@ -445,6 +458,16 @@ export class SpCashJournalService {
         return [a.id, purpose];
       })
     );
+    const accountLabelMap = await loadCashAccountLabelMap(accountIds);
+    const fundIds = [
+      ...new Set(
+        lines
+          .map((l: any) => l.journal?.portfolioId)
+          .concat(accounts.map((a: any) => a.portfolioId))
+          .filter(Boolean)
+      ),
+    ];
+    const fundNameMap = await loadFundNameMap(fundIds);
 
     let running = new Decimal(0);
     if (query.from && query.cashAccountId) {
@@ -495,14 +518,22 @@ export class SpCashJournalService {
     const allRows = lines.map((l: any) => {
       running = running.plus(d(l.signedCashAmount));
       const accountPurpose = purposeByAccount[l.cashAccountId] || null;
+      const labels = accountLabelMap[l.cashAccountId] || {};
+      const fundId = l.journal?.portfolioId || null;
       return {
         id: l.id,
         lineId: l.id,
         journalId: l.journalId,
         valueDate: l.journal?.valueDate,
         businessDate: l.journal?.postingBusinessDate || l.journal?.valueDate,
-        fundId: l.journal?.portfolioId,
+        fundId,
+        fundName: fundId ? fundNameMap[fundId] || null : null,
         cashAccountId: l.cashAccountId,
+        accountNumber: labels.accountNumber ?? null,
+        accountNumberMasked: labels.accountNumberMasked ?? null,
+        cashAccountName: labels.cashAccountName ?? null,
+        cashAccountLabel: labels.cashAccountLabel ?? null,
+        clientName: labels.clientName ?? null,
         accountPurpose,
         transactionType: l.journal?.postingPurpose,
         postingPurpose: l.journal?.postingPurpose,

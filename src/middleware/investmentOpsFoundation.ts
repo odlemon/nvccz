@@ -142,6 +142,27 @@ export function getExpectedVersion(req: AuthRequest): string {
   return version;
 }
 
+/** Use If-Match / body.expectedVersion when present; otherwise fall back to entity version. */
+export function resolveExpectedVersion(
+  req: AuthRequest,
+  currentVersion: string | number
+): string {
+  const bodyVersion = singleQueryValue((req.body as any)?.expectedVersion);
+  const rawIfMatch = singleQueryValue(req.headers["if-match"]);
+  const ifMatch = rawIfMatch?.replace(/^W\//, "").replace(/^"|"$/g, "");
+  const version = bodyVersion || ifMatch;
+  if (!version || version === "*") return String(currentVersion);
+  if (bodyVersion && ifMatch && bodyVersion !== ifMatch) {
+    throw new InvestmentOpsError(
+      "EXPECTED_VERSION_MISMATCH",
+      "If-Match and body.expectedVersion must match",
+      400,
+      { ifMatch, expectedVersion: bodyVersion }
+    );
+  }
+  return version;
+}
+
 export function requireExpectedVersion(
   req: AuthRequest,
   res: Response,
@@ -161,6 +182,8 @@ function isAdmin(user: any): boolean {
   const roleCode = String(user?.roleCode || "").trim().toLowerCase();
   return ["admin", "system administrator"].includes(roleName) || roleCode === "admin";
 }
+
+export { isAdmin as investmentOpsIsAdmin };
 
 function permissionEntries(user: any): Array<{ name?: string; value?: boolean }> {
   return Array.isArray(user?.role?.permissions) ? user.role.permissions : [];

@@ -77,3 +77,45 @@ Do **not** expect send-to-broker alone to create a blotter trade.
 2. FE closes Part B F1–F13  
 3. Hide P4 Export buttons  
 4. Mark IDs closed in this file — avoid a third parallel asks doc
+
+---
+
+## UX polish enrichments (2026-07-20)
+
+| # | Ask | Status |
+| --- | --- | --- |
+| 1 | Positions/holdings nested `instrument` | **DONE** — `GET …/holdings`, `GET …/positions`, `GET /positions/:id` |
+| 2 | `GET /instruments` → `createdByName` | **DONE** — list + detail |
+| 3 | Overview income KPIs | **DONE** — `dividendIncome`, `interestIncome`, `marginUsed` (null until margin model) |
+| 4 | Exposure `bySector`, `byCountry` | **DONE** — alongside `byExchange` |
+| 5 | Price queue `reviewable` + `PENDING_REVIEW` approve | **DONE** — `GET /market-data/validation-queue`; approve/reject accepts queue status |
+| 6 | Import `canSubmit` / `canValidate` / `canCommit` | **DONE** — on `GET /external-statements/imports/:id` |
+
+**UAT:** `npm run uat:investments-v2:ux-polish` (DEV `nts`, live login)
+
+---
+
+## Walkthrough backend asks (2026-07-20)
+
+Full report: [`docs/investments-v2-walkthrough-backend-asks-2026-07-20.md`](./investments-v2-walkthrough-backend-asks-2026-07-20.md)
+
+| ID | Status |
+| --- | --- |
+| BA-1 cash-ledger purpose filters | **DONE** |
+| BA-2 execute latency + `tradeId` | **DONE** (~36s, top-level `tradeId`) |
+| BA-3 OPEN recon exceptions | **DONE** |
+| BA-6 DRAFT/SUBMITTED seed | **DONE** |
+| BA-T1 compliance SRD six + `srdLabel` | **DONE** |
+| BA-T2 PARTIALLY_EXECUTED / PENDING_SETTLEMENT | **DONE** |
+| BA-T3 STOP/STOP_LIMIT + settlement/approval route fields | **DONE** |
+| BA-T4 fail + archive | **DONE** |
+| BA-R1 import maker-checker + control totals | **DONE** |
+| BA-R5 OPEN exceptions (same as BA-3) | **DONE** |
+| BA-R6 CBZ_CSV_V1 + line errors + dup hash | **DONE** |
+| BA-R7 recon display labels (no cuid in tables) | **DONE** |
+| BA-5 / BA-R8 statement PDF binary download | **DONE** |
+| Break mark-reviewed + match confirm/unmatch harden | **DONE** — exception id heals break; confirm accepts flat body; reverse/unmatch + 30s tx |
+| BA-R2 score components | **PARTIAL** |
+| BA-4 / BA-7 / BA-8 / BA-9 / BA-R3 / BA-R4 | Can wait — see report |
+
+**UAT:** `uat:investments-v2:walkthrough` · `trading-asks` · `recon-asks` · `recon-labels-pdf` · `recon-breaks-match`

@@ -3,6 +3,7 @@ import { prisma } from "../../utils/database";
 import { ListedEquityAccessService } from "./ListedEquityAccessService";
 import { PortfolioValuationEngine } from "./PortfolioValuationEngine";
 import { WacCalculatorService } from "./WacCalculatorService";
+import { instrumentListSnapshot } from "../investmentOps/investmentOpsSupport";
 
 export class ListedEquityPortfolioService {
   static async listFunds(userId: string, user: any) {
@@ -32,6 +33,15 @@ export class ListedEquityPortfolioService {
       where: { fundId },
       include: { security: true },
     });
+    const securityIds = holdings.map((h) => h.securityId);
+    const instruments = securityIds.length
+      ? await prisma.investmentInstrument.findMany({
+          where: { listedEquitySecurityId: { in: securityIds } },
+        })
+      : [];
+    const instrumentBySecurityId = new Map(
+      instruments.map((i) => [i.listedEquitySecurityId, instrumentListSnapshot(i)])
+    );
     const rows = [];
     for (const h of holdings) {
       const price = await PortfolioValuationEngine.latestApprovedPrice(h.securityId);
@@ -46,6 +56,7 @@ export class ListedEquityPortfolioService {
         currentPrice: price,
         marketValue,
         unrealizedPnl: unrealized,
+        instrument: instrumentBySecurityId.get(h.securityId) ?? null,
       });
     }
     return rows;

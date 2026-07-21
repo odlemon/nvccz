@@ -107,8 +107,20 @@ function scorePair(internal: any, external: any, weights: any) {
       ok: false,
       code: "HARD_RULE_FAILED",
       reason: "Currency mismatch",
+      hardFailures: ["CURRENCY_MISMATCH"],
       scoreTotal: 0,
-      scoreComponents: { amount: 0, date: 0, reference: 0, counterparty: 0 },
+      scoreComponents: {
+        amount: 0,
+        date: 0,
+        reference: 0,
+        counterparty: 0,
+        weights: {
+          amount: weights.amountWeight,
+          date: weights.dateWeight,
+          reference: weights.referenceWeight,
+          counterparty: weights.counterpartyWeight,
+        },
+      },
     };
   }
 
@@ -118,8 +130,20 @@ function scorePair(internal: any, external: any, weights: any) {
       ok: false,
       code: "HARD_RULE_FAILED",
       reason: "Sign mismatch",
+      hardFailures: ["SIGN_MISMATCH"],
       scoreTotal: 0,
-      scoreComponents: { amount: amountScore, date: dateScore, reference: refScore, counterparty: cptyScore },
+      scoreComponents: {
+        amount: amountScore,
+        date: dateScore,
+        reference: refScore,
+        counterparty: cptyScore,
+        weights: {
+          amount: weights.amountWeight,
+          date: weights.dateWeight,
+          reference: weights.referenceWeight,
+          counterparty: weights.counterpartyWeight,
+        },
+      },
     };
   }
 
@@ -137,6 +161,19 @@ function scorePair(internal: any, external: any, weights: any) {
       date: dateScore,
       reference: refScore,
       counterparty: cptyScore,
+      // BA-R2: expose SRD weights (0.5 / 0.2 / 0.2 / 0.1) and weighted contributions
+      weights: {
+        amount: weights.amountWeight,
+        date: weights.dateWeight,
+        reference: weights.referenceWeight,
+        counterparty: weights.counterpartyWeight,
+      },
+      weighted: {
+        amount: amountScore * weights.amountWeight,
+        date: dateScore * weights.dateWeight,
+        reference: refScore * weights.referenceWeight,
+        counterparty: cptyScore * weights.counterpartyWeight,
+      },
     },
     amountDiff: moneyStr(amtDiff),
   };
@@ -551,7 +588,17 @@ export class SpCashMatchingService {
             externalLineId: ext.id,
             reason: scored.scoreTotal >= weights.autoMatchThreshold ? "High confidence match" : "Suggested match",
             confidence: Number(scored.scoreTotal.toFixed?.(4) ?? scored.scoreTotal),
-            scoreComponents: scored.scoreComponents,
+            scoreTotal: Number(scored.scoreTotal.toFixed?.(4) ?? scored.scoreTotal),
+            scoreComponents: {
+              ...(scored.scoreComponents || {}),
+              weights: {
+                amount: weights.amountWeight,
+                date: weights.dateWeight,
+                reference: weights.referenceWeight,
+                counterparty: weights.counterpartyWeight,
+              },
+            },
+            hardRuleFailures: scored.hardFailures || scored.failures || [],
           });
         }
       }
@@ -768,17 +815,86 @@ export class SpCashMatchingService {
   }
 
   static async confirm(body: any, actorId: string) {
-    const batchId = requireStr(body.batchId, "batchId");
-    const links = Array.isArray(body.links) ? body.links : [];
+    // Normalize FE shapes: top-level single link, or links[]; resolve batchId if omitted.
+    let links = Array.isArray(body.links) ? body.links : [];
+    if (!links.length && (body.internalLineId || body.externalLineId || body.matchedAmount)) {
+      links = [
+        {
+          internalLineId: body.internalLineId,
+          externalLineId: body.externalLineId,
+          matchedAmount: body.matchedAmount,
+          topology: body.topology,
+          scoreTotal: body.scoreTotal,
+          scoreComponents: body.scoreComponents || body.scoreComponentsJson,
+          evidenceRefs: body.evidenceRefs,
+          internalExpectedVersion: body.internalExpectedVersion,
+          externalExpectedVersion: body.externalExpectedVersion,
+          method: body.method,
+          makerId: body.makerId,
+        },
+      ];
+    }
     if (!links.length) {
-      throw new InvestmentOpsError("VALIDATION_ERROR", "links required", 400);
+      throw new InvestmentOpsError(
+        "VALIDATION_ERROR",
+        "links required (or internalLineId/externalLineId + matchedAmount)",
+        400
+      );
+    }
+
+    let batchId = body.batchId ? String(body.batchId) : null;
+    if (!batchId && body.cashAccountId) {
+      const batch = await db.spCashReconciliationBatch.findFirst({
+        where: { cashAccountId: String(body.cashAccountId) },
+        orderBy: { updatedAt: "desc" },
+      });
+      batchId = batch?.id || null;
+    }
+    if (!batchId && links[0]?.internalLineId) {
+      const il = await db.spCashJournalLine.findUnique({
+        where: { id: String(links[0].internalLineId) },
+        select: { cashAccountId: true, currency: true },
+      });
+      if (il?.cashAccountId) {
+        const batch = await db.spCashReconciliationBatch.findFirst({
+          where: {
+            cashAccountId: il.cashAccountId,
+            ...(il.currency ? { currency: il.currency } : {}),
+          },
+          orderBy: { updatedAt: "desc" },
+        });
+        batchId = batch?.id || null;
+        if (!batchId) {
+          const today = new Date();
+          const created = await db.spCashReconciliationBatch.create({
+            data: {
+              cashAccountId: il.cashAccountId,
+              currency: il.currency || body.currency || "USD",
+              periodFrom: new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)),
+              periodTo: today,
+              reconType: "MANUAL_MATCH",
+              status: "OPEN",
+              version: 1,
+            },
+          });
+          batchId = created.id;
+        }
+      }
+    }
+    if (!batchId) {
+      throw new InvestmentOpsError(
+        "VALIDATION_ERROR",
+        "batchId is required (or provide cashAccountId / internalLineId to resolve)",
+        400,
+        { field: "batchId" }
+      );
     }
 
     const result = await db.$transaction(
       async (tx: any) => {
         const created = [];
         for (const link of links) {
-          const matchAmt = d(requireStr(link.matchedAmount, "matchedAmount"));
+          const matchAmt = d(requireStr(link.matchedAmount ?? body.matchedAmount, "matchedAmount"));
           const topology = body.topology || link.topology || "ONE_TO_ONE";
 
           if (link.internalExpectedVersion != null && link.internalLineId) {
@@ -794,6 +910,22 @@ export class SpCashMatchingService {
             if (el) assertVersion({ version: el.lineVersion }, link.externalExpectedVersion);
           }
 
+          if (link.internalLineId && link.externalLineId) {
+            const existing = await tx.spCashMatchLink.findFirst({
+              where: {
+                batchId,
+                internalLineId: link.internalLineId,
+                externalLineId: link.externalLineId,
+                status: { in: ["CONFIRMED", "PROPOSED"] },
+              },
+              orderBy: { createdAt: "desc" },
+            });
+            if (existing) {
+              created.push(presentLink(existing));
+              continue;
+            }
+          }
+
           const row = await tx.spCashMatchLink.create({
             data: {
               batchId,
@@ -803,11 +935,11 @@ export class SpCashMatchingService {
               topology,
               scoreTotal: body.scoreTotal ?? link.scoreTotal ?? null,
               scoreComponentsJson: body.scoreComponents || link.scoreComponents || null,
-              method: body.method || "MANUAL_CONFIRM",
+              method: body.method || link.method || "MANUAL_CONFIRM",
               status: "CONFIRMED",
-              makerId: body.makerId || null,
+              makerId: body.makerId || link.makerId || null,
               checkerId: actorId,
-              evidenceRefsJson: body.evidenceRefs || null,
+              evidenceRefsJson: body.evidenceRefs || link.evidenceRefs || null,
               version: 1,
             },
           });
@@ -868,75 +1000,118 @@ export class SpCashMatchingService {
     return this.confirm({ ...body, method: body.method || "MANUAL" }, actorId);
   }
 
+  static async resolveMatchLink(linkId: string, body?: any) {
+    const id = String(linkId || body?.linkId || body?.matchId || "").trim();
+    if (!id) {
+      throw new InvestmentOpsError("VALIDATION_ERROR", "linkId is required", 400, { field: "linkId" });
+    }
+    let row = await db.spCashMatchLink.findUnique({ where: { id } });
+    if (row) return row;
+
+    // Suggestion ids look like sug_<internalCuid>_<externalCuid>
+    if (id.startsWith("sug_")) {
+      const payload = id.slice(4);
+      const idx = payload.lastIndexOf("_");
+      if (idx > 0) {
+        const internalLineId = payload.slice(0, idx);
+        const externalLineId = payload.slice(idx + 1);
+        row = await db.spCashMatchLink.findFirst({
+          where: {
+            internalLineId,
+            externalLineId,
+            status: { in: ["CONFIRMED", "PROPOSED"] },
+          },
+          orderBy: { createdAt: "desc" },
+        });
+        if (row) return row;
+      }
+    }
+
+    if (body?.internalLineId && body?.externalLineId) {
+      row = await db.spCashMatchLink.findFirst({
+        where: {
+          internalLineId: String(body.internalLineId),
+          externalLineId: String(body.externalLineId),
+          status: { in: ["CONFIRMED", "PROPOSED"] },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      if (row) return row;
+    }
+
+    throw new InvestmentOpsError("NOT_FOUND", "Match link not found", 404, { linkId: id });
+  }
+
   static async getMatch(linkId: string) {
-    const row = await db.spCashMatchLink.findUnique({ where: { id: linkId } });
-    if (!row) throw new InvestmentOpsError("NOT_FOUND", "Match link not found", 404);
+    const row = await this.resolveMatchLink(linkId);
     return presentLink(row);
   }
 
   static async reverseMatch(linkId: string, body: any, actorId: string) {
-    const row = await db.spCashMatchLink.findUnique({ where: { id: linkId } });
-    if (!row) throw new InvestmentOpsError("NOT_FOUND", "Match link not found", 404);
+    const row = await this.resolveMatchLink(linkId, body);
     if (row.status === "REVERSED") return presentLink(row);
     if (row.makerId) assertMakerNotChecker(row.makerId, actorId);
 
-    return db.$transaction(async (tx: any) => {
-      const updated = await tx.spCashMatchLink.update({
-        where: { id: linkId },
-        data: { status: "REVERSED", version: { increment: 1 } },
-      });
-      await tx.spCashMatchLink.create({
-        data: {
-          batchId: row.batchId,
-          internalLineId: row.internalLineId,
-          externalLineId: row.externalLineId,
-          matchedAmount: row.matchedAmount,
-          topology: row.topology,
-          method: "REVERSAL",
-          status: "REVERSAL",
-          makerId: actorId,
-          checkerId: actorId,
-          reversalOf: row.id,
-          version: 1,
-        },
-      });
-
-      if (row.internalLineId) {
-        await tx.spCashJournalLine.update({
-          where: { id: row.internalLineId },
+    const updated = await db.$transaction(
+      async (tx: any) => {
+        const next = await tx.spCashMatchLink.update({
+          where: { id: row.id },
+          data: { status: "REVERSED", version: { increment: 1 } },
+        });
+        await tx.spCashMatchLink.create({
           data: {
-            matchStatus: "UNMATCHED",
-            residualAmount: null,
-            lineVersion: { increment: 1 },
+            batchId: row.batchId,
+            internalLineId: row.internalLineId,
+            externalLineId: row.externalLineId,
+            matchedAmount: row.matchedAmount,
+            topology: row.topology,
+            method: "REVERSAL",
+            status: "REVERSAL",
+            makerId: actorId,
+            checkerId: actorId,
+            reversalOf: row.id,
+            version: 1,
           },
         });
-      }
-      if (row.externalLineId) {
-        const el = await tx.spCashExternalStatementLine.findUnique({
-          where: { id: row.externalLineId },
-        });
-        if (el) {
-          await tx.spCashExternalStatementLine.update({
-            where: { id: el.id },
+
+        if (row.internalLineId) {
+          await tx.spCashJournalLine.update({
+            where: { id: row.internalLineId },
             data: {
               matchStatus: "UNMATCHED",
-              residualAmount: el.signedCashAmount,
+              residualAmount: null,
               lineVersion: { increment: 1 },
             },
           });
         }
-      }
+        if (row.externalLineId) {
+          const el = await tx.spCashExternalStatementLine.findUnique({
+            where: { id: row.externalLineId },
+          });
+          if (el) {
+            await tx.spCashExternalStatementLine.update({
+              where: { id: el.id },
+              data: {
+                matchStatus: "UNMATCHED",
+                residualAmount: el.signedCashAmount,
+                lineVersion: { increment: 1 },
+              },
+            });
+          }
+        }
+        return next;
+      },
+      { maxWait: 15_000, timeout: 30_000 }
+    );
 
-      await emitCash({
-        eventType: "cash.match.reversed",
-        aggregateType: "SpCashMatchLink",
-        aggregateId: linkId,
-        aggregateVersion: updated.version,
-        actorId,
-        reason: body?.reason || null,
-        tx,
-      });
-      return presentLink(updated);
+    await emitCash({
+      eventType: "cash.match.reversed",
+      aggregateType: "SpCashMatchLink",
+      aggregateId: row.id,
+      aggregateVersion: updated.version,
+      actorId,
+      reason: body?.reason || null,
     });
+    return presentLink(updated);
   }
 }

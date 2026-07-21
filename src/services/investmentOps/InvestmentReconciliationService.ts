@@ -4,6 +4,7 @@ import { InvestmentOpsError } from "../../middleware/investmentOpsFoundation";
 import { prisma } from "../../utils/database";
 import { ListedEquityAccessService } from "../listedEquity/ListedEquityAccessService";
 import { PortfolioValuationEngine } from "../listedEquity/PortfolioValuationEngine";
+import { assertFourEyeSeparation } from "./investmentOpsFourEye";
 import { InvestmentOpsAuditService } from "./InvestmentOpsAuditService";
 import { InvestmentJobWorkerService, registerInvestmentJobHandler } from "./InvestmentJobWorkerService";
 import { paginatedResult, parsePagination } from "./investmentOpsSupport";
@@ -797,7 +798,12 @@ export class InvestmentReconciliationService {
       orderBy: { createdAt: "desc" },
     });
     if (pending?.proposedById && pending.proposedById === userId) {
-      fail("FOUR_EYE_VIOLATION", "Requester cannot approve their own write-off", 403);
+      assertFourEyeSeparation(
+        pending.proposedById,
+        userId,
+        user,
+        "Requester cannot approve their own write-off"
+      );
     }
     return this.transitionItem(itemId, "WRITTEN_OFF", userId, user, {
       reason: reason || item.resolutionReason || "Write-off approved",

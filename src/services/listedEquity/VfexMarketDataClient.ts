@@ -103,11 +103,11 @@ export class VfexMarketDataClient {
     const [priceRes, capRes] = await Promise.all([
       marketDataFetch(`${VFEX_PRICE_API_BASE}/api/fetch/price-sheet?exchange=VFEX`, {
         headers,
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(60_000),
       }),
       marketDataFetch(`${VFEX_PRICE_API_BASE}/api/fetch/market-capitalisation?exchange=VFEX`, {
         headers,
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(60_000),
       }),
     ]);
     const priceJson = (await priceRes.json()) as { data?: VfexPriceSheetRow[]; message?: string };

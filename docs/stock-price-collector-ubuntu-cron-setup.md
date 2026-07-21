@@ -13,8 +13,10 @@ Add to the application `.env` on the server:
 | `MARKET_DATA_WEBHOOK_SECRET` | HMAC verification for `POST /api/investments/market-data/webhooks/:providerCode` |
 | `LISTED_EQUITY_AUTO_CONFIRM_STAKEHOLDER` | Optional `true` in dev/UAT only — auto-confirms broker/custodian hops |
 | `LISTED_EQUITY_CUSTODIAN_ENABLED` | Set `true` when custodian PDF/email/SFTP dispatch is ready. **Default off** — internal settlement auto-completes bank + GL on execute |
+| `MANSA_API_KEY` | **Required for live ZSE prices.** Without it, ZSE ingest falls back to last approved prices (`sourceStatus: FALLBACK`). |
+| `MANSA_API_BASE_URL` | Optional override (default `https://mansaapi.com`) |
 | `ZSE_PRICE_URL` / `VFEX_PRICE_URL` / `SECZIM_PRICE_URL` | Optional legacy scrape URLs when Mansa is not mapped for that source |
-| Mansa API (ZSE) | Hardcoded in `MansaMarketDataClient.ts` — `ZSE` source uses `GET /api/v1/markets/exchanges/ZIMBABWE/stocks` (1 req/run, 36 stocks) |
+| Mansa API (ZSE) | `MansaMarketDataClient.ts` — `ZSE` uses `GET /api/v1/markets/exchanges/ZIMBABWE/stocks` |
 | VFEX scrape | `VfexMarketDataClient.ts` — reads the public price sheet API used by [vfex.exchange](https://www.vfex.exchange/) (`ds88jcmqc11je.cloudfront.net/api/fetch/price-sheet?exchange=VFEX`) |
 | NASDAQ scrape | [FastBull](https://www.fastbull.com/) IXIC composite + Yahoo chart API for equities (`DELAYED_15M`) |
 | NYSE scrape | [Yahoo Finance](https://finance.yahoo.com/quote/%5ENYA/) `^NYA` composite + Yahoo chart for NYSE equities |

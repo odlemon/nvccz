@@ -7,6 +7,8 @@
  */
 import "dotenv/config";
 import { createCipheriv, createHash, randomBytes } from "crypto";
+import { mkdir, writeFile } from "fs/promises";
+import path from "path";
 import { PrismaClient } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { assertDevDatabase } from "./lib/assert-dev-database";
@@ -66,6 +68,12 @@ const SETTLED_TRADES = [
 
 function sha(s: string) {
   return createHash("sha256").update(s).digest("hex");
+}
+
+async function writeSeedMockFile(relativePath: string, content: string) {
+  const absolute = path.resolve(process.cwd(), relativePath);
+  await mkdir(path.dirname(absolute), { recursive: true });
+  await writeFile(absolute, content, "utf8");
 }
 
 function encryptExternalId(plain: string): string {
@@ -395,6 +403,36 @@ async function ensureCashLedger(cfgId: string) {
       },
     });
   }
+
+  // Order preview/submit reads the latest POSTED ledger runningBalance. Later settle/exec
+  // rows often leave runningBalance null → cashBefore=0 and Place Order fails. Heal on seed.
+  const latest = await prisma.investmentCashLedgerEntry.findFirst({
+    where: { cashAccountId: acct.id, status: "POSTED" },
+    orderBy: [{ effectiveAt: "desc" }, { id: "desc" }],
+  });
+  const bal = latest?.runningBalance != null ? Number(latest.runningBalance) : NaN;
+  if (!latest || !Number.isFinite(bal) || bal < 100000) {
+    if (latest) {
+      await prisma.investmentCashLedgerEntry.update({
+        where: { id: latest.id },
+        data: { runningBalance: new Decimal("5000000") },
+      });
+    } else {
+      await prisma.investmentCashLedgerEntry.create({
+        data: {
+          cashAccountId: acct.id,
+          entryType: "MANUAL_ADJUSTMENT",
+          amount: new Decimal("5000000"),
+          currencyCode: "USD",
+          effectiveAt: new Date(),
+          valueDate: new Date(),
+          status: "POSTED",
+          idempotencyKey: `seed-cash-topup-${acct.id}`,
+          runningBalance: new Decimal("5000000"),
+        },
+      });
+    }
+  }
   return acct;
 }
 
@@ -479,9 +517,12 @@ async function ensureRoutingTrade(opts: {
   qty: number;
   price: number;
   adminId: string;
+  /** Override default ROUTING — e.g. EXECUTED for rare cases. */
+  status?: string;
 }) {
   const when = new Date(Date.now() - 4 * 3600000);
   let trade = await prisma.listedEquityTrade.findFirst({ where: { tradeRef: opts.tradeRef } });
+  const status = opts.status || "ROUTING";
   const data = {
     fundId: opts.fundId,
     securityId: opts.securityId,
@@ -490,8 +531,9 @@ async function ensureRoutingTrade(opts: {
     executionPrice: new Decimal(opts.price),
     executionCurrencyCode: "USD",
     fees: new Decimal(25),
-    status: "ROUTING",
+    status,
     executedAt: when,
+    settledAt: status === "SETTLED" ? when : null,
     executedById: opts.adminId,
   };
   if (!trade) {
@@ -499,12 +541,20 @@ async function ensureRoutingTrade(opts: {
   } else {
     trade = await prisma.listedEquityTrade.update({ where: { id: trade.id }, data });
   }
-  const hops: Array<{ target: string; status: string }> = [
-    { target: "BROKER", status: "DISPATCHED" },
-    { target: "CUSTODIAN", status: "STAGED" },
-    { target: "CORE_BANKING", status: "STAGED" },
-    { target: "ACCOUNTING_GL", status: "STAGED" },
-  ];
+  const hops: Array<{ target: string; status: string }> =
+    status === "SETTLED"
+      ? [
+          { target: "BROKER", status: "CONFIRMED" },
+          { target: "CUSTODIAN", status: "CONFIRMED" },
+          { target: "CORE_BANKING", status: "CONFIRMED" },
+          { target: "ACCOUNTING_GL", status: "CONFIRMED" },
+        ]
+      : [
+          { target: "BROKER", status: "DISPATCHED" },
+          { target: "CUSTODIAN", status: "STAGED" },
+          { target: "CORE_BANKING", status: "STAGED" },
+          { target: "ACCOUNTING_GL", status: "STAGED" },
+        ];
   for (const h of hops) {
     await prisma.listedEquityTradeRoutingHop.upsert({
       where: { tradeId_target: { tradeId: trade.id, target: h.target } },
@@ -512,10 +562,22 @@ async function ensureRoutingTrade(opts: {
         tradeId: trade.id,
         target: h.target,
         status: h.status,
-        dispatchedAt: h.status === "DISPATCHED" ? when : null,
+        dispatchedAt: h.status === "DISPATCHED" || h.status === "CONFIRMED" ? when : null,
+        confirmedAt: h.status === "CONFIRMED" ? when : null,
         externalRef: `SEED-${opts.tradeRef}-${h.target}`,
       },
-      update: { status: h.status },
+      update: {
+        status: h.status,
+        dispatchedAt: h.status === "DISPATCHED" || h.status === "CONFIRMED" ? when : null,
+        confirmedAt: h.status === "CONFIRMED" ? when : null,
+      },
+    });
+  }
+  if (status === "SETTLED") {
+    await prisma.listedEquityTradeSettlement.upsert({
+      where: { tradeId: trade.id },
+      create: { tradeId: trade.id, settlementDocumentRef: `settlement://${opts.tradeRef}` },
+      update: { settlementDocumentRef: `settlement://${opts.tradeRef}` },
     });
   }
   return trade;
@@ -550,10 +612,10 @@ async function ensureOrder(opts: {
     settlementCurrency: "USD",
     brokerProfileId: opts.brokerId,
     status: opts.status,
-    complianceStatus: opts.status === "REJECTED" ? "BREACH" : "PASSED",
+    complianceStatus: opts.status === "REJECTED" || opts.status === "FAILED" ? "FAILED" : "PASSED",
     createdById: opts.adminId,
     submittedAt: opts.status === "DRAFT" ? null : when,
-    approvedAt: ["APPROVED", "EXECUTED", "SETTLED", "SENT_TO_BROKER"].includes(opts.status)
+    approvedAt: ["APPROVED", "EXECUTED", "SETTLED", "SENT_TO_BROKER", "PARTIALLY_EXECUTED", "PENDING_SETTLEMENT", "FAILED"].includes(opts.status)
       ? when
       : null,
     tradeDate: when,
@@ -571,7 +633,7 @@ async function ensureOrder(opts: {
     });
   }
 
-  if (["APPROVED", "EXECUTED", "SETTLED", "SENT_TO_BROKER"].includes(opts.status)) {
+  if (["APPROVED", "EXECUTED", "SETTLED", "SENT_TO_BROKER", "PARTIALLY_EXECUTED", "PENDING_SETTLEMENT", "FAILED"].includes(opts.status)) {
     if (
       !(await prisma.investmentOrderApproval.findFirst({
         where: { orderId: order.id, approvalSequence: 1 },
@@ -593,10 +655,13 @@ async function ensureOrder(opts: {
       });
     }
   }
-  if (["EXECUTED", "SETTLED"].includes(opts.status)) {
+  if (["EXECUTED", "SETTLED", "PARTIALLY_EXECUTED", "PENDING_SETTLEMENT"].includes(opts.status)) {
     const execRef = `${opts.orderRef}-FILL-1`;
     if (!(await prisma.investmentOrderExecution.findFirst({ where: { orderId: order.id, executionRef: execRef } }))) {
-      const qty = new Decimal(opts.qty);
+      const qty =
+        opts.status === "PARTIALLY_EXECUTED"
+          ? new Decimal(opts.qty).mul(new Decimal("0.4"))
+          : new Decimal(opts.qty);
       const px = new Decimal(opts.price);
       await prisma.investmentOrderExecution.create({
         data: {
@@ -609,13 +674,73 @@ async function ensureOrder(opts: {
           taxAmount: new Decimal(0),
           currencyCode: "USD",
           executedAt: when,
-          settlementDate: when,
+          settlementDate: opts.status === "SETTLED" ? when : null,
           idempotencyKey: `seed-fill-${opts.orderRef}`,
         },
       });
     }
   }
+
+  // Broker route is required for POST /trades/:id/confirm (order trade-confirmation alias).
+  // Live flow: APPROVED → route() creates InvestmentOrderRoute → SENT_TO_BROKER → confirm.
+  // Seed previously jumped past that and left confirm broken.
+  await ensureOrderBrokerRoute(order, opts);
+
   return order;
+}
+
+async function ensureOrderBrokerRoute(
+  order: { id: string; orderRef: string; brokerProfileId?: string | null; side?: string; quantity?: any },
+  opts: { status: string; brokerId: string; qty: number; price: number; orderRef: string; side: string }
+) {
+  const needsRoute = [
+    "SENT_TO_BROKER",
+    "PARTIALLY_EXECUTED",
+    "EXECUTED",
+    "PENDING_SETTLEMENT",
+    "SETTLED",
+    "FAILED",
+  ].includes(opts.status);
+  if (!needsRoute) return null;
+
+  const existing = await prisma.investmentOrderRoute.findFirst({
+    where: { orderId: order.id },
+    orderBy: { routeSequence: "desc" },
+  });
+  // Still waiting for blotter Confirm → leave ROUTED so POST /trades/:id/confirm works.
+  const when = new Date(Date.now() - 2 * 86400000);
+  const routeStatus = "ROUTED";
+  if (existing) {
+    return prisma.investmentOrderRoute.update({
+      where: { id: existing.id },
+      data: {
+        status: routeStatus,
+        brokerProfileId: existing.brokerProfileId || opts.brokerId,
+        venueCode: existing.venueCode || "ZSE",
+        externalOrderRef: existing.externalOrderRef || `SEED-BRK-${opts.orderRef}`,
+        routedAt: existing.routedAt || when,
+      },
+    });
+  }
+  return prisma.investmentOrderRoute.create({
+    data: {
+      orderId: order.id,
+      routeSequence: 1,
+      venueCode: "ZSE",
+      brokerProfileId: opts.brokerId,
+      status: routeStatus,
+      externalOrderRef: `SEED-BRK-${opts.orderRef}`,
+      requestPayload: {
+        orderRef: opts.orderRef,
+        side: opts.side,
+        quantity: opts.qty,
+        limitPrice: opts.price,
+        seeded: true,
+      },
+      idempotencyKey: `seed-route-${opts.orderRef}`,
+      routedAt: when,
+    },
+  });
 }
 
 async function cleanupOrphanComplianceResults() {
@@ -1064,12 +1189,26 @@ async function ensureAccountingDemo(opts: {
         where: { exportBatchRef: exportRef },
       }))
     ) {
+      await writeSeedMockFile(
+        exportPath,
+        JSON.stringify(
+          {
+            fundId: opts.fundId,
+            exportBatchRef: exportRef,
+            exportedAt: new Date().toISOString(),
+            note: "Seed ledger export for Investments V2 demo",
+            accountingEventId: acctEvent.id,
+          },
+          null,
+          2
+        )
+      );
       await prisma.investmentAccountingExportLink.create({
         data: {
           accountingEventId: acctEvent.id,
           exportSystem: "CORE_GL",
           exportBatchRef: exportRef,
-          externalRef: exportPath,
+          externalRef: path.resolve(process.cwd(), exportPath),
           status: "COMPLETED",
           payloadHash: sha(exportRef),
           exportedAt: new Date(),
@@ -1211,7 +1350,7 @@ async function ensureSpCashRich(opts: {
 
   if (
     !(await prisma.spCashReconciliationException.findFirst({
-      where: { cashAccountId, category: "TIMING" },
+      where: { cashAccountId, category: "TIMING", source: "SEED_WALKTHROUGH:EX-1" },
     }))
   ) {
     await prisma.spCashReconciliationException.create({
@@ -1225,7 +1364,7 @@ async function ensureSpCashRich(opts: {
         amountTxn: new Decimal("200"),
         currencyTxn: CURRENCY,
         assignedToId: adminId,
-        source: "AUTO_RECON",
+        source: "SEED_WALKTHROUGH:EX-1",
         counterparty: "CBZ Custody",
         version: 1,
       },
@@ -1274,6 +1413,281 @@ async function ensureSpCashRich(opts: {
   }
 
   console.log(`[ok] sp cash journals, recon batch, broker-custodian, exception`);
+}
+
+/** FUND / TRADING purpose-tagged accounts + ledger lines for cash-ledger walkthrough filters. */
+async function ensurePurposeCashAccounts(opts: {
+  fund: { id: string; name: string };
+  providerId: string;
+  tolerancePolicyId: string;
+  adminId: string;
+  approverId: string;
+}) {
+  const specs = [
+    {
+      code: "TRADING",
+      accountType: "TRADING_CASH",
+      moneyClass: "TRADING_CASH",
+      opening: "750000",
+      movement: "-45000",
+      movementDesc: "Equity buy — trading sleeve",
+    },
+    {
+      code: "FUND",
+      accountType: "OMNIBUS",
+      moneyClass: "FUND_CASH",
+      opening: "3200000",
+      movement: "125000",
+      movementDesc: "Capital call receipt — fund omnibus",
+    },
+  ] as const;
+
+  for (const spec of specs) {
+    const externalId = `ARCS-${spec.code}-${opts.fund.id.slice(0, 8)}`;
+    const fp = fingerprint([opts.providerId, externalId, CURRENCY]);
+    let acct = await prisma.spCashClientAccount.findFirst({
+      where: { providerId: opts.providerId, externalFingerprint: fp },
+    });
+    const base = {
+      tenantId: TENANT_ID,
+      legalEntityId: LEGAL_ENTITY_ID,
+      clientOrVehicleId: `vehicle:${opts.fund.id}`,
+      portfolioId: opts.fund.id,
+      ownerModel: "SEGREGATED",
+      moneyClass: spec.moneyClass,
+      accountType: spec.accountType,
+      providerId: opts.providerId,
+      externalIdentifierEncrypted: encryptExternalId(externalId),
+      externalFingerprint: fp,
+      maskedIdentifier: `****${spec.code}`,
+      accountNumberMasked: `****${spec.code}`,
+      currency: CURRENCY,
+      status: "ACTIVE",
+      effectiveFrom: new Date("2020-01-01"),
+      tolerancePolicyId: opts.tolerancePolicyId,
+      clientName: `${opts.fund.name} (${spec.code})`,
+      createdById: opts.adminId,
+      approvedById: opts.adminId,
+    };
+    if (!acct) {
+      acct = await prisma.spCashClientAccount.create({ data: { ...base, version: 1 } });
+    } else {
+      acct = await prisma.spCashClientAccount.update({ where: { id: acct.id }, data: base });
+    }
+
+    const openKey = `seed:purpose-open:${spec.code}:${opts.fund.id.slice(0, 8)}`;
+    if (!(await prisma.spCashJournal.findFirst({ where: { idempotencyKey: openKey } }))) {
+      await prisma.spCashJournal.create({
+        data: {
+          sourceSystem: "SEED",
+          sourceEventId: `OPEN-${spec.code}-${opts.fund.id.slice(0, 8)}`,
+          postingPurpose: "OPENING",
+          idempotencyKey: openKey,
+          valueDate: new Date("2025-06-15"),
+          settlementDate: new Date("2025-06-15"),
+          postingBusinessDate: new Date("2025-06-15"),
+          currency: CURRENCY,
+          status: "POSTED",
+          makerId: opts.adminId,
+          checkerId: opts.approverId !== opts.adminId ? opts.approverId : opts.adminId,
+          cashAccountId: acct.id,
+          portfolioId: opts.fund.id,
+          postedAt: new Date(),
+          version: 1,
+          lines: {
+            create: [
+              {
+                ledgerAccountCode: "CASH",
+                cashAccountId: acct.id,
+                debit: new Decimal(spec.opening),
+                credit: new Decimal(0),
+                signedCashAmount: new Decimal(spec.opening),
+                currency: CURRENCY,
+                description: `${spec.code} opening balance`,
+                matchStatus: "UNMATCHED",
+              },
+              {
+                ledgerAccountCode: "OPENING_EQUITY",
+                debit: new Decimal(0),
+                credit: new Decimal(spec.opening),
+                signedCashAmount: new Decimal(0),
+                currency: CURRENCY,
+                description: "Opening equity balancing line",
+                matchStatus: null,
+              },
+            ],
+          },
+        },
+      });
+    }
+
+    const moveKey = `seed:purpose-move:${spec.code}:${opts.fund.id.slice(0, 8)}`;
+    const moveAmt = new Decimal(spec.movement);
+    const absMove = moveAmt.abs();
+    if (!(await prisma.spCashJournal.findFirst({ where: { idempotencyKey: moveKey } }))) {
+      await prisma.spCashJournal.create({
+        data: {
+          sourceSystem: "SEED",
+          sourceEventId: `MOVE-${spec.code}-${opts.fund.id.slice(0, 8)}`,
+          postingPurpose: spec.code === "TRADING" ? "TRADE_SETTLEMENT" : "CAPITAL_CALL",
+          idempotencyKey: moveKey,
+          valueDate: new Date(),
+          settlementDate: new Date(),
+          postingBusinessDate: new Date(),
+          currency: CURRENCY,
+          status: "POSTED",
+          makerId: opts.adminId,
+          checkerId: opts.approverId !== opts.adminId ? opts.approverId : opts.adminId,
+          cashAccountId: acct.id,
+          portfolioId: opts.fund.id,
+          postedAt: new Date(),
+          version: 1,
+          lines: {
+            create: [
+              {
+                ledgerAccountCode: "CASH",
+                cashAccountId: acct.id,
+                debit: moveAmt.gt(0) ? absMove : new Decimal(0),
+                credit: moveAmt.lt(0) ? absMove : new Decimal(0),
+                signedCashAmount: moveAmt,
+                currency: CURRENCY,
+                description: spec.movementDesc,
+                matchStatus: "UNMATCHED",
+              },
+              {
+                ledgerAccountCode: spec.code === "TRADING" ? "TRADE_PAYABLE" : "CAPITAL_RECEIVED",
+                debit: moveAmt.lt(0) ? absMove : new Decimal(0),
+                credit: moveAmt.gt(0) ? absMove : new Decimal(0),
+                signedCashAmount: new Decimal(0),
+                currency: CURRENCY,
+                description: `${spec.code} offset`,
+                matchStatus: null,
+              },
+            ],
+          },
+        },
+      });
+    }
+  }
+  console.log(`[ok] purpose-tagged TRADING + FUND cash accounts and ledger lines`);
+}
+
+/** OPEN / INVESTIGATING reconciliation exceptions for walkthrough resolve flow. */
+async function ensureWalkthroughReconExceptions(opts: {
+  fund: { id: string; name: string };
+  cashAccountId: string;
+  batchId: string;
+  adminId: string;
+}) {
+  const specs = [
+    {
+      source: "SEED_WALKTHROUGH:EX-1",
+      category: "TIMING",
+      severity: "MEDIUM",
+      status: "OPEN",
+      amount: "200",
+      counterparty: "CBZ Custody",
+    },
+    {
+      source: "SEED_WALKTHROUGH:EX-2",
+      category: "AMOUNT",
+      severity: "HIGH",
+      status: "INVESTIGATING",
+      amount: "1250",
+      counterparty: "Imara Edwards",
+    },
+    {
+      source: "SEED_WALKTHROUGH:EX-3",
+      category: "MISSING",
+      severity: "LOW",
+      status: "OPEN",
+      amount: "75",
+      counterparty: "Internal transfer",
+    },
+  ] as const;
+
+  for (const spec of specs) {
+    let row = await prisma.spCashReconciliationException.findFirst({
+      where: { source: spec.source, cashAccountId: opts.cashAccountId },
+    });
+    const data = {
+      batchId: opts.batchId,
+      cashAccountId: opts.cashAccountId,
+      clientOrVehicleId: `vehicle:${opts.fund.id}`,
+      category: spec.category,
+      severity: spec.severity,
+      status: spec.status,
+      amountTxn: new Decimal(spec.amount),
+      currencyTxn: CURRENCY,
+      assignedToId: opts.adminId,
+      source: spec.source,
+      counterparty: spec.counterparty,
+    };
+    if (!row) {
+      row = await prisma.spCashReconciliationException.create({
+        data: { ...data, version: 1 },
+      });
+    } else {
+      row = await prisma.spCashReconciliationException.update({
+        where: { id: row.id },
+        data: { ...data, version: row.version + 1 },
+      });
+    }
+
+    // Linked break so /reconciliation-breaks/:id/mark-reviewed works with exception or break id.
+    if (opts.batchId) {
+      const existingBreak = await prisma.spCashReconciliationBreak.findFirst({
+        where: { exceptionId: row.id },
+      });
+      if (!existingBreak) {
+        await prisma.spCashReconciliationBreak.create({
+          data: {
+            batchId: opts.batchId,
+            breakCode: `EXC_${spec.category}`,
+            category: spec.category,
+            details: `Walkthrough break linked to ${spec.source}`,
+            amount: new Decimal(spec.amount),
+            currency: CURRENCY,
+            status: "OPEN",
+            exceptionId: row.id,
+            version: 1,
+          },
+        });
+      }
+    }
+
+    const timelineKey = `${spec.source}:OPENED`;
+    if (
+      !(await prisma.spCashExceptionTimeline.findFirst({
+        where: { exceptionId: row.id, eventType: "OPENED" },
+      }))
+    ) {
+      await prisma.spCashExceptionTimeline.create({
+        data: {
+          exceptionId: row.id,
+          eventType: "OPENED",
+          actorId: opts.adminId,
+          notes: `Walkthrough seed — ${spec.category} variance detected`,
+        },
+      });
+    }
+    if (
+      spec.status === "INVESTIGATING" &&
+      !(await prisma.spCashExceptionTimeline.findFirst({
+        where: { exceptionId: row.id, eventType: "INVESTIGATION_STARTED" },
+      }))
+    ) {
+      await prisma.spCashExceptionTimeline.create({
+        data: {
+          exceptionId: row.id,
+          eventType: "INVESTIGATION_STARTED",
+          actorId: opts.adminId,
+          notes: "Assigned for broker statement review",
+        },
+      });
+    }
+  }
+  console.log(`[ok] walkthrough recon exceptions (OPEN/INVESTIGATING)`);
 }
 
 async function ensureMarketDataBatch(_adminId: string) {
@@ -1769,6 +2183,7 @@ async function ensureLpFundCash(opts: {
     if (await prisma.investmentDocument.findFirst({ where: { fundId: opts.fundId, title: d.title } }))
       continue;
     const fileRef = `storage/local-upload-mock/investment-ops-fund-cash/${opts.fundId}/${d.file}`;
+    await writeSeedMockFile(fileRef, `%PDF-1.4\n% Fund cash document: ${d.title}\n`);
     await prisma.investmentDocument.create({
       data: {
         fundId: opts.fundId,
@@ -1864,8 +2279,35 @@ async function ensureComplianceResultsForOrders(opts: {
   });
   if (!rules.length) return;
 
-  for (const [idx, orderId] of opts.orderIds.slice(0, 4).entries()) {
+  for (const [idx, orderId] of opts.orderIds.slice(0, 6).entries()) {
+    const order = await prisma.investmentOrder.findUnique({
+      where: { id: orderId },
+      select: { id: true, orderRef: true, currentRevisionNo: true },
+    });
+    if (!order) continue;
     const rule = rules[idx % rules.length];
+    const threshold = rule.thresholdValue != null ? Number(rule.thresholdValue) : 25;
+    const unit = rule.thresholdUnit === "PCT" ? "%" : "";
+    const failed = idx % 2 === 1;
+    const snapshot = {
+      seed: true,
+      revisionNo: order.currentRevisionNo || 1,
+      display: {
+        limitDisplay: `${threshold}${unit}`,
+        currentDisplay: failed ? `${Math.max(0, threshold - 3)}${unit}` : `${Math.max(0, threshold - 8)}${unit}`,
+        afterTradeDisplay: failed ? `${threshold + 4}${unit}` : `${Math.max(0, threshold - 5)}${unit}`,
+      },
+      checks: [
+        {
+          ruleId: rule.id,
+          outcome: failed ? "FAILED" : "PASSED",
+          limitDisplay: `${threshold}${unit}`,
+          currentDisplay: failed ? `${Math.max(0, threshold - 3)}${unit}` : `${Math.max(0, threshold - 8)}${unit}`,
+          afterTradeDisplay: failed ? `${threshold + 4}${unit}` : `${Math.max(0, threshold - 5)}${unit}`,
+        },
+      ],
+    };
+
     let run = await prisma.investmentComplianceRun.findFirst({
       where: { idempotencyKey: `seed-compliance-run-${orderId.slice(0, 8)}` },
     });
@@ -1877,33 +2319,132 @@ async function ensureComplianceResultsForOrders(opts: {
           runType: "PRE_TRADE",
           status: "COMPLETED",
           ruleSetVersion: 1,
-          inputSnapshot: { seed: true, revisionNo: 1 },
+          inputSnapshot: snapshot,
           idempotencyKey: `seed-compliance-run-${orderId.slice(0, 8)}`,
           startedById: opts.adminId,
           completedAt: new Date(),
         },
       });
+    } else {
+      run = await prisma.investmentComplianceRun.update({
+        where: { id: run.id },
+        data: { inputSnapshot: snapshot },
+      });
     }
-    if (
-      !(await prisma.investmentComplianceResult.findFirst({
-        where: { orderId, ruleId: rule.id },
-      }))
-    ) {
-      await prisma.investmentComplianceResult.create({
+
+    let result = await prisma.investmentComplianceResult.findFirst({
+      where: { orderId, ruleId: rule.id },
+    });
+    if (!result) {
+      result = await prisma.investmentComplianceResult.create({
         data: {
           orderId,
           ruleId: rule.id,
           complianceRunId: run.id,
-          outcome: idx % 2 === 0 ? "PASS" : "BREACH",
-          message:
-            idx % 2 === 0
-              ? "Within mandate limits"
-              : "Projected weight exceeds single-name limit",
+          outcome: failed ? "FAILED" : "PASSED",
+          message: failed
+            ? `Projected weight exceeds ${threshold}${unit} single-name limit`
+            : "Within mandate limits",
+        },
+      });
+    } else {
+      await prisma.investmentComplianceResult.update({
+        where: { id: result.id },
+        data: {
+          complianceRunId: run.id,
+          outcome: failed ? "FAILED" : "PASSED",
+          message: failed
+            ? `Projected weight exceeds ${threshold}${unit} single-name limit`
+            : "Within mandate limits",
         },
       });
     }
   }
-  console.log(`[ok] compliance results for ${Math.min(opts.orderIds.length, 4)} orders`);
+
+  // Dedicated walkthrough FAILED row with no pending override (Request override demo).
+  const overrideDemoOrder =
+    (await prisma.investmentOrder.findFirst({ where: { orderRef: "ALP-ORD-SENT-SEED" } })) ||
+    (await prisma.investmentOrder.findFirst({ where: { orderRef: "ALP-ORD-SENT-BAT" } }));
+  const maxRule = await prisma.investmentComplianceRule.findFirst({
+    where: { fundId: opts.fundId, ruleCode: "MAX_SINGLE_NAME_25" },
+  });
+  if (overrideDemoOrder && maxRule) {
+    const key = `seed-compliance-run-override-demo`;
+    let run = await prisma.investmentComplianceRun.findFirst({ where: { idempotencyKey: key } });
+    const snapshot = {
+      seed: true,
+      healed: true,
+      revisionNo: overrideDemoOrder.currentRevisionNo || 1,
+      display: {
+        limitDisplay: "25%",
+        currentDisplay: "18%",
+        afterTradeDisplay: "29%",
+      },
+      checks: [
+        {
+          ruleId: maxRule.id,
+          outcome: "FAILED",
+          limitDisplay: "25%",
+          currentDisplay: "18%",
+          afterTradeDisplay: "29%",
+        },
+      ],
+    };
+    if (!run) {
+      run = await prisma.investmentComplianceRun.create({
+        data: {
+          fundId: opts.fundId,
+          orderId: overrideDemoOrder.id,
+          runType: "PRE_TRADE",
+          status: "COMPLETED",
+          ruleSetVersion: 1,
+          inputSnapshot: snapshot,
+          idempotencyKey: key,
+          startedById: opts.adminId,
+          completedAt: new Date(),
+        },
+      });
+    } else {
+      run = await prisma.investmentComplianceRun.update({
+        where: { id: run.id },
+        data: { orderId: overrideDemoOrder.id, inputSnapshot: snapshot },
+      });
+    }
+    let result = await prisma.investmentComplianceResult.findFirst({
+      where: { orderId: overrideDemoOrder.id, ruleId: maxRule.id, complianceRunId: run.id },
+    });
+    if (!result) {
+      result = await prisma.investmentComplianceResult.findFirst({
+        where: { orderId: overrideDemoOrder.id, ruleId: maxRule.id },
+      });
+    }
+    if (!result) {
+      result = await prisma.investmentComplianceResult.create({
+        data: {
+          orderId: overrideDemoOrder.id,
+          ruleId: maxRule.id,
+          complianceRunId: run.id,
+          outcome: "FAILED",
+          message: "Walkthrough: projected weight 29% exceeds 25% — request override",
+        },
+      });
+    } else {
+      await prisma.investmentComplianceResult.update({
+        where: { id: result.id },
+        data: {
+          complianceRunId: run.id,
+          outcome: "FAILED",
+          message: "Walkthrough: projected weight 29% exceeds 25% — request override",
+        },
+      });
+    }
+    // Ensure no leftover PENDING override blocks the demo button.
+    await prisma.investmentComplianceOverride.deleteMany({
+      where: { complianceResultId: result.id, status: "PENDING", reasonCode: "CLIENT_OVERRIDE_DEMO" },
+    });
+  }
+
+  console.log(`[ok] compliance results for walkthrough (incl. override-demo FAILED)`);
 }
 
 async function ensureTransactionsFromTrades(fundId: string) {
@@ -2139,6 +2680,28 @@ async function ensureComplianceChain(opts: {
   let run = await prisma.investmentComplianceRun.findFirst({
     where: { idempotencyKey: "seed-compliance-run-approved-dlta" },
   });
+  const order = await prisma.investmentOrder.findUnique({
+    where: { id: opts.orderId },
+    select: { currentRevisionNo: true },
+  });
+  const snapshot = {
+    seed: true,
+    revisionNo: order?.currentRevisionNo || 1,
+    display: {
+      limitDisplay: "25%",
+      currentDisplay: "22%",
+      afterTradeDisplay: "28%",
+    },
+    checks: [
+      {
+        ruleId: rule.id,
+        outcome: "FAILED",
+        limitDisplay: "25%",
+        currentDisplay: "22%",
+        afterTradeDisplay: "28%",
+      },
+    ],
+  };
   if (!run) {
     run = await prisma.investmentComplianceRun.create({
       data: {
@@ -2147,11 +2710,16 @@ async function ensureComplianceChain(opts: {
         runType: "PRE_TRADE",
         status: "COMPLETED",
         ruleSetVersion: 1,
-        inputSnapshot: { seed: true },
+        inputSnapshot: snapshot,
         idempotencyKey: "seed-compliance-run-approved-dlta",
         startedById: opts.adminId,
         completedAt: new Date(),
       },
+    });
+  } else {
+    run = await prisma.investmentComplianceRun.update({
+      where: { id: run.id },
+      data: { inputSnapshot: snapshot },
     });
   }
 
@@ -2164,7 +2732,7 @@ async function ensureComplianceChain(opts: {
         orderId: opts.orderId,
         ruleId: rule.id,
         complianceRunId: run.id,
-        outcome: "BREACH",
+        outcome: "FAILED",
         message: "Projected ECO weight 28% exceeds 25% single-name limit",
       },
     });
@@ -2288,6 +2856,7 @@ async function ensureDocsReports(fundId: string, adminId: string, orderId?: stri
   for (const d of docs) {
     if (await prisma.investmentDocument.findFirst({ where: { fundId, title: d.title } })) continue;
     const fileRef = `storage/local-upload-mock/investment-ops-docs/seed/${fundId}/${d.file}`;
+    await writeSeedMockFile(fileRef, `%PDF-1.4\n% Demo document: ${d.title}\n`);
     await prisma.investmentDocument.create({
       data: {
         fundId,
@@ -2559,17 +3128,41 @@ async function ensureSpCash(fund: { id: string; name: string }, adminId: string)
       },
     });
   }
-  let layout = await prisma.spCashFileLayout.findFirst({ where: { providerId: provider.id } });
+  let layout = await prisma.spCashFileLayout.findFirst({
+    where: { providerId: provider.id, layoutCode: "CBZ_CSV_V1" },
+  });
+  const layoutData = {
+    providerId: provider.id,
+    layoutCode: "CBZ_CSV_V1",
+    versionNo: 1,
+    signMapJson: { Debit: "NEGATIVE", Credit: "POSITIVE" },
+    dateMapJson: {
+      valueDate: "value_date",
+      tradeDate: "trade_date",
+      // Documented CBZ_CSV_V1 columns for FE demo templates
+      columns: [
+        "value_date",
+        "trade_date",
+        "amount",
+        "debit_credit",
+        "reference",
+        "counterparty",
+        "description",
+      ],
+      alternateColumns: ["debit_amount", "credit_amount"],
+    },
+    status: "ACTIVE",
+    effectiveFrom: new Date("2020-01-01"),
+  };
   if (!layout) {
-    layout = await prisma.spCashFileLayout.create({
+    layout = await prisma.spCashFileLayout.create({ data: layoutData });
+  } else {
+    layout = await prisma.spCashFileLayout.update({
+      where: { id: layout.id },
       data: {
-        providerId: provider.id,
-        layoutCode: "CBZ_CSV_V1",
-        versionNo: 1,
-        signMapJson: { Debit: "NEGATIVE", Credit: "POSITIVE" },
-        dateMapJson: { valueDate: "value_date", tradeDate: "trade_date" },
+        signMapJson: layoutData.signMapJson,
+        dateMapJson: layoutData.dateMapJson,
         status: "ACTIVE",
-        effectiveFrom: new Date("2020-01-01"),
       },
     });
   }
@@ -2744,7 +3337,39 @@ async function main() {
     price: 3.12,
     adminId: admin.id,
   });
-  console.log(`[ok] trades settled=${SETTLED_TRADES.length} routing=2`);
+  // Open blotter trades for orderbook → blotter deep-link (tradeId + orderId/orderRef).
+  const tradePartialEco = await ensureRoutingTrade({
+    fundId: fund.id,
+    securityId: securityBySymbol.ECO,
+    tradeRef: "ALP-TRADE-PARTIAL-ECO",
+    side: "BUY",
+    qty: 4000, // 40% of ALP-ORD-PARTIAL-ECO qty 10000
+    price: 4.5,
+    adminId: admin.id,
+    status: "ROUTING",
+  });
+  const tradePendingSettleCbz = await ensureRoutingTrade({
+    fundId: fund.id,
+    securityId: securityBySymbol.CBZ,
+    tradeRef: "ALP-TRADE-PENDING-SETTLE-CBZ",
+    side: "BUY",
+    qty: 600,
+    price: 12.4,
+    adminId: admin.id,
+    status: "ROUTING",
+  });
+  const tradeSettledInn = await ensureSettledTrade({
+    fundId: fund.id,
+    securityId: securityBySymbol.INN,
+    tradeRef: "ALP-TRADE-SETTLED-INN",
+    side: "BUY",
+    qty: 400,
+    price: 41.5,
+    fees: 25,
+    when: new Date(Date.now() - 2 * 86400000),
+    adminId: admin.id,
+  });
+  console.log(`[ok] trades settled=${SETTLED_TRADES.length} routing=2 lifecycleOpen=3`);
 
   const orderSpecs = [
     { ref: "ALP-ORD-DRAFT-ECO", symbol: "ECO", side: "BUY" as const, qty: 2000, price: 4.5, status: "DRAFT" },
@@ -2760,8 +3385,43 @@ async function main() {
       status: "EXECUTED",
       tradeId: routingFbc.id,
     },
-    { ref: "ALP-ORD-SETTLED-INN", symbol: "INN", side: "BUY" as const, qty: 400, price: 41.5, status: "SETTLED" },
+    {
+      ref: "ALP-ORD-SETTLED-INN",
+      symbol: "INN",
+      side: "BUY" as const,
+      qty: 400,
+      price: 41.5,
+      status: "SETTLED",
+      tradeId: tradeSettledInn.id,
+    },
     { ref: "ALP-ORD-SENT-BAT", symbol: "BAT", side: "BUY" as const, qty: 100, price: 84.0, status: "SENT_TO_BROKER" },
+    { ref: "ALP-ORD-SENT-SEED", symbol: "SEED", side: "BUY" as const, qty: 500, price: 6.15, status: "SENT_TO_BROKER" },
+    {
+      ref: "ALP-ORD-PARTIAL-ECO",
+      symbol: "ECO",
+      side: "BUY" as const,
+      qty: 10000,
+      price: 4.5,
+      status: "PARTIALLY_EXECUTED",
+      tradeId: tradePartialEco.id,
+    },
+    {
+      ref: "ALP-ORD-PENDING-SETTLE-CBZ",
+      symbol: "CBZ",
+      side: "BUY" as const,
+      qty: 600,
+      price: 12.4,
+      status: "PENDING_SETTLEMENT",
+      tradeId: tradePendingSettleCbz.id,
+    },
+    {
+      ref: "ALP-ORD-FAILED-FBC",
+      symbol: "FBC",
+      side: "SELL" as const,
+      qty: 300,
+      price: 8.0,
+      status: "FAILED",
+    },
     {
       ref: "ALP-ORD-ROUTING-OKZ",
       symbol: "OKZ",
@@ -2834,6 +3494,25 @@ async function main() {
     adminId: admin.id,
     approverId: approver.id,
   });
+  await ensurePurposeCashAccounts({
+    fund,
+    providerId: cash.provider.id,
+    tolerancePolicyId: cash.cash.tolerancePolicyId,
+    adminId: admin.id,
+    approverId: approver.id,
+  });
+  const reconBatch = await prisma.spCashReconciliationBatch.findFirst({
+    where: { cashAccountId: cash.cash.id, fundId: fund.id },
+    orderBy: { createdAt: "desc" },
+  });
+  if (reconBatch) {
+    await ensureWalkthroughReconExceptions({
+      fund,
+      cashAccountId: cash.cash.id,
+      batchId: reconBatch.id,
+      adminId: admin.id,
+    });
+  }
   await ensureMarketDataBatch(admin.id);
   const extraFundIds = await ensureExtraPortfolios({
     adminId: admin.id,

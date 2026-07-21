@@ -1,0 +1,10 @@
+{
+  "tradeRef": "TXN-MRTBUS5QFB78E8",
+  "side": "BUY",
+  "symbol": "INN",
+  "exchange": "ZSE",
+  "quantity": 10000,
+  "price": 42.1,
+  "currency": "USD",
+  "executedAt": "2026-07-20T14:36:08.500Z"
+}

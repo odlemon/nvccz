@@ -29,7 +29,10 @@ export class ListedEquityTradeController {
         status: req.query.status as string,
         fundScope: scope,
       });
-      res.json({ success: true, data });
+      const { InvestmentOrderService } = require("../services/investmentOps/InvestmentOrderService");
+      const withOrders = await InvestmentOrderService.attachOrderLinks(data);
+      const enriched = withOrders.map((t: any) => InvestmentOrderService.enrichTradeBlotter(t));
+      res.json({ success: true, data: enriched });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
     }
@@ -40,7 +43,9 @@ export class ListedEquityTradeController {
       const trade = await TradeOrchestratorService.getTradeDetail(req.params.id);
       if (!trade) return res.status(404).json({ success: false, message: "Not found" });
       await ListedEquityAccessService.assertFundAccess(req.user!.id, trade.fundId, req.user);
-      res.json({ success: true, data: trade });
+      const { InvestmentOrderService } = require("../services/investmentOps/InvestmentOrderService");
+      const [linked] = await InvestmentOrderService.attachOrderLinks([trade]);
+      res.json({ success: true, data: InvestmentOrderService.enrichTradeBlotter(linked) });
     } catch (e: any) {
       const status = e.message === "FORBIDDEN_FUND_ACCESS" ? 403 : 400;
       res.status(status).json({ success: false, message: e.message });

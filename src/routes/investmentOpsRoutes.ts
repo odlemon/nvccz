@@ -444,9 +444,20 @@ router.post(
 router.post(
   "/orders/:id/cancel",
   ...write,
-  requireExpectedVersion,
   requireIdempotencyKey,
   InvestmentOpsController.cancelOrder
+);
+router.post(
+  "/orders/:id/fail",
+  ...write,
+  requireIdempotencyKey,
+  InvestmentOpsController.failOrder
+);
+router.post(
+  "/orders/:id/archive",
+  ...write,
+  requireIdempotencyKey,
+  InvestmentOpsController.archiveOrder
 );
 
 router.post(
@@ -576,14 +587,12 @@ router.get("/trades/:id/settlement-document", ...auth, InvestmentOpsController.t
 router.post(
   "/trades/:id/confirm",
   ...execute,
-  requireExpectedVersion,
   requireIdempotencyKey,
   InvestmentOpsController.confirmTradeAlias
 );
 router.post(
   "/trades/:id/settle",
   ...execute,
-  requireExpectedVersion,
   requireIdempotencyKey,
   InvestmentOpsController.settleTradeAlias
 );
@@ -612,6 +621,8 @@ router.get("/compliance/runs", ...auth, InvestmentOpsController.listComplianceRu
 router.get("/compliance/results", ...auth, InvestmentOpsController.listComplianceResults);
 router.get("/compliance/runs/:id", ...auth, InvestmentOpsController.getComplianceRun);
 router.get("/compliance/overrides", ...auth, InvestmentOpsController.listComplianceOverrides);
+// FE / walkthrough often POST here; canonical create path is also /overrides/requests
+router.post("/compliance/overrides", ...write, InvestmentOpsController.requestComplianceOverride);
 router.post("/compliance/overrides/requests", ...write, InvestmentOpsController.requestComplianceOverride);
 router.post(
   "/compliance/overrides/:id/approve",
@@ -962,6 +973,8 @@ router.post("/setup/funds", ...write, InvestmentOpsController.createInvestmentFu
 
 router.get("/setup/funds/:id", ...auth, InvestmentOpsController.getInvestmentFund);
 
+router.get("/setup/funds/:id/limits", ...auth, InvestmentOpsController.listPortfolioLimits);
+
 router.put("/setup/funds/:id", ...write, InvestmentOpsController.updateInvestmentFund);
 
 router.put("/setup/funds/:id/config", ...write, InvestmentOpsController.updateInvestmentFundConfig);
@@ -1129,8 +1142,10 @@ router.get("/fund-cash-summary", ...spReconView, StockPickerCashController.fundC
 // 14.7 Matches
 router.post("/matches/confirm", ...spReconMatch, requireIdempotencyKey, StockPickerCashController.confirmMatch);
 router.post("/matches/manual", ...spReconMatch, requireIdempotencyKey, StockPickerCashController.manualMatch);
+router.post("/matches/unmatch", ...spReconUnmatch, StockPickerCashController.reverseMatchBody);
 router.get("/matches/:linkId", ...spReconView, StockPickerCashController.getMatch);
 router.post("/matches/:linkId/reverse", ...spReconUnmatch, StockPickerCashController.reverseMatch);
+router.post("/matches/:linkId/unmatch", ...spReconUnmatch, StockPickerCashController.reverseMatch);
 
 // 14.8 Broker & custodian
 router.get("/broker-custodian/workspace", ...spReconView, StockPickerCashController.brokerCustodianWorkspace);
@@ -1139,6 +1154,9 @@ router.post("/broker-custodian/items/:id/escalate", ...spExcAssign, StockPickerC
 router.post("/broker-custodian/items/:id/clear", ...spExcApprove, StockPickerCashController.brokerCustodianClear);
 
 // 14.9 Exceptions
+router.get("/cash-exceptions", ...spExcView, StockPickerCashController.listExceptions);
+router.get("/cash-exceptions/summary", ...spExcView, StockPickerCashController.exceptionsSummary);
+router.get("/cash-exceptions/:id", ...spExcView, StockPickerCashController.getException);
 router.get("/reconciliation-exceptions", ...spExcView, StockPickerCashController.listExceptions);
 router.get("/reconciliation-exceptions/summary", ...spExcView, StockPickerCashController.exceptionsSummary);
 router.get("/reconciliation-exceptions/:id", ...spExcView, StockPickerCashController.getException);

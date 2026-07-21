@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { createHash, randomUUID } from "crypto";
 import { createReadStream } from "fs";
-import { mkdir, writeFile, access } from "fs/promises";
+import { access, mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { InvestmentOpsError } from "../../middleware/investmentOpsFoundation";
 import { prisma } from "../../utils/database";
@@ -18,6 +18,7 @@ const STORAGE_ROOT = path.resolve(
   "local-upload-mock",
   "investment-ops-docs"
 );
+const LOCAL_MOCK_ROOT = path.resolve(process.cwd(), "storage", "local-upload-mock");
 
 const ALLOWED_MIME = new Set([
   "application/pdf",
@@ -726,6 +727,64 @@ export class InvestmentDocumentationService {
       contentDisposition: contentDisposition(version.fileName, mode === "preview"),
       checksumSha256: version.checksumSha256,
       fileName: version.fileName,
+    };
+  }
+
+  static async openDocumentDownload(
+    documentId: string,
+    userId: string,
+    user: any,
+    mode: "preview" | "download"
+  ) {
+    const doc = await documentAccess(
+      documentId,
+      userId,
+      user,
+      mode === "download" ? "DOWNLOAD" : "READ"
+    );
+    const version = doc.versions?.[0];
+    if (version) {
+      return this.openVersionStream(documentId, version.id, userId, user, mode);
+    }
+    if (!doc.fileRef) fail("FILE_NOT_FOUND", "Document has no downloadable file", 404);
+    return this.openFileRefStream(doc, userId, mode);
+  }
+
+  static async openFileRefStream(doc: any, userId: string, mode: "preview" | "download") {
+    const absolute = path.resolve(process.cwd(), String(doc.fileRef));
+    if (
+      !absolute.startsWith(STORAGE_ROOT + path.sep) &&
+      absolute !== STORAGE_ROOT &&
+      !absolute.startsWith(LOCAL_MOCK_ROOT + path.sep)
+    ) {
+      fail("UNSAFE_FILE_PATH", "File path is outside the controlled storage root", 400);
+    }
+    try {
+      await access(absolute);
+    } catch {
+      await mkdir(path.dirname(absolute), { recursive: true });
+      const placeholder = `%PDF-1.4\n% Demo document: ${doc.title || doc.id}\n`;
+      await writeFile(absolute, placeholder, "utf8");
+    }
+    const fileName = path.basename(absolute);
+    const mimeType = fileName.toLowerCase().endsWith(".pdf")
+      ? "application/pdf"
+      : fileName.toLowerCase().endsWith(".json")
+        ? "application/json"
+        : "application/octet-stream";
+    await InvestmentOpsAuditService.log(
+      mode === "preview" ? "DOCUMENT_PREVIEWED" : "DOCUMENT_DOWNLOADED",
+      "Document",
+      doc.id,
+      { fileRef: doc.fileRef },
+      userId
+    );
+    return {
+      stream: createReadStream(absolute),
+      contentType: mimeType,
+      contentDisposition: contentDisposition(fileName, mode === "preview"),
+      checksumSha256: doc.checksumSha256,
+      fileName,
     };
   }
 

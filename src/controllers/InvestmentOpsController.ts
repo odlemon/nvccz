@@ -30,6 +30,7 @@ import {
   getIdempotencyKey,
   InvestmentOpsError,
   parseInvestmentListQuery,
+  resolveExpectedVersion,
   sendInvestmentOpsError,
 } from "../middleware/investmentOpsFoundation";
 
@@ -230,12 +231,18 @@ export class InvestmentOpsController {
     );
   }
   static reorderFolders(req: AuthRequest, res: Response) {
+    const body = req.body || {};
+    const ids =
+      body.ids ??
+      body.folderIds ??
+      body.order ??
+      (Array.isArray(body.items) ? body.items.map((item: any) => item?.id ?? item) : undefined);
     handle(
       res,
       InvestmentOpsPhase1Service.reorderFolders(
         req.params.fundId,
-        req.body.parentId ?? null,
-        req.body.ids,
+        body.parentId ?? null,
+        ids,
         req.user!.id,
         req.user
       )
@@ -342,12 +349,18 @@ export class InvestmentOpsController {
         new InvestmentOpsError("VALIDATION_ERROR", "fundId is required", 400, { field: "fundId" })
       );
     }
+    const body = req.body || {};
+    const ids =
+      body.ids ??
+      body.folderIds ??
+      body.order ??
+      (Array.isArray(body.items) ? body.items.map((item: any) => item?.id ?? item) : undefined);
     handle(
       res,
       InvestmentOpsPhase1Service.reorderFolders(
         fundId,
-        req.body.parentId ?? null,
-        req.body.ids,
+        body.parentId ?? null,
+        ids,
         req.user!.id,
         req.user
       )
@@ -400,10 +413,11 @@ export class InvestmentOpsController {
     );
   }
   static listPortfolioLimits(req: AuthRequest, res: Response) {
+    const fundId = req.params.fundId || req.params.id;
     handle(
       res,
       InvestmentOpsPhase1Service.limits(
-        req.params.fundId,
+        fundId,
         req.user!.id,
         req.user,
         req.query.includeArchived === "true"
@@ -498,7 +512,8 @@ export class InvestmentOpsController {
         req.body.status,
         req.user!.id,
         getExpectedVersion(req),
-        req.body.reason
+        req.body.reason,
+        req.user
       )
     );
   }
@@ -736,15 +751,17 @@ export class InvestmentOpsController {
   static cancelOrder(req: AuthRequest, res: Response) {
     handle(
       res,
-      InvestmentOrderPhase2Service.transition(
-        req.params.id,
-        "CANCELLED",
-        getExpectedVersion(req),
-        getIdempotencyKey(req),
-        req.user!.id,
-        req.user,
-        "CANCEL",
-        req.body.reason
+      InvestmentOrderPhase2Service.get(req.params.id, req.user!.id, req.user).then((order: any) =>
+        InvestmentOrderPhase2Service.transition(
+          req.params.id,
+          "CANCELLED",
+          resolveExpectedVersion(req, order.version),
+          getIdempotencyKey(req),
+          req.user!.id,
+          req.user,
+          "CANCEL",
+          req.body.reason
+        )
       )
     );
   }
@@ -778,7 +795,35 @@ export class InvestmentOpsController {
         req.params.id,
         req.user!.id,
         req.user,
-        getIdempotencyKey(req)
+        getIdempotencyKey(req),
+        {
+          quantity: req.body?.quantity != null ? Number(req.body.quantity) : undefined,
+          partialFillQuantity:
+            req.body?.partialFillQuantity != null
+              ? Number(req.body.partialFillQuantity)
+              : req.body?.filledQuantity != null
+                ? Number(req.body.filledQuantity)
+                : undefined,
+          executionPrice:
+            req.body?.executionPrice != null ? Number(req.body.executionPrice) : undefined,
+        }
+      )
+    );
+  }
+  static failOrder(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentOrderService.fail(req.params.id, req.user!.id, String(req.body?.reason || ""), req.user)
+    );
+  }
+  static archiveOrder(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentOrderService.archive(
+        req.params.id,
+        req.user!.id,
+        req.body?.reason as string | undefined,
+        req.user
       )
     );
   }
@@ -842,7 +887,7 @@ export class InvestmentOpsController {
       201
     );
   }
-  /** SRD: confirm trade via linked investment order when present. */
+  /** SRD: confirm trade via linked investment order when present; also advance LE broker hop. */
   static confirmTradeAlias(req: AuthRequest, res: Response) {
     handle(
       res,
@@ -851,6 +896,7 @@ export class InvestmentOpsController {
         const order = await prisma.investmentOrder.findFirst({
           where: { tradeId },
           orderBy: { updatedAt: "desc" },
+          select: { id: true, version: true, orderRef: true, brokerProfileId: true },
         });
         if (!order) {
           throw new InvestmentOpsError(
@@ -859,14 +905,44 @@ export class InvestmentOpsController {
             404
           );
         }
-        return InvestmentOrderPhase2Service.confirmation(
+        const route = await InvestmentOrderPhase2Service.confirmation(
           order.id,
-          req.body,
-          getExpectedVersion(req),
+          {
+            ...req.body,
+            externalOrderRef:
+              req.body?.externalOrderRef || `BRK-${order.orderRef || tradeId.slice(-8)}`,
+          },
+          resolveExpectedVersion(req, order.version),
           getIdempotencyKey(req),
           req.user!.id,
           req.user
         );
+
+        // Blotter Confirm also advances the listed-equity BROKER hop when still open.
+        const brokerHop = await prisma.listedEquityTradeRoutingHop.findFirst({
+          where: {
+            tradeId,
+            target: "BROKER",
+            status: { in: ["STAGED", "DISPATCHED", "RETRYING"] },
+          },
+          orderBy: { createdAt: "asc" },
+        });
+        let hop = null as any;
+        if (brokerHop) {
+          hop = await TradeOrchestratorService.confirmHop(
+            brokerHop.id,
+            req.user!.id,
+            route.externalOrderRef || req.body?.externalOrderRef
+          );
+        }
+
+        const trade = await TradeOrchestratorService.getTradeDetail(tradeId);
+        const [linked] = await InvestmentOrderService.attachOrderLinks([trade]);
+        return {
+          route,
+          hop,
+          trade: InvestmentOrderService.enrichTradeBlotter(linked),
+        };
       })()
     );
   }
@@ -878,6 +954,7 @@ export class InvestmentOpsController {
         const order = await prisma.investmentOrder.findFirst({
           where: { tradeId },
           orderBy: { updatedAt: "desc" },
+          select: { id: true, version: true },
         });
         if (!order) {
           throw new InvestmentOpsError(
@@ -893,7 +970,7 @@ export class InvestmentOpsController {
             allowDeferredAccounting:
               req.body?.allowDeferredAccounting ?? req.query.allowDeferredAccounting,
           },
-          getExpectedVersion(req),
+          resolveExpectedVersion(req, order.version),
           getIdempotencyKey(req),
           req.user!.id,
           req.user
@@ -918,7 +995,8 @@ export class InvestmentOpsController {
         status: req.query.status as string,
         fundScope: scope,
       });
-      const enriched = data.map((t: any) => InvestmentOrderService.enrichTradeBlotter(t));
+      const withOrders = await InvestmentOrderService.attachOrderLinks(data);
+      const enriched = withOrders.map((t: any) => InvestmentOrderService.enrichTradeBlotter(t));
       const page = Math.max(1, Number(req.query.page) || 1);
       const pageSize = Math.min(200, Math.max(1, Number(req.query.pageSize) || 50));
       const total = enriched.length;
@@ -938,7 +1016,16 @@ export class InvestmentOpsController {
     }
   }
   static getTrade(req: AuthRequest, res: Response) {
-    return ListedEquityTradeController.get(req, res);
+    handle(
+      res,
+      (async () => {
+        const trade = await TradeOrchestratorService.getTradeDetail(req.params.id);
+        if (!trade) throw new InvestmentOpsError("NOT_FOUND", "Trade not found", 404);
+        await ListedEquityAccessService.assertFundAccess(req.user!.id, trade.fundId, req.user);
+        const [linked] = await InvestmentOrderService.attachOrderLinks([trade]);
+        return InvestmentOrderService.enrichTradeBlotter(linked);
+      })()
+    );
   }
   static executeTrade(req: AuthRequest, res: Response) {
     return ListedEquityTradeController.execute(req, res);
@@ -1033,7 +1120,15 @@ export class InvestmentOpsController {
     handle(res, InvestmentComplianceService.getRun(req.params.id, req.user!.id, req.user));
   }
   static requestComplianceOverride(req: AuthRequest, res: Response) {
-    handle(res, InvestmentComplianceService.requestOverride(req.body, req.user!.id, req.user), 201);
+    handle(
+      res,
+      InvestmentComplianceService.requestOverride(
+        { ...(req.query || {}), ...(req.body || {}) },
+        req.user!.id,
+        req.user
+      ),
+      201
+    );
   }
   static listComplianceOverrides(req: AuthRequest, res: Response) {
     handle(res, InvestmentComplianceService.listOverrides(req.query, req.user!.id, req.user));
@@ -1981,14 +2076,8 @@ export class InvestmentOpsController {
   /** @deprecated unsafe path download — redirects to current version download semantics */
   static async downloadDocument(req: AuthRequest, res: Response) {
     try {
-      const doc = await InvestmentDocumentationService.get(req.params.id, req.user!.id, req.user);
-      const version = doc.versions?.[0];
-      if (!version) {
-        return res.status(404).json({ success: false, message: "Not found" });
-      }
-      const file = await InvestmentDocumentationService.openVersionStream(
+      const file = await InvestmentDocumentationService.openDocumentDownload(
         req.params.id,
-        version.id,
         req.user!.id,
         req.user,
         "download"

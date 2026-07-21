@@ -249,14 +249,21 @@ app.use(cors({
   exposedHeaders: ['X-Request-Id', 'ETag'],
   optionsSuccessStatus: 200
 }))
-app.use(express.json({
-  verify: (req: any, _res, buf) => {
-    const url = String(req.originalUrl || req.url || "");
-    if (url.includes("/webhooks/")) {
-      req.rawBody = Buffer.from(buf);
-    }
-  },
-}))
+const jsonBodyVerify = (req: any, _res: any, buf: Buffer) => {
+  const url = String(req.originalUrl || req.url || "");
+  if (url.includes("/webhooks/")) {
+    req.rawBody = Buffer.from(buf);
+  }
+};
+app.use((req, res, next) => {
+  const url = String(req.originalUrl || req.url || "");
+  const largeBody =
+    req.method === "POST" && /\/api\/investment-ops\/files(\/?$|\?)/.test(url);
+  express.json({
+    limit: largeBody ? "30mb" : "100kb",
+    verify: jsonBodyVerify,
+  })(req, res, next);
+});
 app.use(express.urlencoded({ extended: true }))
 
 // BigInt-safe JSON responses. mysql2 returns BigInt for BIGINT/DECIMAL columns,

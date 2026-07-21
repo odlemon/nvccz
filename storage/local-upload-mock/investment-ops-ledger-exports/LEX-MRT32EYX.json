@@ -1,0 +1,51 @@
+{
+  "fundId": "cmrdhkyoq003zkt4oo9paby46",
+  "exportedAt": "2026-07-20T10:30:03.849Z",
+  "events": [
+    {
+      "id": "seed-acct-ALP-BAT-2026",
+      "eventType": "PURCHASE",
+      "journalEntryId": null,
+      "amount": "39250",
+      "currencyCode": "USD",
+      "tradeRef": "ALP-BAT-2026",
+      "postedAt": "2026-07-06T06:27:54.200Z"
+    },
+    {
+      "id": "seed-acct-ALP-CBZ2-2026",
+      "eventType": "SALE",
+      "journalEntryId": null,
+      "amount": "12400",
+      "currencyCode": "USD",
+      "tradeRef": "ALP-CBZ2-2026",
+      "postedAt": "2026-07-19T06:28:26.585Z"
+    },
+    {
+      "id": "seed-acct-ALP-ECO2-2026",
+      "eventType": "PURCHASE",
+      "journalEntryId": null,
+      "amount": "22000",
+      "currencyCode": "USD",
+      "tradeRef": "ALP-ECO2-2026",
+      "postedAt": "2026-07-17T06:28:18.822Z"
+    },
+    {
+      "id": "seed-acct-ALP-OKZ-2026",
+      "eventType": "PURCHASE",
+      "journalEntryId": null,
+      "amount": "23600",
+      "currencyCode": "USD",
+      "tradeRef": "ALP-OKZ-2026",
+      "postedAt": "2026-07-10T06:28:01.971Z"
+    },
+    {
+      "id": "seed-acct-ALP-SEED-2026",
+      "eventType": "PURCHASE",
+      "journalEntryId": null,
+      "amount": "14500",
+      "currencyCode": "USD",
+      "tradeRef": "ALP-SEED-2026",
+      "postedAt": "2026-07-13T06:28:10.886Z"
+    }
+  ]
+}

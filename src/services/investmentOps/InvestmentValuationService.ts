@@ -4,6 +4,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { InvestmentOpsError } from "../../middleware/investmentOpsFoundation";
 import { prisma } from "../../utils/database";
 import { ListedEquityAccessService } from "../listedEquity/ListedEquityAccessService";
+import { assertFourEyeSeparation } from "./investmentOpsFourEye";
 import { PortfolioValuationEngine } from "../listedEquity/PortfolioValuationEngine";
 import { InvestmentFifoCostService } from "./InvestmentFifoCostService";
 import { InvestmentOpsAuditService } from "./InvestmentOpsAuditService";
@@ -54,41 +55,60 @@ function serializeRun(run: any) {
   };
 }
 
-async function attachRunPnl(run: any) {
-  if (!run?.id) return run;
+async function attachRunPnlBatch(runs: any[]) {
+  if (!runs.length) return [];
+  const runIds = runs.map((run) => run.id);
   const items = await db.investmentValuationItemSnapshot.findMany({
-    where: { valuationRunId: run.id },
-    select: { unrealizedPnl: true, costValue: true, baseMarketValue: true },
+    where: { valuationRunId: { in: runIds } },
+    select: { valuationRunId: true, unrealizedPnl: true },
   });
-  let unrealized = new Decimal(0);
+  const unrealizedByRun = new Map<string, Decimal>();
   for (const item of items) {
-    if (item.unrealizedPnl != null) unrealized = unrealized.plus(dec(item.unrealizedPnl));
+    if (item.unrealizedPnl == null) continue;
+    const current = unrealizedByRun.get(item.valuationRunId) || new Decimal(0);
+    unrealizedByRun.set(item.valuationRunId, current.plus(dec(item.unrealizedPnl)));
   }
-  const asOf = run.asOf ? new Date(run.asOf) : null;
-  const txnWhere: any = {
-    fundId: run.fundId,
-    status: "POSTED",
-    transactionType: { in: ["REALIZED_GAIN", "REALIZED_LOSS"] },
-  };
-  if (asOf) txnWhere.tradeDate = { lte: asOf };
-  const txns = await db.investmentTransaction.findMany({
-    where: txnWhere,
-    select: { netAmount: true },
-  });
-  let realized = new Decimal(0);
-  for (const t of txns) realized = realized.plus(dec(t.netAmount ?? 0));
-  const total = realized.plus(unrealized);
-  return serializeRun({
-    ...run,
-    realizedPnl: realized.toFixed(2),
-    unrealizedPnl: unrealized.toFixed(2),
-    totalPnl: total.toFixed(2),
-    parametersJson: {
-      ...(run.parametersJson || {}),
+
+  const fundIds = [...new Set(runs.map((run) => run.fundId).filter(Boolean))];
+  const txns =
+    fundIds.length > 0
+      ? await db.investmentTransaction.findMany({
+          where: {
+            fundId: { in: fundIds },
+            status: "POSTED",
+            transactionType: { in: ["REALIZED_GAIN", "REALIZED_LOSS"] },
+          },
+          select: { fundId: true, tradeDate: true, netAmount: true },
+        })
+      : [];
+  const txnsByFund = new Map<string, typeof txns>();
+  for (const txn of txns) {
+    const bucket = txnsByFund.get(txn.fundId) || [];
+    bucket.push(txn);
+    txnsByFund.set(txn.fundId, bucket);
+  }
+
+  return runs.map((run) => {
+    const unrealized = unrealizedByRun.get(run.id) || new Decimal(0);
+    const asOf = run.asOf ? new Date(run.asOf) : null;
+    let realized = new Decimal(0);
+    for (const txn of txnsByFund.get(run.fundId) || []) {
+      if (asOf && txn.tradeDate && new Date(txn.tradeDate) > asOf) continue;
+      realized = realized.plus(dec(txn.netAmount ?? 0));
+    }
+    const total = realized.plus(unrealized);
+    return serializeRun({
+      ...run,
       realizedPnl: realized.toFixed(2),
       unrealizedPnl: unrealized.toFixed(2),
       totalPnl: total.toFixed(2),
-    },
+      parametersJson: {
+        ...(run.parametersJson || {}),
+        realizedPnl: realized.toFixed(2),
+        unrealizedPnl: unrealized.toFixed(2),
+        totalPnl: total.toFixed(2),
+      },
+    });
   });
 }
 
@@ -200,7 +220,7 @@ export class InvestmentValuationService {
       db.investmentValuationRun.count({ where }),
     ]);
     return paginatedResult(
-      await Promise.all(rows.map((row: any) => attachRunPnl(row))),
+      await attachRunPnlBatch(rows),
       total,
       page.page,
       page.pageSize
@@ -209,12 +229,12 @@ export class InvestmentValuationService {
 
   static async getRun(id: string, userId: string, user: any) {
     await accessRun(id, userId, user);
-    return attachRunPnl(
-      await db.investmentValuationRun.findUnique({
-        where: { id },
-        include: { exceptions: true },
-      })
-    );
+    const run = await db.investmentValuationRun.findUnique({
+      where: { id },
+      include: { exceptions: true },
+    });
+    const [enriched] = await attachRunPnlBatch([run]);
+    return enriched;
   }
 
   static async listInputs(runId: string, userId: string, user: any) {
@@ -390,10 +410,13 @@ export class InvestmentValuationService {
   }
 
   static async listExceptions(query: any, userId: string, user: any) {
-    if (!query.fundId) fail("VALIDATION_ERROR", "fundId is required", 400, { field: "fundId" });
-    await ListedEquityAccessService.assertFundAccess(userId, query.fundId, user);
     const page = parsePagination(query);
-    const where: any = { fundId: query.fundId };
+    const fundFilter = await ListedEquityAccessService.accessibleFundIdFilter(
+      userId,
+      user,
+      query.fundId as string | undefined
+    );
+    const where: any = { ...fundFilter };
     if (query.status) where.status = query.status;
     else where.status = { in: ["OPEN", "OVERRIDE_PENDING", "ESCALATED"] };
     if (query.valuationRunId) where.valuationRunId = query.valuationRunId;
@@ -488,7 +511,12 @@ export class InvestmentValuationService {
       note = {};
     }
     if (note.requestedById && note.requestedById === userId) {
-      fail("FOUR_EYE_VIOLATION", "Requester cannot approve their own override", 403);
+      assertFourEyeSeparation(
+        note.requestedById,
+        userId,
+        user,
+        "Requester cannot approve their own override"
+      );
     }
     const updated = await db.investmentValuationException.update({
       where: { id: exceptionId },
