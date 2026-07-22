@@ -176,6 +176,14 @@ export class LpPortalCapitalActivityService {
     let openCount = 0;
     const year = new Date().getFullYear();
 
+    let paidCallCount = 0;
+    let dueSoonCount = 0;
+    let dueSoonAmount = 0;
+    const today = todayDateOnly();
+    const soon = new Date();
+    soon.setDate(soon.getDate() + 14);
+    const soonStr = soon.toISOString().slice(0, 10);
+
     for (const i of items) {
       const amt = Number(i.outstanding);
       if (i.status === "OVERDUE") overdue += amt;
@@ -183,8 +191,25 @@ export class LpPortalCapitalActivityService {
         outstanding += amt;
         openCount += 1;
       }
+      if (i.status === "PAID") paidCallCount += 1;
+      if (i.dueDate && i.dueDate >= today && i.dueDate <= soonStr && i.status !== "PAID") {
+        dueSoonCount += 1;
+        dueSoonAmount += amt;
+      }
       if (i.status === "PAID" && i.dueDate && String(i.dueDate).startsWith(String(year))) {
         paidYtd += Number(i.paid);
+      }
+    }
+
+    const dists = await this.listDistributions(ctx, { page: 1, pageSize: 200, fundId: opts.fundId });
+    let totalDistributions = 0;
+    let upcomingDistributionNotices = 0;
+    let upcomingDistributionAmount = 0;
+    for (const d of dists.items || []) {
+      totalDistributions += Number(d.amount || 0);
+      if (["DECLARED", "NOTIFIED", "ISSUED"].includes(String(d.status || "").toUpperCase())) {
+        upcomingDistributionNotices += 1;
+        upcomingDistributionAmount += Number(d.amount || 0);
       }
     }
 
@@ -193,6 +218,14 @@ export class LpPortalCapitalActivityService {
       outstanding: moneyStr(outstanding),
       overdue: moneyStr(overdue),
       paidYtd: moneyStr(paidYtd),
+      paidCallCount,
+      dueSoonCount,
+      dueSoonAmount: moneyStr(dueSoonAmount),
+      totalDistributions: moneyStr(totalDistributions),
+      upcomingDistributionNotices: {
+        count: upcomingDistributionNotices,
+        amount: moneyStr(upcomingDistributionAmount),
+      },
       currencyCode: "USD",
     };
   }

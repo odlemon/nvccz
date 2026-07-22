@@ -141,6 +141,12 @@ router.get(
 router.get("/dealing/overview", ...read, requireLpPermission("lp.dealing.view"), LpPortalController.dealingOverview);
 router.get("/dealing/rules", ...read, requireLpPermission("lp.dealing.view"), LpPortalController.dealingRules);
 router.get(
+  "/dealing/requests/export",
+  ...read,
+  requireLpPermission("lp.dealing.view"),
+  LpPortalController.exportDealingRequests
+);
+router.get(
   "/dealing/requests",
   ...read,
   requireLpPermission("lp.dealing.view"),
@@ -221,6 +227,12 @@ router.post(
 router.get("/jobs/:jobId", ...read, requireLpPermission("lp.portal.access"), LpPortalController.getJob);
 
 // Documents (+ vault aliases)
+router.get(
+  "/documents/summary",
+  ...read,
+  requireLpPermission("lp.documents.view"),
+  LpPortalController.documentsSummary
+);
 router.get("/documents", ...read, requireLpPermission("lp.documents.view"), LpPortalController.listDocuments);
 router.get("/documents/:id", ...read, requireLpPermission("lp.documents.view"), LpPortalController.getDocument);
 router.get(
@@ -261,6 +273,19 @@ router.post(
 );
 
 // Requests / messages
+router.post(
+  "/requests/attachments",
+  ...signatory,
+  requireLpPermission("lp.requests.create"),
+  upload.single("file"),
+  LpPortalController.uploadRequestAttachment
+);
+router.get(
+  "/attachments/:id/download",
+  ...read,
+  requireLpPermission("lp.requests.view"),
+  LpPortalController.downloadAttachment
+);
 router.get("/requests", ...read, requireLpPermission("lp.requests.view"), LpPortalController.listRequests);
 router.get(
   "/requests/:reference",
@@ -301,7 +326,27 @@ router.post(
   LpPortalController.markThreadRead
 );
 
+router.get(
+  "/notifications",
+  ...read,
+  requireLpPermission("lp.portal.view_notifications"),
+  LpPortalController.listNotifications
+);
+
 // Organisation / colleagues / settings
+router.get(
+  "/bank-instructions/changes",
+  ...read,
+  requireLpPermission("lp.organisation.view"),
+  LpPortalController.listBankInstructionChanges
+);
+router.post(
+  "/bank-instructions/changes",
+  ...signatory,
+  requireLpPermission("lp.organisation.view"),
+  requireLpIdempotencyKey("bank-instruction-change"),
+  LpPortalController.createBankInstructionChange
+);
 router.get(
   "/organisation",
   ...read,
@@ -332,6 +377,18 @@ router.patch(
   ...manager,
   requireLpPermission("lp.organisation.manage_colleagues"),
   LpPortalController.revokeColleague
+);
+router.patch(
+  "/settings/display",
+  ...read,
+  requireLpPermission("lp.settings.view"),
+  LpPortalController.patchDisplaySettings
+);
+router.get(
+  "/realtime",
+  ...read,
+  requireLpPermission("lp.portal.access"),
+  LpPortalController.getRealtimeContract
 );
 router.get("/settings", ...read, requireLpPermission("lp.settings.view"), LpPortalController.getSettings);
 router.patch(

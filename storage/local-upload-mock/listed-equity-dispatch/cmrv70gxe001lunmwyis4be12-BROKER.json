@@ -1,0 +1,10 @@
+{
+  "tradeRef": "TXN-MRV70GXC311CF1",
+  "side": "BUY",
+  "symbol": "ARIS",
+  "exchange": "ZSE",
+  "quantity": 1000,
+  "price": 10,
+  "currency": "USD",
+  "executedAt": "2026-07-21T21:56:06.531Z"
+}

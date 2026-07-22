@@ -251,6 +251,7 @@ export class LpPortalDashboardService {
         navPerUnit: String(navPerUnit),
         ytdReturn: ratioStr(ytdReturn, 4),
       },
+      openEndedHistory: await this.buildOpenEndedHistory(ctx, opts.fundId, fundIds, asOf),
       // Legacy backward-compatible fields
       client: legacy.client,
       lpRole: legacy.lpRole,
@@ -274,10 +275,13 @@ export class LpPortalDashboardService {
       if (["ISSUED", "ACKNOWLEDGED", "PARTIALLY_PAID", "OVERDUE"].includes(c.status)) {
         actions.push({
           id: `act_cc_${c.id}`,
-          type: "CAPITAL_CALL_DUE",
+          type: "CAPITAL_CALL",
+          label: "Capital Call Due",
           severity: c.status === "OVERDUE" ? "HIGH" : "MEDIUM",
           title: `Capital Call #${c.callNo} due ${c.dueDate || "soon"}`,
           fundId: c.fundId,
+          fundName: c.fundName ?? null,
+          amount: c.outstanding ?? c.amount ?? null,
           relatedRecordId: c.id,
           href: "/lp-portal/capital-activity?tab=calls",
           dueDate: c.dueDate,
@@ -316,11 +320,17 @@ export class LpPortalDashboardService {
         actions.push({
           id: `act_notice_${n.id}`,
           type: "NOTICE_REQUIRES_ACK",
+          label: "Notice",
           severity: "MEDIUM",
           title: n.title,
           fundId: n.fundId,
+          fundName: n.fundId
+            ? (
+                await prisma.fund.findUnique({ where: { id: n.fundId }, select: { name: true } })
+              )?.name ?? null
+            : null,
           relatedRecordId: n.id,
-          href: "/lp-portal/documents?tab=notices",
+          href: "/lp-portal/notices",
           dueDate: null,
         });
       }
@@ -467,5 +477,38 @@ export class LpPortalDashboardService {
 
     events.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
     return { items: events.slice(0, take) };
+  }
+
+  private static async buildOpenEndedHistory(
+    ctx: LpPortalContext,
+    fundId: string | undefined,
+    fundIds: string[],
+    asOf: Date
+  ) {
+    let targetFundId = fundId;
+    if (!targetFundId) {
+      const oe = await db().lpFundPortalContext.findFirst({
+        where: { fundId: { in: fundIds.length ? fundIds : ["__none__"] }, operatingModel: "OPEN_ENDED" },
+      });
+      targetFundId = oe?.fundId || fundIds[0];
+    }
+    if (!targetFundId) return { points: [] };
+
+    const history = await db().lpHoldingPosition.findMany({
+      where: {
+        clientId: ctx.clientId,
+        fundId: targetFundId,
+        asOfDate: { lte: asOf },
+      },
+      orderBy: { asOfDate: "asc" },
+      take: 24,
+    });
+
+    return {
+      points: history.map((h: any) => ({
+        label: dateOnly(h.asOfDate),
+        navPerUnit: String(Number(h.navPerUnit ?? 0)),
+      })),
+    };
   }
 }

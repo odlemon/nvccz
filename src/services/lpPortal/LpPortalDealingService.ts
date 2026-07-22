@@ -14,6 +14,24 @@ const db = () => prisma as any;
 const DEFAULT_MIN_BALANCE_AMOUNT = 1_000_000;
 const DEFAULT_MIN_BALANCE_UNITS = 100_000;
 const DEFAULT_NOTICE_DAYS = 30;
+const ESTIMATE_TTL_MS = 15 * 60 * 1000;
+
+function subscriptionPayloadHash(body: { fundId: string; shareClass?: string; amount: string | number; currency?: string }) {
+  const amount = moneyStr(Number(body.amount));
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify({
+      fundId: body.fundId,
+      shareClass: body.shareClass || null,
+      amount,
+      currency: (body.currency || "USD").toUpperCase(),
+    }))
+    .digest("hex");
+}
+
+function redemptionPayloadHash(body: Record<string, unknown>) {
+  return crypto.createHash("sha256").update(JSON.stringify(body)).digest("hex");
+}
 
 function dateOnly(d: Date | string | null | undefined): string | null {
   if (!d) return null;
@@ -138,6 +156,7 @@ export class LpPortalDealingService {
         orderBy: { createdAt: "desc" },
         skip: q.skip,
         take: q.take,
+        include: { fund: { select: { name: true } } },
       }),
     ]);
 
@@ -171,9 +190,11 @@ export class LpPortalDealingService {
     const otherFees = 0;
     const net = amount;
     const estimatedUnits = net / navPerUnit;
+    const payloadHash = subscriptionPayloadHash(body);
     const estimateSnapshotId = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + ESTIMATE_TTL_MS);
 
-    return {
+    const estimate = {
       estimateSnapshotId,
       navPerUnit: rateStr(navPerUnit),
       estimatedUnits: unitsStr(estimatedUnits),
@@ -184,6 +205,20 @@ export class LpPortalDealingService {
       disclaimer:
         "Final allocation will be based on the NAV on the applicable dealing date and may differ.",
     };
+
+    await db().lpDealingEstimateSnapshot.create({
+      data: {
+        id: estimateSnapshotId,
+        clientId: ctx.clientId,
+        fundId: body.fundId,
+        estimateType: "SUBSCRIPTION",
+        estimateJson: estimate,
+        payloadHash,
+        expiresAt,
+      },
+    });
+
+    return estimate;
   }
 
   static async createSubscription(
@@ -211,16 +246,19 @@ export class LpPortalDealingService {
       });
     }
 
-    const estimate = await this.estimateSubscription(ctx, body);
-    const payloadHash = crypto
-      .createHash("sha256")
-      .update(JSON.stringify({ ...body, amount: moneyStr(amount) }))
-      .digest("hex");
+    await this.validateEstimateSnapshot(ctx, body.estimateSnapshotId, "SUBSCRIPTION", body);
+
+    const snap = await db().lpDealingEstimateSnapshot.findUnique({
+      where: { id: body.estimateSnapshotId },
+    });
+    const estimate = snap?.estimateJson || {};
+    const payloadHash = subscriptionPayloadHash(body);
 
     const row = await db().lpDealingRequest.create({
       data: {
         clientId: ctx.clientId,
         fundId: body.fundId,
+        shareClass: body.shareClass || null,
         requestType: "SUBSCRIPTION",
         status: "SUBMITTED",
         amount,
@@ -327,8 +365,10 @@ export class LpPortalDealingService {
     const settlement = redeemValue - fee;
     const settlementDate = addDays(earliest, 3);
     const estimateSnapshotId = crypto.randomUUID();
+    const payloadHash = redemptionPayloadHash(body);
+    const expiresAt = new Date(Date.now() + ESTIMATE_TTL_MS);
 
-    return {
+    const estimate = {
       estimateSnapshotId,
       estimatedUnitsToCancel: unitsStr(redeemUnits),
       estimatedSettlementAmount: moneyStr(settlement),
@@ -341,6 +381,20 @@ export class LpPortalDealingService {
       disclaimer:
         "Indicative amounts. Final settlement will use the approved dealing-date NAV.",
     };
+
+    await db().lpDealingEstimateSnapshot.create({
+      data: {
+        id: estimateSnapshotId,
+        clientId: ctx.clientId,
+        fundId: body.fundId,
+        estimateType: "REDEMPTION",
+        estimateJson: estimate,
+        payloadHash,
+        expiresAt,
+      },
+    });
+
+    return estimate;
   }
 
   static async createRedemption(
@@ -363,17 +417,20 @@ export class LpPortalDealingService {
     assertFundAccess(ctx, body.fundId);
     await this.assertDealingAllowed(ctx, body.fundId);
 
-    const estimate = await this.estimateRedemption(ctx, body);
+    await this.validateEstimateSnapshot(ctx, body.estimateSnapshotId, "REDEMPTION", body);
+
+    const snap = await db().lpDealingEstimateSnapshot.findUnique({
+      where: { id: body.estimateSnapshotId },
+    });
+    const estimate = snap?.estimateJson || {};
     const isFull = Boolean(body.full) || String(body.mode || "").toUpperCase() === "FULL";
-    const payloadHash = crypto
-      .createHash("sha256")
-      .update(JSON.stringify(body))
-      .digest("hex");
+    const payloadHash = redemptionPayloadHash(body);
 
     const row = await db().lpDealingRequest.create({
       data: {
         clientId: ctx.clientId,
         fundId: body.fundId,
+        shareClass: body.shareClass || null,
         requestType: "REDEMPTION",
         status: "SUBMITTED",
         amount: body.amount != null ? Number(body.amount) : Number(estimate.estimatedSettlementAmount),
@@ -421,7 +478,71 @@ export class LpPortalDealingService {
     }));
   }
 
+  static async exportRequests(
+    ctx: LpPortalContext,
+    query: Record<string, unknown> = {}
+  ) {
+    const { items } = await this.listRequests(ctx, { ...query, page: 1, pageSize: 500 });
+    const format = String(query.format || "csv").toLowerCase();
+    if (format === "csv") {
+      const header = "id,fundName,shareClass,requestType,status,amount,units,createdAt\n";
+      const rows = items
+        .map(
+          (r: any) =>
+            `${r.id},${r.fundName || ""},${r.shareClass || ""},${r.requestType},${r.status},${r.amount || ""},${r.units || ""},${r.createdAt || ""}`
+        )
+        .join("\n");
+      return { contentType: "text/csv", filename: "dealing-requests.csv", body: header + rows };
+    }
+    return { contentType: "application/json", filename: "dealing-requests.json", body: JSON.stringify({ items }) };
+  }
+
   // —— internals ——
+
+  private static async validateEstimateSnapshot(
+    ctx: LpPortalContext,
+    snapshotId: string | undefined,
+    estimateType: string,
+    body: Record<string, unknown>
+  ) {
+    if (!snapshotId) {
+      throw new LpPortalError("LP_VALIDATION", "estimateSnapshotId is required", 422, {
+        estimateSnapshotId: "Required — call estimate endpoint first",
+      });
+    }
+    const snap = await db().lpDealingEstimateSnapshot.findUnique({ where: { id: snapshotId } });
+    if (!snap || snap.clientId !== ctx.clientId) {
+      throw new LpPortalError("LP_VALIDATION", "Invalid estimate snapshot", 409, {
+        estimateSnapshotId: "Snapshot not found",
+      });
+    }
+    if (snap.estimateType !== estimateType) {
+      throw new LpPortalError("LP_VALIDATION", "Estimate type mismatch", 409, {
+        estimateSnapshotId: "Snapshot type does not match request",
+      });
+    }
+    if (new Date(snap.expiresAt) < new Date()) {
+      throw new LpPortalError("LP_ESTIMATE_EXPIRED", "Estimate has expired — re-run estimate", 409, {
+        amount: "Estimate expired — refresh estimate",
+        estimateSnapshotId: "Expired",
+      });
+    }
+    if (body.fundId && snap.fundId !== body.fundId) {
+      throw new LpPortalError("LP_VALIDATION", "Fund mismatch vs estimate", 409, {
+        fundId: "Does not match estimate snapshot",
+      });
+    }
+    const bodyHash =
+      estimateType === "SUBSCRIPTION"
+        ? subscriptionPayloadHash(body as any)
+        : redemptionPayloadHash(body);
+    if (snap.payloadHash && bodyHash !== snap.payloadHash) {
+      throw new LpPortalError("LP_VALIDATION", "Request body does not match estimate snapshot", 409, {
+        amount: "Does not match estimate — re-run estimate",
+        estimateSnapshotId: "Payload mismatch",
+      });
+    }
+  }
 
   private static async assertDealingAllowed(ctx: LpPortalContext, fundId: string) {
     const compliance = await this.loadCompliance(ctx.clientId);
@@ -519,9 +640,12 @@ export class LpPortalDealingService {
   }
 
   private static mapRequest(r: any) {
+    const shareClass = r.shareClass ?? r.estimateJson?.shareClass ?? null;
     return {
       id: r.id,
       fundId: r.fundId,
+      fundName: r.fund?.name ?? null,
+      shareClass,
       requestType: r.requestType,
       status: r.status,
       amount: r.amount != null ? moneyStr(r.amount) : null,

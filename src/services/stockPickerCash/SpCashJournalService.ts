@@ -115,6 +115,7 @@ export class SpCashJournalService {
             makerId: actorId,
             cashAccountId: cashAccountId || null,
             portfolioId: body.portfolioId || null,
+            tradeId: body.tradeId || null,
             configurationVersion: body.configurationVersion ?? null,
             version: 1,
             lines: {
@@ -382,6 +383,7 @@ export class SpCashJournalService {
     if (query.currency) journalWhere.currency = String(query.currency).toUpperCase();
     if (query.portfolioId) journalWhere.portfolioId = String(query.portfolioId);
     if (query.fundId) journalWhere.portfolioId = String(query.fundId);
+    if (query.tradeId) journalWhere.tradeId = String(query.tradeId);
     if (query.from || query.to) {
       journalWhere.valueDate = {};
       if (query.from) journalWhere.valueDate.gte = parseDateOnly(query.from, "from");

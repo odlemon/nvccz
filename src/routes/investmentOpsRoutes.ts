@@ -433,6 +433,32 @@ router.post(
   InvestmentOpsController.sendOrderToBroker
 );
 
+router.get(
+  "/orders/:id/broker-confirmations",
+  ...auth,
+  InvestmentOpsController.listBrokerConfirmations
+);
+router.post(
+  "/orders/:id/broker-confirmations",
+  ...execute,
+  requireExpectedVersion,
+  requireIdempotencyKey,
+  InvestmentOpsController.recordBrokerConfirmation
+);
+router.post(
+  "/orders/:id/broker-confirmations/:confirmationId/accept",
+  ...execute,
+  requireExpectedVersion,
+  requireIdempotencyKey,
+  InvestmentOpsController.acceptBrokerConfirmation
+);
+router.post(
+  "/orders/:id/broker-confirmations/:confirmationId/reject",
+  ...execute,
+  requireExpectedVersion,
+  InvestmentOpsController.rejectBrokerConfirmation
+);
+
 router.post(
   "/orders/:id/reject",
   ...approve,
@@ -595,6 +621,65 @@ router.post(
   ...execute,
   requireIdempotencyKey,
   InvestmentOpsController.settleTradeAlias
+);
+
+router.get(
+  "/trades/:id/reconciliation-summary",
+  ...auth,
+  InvestmentOpsController.tradeReconciliationSummary
+);
+
+// Trade 3-way reconciliation (BA-RC-1 / BA-RC-4) — distinct from cash /reconciliation-batches
+router.get(
+  "/trade-reconciliation/templates",
+  ...auth,
+  InvestmentOpsController.listTradeReconTemplates
+);
+router.post(
+  "/trade-reconciliation/batches",
+  ...write,
+  requireIdempotencyKey,
+  InvestmentOpsController.createTradeReconBatch
+);
+router.get(
+  "/trade-reconciliation/batches/:id",
+  ...auth,
+  InvestmentOpsController.getTradeReconBatch
+);
+router.post(
+  "/trade-reconciliation/batches/:id/ingest-broker",
+  ...write,
+  InvestmentOpsController.ingestTradeReconBroker
+);
+router.post(
+  "/trade-reconciliation/batches/:id/ingest-custodian",
+  ...write,
+  InvestmentOpsController.ingestTradeReconCustodian
+);
+router.post(
+  "/trade-reconciliation/batches/:id/run-match",
+  ...write,
+  InvestmentOpsController.runTradeReconMatch
+);
+router.post(
+  "/trade-reconciliation/batches/:id/complete",
+  ...write,
+  InvestmentOpsController.completeTradeReconBatch
+);
+router.post(
+  "/trade-reconciliation/exceptions/:id/manual-match",
+  ...write,
+  InvestmentOpsController.manualMatchTradeReconException
+);
+router.post(
+  "/trade-reconciliation/exceptions/:id/write-off",
+  ...write,
+  InvestmentOpsController.writeOffTradeReconException
+);
+router.get(
+  "/client-account-reconciliation",
+  ...auth,
+  InvestmentOpsController.clientAccountRecon
 );
 
 

@@ -20,6 +20,8 @@ import { InvestmentOpsPhase1Service } from "../services/investmentOps/Investment
 import { InvestmentOpsReferenceService } from "../services/investmentOps/InvestmentOpsReferenceService";
 import { InvestmentOrderPhase2Service } from "../services/investmentOps/InvestmentOrderPhase2Service";
 import { InvestmentTradingPhase2Service } from "../services/investmentOps/InvestmentTradingPhase2Service";
+import { InvestmentBrokerConfirmationService } from "../services/investmentOps/InvestmentBrokerConfirmationService";
+import { InvestmentTradeReconService } from "../services/investmentOps/InvestmentTradeReconService";
 import { ListedEquityAccessService } from "../services/listedEquity/ListedEquityAccessService";
 import { TradeOrchestratorService } from "../services/listedEquity/TradeOrchestratorService";
 import { prisma } from "../utils/database";
@@ -723,7 +725,26 @@ export class InvestmentOpsController {
   static sendOrderToBroker(req: AuthRequest, res: Response) {
     handle(
       res,
-      InvestmentOrderPhase2Service.route(
+      InvestmentBrokerConfirmationService.sendToBroker(
+        req.params.id,
+        req.body,
+        getExpectedVersion(req),
+        getIdempotencyKey(req),
+        req.user!.id,
+        req.user
+      )
+    );
+  }
+  static listBrokerConfirmations(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentBrokerConfirmationService.list(req.params.id, req.user!.id, req.user)
+    );
+  }
+  static recordBrokerConfirmation(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentBrokerConfirmationService.record(
         req.params.id,
         req.body,
         getExpectedVersion(req),
@@ -732,6 +753,33 @@ export class InvestmentOpsController {
         req.user
       ),
       201
+    );
+  }
+  static acceptBrokerConfirmation(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentBrokerConfirmationService.accept(
+        req.params.id,
+        req.params.confirmationId,
+        req.body,
+        getExpectedVersion(req),
+        getIdempotencyKey(req),
+        req.user!.id,
+        req.user
+      )
+    );
+  }
+  static rejectBrokerConfirmation(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentBrokerConfirmationService.reject(
+        req.params.id,
+        req.params.confirmationId,
+        req.body,
+        getExpectedVersion(req),
+        req.user!.id,
+        req.user
+      )
     );
   }
   static rejectOrder(req: AuthRequest, res: Response) {
@@ -963,7 +1011,7 @@ export class InvestmentOpsController {
             404
           );
         }
-        return InvestmentOrderPhase2Service.settlement(
+        const settledOrder = await InvestmentOrderPhase2Service.settlement(
           order.id,
           {
             ...req.body,
@@ -975,11 +1023,158 @@ export class InvestmentOpsController {
           req.user!.id,
           req.user
         );
+
+        // BA-T6 / BA-TR-3 — custodian settlement: sync LE trade status when deferred accounting used
+        if (settledOrder?.status === "SETTLED" || String(req.body?.status || "").toUpperCase() !== "FAILED") {
+          const settledAt = req.body?.settledAt ? new Date(req.body.settledAt) : new Date();
+          await prisma.listedEquityTrade.updateMany({
+            where: { id: tradeId, status: { not: "SETTLED" } },
+            data: { status: "SETTLED", settledAt },
+          });
+          if (req.body?.custodianReference) {
+            await prisma.listedEquityTradeRoutingHop.updateMany({
+              where: { tradeId, target: "CUSTODIAN" },
+              data: {
+                externalRef: String(req.body.custodianReference),
+                status: "CONFIRMED",
+                confirmedAt: settledAt,
+              },
+            });
+          }
+          // BA-RC-2 — link cash journals to this trade when sourceEventId matches
+          try {
+            await (prisma as any).spCashJournal.updateMany({
+              where: {
+                OR: [
+                  { sourceEventId: tradeId },
+                  { idempotencyKey: { contains: tradeId } },
+                ],
+                tradeId: null,
+              },
+              data: { tradeId },
+            });
+          } catch {
+            /* column may not exist yet on older DBs */
+          }
+        }
+
+        const trade = await TradeOrchestratorService.getTradeDetail(tradeId);
+        const [linked] = await InvestmentOrderService.attachOrderLinks([trade]);
+        return {
+          order: settledOrder,
+          trade: InvestmentOrderService.enrichTradeBlotter(linked),
+        };
       })()
     );
   }
 
-  // Trades (enriched blotter)
+  static tradeReconciliationSummary(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentTradeReconService.tradeReconciliationSummary(
+        req.params.id,
+        req.user!.id,
+        req.user
+      )
+    );
+  }
+
+  // Trade 3-way recon (BA-RC-1 / BA-RC-4)
+  static listTradeReconTemplates(req: AuthRequest, res: Response) {
+    handle(res, InvestmentTradeReconService.listTemplates());
+  }
+  static createTradeReconBatch(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentTradeReconService.createBatch(
+        req.body,
+        getIdempotencyKey(req),
+        req.user!.id,
+        req.user
+      ),
+      201
+    );
+  }
+  static getTradeReconBatch(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentTradeReconService.getBatch(req.params.id, req.user!.id, req.user)
+    );
+  }
+  static ingestTradeReconBroker(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentTradeReconService.ingest(
+        req.params.id,
+        "BROKER",
+        req.body?.csvText || req.body?.csv || "",
+        req.body?.templateCode,
+        req.user!.id,
+        req.user
+      ),
+      201
+    );
+  }
+  static ingestTradeReconCustodian(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentTradeReconService.ingest(
+        req.params.id,
+        "CUSTODIAN",
+        req.body?.csvText || req.body?.csv || "",
+        req.body?.templateCode,
+        req.user!.id,
+        req.user
+      ),
+      201
+    );
+  }
+  static runTradeReconMatch(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentTradeReconService.runMatch(req.params.id, req.user!.id, req.user)
+    );
+  }
+  static completeTradeReconBatch(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentTradeReconService.complete(req.params.id, req.user!.id, req.user)
+    );
+  }
+  static manualMatchTradeReconException(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentTradeReconService.manualMatch(
+        req.params.id,
+        req.body,
+        req.user!.id,
+        req.user
+      )
+    );
+  }
+  static writeOffTradeReconException(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentTradeReconService.writeOff(
+        req.params.id,
+        String(req.body?.reason || ""),
+        req.user!.id,
+        req.user
+      )
+    );
+  }
+  static clientAccountRecon(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentTradeReconService.clientAccountRecon(
+        String(req.query.fundId || req.params.fundId || ""),
+        req.user!.id,
+        req.user
+      )
+    );
+  }
+
+  // Trades (enriched blotter) — executed-only by default (BA-TR-3)
   static async listTradesEnriched(req: AuthRequest, res: Response) {
     try {
       const scope = await ListedEquityAccessService.getAccessibleFundIds(req.user!.id, req.user);
@@ -990,12 +1185,18 @@ export class InvestmentOpsController {
           req.user
         );
       }
+      const requestedStatus = req.query.status as string | undefined;
       const data = await TradeOrchestratorService.listTrades({
         fundId: req.query.fundId as string,
-        status: req.query.status as string,
+        status: requestedStatus,
         fundScope: scope,
       });
-      const withOrders = await InvestmentOrderService.attachOrderLinks(data);
+      // Blotter = executed trades only (never DRAFT orders / draft LE tickets)
+      const blotterStatuses = new Set(["EXECUTED", "ROUTING", "SETTLED", "SETTLEMENT_FAILED"]);
+      const filtered = requestedStatus
+        ? data
+        : data.filter((t: any) => blotterStatuses.has(String(t.status || "").toUpperCase()));
+      const withOrders = await InvestmentOrderService.attachOrderLinks(filtered);
       const enriched = withOrders.map((t: any) => InvestmentOrderService.enrichTradeBlotter(t));
       const page = Math.max(1, Number(req.query.page) || 1);
       const pageSize = Math.min(200, Math.max(1, Number(req.query.pageSize) || 50));

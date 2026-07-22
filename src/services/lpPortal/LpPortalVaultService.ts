@@ -59,8 +59,16 @@ export class LpPortalVaultService {
       const RemoteUploadService = (await import("../RemoteUploadService")).default;
       buffer = await new RemoteUploadService().downloadFile(doc.fileUrl || doc.storagePath!);
     }
-    const filename = doc.title.replace(/[^\w.-]+/g, "-") + ".pdf";
-    return { buffer, filename, sha256: doc.sha256 };
+    const ext = doc.mimeType?.includes("pdf")
+      ? ".pdf"
+      : doc.mimeType?.includes("spreadsheet")
+        ? ".xlsx"
+        : doc.mimeType?.includes("word")
+          ? ".docx"
+          : ".bin";
+    const filename = doc.title.replace(/[^\w.-]+/g, "-") + ext;
+    const contentType = doc.mimeType || "application/pdf";
+    return { buffer, filename, contentType, sha256: doc.sha256 };
   }
 
   static async verifyIntegrity(ctx: LpPortalContext, documentId: string) {

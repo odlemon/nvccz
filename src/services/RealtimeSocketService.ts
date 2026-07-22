@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Server as SocketIOServer } from "socket.io";
 import jwt from "jsonwebtoken";
+import { prisma } from "../utils/database";
 
 let io: SocketIOServer | null = null;
 
@@ -38,10 +39,22 @@ export function initSocketServer(httpServer: any) {
     }
   });
 
-  io.on("connection", (socket) => {
+  io.on("connection", async (socket) => {
     const userId = socket.data?.userId;
     if (userId) {
       socket.join(`user:${userId}`);
+      try {
+        const relation = await prisma.lpUserRelation.findFirst({
+          where: { userId, isActive: true },
+          select: { clientId: true },
+        });
+        if (relation?.clientId) {
+          socket.data.lpClientId = relation.clientId;
+          socket.join(`lp_portal:${relation.clientId}`);
+        }
+      } catch {
+        /* non-fatal */
+      }
     }
 
     socket.on("join_task", (payload: { taskId?: string }) => {
@@ -67,6 +80,47 @@ export function initSocketServer(httpServer: any) {
       if (!applicationId) return;
       socket.leave(`deal:${applicationId}`);
     });
+
+    socket.on("join_lp_portal", async () => {
+      const uid = socket.data?.userId;
+      if (!uid) return;
+      try {
+        const relation = await prisma.lpUserRelation.findFirst({
+          where: { userId: uid, isActive: true },
+          select: { clientId: true },
+        });
+        if (relation?.clientId) {
+          socket.data.lpClientId = relation.clientId;
+          socket.join(`lp_portal:${relation.clientId}`);
+        }
+      } catch {
+        /* non-fatal */
+      }
+    });
+
+    socket.on("join_lp_thread", (payload: { threadId?: string }) => {
+      const threadId = String(payload?.threadId || "").trim();
+      if (!threadId) return;
+      socket.join(`lp_thread:${threadId}`);
+    });
+
+    socket.on("leave_lp_thread", (payload: { threadId?: string }) => {
+      const threadId = String(payload?.threadId || "").trim();
+      if (!threadId) return;
+      socket.leave(`lp_thread:${threadId}`);
+    });
+
+    socket.on("join_lp_request", (payload: { reference?: string }) => {
+      const reference = String(payload?.reference || "").trim();
+      if (!reference) return;
+      socket.join(`lp_request:${reference}`);
+    });
+
+    socket.on("leave_lp_request", (payload: { reference?: string }) => {
+      const reference = String(payload?.reference || "").trim();
+      if (!reference) return;
+      socket.leave(`lp_request:${reference}`);
+    });
   });
 
   return io;
@@ -91,5 +145,20 @@ export function emitToUsers(userIds: string[], event: string, payload: any) {
   if (!io || !Array.isArray(userIds)) return;
   const unique = Array.from(new Set(userIds.filter(Boolean)));
   unique.forEach((userId) => io!.to(`user:${userId}`).emit(event, payload));
+}
+
+export function emitToLpPortalClient(clientId: string, event: string, payload: any) {
+  if (!io || !clientId) return;
+  io.to(`lp_portal:${clientId}`).emit(event, payload);
+}
+
+export function emitToLpThread(threadId: string, event: string, payload: any) {
+  if (!io || !threadId) return;
+  io.to(`lp_thread:${threadId}`).emit(event, payload);
+}
+
+export function emitToLpRequest(reference: string, event: string, payload: any) {
+  if (!io || !reference) return;
+  io.to(`lp_request:${reference}`).emit(event, payload);
 }
 

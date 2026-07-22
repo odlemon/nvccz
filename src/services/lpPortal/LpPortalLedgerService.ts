@@ -4,14 +4,23 @@ import { LpPortalAccessService, type LpPortalContext } from "./LpPortalAccessSer
 
 export interface LedgerEntry {
   entryId: string;
-  entryType: "CAPITAL_CALL" | "CAPITAL_CALL_PAYMENT" | "DISTRIBUTION" | "DISTRIBUTION_PAYMENT";
+  entryType: "CAPITAL_CALL" | "CAPITAL_CALL_PAYMENT" | "DISTRIBUTION" | "DISTRIBUTION_PAYMENT" | "SUBSCRIPTION" | "REDEMPTION";
   fundId: string;
   fundName: string;
+  operatingModel?: string;
+  structure?: string;
   transactionDate: string;
   amount: number;
   currency: string;
   description: string;
   status: string;
+}
+
+const db = () => prisma as any;
+
+async function resolveOperatingModel(fundId: string): Promise<string> {
+  const ctx = await db().lpFundPortalContext.findUnique({ where: { fundId } });
+  return ctx?.operatingModel || "PRIVATE_CAPITAL";
 }
 
 export class LpPortalLedgerService {
@@ -42,11 +51,14 @@ export class LpPortalLedgerService {
       if (filters.from && txDate < new Date(filters.from)) continue;
       if (filters.to && txDate > new Date(filters.to)) continue;
 
+      const opModel = await resolveOperatingModel(alloc.capitalCall.fundId);
       entries.push({
         entryId: alloc.id,
         entryType: "CAPITAL_CALL",
         fundId: alloc.capitalCall.fundId,
         fundName: alloc.capitalCall.fund.name,
+        operatingModel: opModel,
+        structure: opModel === "OPEN_ENDED" ? "Open-End" : "Closed-End",
         transactionDate: txDate.toISOString().slice(0, 10),
         amount: Number(alloc.currentCallAmount.toString()),
         currency: ccy,
@@ -63,6 +75,8 @@ export class LpPortalLedgerService {
           entryType: "CAPITAL_CALL_PAYMENT",
           fundId: alloc.capitalCall.fundId,
           fundName: alloc.capitalCall.fund.name,
+          operatingModel: opModel,
+          structure: opModel === "OPEN_ENDED" ? "Open-End" : "Closed-End",
           transactionDate: pDate.toISOString().slice(0, 10),
           amount: Number(p.amount.toString()),
           currency: ccy,
@@ -92,11 +106,14 @@ export class LpPortalLedgerService {
       if (filters.from && txDate < new Date(filters.from)) continue;
       if (filters.to && txDate > new Date(filters.to)) continue;
 
+      const opModel = await resolveOperatingModel(alloc.distribution.fundId);
       entries.push({
         entryId: alloc.id,
         entryType: "DISTRIBUTION",
         fundId: alloc.distribution.fundId,
         fundName: alloc.distribution.fund.name,
+        operatingModel: opModel,
+        structure: opModel === "OPEN_ENDED" ? "Open-End" : "Closed-End",
         transactionDate: txDate.toISOString().slice(0, 10),
         amount: Number(alloc.shareAmount.toString()),
         currency: ccy,
@@ -122,6 +139,35 @@ export class LpPortalLedgerService {
       }
     }
 
+    const dealing = await db().lpDealingRequest.findMany({
+      where: {
+        clientId: ctx.clientId,
+        ...(filters.fundId ? { fundId: filters.fundId } : {}),
+      },
+      include: { fund: true },
+      orderBy: { createdAt: "desc" },
+    });
+    for (const d of dealing) {
+      if (!LpPortalAccessService.fundAllowed(ctx, d.fundId)) continue;
+      const opModel = await resolveOperatingModel(d.fundId);
+      const txDate = d.createdAt.toISOString().slice(0, 10);
+      if (filters.from && txDate < filters.from) continue;
+      if (filters.to && txDate > filters.to) continue;
+      entries.push({
+        entryId: d.id,
+        entryType: d.requestType === "SUBSCRIPTION" ? "SUBSCRIPTION" : "REDEMPTION",
+        fundId: d.fundId,
+        fundName: d.fund?.name || d.fundId,
+        operatingModel: opModel,
+        structure: opModel === "OPEN_ENDED" ? "Open-End" : "Closed-End",
+        transactionDate: txDate,
+        amount: Number(d.amount ?? 0),
+        currency: d.currencyCode || "USD",
+        description: `${d.requestType} request`,
+        status: d.status,
+      });
+    }
+
     entries.sort((a, b) => b.transactionDate.localeCompare(a.transactionDate));
     return { data: entries };
   }
@@ -144,11 +190,40 @@ export class LpPortalLedgerService {
           sourceRefId: callAlloc.capitalCallId,
         },
       });
+      const docs = [];
+      if (vaultDoc) {
+        docs.push({
+          id: vaultDoc.id,
+          name: vaultDoc.title,
+          publishedDate: vaultDoc.publishedAt?.toISOString?.()?.slice(0, 10) ?? null,
+          size: vaultDoc.fileSizeBytes != null ? Number(vaultDoc.fileSizeBytes) : null,
+        });
+      }
+      const related = await prisma.lpPortalDocument.findMany({
+        where: {
+          clientId: ctx.clientId,
+          OR: [
+            { sourceRefId: callAlloc.capitalCallId },
+            { sourceRefId: callAlloc.id },
+          ],
+        },
+        take: 10,
+      });
+      for (const doc of related) {
+        if (docs.some((x) => x.id === doc.id)) continue;
+        docs.push({
+          id: doc.id,
+          name: doc.title,
+          publishedDate: doc.publishedAt?.toISOString?.()?.slice(0, 10) ?? null,
+          size: doc.fileSizeBytes != null ? Number(doc.fileSizeBytes) : null,
+        });
+      }
       return {
         entryType: "CAPITAL_CALL",
         allocation: callAlloc,
         payments: callAlloc.payments,
         callNoticeDocumentId: vaultDoc?.id ?? null,
+        documents: docs,
       };
     }
 

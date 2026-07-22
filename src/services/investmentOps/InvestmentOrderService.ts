@@ -15,7 +15,22 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   SUBMITTED: ["COMPLIANCE_REVIEW", "APPROVED", "REJECTED", "CANCELLED"],
   COMPLIANCE_REVIEW: ["APPROVED", "REJECTED", "CANCELLED"],
   APPROVED: ["SENT_TO_BROKER", "CANCELLED"],
-  SENT_TO_BROKER: ["PARTIALLY_EXECUTED", "EXECUTED", "PENDING_SETTLEMENT", "CANCELLED", "FAILED"],
+  SENT_TO_BROKER: [
+    "BROKER_CONFIRMATION_RECORDED",
+    "PARTIALLY_EXECUTED",
+    "EXECUTED",
+    "PENDING_SETTLEMENT",
+    "CANCELLED",
+    "FAILED",
+  ],
+  BROKER_CONFIRMATION_RECORDED: [
+    "SENT_TO_BROKER",
+    "PARTIALLY_EXECUTED",
+    "EXECUTED",
+    "PENDING_SETTLEMENT",
+    "CANCELLED",
+    "FAILED",
+  ],
   PARTIALLY_EXECUTED: ["EXECUTED", "PENDING_SETTLEMENT", "CANCELLED", "FAILED"],
   EXECUTED: ["PENDING_SETTLEMENT", "SETTLED", "FAILED"],
   PENDING_SETTLEMENT: ["SETTLED", "FAILED"],
@@ -364,7 +379,7 @@ export class InvestmentOrderService {
         tradeId: existingTrade.id,
       };
     }
-    if (!["APPROVED", "SENT_TO_BROKER"].includes(order.status)) {
+    if (!["APPROVED", "SENT_TO_BROKER", "BROKER_CONFIRMATION_RECORDED", "PARTIALLY_EXECUTED"].includes(order.status)) {
       throw new Error(`Cannot execute order in status ${order.status}`);
     }
     if (order.status === "APPROVED") {
@@ -471,16 +486,27 @@ export class InvestmentOrderService {
       trade.orderId ?? trade.investmentOrder?.id ?? trade.order?.id ?? null;
     const orderRef =
       trade.orderRef ?? trade.investmentOrder?.orderRef ?? trade.order?.orderRef ?? null;
+    const tradeStatus = String(trade.status || "").toUpperCase();
+    const settlementStatus =
+      tradeStatus === "SETTLED"
+        ? "SETTLED"
+        : tradeStatus === "SETTLEMENT_FAILED"
+          ? "SETTLEMENT_FAILED"
+          : tradeStatus === "DRAFT" || tradeStatus === "CANCELLED"
+            ? tradeStatus
+            : "PENDING_SETTLEMENT";
     return {
       ...trade,
       accountingStatus: accountingPosted ? "POSTED" : "NOT_POSTED",
       confirmationStatus: trade.routingHops?.find((h: any) => h.target === "BROKER")?.status ?? "STAGED",
-      settlementStatus: trade.status,
+      settlementStatus,
       quantity: String(trade.quantity ?? ""),
       executionPrice: String(trade.executionPrice ?? ""),
+      price: String(trade.executionPrice ?? ""),
       filledQuantity: String(trade.filledQuantity ?? trade.quantity ?? ""),
       orderId,
       orderRef,
+      tradeDate: trade.executedAt ?? trade.tradeDate ?? trade.createdAt ?? null,
       fundName: trade.fund?.name ?? trade.fundName ?? null,
       fund: trade.fund
         ? { id: trade.fund.id, name: trade.fund.name }
@@ -494,6 +520,8 @@ export class InvestmentOrderService {
       feesBreakdown: { fees: String(fees), taxes: String(taxes) },
       brokerProfileId,
       custodianProfileId,
+      brokerId: brokerProfileId,
+      custodianId: custodianProfileId,
       brokerName: fundCfg?.brokerProfile?.name ?? trade.brokerName ?? null,
       custodianName: fundCfg?.custodianProfile?.name ?? trade.custodianName ?? null,
       broker: fundCfg?.brokerProfile?.name ?? trade.broker ?? null,

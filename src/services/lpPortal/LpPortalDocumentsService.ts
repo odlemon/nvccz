@@ -7,6 +7,7 @@ import {
 } from "../../middleware/lpPortalFoundation";
 import { LpPortalAccessService, type LpPortalContext } from "./LpPortalAccessService";
 import { LpPortalVaultService } from "./LpPortalVaultService";
+import { LpPortalRealtimeService } from "./LpPortalRealtimeService";
 
 const db = () => prisma as any;
 
@@ -85,9 +86,52 @@ export class LpPortalDocumentsService {
     documentId: string,
     meta: { ipAddress?: string; userAgent?: string; userId?: string } = {}
   ) {
+    const doc = await LpPortalVaultService.getDocumentForClient(ctx, documentId);
+    const mime = doc.mimeType || "application/pdf";
+    if (mime !== "application/pdf" && !mime.startsWith("image/")) {
+      throw new LpPortalError(
+        "LP_UNSUPPORTED_MEDIA",
+        "Preview is only available for PDF and image documents",
+        415,
+        undefined,
+        { mimeType: mime }
+      );
+    }
     const result = await LpPortalVaultService.download(ctx, documentId);
     await this.audit(ctx, documentId, "PREVIEW", meta);
-    return { ...result, preview: true };
+    return { ...result, preview: true, mimeType: mime };
+  }
+
+  static async summary(ctx: LpPortalContext) {
+    await LpPortalAccessService.assertClientActive(ctx.clientId);
+    const rows = await prisma.lpPortalDocument.findMany({
+      where: { clientId: ctx.clientId },
+      select: { category: true, publishedAt: true, fundId: true },
+    });
+    const visible = rows.filter(
+      (r) => !r.fundId || LpPortalAccessService.fundAllowed(ctx, r.fundId)
+    );
+    const byCategory = new Map<string, number>();
+    for (const r of visible) {
+      byCategory.set(r.category, (byCategory.get(r.category) || 0) + 1);
+    }
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const ytdStart = new Date(new Date().getFullYear(), 0, 1);
+    const ytdDownloads = await db().lpDocumentAccessAudit.count({
+      where: { clientId: ctx.clientId, action: "DOWNLOAD", createdAt: { gte: ytdStart } },
+    });
+    const newThisWeek = visible.filter(
+      (r) => r.publishedAt && new Date(r.publishedAt) >= weekAgo
+    ).length;
+
+    return {
+      total: visible.length,
+      newThisWeek,
+      requiresSignature: 0,
+      secureDownloadsYtd: ytdDownloads,
+      byCategory: [...byCategory.entries()].map(([category, count]) => ({ category, count })),
+    };
   }
 
   static async listNotices(ctx: LpPortalContext, query: Record<string, unknown> = {}) {
@@ -105,6 +149,7 @@ export class LpPortalDocumentsService {
         ],
       },
       orderBy: { publishedAt: "desc" },
+      include: { fund: { select: { name: true } } },
     });
 
     const visible = notices.filter((n: any) => this.noticeVisible(ctx, n));
@@ -121,13 +166,17 @@ export class LpPortalDocumentsService {
       return {
         id: n.id,
         title: n.title,
+        category: n.category || this.inferNoticeCategory(n.title),
+        kind: n.category || this.inferNoticeCategory(n.title),
         status: receipt?.acknowledgedAt
           ? "ACKNOWLEDGED"
           : receipt?.openedAt
             ? "OPENED"
             : n.status || "PUBLISHED",
         fundId: n.fundId,
+        fundName: n.fund?.name ?? null,
         shareClass: n.shareClass,
+        requiresAcknowledgement: true,
         publishedAt: n.publishedAt?.toISOString?.() ?? null,
         acknowledgedAt: receipt?.acknowledgedAt?.toISOString?.() ?? null,
         preview: String(n.body || "").slice(0, 240),
@@ -149,7 +198,10 @@ export class LpPortalDocumentsService {
     userId?: string
   ) {
     await LpPortalAccessService.assertClientActive(ctx.clientId);
-    const notice = await db().lpNotice.findUnique({ where: { id: noticeId } });
+    const notice = await db().lpNotice.findUnique({
+      where: { id: noticeId },
+      include: { fund: { select: { name: true } } },
+    });
     if (!notice || !this.noticeVisible(ctx, notice)) {
       throw new LpPortalError("LP_NOT_FOUND", "Notice not found", 404);
     }
@@ -170,10 +222,24 @@ export class LpPortalDocumentsService {
           openedAt: new Date(),
         },
       });
+      void LpPortalRealtimeService.emitNoticeUpdated(ctx.clientId, {
+        id: notice.id,
+        title: notice.title,
+        status: "OPENED",
+        fundId: notice.fundId,
+        fundName: notice.fund?.name ?? null,
+      });
     } else if (!existing.openedAt) {
       await db().lpNoticeReceipt.update({
         where: { id: existing.id },
         data: { openedAt: new Date() },
+      });
+      void LpPortalRealtimeService.emitNoticeUpdated(ctx.clientId, {
+        id: notice.id,
+        title: notice.title,
+        status: "OPENED",
+        fundId: notice.fundId,
+        fundName: notice.fund?.name ?? null,
       });
     }
 
@@ -186,13 +252,17 @@ export class LpPortalDocumentsService {
       id: notice.id,
       title: notice.title,
       body: notice.body,
+      category: notice.category || this.inferNoticeCategory(notice.title),
+      kind: notice.category || this.inferNoticeCategory(notice.title),
       status: receipt?.acknowledgedAt
         ? "ACKNOWLEDGED"
         : receipt?.openedAt
           ? "OPENED"
           : notice.status,
       fundId: notice.fundId,
+      fundName: notice.fund?.name ?? null,
       shareClass: notice.shareClass,
+      requiresAcknowledgement: true,
       publishedAt: notice.publishedAt?.toISOString?.() ?? null,
       openedAt: receipt?.openedAt?.toISOString?.() ?? null,
       acknowledgedAt: receipt?.acknowledgedAt?.toISOString?.() ?? null,
@@ -201,7 +271,10 @@ export class LpPortalDocumentsService {
 
   static async acknowledgeNotice(ctx: LpPortalContext, noticeId: string, userId?: string) {
     await LpPortalAccessService.assertClientActive(ctx.clientId);
-    const notice = await db().lpNotice.findUnique({ where: { id: noticeId } });
+    const notice = await db().lpNotice.findUnique({
+      where: { id: noticeId },
+      include: { fund: { select: { name: true } } },
+    });
     if (!notice || !this.noticeVisible(ctx, notice)) {
       throw new LpPortalError("LP_NOT_FOUND", "Notice not found", 404);
     }
@@ -236,10 +309,36 @@ export class LpPortalDocumentsService {
       });
     }
 
+    void LpPortalRealtimeService.emitNoticeUpdated(ctx.clientId, {
+      id: notice.id,
+      title: notice.title,
+      status: "ACKNOWLEDGED",
+      fundId: notice.fundId,
+      fundName: notice.fund?.name ?? null,
+    });
+
     return { acknowledgedAt: receipt.acknowledgedAt.toISOString() };
   }
 
+  static async publishNoticeRealtime(clientId: string, notice: Record<string, unknown>) {
+    void LpPortalRealtimeService.emitNoticeUpdated(clientId, {
+      id: String(notice.id),
+      title: String(notice.title || ""),
+      status: "PUBLISHED",
+      fundId: (notice.fundId as string) ?? null,
+      fundName: (notice.fundName as string) ?? null,
+    });
+  }
+
   // —— internals ——
+
+  private static inferNoticeCategory(title: string): string {
+    const t = String(title || "").toLowerCase();
+    if (t.includes("capital call") || t.includes("call #")) return "CAPITAL_CALL";
+    if (t.includes("report") || t.includes("letter") || t.includes("quarterly")) return "REPORT";
+    if (t.includes("policy") || t.includes("terms")) return "POLICY";
+    return "GENERAL";
+  }
 
   private static noticeVisible(ctx: LpPortalContext, n: any): boolean {
     if (n.clientId && n.clientId !== ctx.clientId) return false;
@@ -251,6 +350,10 @@ export class LpPortalDocumentsService {
   }
 
   private static mapDoc(d: any) {
+    const fileSizeBytes =
+      d.fileSizeBytes != null
+        ? Number(typeof d.fileSizeBytes === "bigint" ? d.fileSizeBytes : d.fileSizeBytes)
+        : null;
     return {
       id: d.id,
       name: d.title,
@@ -263,6 +366,9 @@ export class LpPortalDocumentsService {
       status: d.publishedAt ? "PUBLISHED" : "DRAFT",
       accessScope: "INVESTOR_ORGANISATION",
       checksumSha256: d.sha256,
+      mimeType: d.mimeType || "application/pdf",
+      fileSizeBytes,
+      pageCount: d.pageCount ?? null,
       permissions: ["VIEW", "DOWNLOAD"],
       sourceType: d.sourceType,
       sourceRefId: d.sourceRefId,

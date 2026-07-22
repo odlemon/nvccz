@@ -14,6 +14,8 @@ import { LpPortalDealingService } from "../services/lpPortal/LpPortalDealingServ
 import { LpPortalPerformanceService } from "../services/lpPortal/LpPortalPerformanceService";
 import { LpPortalDocumentsService } from "../services/lpPortal/LpPortalDocumentsService";
 import { LpPortalServiceDeskService } from "../services/lpPortal/LpPortalServiceDeskService";
+import { LpPortalNotificationsService } from "../services/lpPortal/LpPortalNotificationsService";
+import { LpPortalAttachmentService } from "../services/lpPortal/LpPortalAttachmentService";
 
 function q(req: LpPortalRequest) {
   return parseListQuery(req.query as any);
@@ -282,6 +284,106 @@ export class LpPortalController {
     }
   }
 
+  static async exportDealingRequests(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      const out = await LpPortalDealingService.exportRequests(req.lpPortal!, req.query as any);
+      res.setHeader("Content-Type", out.contentType);
+      res.setHeader("Content-Disposition", `attachment; filename="${out.filename}"`);
+      res.send(out.body);
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  static async documentsSummary(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      const data = await LpPortalDocumentsService.summary(req.lpPortal!);
+      res.json(successBody(data));
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  static async listNotifications(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      const limit = parseInt(String(req.query.limit || "5"), 10);
+      const data = await LpPortalNotificationsService.listFeed(req.lpPortal!, { limit });
+      res.json(successBody(data));
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  static async uploadRequestAttachment(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      const file = (req as any).file;
+      if (!file?.buffer) {
+        return res.status(400).json({
+          success: false,
+          message: "file is required (multipart)",
+          error: { code: "LP_VALIDATION", message: "file is required", retryable: false },
+        });
+      }
+      const data = await LpPortalServiceDeskService.uploadRequestAttachment(
+        req.lpPortal!,
+        file,
+        req.user!.id
+      );
+      res.status(201).json(successBody(data));
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  static async downloadAttachment(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      const { buffer, filename, contentType } = await LpPortalAttachmentService.download(
+        req.lpPortal!,
+        req.params.id
+      );
+      res.setHeader("Content-Type", contentType || "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(buffer);
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  static async listBankInstructionChanges(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      const data = await LpPortalServiceDeskService.listBankInstructionChanges(req.lpPortal!);
+      res.json(successBody({ items: data }));
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  static async createBankInstructionChange(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      const data = await LpPortalServiceDeskService.createBankInstructionChange(
+        req.lpPortal!,
+        req.body || {},
+        req.user!.id
+      );
+      res.status(201).json(successBody(data));
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  static async patchDisplaySettings(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      const data = await LpPortalServiceDeskService.patchDisplaySettings(
+        req.lpPortal!,
+        req.body || {},
+        req.user!.id
+      );
+      res.json(successBody(data));
+    } catch (e) {
+      next(e);
+    }
+  }
+
   // —— Dealing ——
   static async dealingOverview(req: LpPortalRequest, res: Response, next: NextFunction) {
     try {
@@ -399,6 +501,9 @@ export class LpPortalController {
     try {
       const data = await LpPortalPerformanceService.benchmarks(req.lpPortal!, {
         fundId: req.query.fundId as string,
+        metric: req.query.metric as string,
+        benchmarkId: req.query.benchmarkId as string,
+        asOfDate: req.query.asOfDate as string,
       });
       res.json(successBody(data));
     } catch (e) {
@@ -473,7 +578,7 @@ export class LpPortalController {
 
   static async downloadDocument(req: LpPortalRequest, res: Response, next: NextFunction) {
     try {
-      const { buffer, filename } = await LpPortalDocumentsService.download(
+      const { buffer, filename, contentType } = await LpPortalDocumentsService.download(
         req.lpPortal!,
         req.params.id,
         {
@@ -482,7 +587,7 @@ export class LpPortalController {
           userAgent: req.get("user-agent"),
         }
       );
-      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Type", contentType || "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.send(buffer);
     } catch (e) {
@@ -492,7 +597,7 @@ export class LpPortalController {
 
   static async previewDocument(req: LpPortalRequest, res: Response, next: NextFunction) {
     try {
-      const { buffer, filename } = await LpPortalDocumentsService.preview(
+      const { buffer, filename, mimeType, contentType } = await LpPortalDocumentsService.preview(
         req.lpPortal!,
         req.params.id,
         {
@@ -501,7 +606,7 @@ export class LpPortalController {
           userAgent: req.get("user-agent"),
         }
       );
-      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Type", contentType || mimeType || "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
       res.send(buffer);
     } catch (e) {
@@ -626,7 +731,7 @@ export class LpPortalController {
       const data = await LpPortalServiceDeskService.addRequestMessage(
         req.lpPortal!,
         req.params.reference,
-        { body: req.body.body },
+        { body: req.body.body, attachmentIds: req.body.attachmentIds },
         req.user!.id
       );
       res.status(201).json(successBody(data));
@@ -658,7 +763,7 @@ export class LpPortalController {
       const data = await LpPortalServiceDeskService.replyToThread(
         req.lpPortal!,
         req.params.id,
-        { body: req.body.body },
+        { body: req.body.body, attachmentIds: req.body.attachmentIds },
         req.user!.id
       );
       res.status(201).json(successBody(data));
@@ -763,6 +868,41 @@ export class LpPortalController {
     try {
       const data = await LpPortalServiceDeskService.getMfa(req.lpPortal!, req.user!.id);
       res.json(successBody(data));
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  static async getRealtimeContract(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      const port = process.env.PORT || "3009";
+      const baseUrl = process.env.API_PUBLIC_URL || `http://127.0.0.1:${port}`;
+      res.json(
+        successBody({
+          transport: "socket.io",
+          url: baseUrl.replace(/\/api\/?$/, ""),
+          path: "/socket.io",
+          auth: { token: "Bearer <jwt> via handshake.auth.token" },
+          autoRooms: ["user:{userId}", "lp_portal:{clientId}"],
+          subscribe: {
+            join_lp_thread: { threadId: "string" },
+            leave_lp_thread: { threadId: "string" },
+            join_lp_request: { reference: "string" },
+            leave_lp_request: { reference: "string" },
+            join_lp_portal: "re-join org room after reconnect",
+          },
+          events: {
+            lp_notice_updated: "Notice opened/acknowledged — refresh notices list/detail",
+            lp_request_created: "New service request — refresh requests list",
+            lp_request_updated: "Request status/metadata changed",
+            lp_request_message: "New message on request detail room",
+            lp_thread_message: "New message in message thread room",
+            lp_thread_read: "Thread marked read — update unread badges",
+            lp_thread_updated: "Thread metadata/last message changed",
+            lp_notification: "Topbar notification feed invalidation (per user)",
+          },
+        })
+      );
     } catch (e) {
       next(e);
     }

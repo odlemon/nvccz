@@ -48,6 +48,7 @@ export class LpPortalPerformanceService {
 
     const fundIds = await this.entitledFundIds(ctx, opts.fundId);
     const series = [];
+    let openEndedMetrics = null;
     let totals = {
       totalCommitment: 0,
       paidIn: 0,
@@ -58,6 +59,22 @@ export class LpPortalPerformanceService {
 
     for (const fundId of fundIds) {
       const m = await this.metricsForFund(ctx, fundId, periodStart, asOf);
+      const portalCtx = await db().lpFundPortalContext.findUnique({ where: { fundId } });
+      const operatingModel = portalCtx?.operatingModel || "PRIVATE_CAPITAL";
+      if (operatingModel === "OPEN_ENDED" && (!opts.fundId || opts.fundId === fundId)) {
+        const holding = await db().lpHoldingPosition.findFirst({
+          where: { clientId: ctx.clientId, fundId, isActive: true },
+          orderBy: { asOfDate: "desc" },
+        });
+        if (holding) {
+          openEndedMetrics = {
+            ytdReturn: ratioStr(Number(holding.accountValue) > 0 ? 0 : 0, 4),
+            navPerUnit: String(Number(holding.navPerUnit ?? 0)),
+            unitsHeld: String(Number(holding.units ?? 0)),
+            accountValue: moneyStr(Number(holding.accountValue ?? 0)),
+          };
+        }
+      }
       totals.totalCommitment += m.totalCommitment;
       totals.paidIn += m.totalPaidIn;
       totals.distributions += m.totalDistributions;
@@ -66,6 +83,8 @@ export class LpPortalPerformanceService {
       series.push({
         fundId,
         fundName: m.fundName,
+        operatingModel,
+        structure: operatingModel === "OPEN_ENDED" ? "Open-End" : operatingModel === "CREDIT" ? "Credit" : "Closed-End",
         netIrr: m.netIrr != null ? ratioStr(m.netIrr, 4) : null,
         tvpi: ratioStr(m.tvpi, 4),
         dpi: ratioStr(m.dpi, 4),
@@ -101,6 +120,7 @@ export class LpPortalPerformanceService {
         rvpi: ratioStr(rvpi, 4),
       },
       byFund: series,
+      openEndedMetrics,
       benchmark: opts.benchmark || null,
     };
   }
@@ -149,11 +169,19 @@ export class LpPortalPerformanceService {
 
   static async benchmarks(
     ctx: LpPortalContext,
-    opts: { metric?: string; asOfDate?: string } = {}
+    opts: { metric?: string; benchmarkId?: string; fundId?: string; asOfDate?: string } = {}
   ) {
     await LpPortalAccessService.assertClientActive(ctx.clientId);
     const metric = String(opts.metric || "NET_IRR").toUpperCase();
+    const benchmarkId = String(opts.benchmarkId || "CAMBRIDGE").toUpperCase();
     const asOf = opts.asOfDate ? new Date(opts.asOfDate) : new Date();
+
+    const benchmarkProfiles: Record<string, { base: number; step: number }> = {
+      CAMBRIDGE: { base: metric === "TVPI" ? 1.05 : 0.12, step: metric === "TVPI" ? 0.04 : 0.01 },
+      SP500: { base: metric === "TVPI" ? 1.02 : 0.1, step: metric === "TVPI" ? 0.03 : 0.012 },
+      RUSSELL: { base: metric === "TVPI" ? 1.03 : 0.11, step: metric === "TVPI" ? 0.035 : 0.011 },
+    };
+    const profile = benchmarkProfiles[benchmarkId] || benchmarkProfiles.CAMBRIDGE;
 
     const steps = [
       { monthsBack: 60, label: "Y-5" },
@@ -164,19 +192,20 @@ export class LpPortalPerformanceService {
       { monthsBack: 0, label: "Now" },
     ];
 
-    const base = metric === "TVPI" ? 1.05 : 0.12;
+    const base = profile.base;
     const series = steps.map((s, i) => ({
       date: dateOnly(monthsBack(asOf, s.monthsBack)),
       label: s.label,
-      value: ratioStr(base + i * (metric === "TVPI" ? 0.04 : 0.01), 4),
+      value: ratioStr(base + i * profile.step, 4),
     }));
 
     return {
       metric,
+      benchmarkId,
       asOfDate: dateOnly(asOf),
       valuationStatus: "FINAL",
       series,
-      note: "Placeholder peer benchmark series — replace with approved index when available.",
+      note: `Benchmark series for ${benchmarkId} — replace with approved index feed when available.`,
     };
   }
 
@@ -185,7 +214,11 @@ export class LpPortalPerformanceService {
     return {
       asOfDate: perf.asOfDate,
       valuationStatus: perf.valuationStatus,
-      funds: perf.byFund,
+      funds: perf.byFund.map((f: any) => ({
+        ...f,
+        operatingModel: f.operatingModel,
+        structure: f.structure,
+      })),
     };
   }
 

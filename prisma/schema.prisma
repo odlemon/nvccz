@@ -4064,6 +4064,9 @@ model LpPortalDocument {
   fileUrl       String?   @map("file_url") @db.Text
   storagePath   String?   @map("storage_path") @db.VarChar(512)
   sha256        String?   @db.VarChar(64)
+  mimeType      String?   @map("mime_type") @db.VarChar(128)
+  fileSizeBytes BigInt?   @map("file_size_bytes")
+  pageCount     Int?      @map("page_count")
   publishedAt   DateTime? @map("published_at")
   publishedById String?   @map("published_by_id")
   sourceType    String    @map("source_type") @db.VarChar(32)
@@ -4266,6 +4269,7 @@ model LpDealingRequest {
   estimateSnapshotId String?   @map("estimate_snapshot_id")
   estimateJson       Json?     @map("estimate_json")
   payloadHash        String?   @map("payload_hash") @db.VarChar(64)
+  shareClass         String?   @map("share_class") @db.VarChar(64)
   bankAccountId      String?   @map("bank_account_id")
   submittedById      String?   @map("submitted_by_id")
   notes              String?   @db.Text
@@ -4315,6 +4319,7 @@ model LpNotice {
   id          String    @id @default(cuid())
   title       String    @db.VarChar(512)
   body        String    @db.Text
+  category    String?   @db.VarChar(32)
   status      String    @default("PUBLISHED") @db.VarChar(32)
   targetType  String    @default("ALL") @map("target_type") @db.VarChar(32) // ALL | FUND | ORG | USER
   fundId      String?   @map("fund_id")
@@ -4355,6 +4360,7 @@ model LpServiceRequest {
   fundId      String?  @map("fund_id")
   requestType String   @map("request_type") @db.VarChar(64)
   status      String   @default("OPEN") @db.VarChar(32)
+  priority    String   @default("NORMAL") @db.VarChar(16)
   subject     String   @db.VarChar(512)
   body        String   @db.Text
   createdById String?  @map("created_by_id")
@@ -4415,19 +4421,75 @@ model LpMessage {
 }
 
 model LpNotificationPrefs {
-  id                 String   @id @default(cuid())
-  clientId           String   @map("client_id")
-  userId             String   @map("user_id")
-  emailCapitalCalls  Boolean  @default(true) @map("email_capital_calls")
-  emailDistributions Boolean  @default(true) @map("email_distributions")
-  emailDocuments     Boolean  @default(true) @map("email_documents")
-  emailMessages      Boolean  @default(true) @map("email_messages")
-  emailNotices       Boolean  @default(true) @map("email_notices")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  id                    String   @id @default(cuid())
+  clientId              String   @map("client_id")
+  userId                String   @map("user_id")
+  emailCapitalCalls     Boolean  @default(true) @map("email_capital_calls")
+  emailDistributions    Boolean  @default(true) @map("email_distributions")
+  emailDocuments        Boolean  @default(true) @map("email_documents")
+  emailMessages         Boolean  @default(true) @map("email_messages")
+  emailNotices          Boolean  @default(true) @map("email_notices")
+  inAppCapitalCalls     Boolean  @default(true) @map("in_app_capital_calls")
+  inAppDistributions    Boolean  @default(true) @map("in_app_distributions")
+  inAppDocuments        Boolean  @default(true) @map("in_app_documents")
+  inAppMessages         Boolean  @default(true) @map("in_app_messages")
+  inAppNotices          Boolean  @default(true) @map("in_app_notices")
+  emailDigest           String   @default("WEEKLY") @map("email_digest") @db.VarChar(16)
+  presentationCurrency  String   @default("USD") @map("presentation_currency") @db.VarChar(8)
+  defaultAsOfPreference String   @default("LATEST") @map("default_as_of_preference") @db.VarChar(16)
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
 
   @@unique([clientId, userId], map: "lp_notification_prefs_user_client_key")
   @@map("lp_notification_prefs")
+}
+
+model LpPortalAttachment {
+  id            String   @id @default(cuid())
+  clientId      String   @map("client_id")
+  fileName      String   @map("file_name") @db.VarChar(255)
+  mimeType      String   @map("mime_type") @db.VarChar(128)
+  storagePath   String   @map("storage_path") @db.VarChar(512)
+  fileSizeBytes BigInt?  @map("file_size_bytes")
+  sha256        String?  @db.VarChar(64)
+  requestId     String?  @map("request_id")
+  messageId     String?  @map("message_id")
+  uploadedById  String?  @map("uploaded_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([clientId], map: "lp_portal_attachments_client_idx")
+  @@index([requestId], map: "lp_portal_attachments_request_idx")
+  @@index([messageId], map: "lp_portal_attachments_message_idx")
+  @@map("lp_portal_attachments")
+}
+
+model LpDealingEstimateSnapshot {
+  id           String   @id @default(cuid())
+  clientId     String   @map("client_id")
+  fundId       String   @map("fund_id")
+  estimateType String   @map("estimate_type") @db.VarChar(16)
+  estimateJson Json     @map("estimate_json")
+  payloadHash  String   @map("payload_hash") @db.VarChar(64)
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([clientId], map: "lp_dealing_estimate_snapshots_client_idx")
+  @@index([expiresAt], map: "lp_dealing_estimate_snapshots_expires_idx")
+  @@map("lp_dealing_estimate_snapshots")
+}
+
+model LpBankInstructionChange {
+  id            String   @id @default(cuid())
+  clientId      String   @map("client_id")
+  fundId        String?  @map("fund_id")
+  status        String   @default("SUBMITTED") @db.VarChar(32)
+  requestedById String?  @map("requested_by_id")
+  payloadJson   Json     @map("payload_json")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([clientId], map: "lp_bank_instruction_changes_client_idx")
+  @@map("lp_bank_instruction_changes")
 }
 
 model LpPortalJob {
@@ -7330,7 +7392,7 @@ model InvestmentOrder {
   custodianProfileId String?   @map("custodian_profile_id")
   valueDate          DateTime? @map("value_date") @db.Date
   tradeDate          DateTime? @map("trade_date") @db.Date
-  status             String    @default("DRAFT") @db.VarChar(24)
+  status             String    @default("DRAFT") @db.VarChar(48)
   complianceStatus   String?   @map("compliance_status") @db.VarChar(24)
   notes              String?   @db.Text
   tradeId            String?   @map("trade_id")
@@ -7339,6 +7401,11 @@ model InvestmentOrder {
   createdById        String?   @map("created_by_id")
   submittedAt        DateTime? @map("submitted_at")
   approvedAt         DateTime? @map("approved_at")
+  sentToBrokerAt     DateTime? @map("sent_to_broker_at")
+  sentToBrokerChannel String?  @map("sent_to_broker_channel") @db.VarChar(32)
+  sentToBrokerNotes  String?   @map("sent_to_broker_notes") @db.Text
+  /// Phase-1 custodian authorisation (cash/securities prep) captured at send-to-broker.
+  settlementAccountId String?  @map("settlement_account_id") @db.VarChar(191)
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
@@ -7352,6 +7419,7 @@ model InvestmentOrder {
   statusEvents       InvestmentOrderStatusEvent[]
   routes             InvestmentOrderRoute[]
   executions         InvestmentOrderExecution[]
+  brokerConfirmations InvestmentOrderBrokerConfirmation[]
   transactions       InvestmentTransaction[]
   blotterItems       InvestmentBlotterItem[]
   complianceRuns     InvestmentComplianceRun[]
@@ -7898,6 +7966,126 @@ model InvestmentOrderExecution {
   @@unique([orderId, executionRef], map: "investment_order_executions_ref_key")
   @@index([orderId, executedAt], map: "investment_order_executions_order_time_idx")
   @@map("investment_order_executions")
+}
+
+/// External broker outcome recorded by ops (broker stays outside the system).
+model InvestmentOrderBrokerConfirmation {
+  id               String    @id @default(cuid())
+  orderId          String    @map("order_id")
+  outcome          String    @db.VarChar(24)
+  status           String    @default("RECORDED") @db.VarChar(24)
+  quantity         Decimal   @db.Decimal(20, 8)
+  price            Decimal   @db.Decimal(20, 8)
+  currencyCode     String    @map("currency_code") @db.VarChar(3)
+  brokerReference  String?   @map("broker_reference") @db.VarChar(128)
+  tradeDate        DateTime? @map("trade_date") @db.Date
+  valueDate        DateTime? @map("value_date") @db.Date
+  notes            String?   @db.Text
+  attachmentFileId String?   @map("attachment_file_id")
+  rejectReason     String?   @map("reject_reason") @db.Text
+  acceptedTradeId  String?   @map("accepted_trade_id")
+  idempotencyKey   String?   @unique(map: "investment_order_broker_confirmations_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  recordedById     String?   @map("recorded_by_id")
+  recordedAt       DateTime  @default(now()) @map("recorded_at")
+  decidedAt        DateTime? @map("decided_at")
+  decidedById      String?   @map("decided_by_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  order InvestmentOrder @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([orderId], map: "investment_order_broker_confirmations_order_idx")
+  @@index([status, recordedAt], map: "investment_order_broker_confirmations_status_idx")
+  @@map("investment_order_broker_confirmations")
+}
+
+model InvestmentTradeReconTemplate {
+  id            String   @id @default(cuid())
+  code          String   @unique(map: "investment_trade_recon_templates_code_key") @db.VarChar(64)
+  name          String   @db.VarChar(255)
+  party         String   @db.VarChar(24)
+  format        String   @default("CSV") @db.VarChar(16)
+  columnMapJson Json     @map("column_map_json")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("investment_trade_recon_templates")
+}
+
+model InvestmentTradeReconBatch {
+  id                    String    @id @default(cuid())
+  fundId                String    @map("fund_id")
+  asOfDate              DateTime  @map("as_of_date") @db.Date
+  status                String    @default("OPEN") @db.VarChar(24)
+  brokerTemplateCode    String?   @map("broker_template_code") @db.VarChar(64)
+  custodianTemplateCode String?   @map("custodian_template_code") @db.VarChar(64)
+  matchedCount          Int       @default(0) @map("matched_count")
+  exceptionCount        Int       @default(0) @map("exception_count")
+  idempotencyKey        String?   @unique(map: "investment_trade_recon_batches_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  createdById           String?   @map("created_by_id")
+  completedAt           DateTime? @map("completed_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  lines       InvestmentTradeReconLine[]
+  exceptions  InvestmentTradeReconException[]
+
+  @@index([fundId, asOfDate], map: "investment_trade_recon_batches_fund_idx")
+  @@map("investment_trade_recon_batches")
+}
+
+model InvestmentTradeReconLine {
+  id               String    @id @default(cuid())
+  batchId          String    @map("batch_id")
+  source           String    @db.VarChar(24)
+  lineNo           Int       @map("line_no")
+  instrumentSymbol String?   @map("instrument_symbol") @db.VarChar(64)
+  side             String?   @db.VarChar(8)
+  quantity         Decimal?  @db.Decimal(20, 8)
+  price            Decimal?  @db.Decimal(20, 8)
+  tradeDate        DateTime? @map("trade_date") @db.Date
+  externalRef      String?   @map("external_ref") @db.VarChar(128)
+  currencyCode     String?   @map("currency_code") @db.VarChar(3)
+  rawJson          Json?     @map("raw_json")
+  matchedTradeId   String?   @map("matched_trade_id")
+  matchStatus      String    @default("UNMATCHED") @map("match_status") @db.VarChar(24)
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  batch InvestmentTradeReconBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, source], map: "investment_trade_recon_lines_batch_idx")
+  @@index([matchedTradeId], map: "investment_trade_recon_lines_trade_idx")
+  @@map("investment_trade_recon_lines")
+}
+
+model InvestmentTradeReconException {
+  id                 String    @id @default(cuid())
+  batchId            String    @map("batch_id")
+  code               String    @db.VarChar(48)
+  status             String    @default("OPEN") @db.VarChar(24)
+  instrumentSymbol   String?   @map("instrument_symbol") @db.VarChar(64)
+  side               String?   @db.VarChar(8)
+  internalQuantity   Decimal?  @map("internal_quantity") @db.Decimal(20, 8)
+  brokerQuantity     Decimal?  @map("broker_quantity") @db.Decimal(20, 8)
+  custodianQuantity  Decimal?  @map("custodian_quantity") @db.Decimal(20, 8)
+  price              Decimal?  @db.Decimal(20, 8)
+  tradeDate          DateTime? @map("trade_date") @db.Date
+  tradeId            String?   @map("trade_id")
+  brokerLineId       String?   @map("broker_line_id")
+  custodianLineId    String?   @map("custodian_line_id")
+  message            String?   @db.Text
+  resolutionReason   String?   @map("resolution_reason") @db.Text
+  resolvedById       String?   @map("resolved_by_id")
+  resolvedAt         DateTime? @map("resolved_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  batch InvestmentTradeReconBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, status], map: "investment_trade_recon_exceptions_batch_idx")
+  @@index([tradeId], map: "investment_trade_recon_exceptions_trade_idx")
+  @@map("investment_trade_recon_exceptions")
 }
 
 model InvestmentBlotter {
@@ -10783,6 +10971,7 @@ model SpCashJournal {
   auditHash            String?   @map("audit_hash") @db.VarChar(128)
   cashAccountId        String?   @map("cash_account_id")
   portfolioId          String?   @map("portfolio_id")
+  tradeId              String?   @map("trade_id")
   rejectReason         String?   @map("reject_reason") @db.Text
   version              Int       @default(1)
   createdAt            DateTime  @default(now()) @map("created_at")
@@ -10794,6 +10983,7 @@ model SpCashJournal {
   @@index([cashAccountId], map: "sp_cash_journals_cash_account_idx")
   @@index([portfolioId], map: "sp_cash_journals_portfolio_idx")
   @@index([status], map: "sp_cash_journals_status_idx")
+  @@index([tradeId], map: "sp_cash_journals_trade_idx")
   @@map("sp_cash_journals")
 }
 

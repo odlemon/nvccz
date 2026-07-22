@@ -10,9 +10,16 @@ export class LpPortalColleagueService {
 
     const rows = await prisma.lpUserRelation.findMany({
       where: { clientId: ctx.clientId },
-      include: { user: { select: { id: true, email: true, firstName: true, lastName: true } } },
+      include: { user: { select: { id: true, email: true, firstName: true, lastName: true, lastSeen: true } } },
       orderBy: { createdAt: "desc" },
     });
+
+    const userIds = rows.map((r) => r.userId);
+    const mfaRows = userIds.length
+      ? await prisma.userMfaTotp.findMany({ where: { userId: { in: userIds } } })
+      : [];
+    const mfaByUser = new Map(mfaRows.map((m) => [m.userId, m]));
+
     return {
       data: rows.map((r) => ({
         membershipId: r.id,
@@ -24,6 +31,8 @@ export class LpPortalColleagueService {
         isActive: r.isActive,
         status: !r.isActive ? "SUSPENDED" : r.revokedAt ? "SUSPENDED" : "ACTIVE",
         revokedAt: r.revokedAt,
+        mfaEnabled: Boolean(mfaByUser.get(r.userId)?.enabledAt),
+        lastActiveAt: r.user.lastSeen?.toISOString?.() ?? null,
       })),
     };
   }

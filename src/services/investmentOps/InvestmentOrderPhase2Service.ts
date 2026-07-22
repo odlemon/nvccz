@@ -17,9 +17,22 @@ export const ORDER_TRANSITIONS: Record<string, readonly string[]> = {
   SUBMITTED: ["COMPLIANCE_REVIEW", "APPROVED", "REJECTED", "CANCELLED"],
   COMPLIANCE_REVIEW: ["APPROVED", "REJECTED", "CANCELLED"],
   APPROVED: ["SENT_TO_BROKER", "CANCELLED"],
-  SENT_TO_BROKER: ["PARTIALLY_EXECUTED", "EXECUTED", "CANCELLED"],
-  PARTIALLY_EXECUTED: ["EXECUTED", "CANCELLED"],
-  EXECUTED: ["PENDING_SETTLEMENT", "SETTLED"],
+  SENT_TO_BROKER: [
+    "BROKER_CONFIRMATION_RECORDED",
+    "PARTIALLY_EXECUTED",
+    "EXECUTED",
+    "CANCELLED",
+    "FAILED",
+  ],
+  BROKER_CONFIRMATION_RECORDED: [
+    "SENT_TO_BROKER",
+    "PARTIALLY_EXECUTED",
+    "EXECUTED",
+    "CANCELLED",
+    "FAILED",
+  ],
+  PARTIALLY_EXECUTED: ["EXECUTED", "CANCELLED", "FAILED"],
+  EXECUTED: ["PENDING_SETTLEMENT", "SETTLED", "FAILED"],
   PENDING_SETTLEMENT: ["SETTLED", "FAILED"],
   SETTLED: ["ARCHIVED"],
   REJECTED: ["ARCHIVED"],
@@ -1079,35 +1092,40 @@ export class InvestmentOrderPhase2Service {
       order.instrument?.exchangeCode ||
       order.tradeCurrency ||
       "MANUAL";
-    return db.$transaction(async (tx: any) => {
-      const latest = await tx.investmentOrderRoute.findFirst({
-        where: { orderId: id },
-        orderBy: { routeSequence: "desc" },
-      });
-      const route = await tx.investmentOrderRoute.create({
-        data: {
-          orderId: id,
-          routeSequence: (latest?.routeSequence || 0) + 1,
-          venueCode,
-          brokerProfileId: data?.brokerProfileId || order.brokerProfileId || null,
-          status: "ROUTED",
-          requestPayload: canonical(data?.requestPayload || {
+
+    // Avoid long interactive transactions (remote MySQL + login-side load can exceed 5–20s).
+    const latest = await db.investmentOrderRoute.findFirst({
+      where: { orderId: id },
+      orderBy: { routeSequence: "desc" },
+    });
+    const route = await db.investmentOrderRoute.create({
+      data: {
+        orderId: id,
+        routeSequence: (latest?.routeSequence || 0) + 1,
+        venueCode,
+        brokerProfileId: data?.brokerProfileId || order.brokerProfileId || null,
+        status: "ROUTED",
+        requestPayload: canonical(
+          data?.requestPayload || {
             orderRef: order.orderRef,
             side: order.side,
             quantity: order.quantity,
-          }),
-          externalOrderRef: data?.externalOrderRef,
-          idempotencyKey,
-          routedAt: new Date(),
-        },
-      });
-      await tx.investmentOrder.update({
-        where: { id },
-        data: { status: "SENT_TO_BROKER", version: { increment: 1 } },
-      });
-      await appendEvent(tx, order, "SENT_TO_BROKER", userId, `${idempotencyKey}:status`, "BROKER_ROUTE");
-      return route;
+          }
+        ),
+        externalOrderRef: data?.externalOrderRef,
+        idempotencyKey,
+        routedAt: new Date(),
+      },
     });
+    const changed = await db.investmentOrder.updateMany({
+      where: { id, version: order.version, status: "APPROVED" },
+      data: { status: "SENT_TO_BROKER", version: { increment: 1 } },
+    });
+    if (changed.count !== 1) {
+      fail("VERSION_CONFLICT", "Order changed while routing to broker", 409);
+    }
+    await appendEvent(db, order, "SENT_TO_BROKER", userId, `${idempotencyKey}:status`, "BROKER_ROUTE");
+    return route;
   }
 
   static async executions(id: string, userId: string, user: any) {
@@ -1127,7 +1145,7 @@ export class InvestmentOrderPhase2Service {
     if (replay) return replay;
     const order = await orderForAccess(id, userId, user);
     assertVersion(order, expectedVersion);
-    if (!["SENT_TO_BROKER", "PARTIALLY_EXECUTED"].includes(order.status)) {
+    if (!["SENT_TO_BROKER", "BROKER_CONFIRMATION_RECORDED", "PARTIALLY_EXECUTED"].includes(order.status)) {
       fail("ORDER_NOT_EXECUTABLE", "Order must be routed before fills can be recorded", 409);
     }
     const quantity = positiveDecimal(data.quantity, "quantity");
