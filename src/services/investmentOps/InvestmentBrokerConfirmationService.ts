@@ -51,22 +51,50 @@ export class InvestmentBrokerConfirmationService {
     userId: string,
     user: any
   ) {
-    const route = await InvestmentOrderPhase2Service.route(
-      id,
-      {
-        venueCode: data?.venueCode,
-        brokerProfileId: data?.brokerProfileId,
-        requestPayload: data?.requestPayload,
-        externalOrderRef: data?.externalOrderRef,
-        channel: data?.channel,
-        notes: data?.notes,
-        sentAt: data?.sentAt,
-      },
-      expectedVersion,
-      idempotencyKey,
-      userId,
-      user
-    );
+    const orderBefore = await InvestmentOrderPhase2Service.get(id, userId, user);
+    if (String(orderBefore.version) !== String(expectedVersion)) {
+      fail("VERSION_CONFLICT", "Order has changed since it was read", 409, {
+        expectedVersion,
+        currentVersion: String(orderBefore.version),
+      });
+    }
+
+    const routePayload = {
+      venueCode: data?.venueCode,
+      brokerProfileId: data?.brokerProfileId,
+      requestPayload: data?.requestPayload,
+      externalOrderRef: data?.externalOrderRef,
+      channel: data?.channel,
+      notes: data?.notes,
+      sentAt: data?.sentAt,
+    };
+
+    let route;
+    if (orderBefore.status === "APPROVED") {
+      route = await InvestmentOrderPhase2Service.route(
+        id,
+        routePayload,
+        expectedVersion,
+        idempotencyKey,
+        userId,
+        user
+      );
+    } else if (["SENT_TO_BROKER", "ROUTED"].includes(orderBefore.status)) {
+      route = await InvestmentOrderPhase2Service.routeResend(
+        id,
+        routePayload,
+        expectedVersion,
+        idempotencyKey,
+        userId,
+        user
+      );
+    } else {
+      fail(
+        "ORDER_NOT_SENDABLE",
+        "Order must be approved or awaiting broker to send an instruction",
+        409
+      );
+    }
 
     const sentAt = data?.sentAt ? new Date(data.sentAt) : new Date();
     const channel = data?.channel ? String(data.channel).toUpperCase() : "EMAIL";
@@ -99,6 +127,27 @@ export class InvestmentBrokerConfirmationService {
     });
 
     const order = await InvestmentOrderPhase2Service.get(id, userId, user);
+
+    // Email PO-style instruction + magic-link reply (broker communication flow)
+    let instructionDispatch: any = null;
+    try {
+      const { InvestmentBrokerInstructionService } = await import(
+        "./InvestmentBrokerInstructionService"
+      );
+      instructionDispatch = await InvestmentBrokerInstructionService.dispatchAfterSend(
+        id,
+        data,
+        userId,
+        user
+      );
+    } catch (e: any) {
+      console.warn("[sendToBroker] instruction email dispatch failed:", e?.message || e);
+      instructionDispatch = {
+        status: "FAILED",
+        deliveryError: e?.message || "INSTRUCTION_DISPATCH_FAILED",
+      };
+    }
+
     return {
       order: {
         ...order,
@@ -106,6 +155,7 @@ export class InvestmentBrokerConfirmationService {
         settlementAccountId: order.settlementAccountId ?? null,
       },
       route,
+      instruction: instructionDispatch,
     };
   }
 
@@ -123,8 +173,9 @@ export class InvestmentBrokerConfirmationService {
     data: any,
     expectedVersion: string,
     idempotencyKey: string,
-    userId: string,
-    user: any
+    userId: string | null,
+    user: any,
+    opts: { skipAccessCheck?: boolean } = {}
   ) {
     if (idempotencyKey) {
       const replay = await db.investmentOrderBrokerConfirmation.findUnique({
@@ -133,14 +184,22 @@ export class InvestmentBrokerConfirmationService {
       if (replay) return serializeConfirmation(replay);
     }
 
-    const order = await InvestmentOrderPhase2Service.get(orderId, userId, user);
+    const order = opts.skipAccessCheck
+      ? await db.investmentOrder.findUnique({ where: { id: orderId } })
+      : await InvestmentOrderPhase2Service.get(orderId, userId, user);
+    if (!order) fail("ORDER_NOT_FOUND", "Order not found", 404);
     if (String(order.version) !== String(expectedVersion)) {
       fail("VERSION_CONFLICT", "Order has changed since it was read", 409, {
         expectedVersion,
         currentVersion: String(order.version),
       });
     }
-    if (!["SENT_TO_BROKER", "BROKER_CONFIRMATION_RECORDED", "PARTIALLY_EXECUTED"].includes(order.status)) {
+    // ROUTED is legacy/alias; sendToBroker persists SENT_TO_BROKER but older rows may still say ROUTED.
+    if (
+      !["SENT_TO_BROKER", "ROUTED", "BROKER_CONFIRMATION_RECORDED", "PARTIALLY_EXECUTED"].includes(
+        order.status
+      )
+    ) {
       fail(
         "ORDER_NOT_AWAITING_BROKER",
         "Order must be SENT_TO_BROKER (or awaiting) before recording a confirmation",
@@ -165,8 +224,12 @@ export class InvestmentBrokerConfirmationService {
     } catch {
       fail("VALIDATION_ERROR", "quantity and price are required decimal strings", 422);
     }
-    if (!quantity.isPositive() || !price.isPositive()) {
+    if (outcome !== "UNABLE" && (!quantity.isPositive() || !price.isPositive())) {
       fail("VALIDATION_ERROR", "quantity and price must be greater than zero", 422);
+    }
+    if (outcome === "UNABLE") {
+      if (!quantity.isPositive()) quantity = new Decimal(String(order.quantity || "1"));
+      if (!price.isPositive()) price = new Decimal(String(order.limitPrice || "0.01"));
     }
 
     const row = await db.investmentOrderBrokerConfirmation.create({
@@ -184,12 +247,14 @@ export class InvestmentBrokerConfirmationService {
         notes: data?.notes || null,
         attachmentFileId: data?.attachmentFileId || null,
         idempotencyKey: idempotencyKey || null,
-        recordedById: userId,
+        recordedById: userId || null,
       },
     });
 
-    if (order.status === "SENT_TO_BROKER") {
-      assertOrderTransition("SENT_TO_BROKER", "BROKER_CONFIRMATION_RECORDED");
+    if (order.status === "SENT_TO_BROKER" || order.status === "ROUTED") {
+      if (order.status === "SENT_TO_BROKER") {
+        assertOrderTransition("SENT_TO_BROKER", "BROKER_CONFIRMATION_RECORDED");
+      }
       const changed = await db.investmentOrder.updateMany({
         where: { id: orderId, version: order.version },
         data: {
@@ -235,7 +300,11 @@ export class InvestmentBrokerConfirmationService {
     if (["EXECUTED", "PENDING_SETTLEMENT", "SETTLED"].includes(order.status) && order.tradeId) {
       fail("ORDER_ALREADY_EXECUTED", "Order already executed", 409, { tradeId: order.tradeId });
     }
-    if (!["SENT_TO_BROKER", "BROKER_CONFIRMATION_RECORDED", "PARTIALLY_EXECUTED"].includes(order.status)) {
+    if (
+      !["SENT_TO_BROKER", "ROUTED", "BROKER_CONFIRMATION_RECORDED", "PARTIALLY_EXECUTED"].includes(
+        order.status
+      )
+    ) {
       fail("ORDER_NOT_AWAITING_BROKER", "Cannot accept confirmation in current status", 422, {
         status: order.status,
       });
@@ -288,7 +357,7 @@ export class InvestmentBrokerConfirmationService {
         status: nextStatus,
         executionPrice: confirmation.price,
         tradeDate: confirmation.tradeDate || undefined,
-        valueDate: confirmation.valueDate || undefined,
+        valueDate: confirmation.valueDate || order.valueDate || undefined,
       },
     });
 

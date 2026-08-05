@@ -8,6 +8,7 @@ import { CoreBankingBridgeService } from "./CoreBankingBridgeService";
 import { ListedEquityGlPostingService } from "./ListedEquityGlPostingService";
 import { ListedEquityHoldingsService } from "./ListedEquityHoldingsService";
 import { isCustodianRoutingEnabled, isInternalSettlementMode } from "./listedEquityRoutingMode";
+import { InvestmentOpsError } from "../../middleware/investmentOpsFoundation";
 
 function tradeRef(): string {
   return `TXN-${Date.now().toString(36)}${randomBytes(3).toString("hex")}`.toUpperCase();
@@ -227,6 +228,93 @@ export class TradeOrchestratorService {
     }
 
     await this.reconcileTradeSettlementState(tradeId);
+  }
+
+  /**
+   * Blotter settle: advance hops and post GL synchronously.
+   * Throws if no journal entry is created (no silent RETRYING swallow).
+   */
+  static async ensureSettlementPosted(tradeId: string, userId: string): Promise<string> {
+    await this.ensureCustodianSkipped(tradeId, userId);
+
+    const trade = await prisma.listedEquityTrade.findUnique({ where: { id: tradeId } });
+    if (!trade) throw new InvestmentOpsError("TRADE_NOT_FOUND", "Trade not found", 404);
+
+    const bankHop = await prisma.listedEquityTradeRoutingHop.findFirst({
+      where: { tradeId, target: "CORE_BANKING" },
+    });
+    if (bankHop && !["CONFIRMED", "FAILED"].includes(bankHop.status)) {
+      await this.advanceCoreBankingHop(tradeId, bankHop.id, trade);
+      const refreshed = await prisma.listedEquityTradeRoutingHop.findUnique({
+        where: { id: bankHop.id },
+      });
+      if (refreshed?.status === "DISPATCHED") {
+        await CoreBankingBridgeService.releaseHold(tradeId, bankHop.id);
+      }
+    }
+
+    let settlement = await prisma.listedEquityTradeSettlement.findUnique({ where: { tradeId } });
+    if (settlement?.journalEntryId) {
+      const glHop = await prisma.listedEquityTradeRoutingHop.findFirst({
+        where: { tradeId, target: "ACCOUNTING_GL" },
+      });
+      if (glHop && glHop.status !== "CONFIRMED") {
+        await ListedEquityGlPostingService.completeSettlement(
+          tradeId,
+          glHop.id,
+          settlement.journalEntryId,
+          settlement.realizedPnl != null ? Number(settlement.realizedPnl) : null
+        );
+      }
+      return settlement.journalEntryId;
+    }
+
+    let glHop = await prisma.listedEquityTradeRoutingHop.findFirst({
+      where: { tradeId, target: "ACCOUNTING_GL" },
+    });
+    if (!glHop) {
+      throw new InvestmentOpsError(
+        "TRADE_ROUTING_INCOMPLETE",
+        "Accounting GL routing hop is missing",
+        422,
+        { tradeId }
+      );
+    }
+
+    if (["RETRYING", "FAILED"].includes(glHop.status)) {
+      await prisma.listedEquityTradeRoutingHop.update({
+        where: { id: glHop.id },
+        data: { status: "STAGED", lastError: null, nextRetryAt: null, attemptCount: 0 },
+      });
+      glHop = await prisma.listedEquityTradeRoutingHop.findUnique({ where: { id: glHop.id } });
+    }
+
+    try {
+      await ListedEquityGlPostingService.postSettlement(tradeId, glHop!.id, userId);
+    } catch (err: any) {
+      throw new InvestmentOpsError(
+        "ORDER_SETTLEMENT_ACCOUNTING_REQUIRED",
+        err?.message || "Trade settlement accounting could not be posted",
+        422,
+        { tradeId, hopId: glHop!.id }
+      );
+    }
+
+    settlement = await prisma.listedEquityTradeSettlement.findUnique({ where: { tradeId } });
+    if (!settlement?.journalEntryId) {
+      const hop = await prisma.listedEquityTradeRoutingHop.findFirst({
+        where: { tradeId, target: "ACCOUNTING_GL" },
+      });
+      throw new InvestmentOpsError(
+        "ORDER_SETTLEMENT_ACCOUNTING_REQUIRED",
+        hop?.lastError || "Trade settlement journal was not created",
+        422,
+        { tradeId, hopId: hop?.id }
+      );
+    }
+
+    await this.reconcileTradeSettlementState(tradeId);
+    return settlement.journalEntryId;
   }
 
   /** Repair hop/trade status drift (e.g. cron reset DISPATCHED → STAGED while confirmedAt remains). */

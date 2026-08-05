@@ -19,6 +19,7 @@ export type ReportBuildParams = {
     periodStart?: string;
     periodEnd?: string;
     valuationDate?: string;
+    asOf?: string;
     benchmarkName?: string;
     clientLegalName?: string;
     assetManagerName?: string;
@@ -31,13 +32,16 @@ export type ReportBuilderContext = Awaited<ReturnType<typeof ReportBuilderContex
 export class ReportBuilderContextLoader {
   static async load(params: ReportBuildParams) {
     const now = new Date();
-    const periodEnd = params.parameters?.periodEnd ? new Date(params.parameters.periodEnd) : now;
+    const asOfRaw = params.parameters?.asOf || params.parameters?.valuationDate;
+    const periodEnd = params.parameters?.periodEnd
+      ? new Date(params.parameters.periodEnd)
+      : asOfRaw
+        ? new Date(asOfRaw)
+        : now;
     const periodStart = params.parameters?.periodStart
       ? new Date(params.parameters.periodStart)
       : new Date(periodEnd.getFullYear(), Math.floor(periodEnd.getMonth() / 3) * 3, 1);
-    const valuationDate = params.parameters?.valuationDate
-      ? new Date(params.parameters.valuationDate)
-      : periodEnd;
+    const valuationDate = asOfRaw ? new Date(asOfRaw) : periodEnd;
     const ytdStart = new Date(periodEnd.getFullYear(), 0, 1);
 
     const scope = await ListedEquityAccessService.getAccessibleFundIds(params.userId, params.user);

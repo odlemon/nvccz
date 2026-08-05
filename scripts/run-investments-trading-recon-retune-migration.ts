@@ -252,8 +252,8 @@ async function main() {
     }
     await prisma.$executeRawUnsafe(
       `INSERT INTO investment_trade_recon_templates
-       (id, code, name, party, format, column_map_json, is_active)
-       VALUES (?, ?, ?, ?, 'CSV', CAST(? AS JSON), 1)`,
+       (id, code, name, party, format, column_map_json, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'CSV', CAST(? AS JSON), 1, NOW(3), NOW(3))`,
       t.id,
       t.code,
       t.name,

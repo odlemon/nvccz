@@ -475,9 +475,17 @@ export class InvestmentOrderService {
     );
     const accountingPosted = Boolean(trade.settlement?.journalEntryId) || Boolean(glHopConfirmed);
     const brokerProfileId =
-      trade.brokerProfileId ?? fundCfg?.brokerProfileId ?? fundCfg?.brokerProfile?.id ?? null;
+      trade.orderBrokerProfileId ??
+      trade.brokerProfileId ??
+      fundCfg?.brokerProfileId ??
+      fundCfg?.brokerProfile?.id ??
+      null;
     const custodianProfileId =
-      trade.custodianProfileId ?? fundCfg?.custodianProfileId ?? fundCfg?.custodianProfile?.id ?? null;
+      trade.orderCustodianProfileId ??
+      trade.custodianProfileId ??
+      fundCfg?.custodianProfileId ??
+      fundCfg?.custodianProfile?.id ??
+      null;
     const qty = Number(trade.quantity || 0);
     const px = Number(trade.executionPrice || 0);
     const fees = Number(trade.fees || 0);
@@ -522,11 +530,18 @@ export class InvestmentOrderService {
       custodianProfileId,
       brokerId: brokerProfileId,
       custodianId: custodianProfileId,
-      brokerName: fundCfg?.brokerProfile?.name ?? trade.brokerName ?? null,
-      custodianName: fundCfg?.custodianProfile?.name ?? trade.custodianName ?? null,
-      broker: fundCfg?.brokerProfile?.name ?? trade.broker ?? null,
-      custodian: fundCfg?.custodianProfile?.name ?? trade.custodian ?? null,
-      valueDate: trade.valueDate ?? trade.settlement?.valueDate ?? trade.settledAt ?? null,
+      brokerName:
+        trade.orderBrokerName ?? fundCfg?.brokerProfile?.name ?? trade.brokerName ?? null,
+      custodianName:
+        trade.orderCustodianName ?? fundCfg?.custodianProfile?.name ?? trade.custodianName ?? null,
+      broker: trade.orderBrokerName ?? fundCfg?.brokerProfile?.name ?? trade.broker ?? null,
+      custodian: trade.orderCustodianName ?? fundCfg?.custodianProfile?.name ?? trade.custodian ?? null,
+      valueDate:
+        trade.orderValueDate ??
+        trade.valueDate ??
+        trade.settlement?.valueDate ??
+        trade.settledAt ??
+        null,
     };
   }
 
@@ -536,8 +551,30 @@ export class InvestmentOrderService {
     const tradeIds = trades.map((t) => t.id).filter(Boolean);
     const orders = await prisma.investmentOrder.findMany({
       where: { tradeId: { in: tradeIds } },
-      select: { id: true, orderRef: true, tradeId: true, status: true },
+      select: {
+        id: true,
+        orderRef: true,
+        tradeId: true,
+        status: true,
+        brokerProfileId: true,
+        custodianProfileId: true,
+        valueDate: true,
+      },
     });
+    const stakeIds = [
+      ...new Set(
+        orders
+          .flatMap((o: any) => [o.brokerProfileId, o.custodianProfileId])
+          .filter(Boolean)
+      ),
+    ];
+    const stakeholders = stakeIds.length
+      ? await prisma.listedEquityStakeholderProfile.findMany({
+          where: { id: { in: stakeIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const stakeName = Object.fromEntries(stakeholders.map((s: any) => [s.id, s.name]));
     const byTrade = Object.fromEntries(
       orders.filter((o: any) => o.tradeId).map((o: any) => [o.tradeId, o])
     );
@@ -546,11 +583,23 @@ export class InvestmentOrderService {
       if (!order) {
         return { ...t, orderId: t.orderId ?? null, orderRef: t.orderRef ?? null };
       }
+      const orderValueDate = order.valueDate
+        ? order.valueDate instanceof Date
+          ? order.valueDate.toISOString().slice(0, 10)
+          : String(order.valueDate).slice(0, 10)
+        : null;
       return {
         ...t,
         orderId: order.id,
         orderRef: order.orderRef,
         orderStatus: order.status,
+        orderBrokerProfileId: order.brokerProfileId ?? null,
+        orderCustodianProfileId: order.custodianProfileId ?? null,
+        orderBrokerName: order.brokerProfileId ? stakeName[order.brokerProfileId] ?? null : null,
+        orderCustodianName: order.custodianProfileId
+          ? stakeName[order.custodianProfileId] ?? null
+          : null,
+        orderValueDate,
       };
     });
   }

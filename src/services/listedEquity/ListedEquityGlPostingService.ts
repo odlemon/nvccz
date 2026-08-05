@@ -5,6 +5,7 @@ import { WacCalculatorService } from "./WacCalculatorService";
 import { ListedEquityAuditService } from "./ListedEquityAuditService";
 import { InvestmentAccountingFacadeService } from "../investmentOps/InvestmentAccountingFacadeService";
 import { DEFAULT_COA_MAPPING, type CoaMapping } from "./listedEquityConstants";
+import { resolveJournalCurrency } from "./listedEquityCurrency";
 
 export class ListedEquityGlPostingService {
   static async resolveCoa(fundId: string): Promise<CoaMapping> {
@@ -21,10 +22,33 @@ export class ListedEquityGlPostingService {
     return acct.id;
   }
 
+  /** Avoid journal_entries_referenceNumber_key on re-settle after reversal. */
+  static async resolveSettlementJournalRef(tradeId: string, tradeRef: string): Promise<string> {
+    const baseRef = `LE-${tradeRef}`;
+    const existing = await prisma.journalEntry.findFirst({ where: { referenceNumber: baseRef } });
+    if (!existing) return baseRef;
+
+    const glEvent = await prisma.investmentAccountingEvent.findUnique({
+      where: { id: `${tradeId}-gl` },
+    });
+    if (!glEvent || glEvent.status === "REVERSED") {
+      let n = 2;
+      while (n < 1000) {
+        const candidate = `${baseRef}-${n}`;
+        const taken = await prisma.journalEntry.findFirst({ where: { referenceNumber: candidate } });
+        if (!taken) return candidate;
+        n += 1;
+      }
+      return `${baseRef}-${Date.now()}`;
+    }
+
+    return baseRef;
+  }
+
   static async postSettlement(tradeId: string, hopId: string, userId: string) {
     const trade = await prisma.listedEquityTrade.findUnique({
       where: { id: tradeId },
-      include: { security: true, fund: true, settlement: true },
+      include: { security: true, fund: { include: { listedEquityFundConfig: true } }, settlement: true },
     });
     if (!trade) throw new Error("Trade not found");
 
@@ -37,6 +61,23 @@ export class ListedEquityGlPostingService {
       );
       return prisma.journalEntry.findUnique({ where: { id: trade.settlement.journalEntryId } });
     }
+
+    const baseRef = `LE-${trade.tradeRef}`;
+    const orphanedJe = await prisma.journalEntry.findFirst({ where: { referenceNumber: baseRef } });
+    const glEvent = await prisma.investmentAccountingEvent.findUnique({
+      where: { id: `${tradeId}-gl` },
+    });
+    if (orphanedJe && glEvent?.status !== "REVERSED") {
+      await this.completeSettlement(
+        tradeId,
+        hopId,
+        orphanedJe.id,
+        trade.settlement?.realizedPnl != null ? Number(trade.settlement.realizedPnl) : null
+      );
+      return orphanedJe;
+    }
+
+    const referenceNumber = await this.resolveSettlementJournalRef(tradeId, trade.tradeRef);
 
     const coa = await this.resolveCoa(trade.fundId);
     const securitiesId = await this.findAccountId(coa.listedSecuritiesAsset);
@@ -125,15 +166,15 @@ export class ListedEquityGlPostingService {
       throw new Error("LISTED_EQUITY_JE_IMBALANCED");
     }
 
-    const currency = await prisma.currency.findFirst({
-      where: { code: trade.executionCurrencyCode },
-    });
-    if (!currency) throw new Error("Currency not found");
+    const currency = await resolveJournalCurrency(
+      trade.executionCurrencyCode,
+      trade.fund?.baseCurrencyCode ?? trade.fund?.listedEquityFundConfig?.baseCurrencyCode
+    );
 
     try {
       const je = await createJournalEntryWithAuditSequence({
         transactionDate: new Date(),
-        referenceNumber: `LE-${trade.tradeRef}`,
+        referenceNumber,
         description: `Listed equity ${trade.side.toLowerCase()} ${trade.security.symbol}`,
         totalAmount,
         currencyId: currency.id,

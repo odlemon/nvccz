@@ -154,14 +154,15 @@ async function ensureSecurityAndInstrument(eq: (typeof EQUITIES)[0], issuerId: s
         symbol: eq.symbol,
         exchangeCode: "ZSE",
         name: eq.name,
-        listingCurrencyCode: "USD",
+        // ZSE board trades in ZWG (Mansa / domestic source of truth)
+        listingCurrencyCode: "ZWG",
         isActive: true,
       },
     });
   } else {
     security = await prisma.listedEquitySecurity.update({
       where: { id: security.id },
-      data: { name: eq.name, isActive: true },
+      data: { name: eq.name, isActive: true, listingCurrencyCode: "ZWG" },
     });
   }
 
@@ -180,7 +181,7 @@ async function ensureSecurityAndInstrument(eq: (typeof EQUITIES)[0], issuerId: s
     issuerId,
     instrumentTypeCode: "EQUITY",
     sector: eq.sector,
-    listingCurrencyCode: "USD",
+    listingCurrencyCode: "ZWG",
     valuationMethod: "MARK_TO_MARKET",
     status: "ACTIVE",
     listedEquitySecurityId: security.id,

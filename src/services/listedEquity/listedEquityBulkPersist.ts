@@ -58,7 +58,12 @@ export async function bulkSyncListedSecurities(params: {
     isin: string | null;
     isActive: boolean;
   }> = [];
-  const nameUpdates: Array<{ id: string; name: string; isin?: string | null }> = [];
+  const nameUpdates: Array<{
+    id: string;
+    name: string;
+    isin?: string | null;
+    listingCurrencyCode?: string;
+  }> = [];
 
   for (const row of normalized) {
     const existing = secBySymbol.get(row.symbol);
@@ -73,11 +78,20 @@ export async function bulkSyncListedSecurities(params: {
       });
       continue;
     }
-    if (existing.name !== row.name || (row.isin && existing.isin !== row.isin)) {
+    const currencyMismatch =
+      existing.listingCurrencyCode !== params.listingCurrencyCode;
+    if (
+      existing.name !== row.name ||
+      (row.isin && existing.isin !== row.isin) ||
+      currencyMismatch
+    ) {
       nameUpdates.push({
         id: existing.id,
         name: row.name,
         ...(row.isin && existing.isin !== row.isin ? { isin: row.isin } : {}),
+        ...(currencyMismatch
+          ? { listingCurrencyCode: params.listingCurrencyCode }
+          : {}),
       });
     }
   }
@@ -99,11 +113,26 @@ export async function bulkSyncListedSecurities(params: {
       nameUpdates.map((u) =>
         prisma.listedEquitySecurity.update({
           where: { id: u.id },
-          data: { name: u.name, ...(u.isin != null ? { isin: u.isin } : {}) },
+          data: {
+            name: u.name,
+            ...(u.isin != null ? { isin: u.isin } : {}),
+            ...(u.listingCurrencyCode
+              ? { listingCurrencyCode: u.listingCurrencyCode }
+              : {}),
+          },
         })
       )
     );
     updated = nameUpdates.length;
+
+    // Keep linked investment instruments aligned with the board currency.
+    const currencyHeals = nameUpdates.filter((u) => u.listingCurrencyCode);
+    for (const u of currencyHeals) {
+      await prisma.investmentInstrument.updateMany({
+        where: { listedEquitySecurityId: u.id },
+        data: { listingCurrencyCode: u.listingCurrencyCode },
+      });
+    }
   }
 
   const vendorCreates: Array<{ securityId: string; providerCode: string; vendorSymbol: string }> = [];

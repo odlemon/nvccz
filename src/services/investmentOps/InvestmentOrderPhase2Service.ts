@@ -8,9 +8,12 @@ import { orderRef, paginatedResult, parsePagination } from "./investmentOpsSuppo
 import { InvestmentComplianceService } from "./InvestmentComplianceService";
 import { InvestmentAccountingFacadeService } from "./InvestmentAccountingFacadeService";
 import { InvestmentOpsAuditService } from "./InvestmentOpsAuditService";
+import { assertFourEyeSeparation, investmentOpsIsAdmin } from "./investmentOpsFourEye";
 
 const db = prisma as any;
 const PREVIEW_TTL_MS = 15 * 60_000;
+/** Local MySQL can exceed Prisma’s default 5s interactive tx window. */
+const ORDER_TX = { maxWait: 15_000, timeout: 60_000 } as const;
 
 export const ORDER_TRANSITIONS: Record<string, readonly string[]> = {
   DRAFT: ["SUBMITTED", "COMPLIANCE_REVIEW", "CANCELLED"],
@@ -651,6 +654,17 @@ export class InvestmentOrderPhase2Service {
       }),
       db.investmentOrder.count({ where }),
     ]);
+    const orderIds = items.map((o: any) => o.id);
+    const openBrokerRows = orderIds.length
+      ? await db.investmentOrderBrokerConfirmation.findMany({
+          where: { orderId: { in: orderIds }, status: "RECORDED" },
+          orderBy: { recordedAt: "desc" },
+        })
+      : [];
+    const openBrokerByOrderId = new Map<string, any>();
+    for (const row of openBrokerRows) {
+      if (!openBrokerByOrderId.has(row.orderId)) openBrokerByOrderId.set(row.orderId, row);
+    }
     const fundIds = [...new Set(items.map((o: any) => o.fundId))];
     const brokerIds = [...new Set(items.map((o: any) => o.brokerProfileId).filter(Boolean))];
     const custodianIds = [...new Set(items.map((o: any) => o.custodianProfileId).filter(Boolean))];
@@ -687,6 +701,7 @@ export class InvestmentOrderPhase2Service {
       );
       const fees = (o.executions || []).reduce((s: number, e: any) => s + Number(e.feeAmount || 0), 0);
       const taxes = (o.executions || []).reduce((s: number, e: any) => s + Number(e.taxAmount || 0), 0);
+      const openBroker = openBrokerByOrderId.get(o.id);
       return {
         ...o,
         fundName: fundName[o.fundId] ?? null,
@@ -702,6 +717,19 @@ export class InvestmentOrderPhase2Service {
         taxes: String(taxes),
         fees: String(fees),
         feesBreakdown: { fees: String(fees), taxes: String(taxes) },
+        openBrokerConfirmation: openBroker
+          ? {
+              id: openBroker.id,
+              outcome: openBroker.outcome,
+              status: openBroker.status,
+              quantity: openBroker.quantity != null ? String(openBroker.quantity) : null,
+              price: openBroker.price != null ? String(openBroker.price) : null,
+              currencyCode: openBroker.currencyCode ?? null,
+              brokerReference: openBroker.brokerReference ?? null,
+              recordedAt:
+                openBroker.recordedAt?.toISOString?.() ?? openBroker.recordedAt ?? null,
+            }
+          : null,
       };
     });
     return paginatedResult(presented, total, page.page, page.pageSize);
@@ -762,7 +790,7 @@ export class InvestmentOrderPhase2Service {
           createdById: userId,
         },
       });
-    });
+    }, ORDER_TX);
     return this.get(id, userId, user);
   }
 
@@ -793,7 +821,7 @@ export class InvestmentOrderPhase2Service {
       });
       if (changed.count !== 1) fail("VERSION_CONFLICT", "Order changed during transition", 409);
       await appendEvent(tx, order, toStatus, userId, idempotencyKey, reasonCode, reason);
-    });
+    }, ORDER_TX);
     return this.get(id, userId, user);
   }
 
@@ -966,7 +994,12 @@ export class InvestmentOrderPhase2Service {
     if (!["SUBMITTED", "COMPLIANCE_REVIEW"].includes(order.status)) {
       fail("INVALID_ORDER_TRANSITION", `Cannot ${decision.toLowerCase()} order in ${order.status}`, 409);
     }
-    if (order.createdById === userId) fail("FOUR_EYE_VIOLATION", "Order maker cannot approve or reject it", 403);
+    assertFourEyeSeparation(
+      order.createdById,
+      userId,
+      user,
+      "Order maker cannot approve or reject it"
+    );
     const latestRevision = await db.investmentOrderRevision.findUnique({
       where: { orderId_revisionNo: { orderId: id, revisionNo: order.currentRevisionNo } },
     });
@@ -974,7 +1007,7 @@ export class InvestmentOrderPhase2Service {
     const previous = await db.investmentOrderApproval.findMany({
       where: { orderId: id, revisionNo: order.currentRevisionNo },
     });
-    if (previous.some((approval: any) => approval.approverId === userId)) {
+    if (previous.some((approval: any) => approval.approverId === userId) && !investmentOpsIsAdmin(user)) {
       fail("FOUR_EYE_VIOLATION", "An approver may decide a revision only once", 409);
     }
     const sequence = previous.length + 1;
@@ -1011,7 +1044,7 @@ export class InvestmentOrderPhase2Service {
         step.permission &&
         !permissions.has(step.permission) &&
         !permissions.has("investments.*") &&
-        !["admin", "system administrator"].includes(roleName)
+        !investmentOpsIsAdmin(user)
       ) {
         fail("APPROVAL_STEP_FORBIDDEN", `Approval step requires ${step.permission}`, 403);
       }
@@ -1047,7 +1080,7 @@ export class InvestmentOrderPhase2Service {
       if (toStatus !== order.status) {
         await appendEvent(tx, order, toStatus, userId, `${idempotencyKey}:status`, decision, reason);
       }
-    });
+    }, ORDER_TX);
     return this.get(id, userId, user);
   }
 
@@ -1128,6 +1161,80 @@ export class InvestmentOrderPhase2Service {
     return route;
   }
 
+  /** Re-send broker instruction after UNABLE / reject — new route row + email, status stays SENT_TO_BROKER. */
+  static async routeResend(
+    id: string,
+    data: any,
+    expectedVersion: string,
+    idempotencyKey: string,
+    userId: string,
+    user: any
+  ) {
+    const replay = await db.investmentOrderRoute.findUnique({ where: { idempotencyKey } });
+    if (replay) return replay;
+    const order = await orderForAccess(id, userId, user, {
+      instrument: { select: { exchangeCode: true } },
+    });
+    assertVersion(order, expectedVersion);
+    if (!["SENT_TO_BROKER", "ROUTED"].includes(order.status)) {
+      fail("ORDER_NOT_RESENDABLE", "Order must be awaiting broker to resend instruction", 409);
+    }
+    const openConfirmations = await db.investmentOrderBrokerConfirmation.count({
+      where: { orderId: id, status: "RECORDED" },
+    });
+    if (openConfirmations > 0) {
+      fail(
+        "OPEN_CONFIRMATION",
+        "Reject or accept the current broker confirmation before sending again",
+        422
+      );
+    }
+    const venueCode =
+      (data?.venueCode && String(data.venueCode).trim()) ||
+      order.instrument?.exchangeCode ||
+      order.tradeCurrency ||
+      "MANUAL";
+    const latest = await db.investmentOrderRoute.findFirst({
+      where: { orderId: id },
+      orderBy: { routeSequence: "desc" },
+    });
+    const route = await db.investmentOrderRoute.create({
+      data: {
+        orderId: id,
+        routeSequence: (latest?.routeSequence || 0) + 1,
+        venueCode,
+        brokerProfileId: data?.brokerProfileId || order.brokerProfileId || null,
+        status: "ROUTED",
+        requestPayload: canonical(
+          data?.requestPayload || {
+            orderRef: order.orderRef,
+            side: order.side,
+            quantity: order.quantity,
+          }
+        ),
+        externalOrderRef: data?.externalOrderRef,
+        idempotencyKey,
+        routedAt: new Date(),
+      },
+    });
+    const changed = await db.investmentOrder.updateMany({
+      where: { id, version: order.version, status: order.status },
+      data: { version: { increment: 1 } },
+    });
+    if (changed.count !== 1) {
+      fail("VERSION_CONFLICT", "Order changed while resending to broker", 409);
+    }
+    await appendEvent(
+      db,
+      order,
+      order.status,
+      userId,
+      `${idempotencyKey}:resend`,
+      "BROKER_INSTRUCTION_RESENT"
+    );
+    return route;
+  }
+
   static async executions(id: string, userId: string, user: any) {
     await orderForAccess(id, userId, user);
     return db.investmentOrderExecution.findMany({ where: { orderId: id }, orderBy: { executedAt: "asc" } });
@@ -1181,7 +1288,7 @@ export class InvestmentOrderPhase2Service {
       if (changed.count !== 1) fail("VERSION_CONFLICT", "Order changed while recording fill", 409);
       await appendEvent(tx, order, nextStatus, userId, `${idempotencyKey}:status`, "FILL_RECORDED");
       return { execution, cumulativeQuantity: cumulative, remainingQuantity: new Decimal(order.quantity).minus(cumulative) };
-    });
+    }, ORDER_TX);
   }
 
   static async confirmation(
@@ -1229,6 +1336,49 @@ export class InvestmentOrderPhase2Service {
         acknowledgedAt: new Date(),
       },
     });
+  }
+
+  /** Idempotent accounting for orders already marked SETTLED (e.g. after deferred settle). */
+  static async ensureOrderSettlementAccounting(
+    orderId: string,
+    idempotencyKey: string,
+    userId: string
+  ) {
+    const order = await db.investmentOrder.findUnique({ where: { id: orderId } });
+    if (!order) fail("ORDER_NOT_FOUND", "Order not found", 404);
+
+    if (order.tradeId) {
+      const leSettlement = await db.listedEquityTradeSettlement.findUnique({
+        where: { tradeId: order.tradeId },
+      });
+      if (!leSettlement?.journalEntryId) {
+        fail(
+          "ORDER_SETTLEMENT_ACCOUNTING_REQUIRED",
+          "Trade settlement accounting is not posted yet",
+          422,
+          { tradeId: order.tradeId }
+        );
+      }
+      await InvestmentAccountingFacadeService.recordFromTradeSettlement(
+        order.fundId,
+        order.tradeId,
+        order.orderRef,
+        leSettlement.journalEntryId,
+        leSettlement.realizedPnl != null ? Number(leSettlement.realizedPnl) : null
+      );
+    }
+
+    await InvestmentAccountingFacadeService.recordFromOrderSettlement({
+      fundId: order.fundId,
+      orderId: order.id,
+      orderRef: order.orderRef,
+      amount: order.netAmount ?? order.grossAmount,
+      currencyCode: order.settlementCurrency || order.tradeCurrency,
+      idempotencyKey: `order-settle:${idempotencyKey}`,
+      userId,
+    });
+
+    return order;
   }
 
   static async settlement(

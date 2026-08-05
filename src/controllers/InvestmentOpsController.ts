@@ -735,6 +735,44 @@ export class InvestmentOpsController {
       )
     );
   }
+  static listBrokerMessages(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      (async () => {
+        const { InvestmentBrokerInstructionService } = await import(
+          "../services/investmentOps/InvestmentBrokerInstructionService"
+        );
+        return InvestmentBrokerInstructionService.listMessages(
+          req.params.id,
+          req.user!.id,
+          req.user
+        );
+      })()
+    );
+  }
+  static getPublicBrokerInstruction(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      (async () => {
+        const { InvestmentBrokerInstructionService } = await import(
+          "../services/investmentOps/InvestmentBrokerInstructionService"
+        );
+        return InvestmentBrokerInstructionService.getPublicByToken(req.params.token);
+      })()
+    );
+  }
+  static replyPublicBrokerInstruction(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      (async () => {
+        const { InvestmentBrokerInstructionService } = await import(
+          "../services/investmentOps/InvestmentBrokerInstructionService"
+        );
+        return InvestmentBrokerInstructionService.replyPublic(req.params.token, req.body || {});
+      })(),
+      201
+    );
+  }
   static listBrokerConfirmations(req: AuthRequest, res: Response) {
     handle(
       res,
@@ -999,10 +1037,15 @@ export class InvestmentOpsController {
       res,
       (async () => {
         const tradeId = req.params.id;
+        const userId = req.user!.id;
+        const idempotencyKey = getIdempotencyKey(req);
+        const settledAt = req.body?.settledAt ? new Date(req.body.settledAt) : new Date();
+        const failed = String(req.body?.status || "").toUpperCase() === "FAILED";
+
         const order = await prisma.investmentOrder.findFirst({
           where: { tradeId },
           orderBy: { updatedAt: "desc" },
-          select: { id: true, version: true },
+          select: { id: true, version: true, status: true },
         });
         if (!order) {
           throw new InvestmentOpsError(
@@ -1011,26 +1054,13 @@ export class InvestmentOpsController {
             404
           );
         }
-        const settledOrder = await InvestmentOrderPhase2Service.settlement(
-          order.id,
-          {
-            ...req.body,
-            allowDeferredAccounting:
-              req.body?.allowDeferredAccounting ?? req.query.allowDeferredAccounting,
-          },
-          resolveExpectedVersion(req, order.version),
-          getIdempotencyKey(req),
-          req.user!.id,
-          req.user
-        );
 
-        // BA-T6 / BA-TR-3 — custodian settlement: sync LE trade status when deferred accounting used
-        if (settledOrder?.status === "SETTLED" || String(req.body?.status || "").toUpperCase() !== "FAILED") {
-          const settledAt = req.body?.settledAt ? new Date(req.body.settledAt) : new Date();
-          await prisma.listedEquityTrade.updateMany({
-            where: { id: tradeId, status: { not: "SETTLED" } },
-            data: { status: "SETTLED", settledAt },
-          });
+        let settledOrder: any = null;
+
+        if (!failed) {
+          // 1) LE routing + GL journal (sync — surfaces errors, no deferred accounting)
+          await TradeOrchestratorService.ensureSettlementPosted(tradeId, userId);
+
           if (req.body?.custodianReference) {
             await prisma.listedEquityTradeRoutingHop.updateMany({
               where: { tradeId, target: "CUSTODIAN" },
@@ -1041,6 +1071,36 @@ export class InvestmentOpsController {
               },
             });
           }
+
+          // 2) Order settlement + accounting (one shot — no deferred path on blotter)
+          if (["EXECUTED", "PENDING_SETTLEMENT"].includes(order.status)) {
+            settledOrder = await InvestmentOrderPhase2Service.settlement(
+              order.id,
+              { ...req.body, allowDeferredAccounting: false, status: "SETTLED" },
+              resolveExpectedVersion(req, order.version),
+              idempotencyKey,
+              userId,
+              req.user
+            );
+          } else if (order.status === "SETTLED") {
+            settledOrder = await InvestmentOrderPhase2Service.ensureOrderSettlementAccounting(
+              order.id,
+              idempotencyKey,
+              userId
+            );
+          } else {
+            throw new InvestmentOpsError(
+              "ORDER_NOT_SETTLEABLE",
+              "Order must be fully executed before settlement confirmation",
+              409
+            );
+          }
+
+          await prisma.listedEquityTrade.updateMany({
+            where: { id: tradeId, status: { notIn: ["SETTLED", "CANCELLED"] } },
+            data: { status: "SETTLED", settledAt },
+          });
+
           // BA-RC-2 — link cash journals to this trade when sourceEventId matches
           try {
             await (prisma as any).spCashJournal.updateMany({
@@ -1056,6 +1116,15 @@ export class InvestmentOpsController {
           } catch {
             /* column may not exist yet on older DBs */
           }
+        } else {
+          settledOrder = await InvestmentOrderPhase2Service.settlement(
+            order.id,
+            { ...req.body, allowDeferredAccounting: false, status: "FAILED" },
+            resolveExpectedVersion(req, order.version),
+            idempotencyKey,
+            userId,
+            req.user
+          );
         }
 
         const trade = await TradeOrchestratorService.getTradeDetail(tradeId);
@@ -1082,6 +1151,20 @@ export class InvestmentOpsController {
   // Trade 3-way recon (BA-RC-1 / BA-RC-4)
   static listTradeReconTemplates(req: AuthRequest, res: Response) {
     handle(res, InvestmentTradeReconService.listTemplates());
+  }
+  static listTradeReconBatches(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentTradeReconService.listBatches(
+        {
+          fundId: req.query.fundId ? String(req.query.fundId) : undefined,
+          status: req.query.status ? String(req.query.status) : undefined,
+          limit: req.query.limit ? Number(req.query.limit) : undefined,
+        },
+        req.user!.id,
+        req.user
+      )
+    );
   }
   static createTradeReconBatch(req: AuthRequest, res: Response) {
     handle(

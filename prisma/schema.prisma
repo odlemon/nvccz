@@ -7420,6 +7420,8 @@ model InvestmentOrder {
   routes             InvestmentOrderRoute[]
   executions         InvestmentOrderExecution[]
   brokerConfirmations InvestmentOrderBrokerConfirmation[]
+  brokerInstructions  InvestmentOrderBrokerInstruction[]
+  brokerMessages      InvestmentOrderBrokerMessage[]
   transactions       InvestmentTransaction[]
   blotterItems       InvestmentBlotterItem[]
   complianceRuns     InvestmentComplianceRun[]
@@ -7429,6 +7431,52 @@ model InvestmentOrder {
   @@index([portfolioConfigId, status], map: "investment_orders_portfolio_status_idx")
   @@index([folderId, createdAt], map: "investment_orders_folder_created_idx")
   @@map("investment_orders")
+}
+
+/// Outbound broker instruction (email PO) + magic-link reply token.
+model InvestmentOrderBrokerInstruction {
+  id             String    @id @default(cuid())
+  orderId        String    @map("order_id")
+  channel        String    @default("EMAIL") @db.VarChar(32)
+  toEmail        String?   @map("to_email") @db.VarChar(255)
+  subject        String?   @db.VarChar(512)
+  bodyText       String?   @map("body_text") @db.Text
+  replyToken     String    @unique(map: "investment_order_broker_instructions_token_key") @map("reply_token") @db.VarChar(128)
+  status         String    @default("PENDING") @db.VarChar(32)
+  deliveryError  String?   @map("delivery_error") @db.Text
+  emailMessageId String?   @map("email_message_id") @db.VarChar(255)
+  sentAt         DateTime? @map("sent_at")
+  repliedAt      DateTime? @map("replied_at")
+  expiresAt      DateTime  @map("expires_at")
+  createdById    String?   @map("created_by_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  order InvestmentOrder @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([orderId], map: "investment_order_broker_instructions_order_idx")
+  @@index([status], map: "investment_order_broker_instructions_status_idx")
+  @@map("investment_order_broker_instructions")
+}
+
+/// Communication log AM ↔ broker (and later custodian).
+model InvestmentOrderBrokerMessage {
+  id            String   @id @default(cuid())
+  orderId       String   @map("order_id")
+  instructionId String?  @map("instruction_id")
+  direction     String   @db.VarChar(16)
+  channel       String   @default("EMAIL") @db.VarChar(32)
+  kind          String   @db.VarChar(48)
+  body          String?  @db.Text
+  payloadJson   Json?    @map("payload_json")
+  actorLabel    String?  @map("actor_label") @db.VarChar(255)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  order InvestmentOrder @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([orderId, createdAt], map: "investment_order_broker_messages_order_idx")
+  @@index([instructionId], map: "investment_order_broker_messages_instruction_idx")
+  @@map("investment_order_broker_messages")
 }
 
 model InvestmentOrderApproval {

@@ -68,6 +68,8 @@ export const INVESTMENT_REPORT_TEMPLATE_VERSION = 1;
 function baseParameterSchema(opts: {
   requiresFundId: boolean;
   requiresClientId?: boolean;
+  includePeriod?: boolean;
+  includeBenchmark?: boolean;
   extra?: ReportParameterSchema["properties"];
 }): ReportParameterSchema {
   const properties: ReportParameterSchema["properties"] = {
@@ -78,10 +80,37 @@ function baseParameterSchema(opts: {
     asOf: {
       type: "string",
       format: "date",
-      description: "Optional as-of date (ISO)",
+      description: "Optional as-of / valuation date (ISO). Alias for valuationDate.",
     },
     ...(opts.extra || {}),
   };
+  if (opts.includePeriod !== false) {
+    properties.periodStart = {
+      type: "string",
+      format: "date",
+      description: "Report period start (ISO)",
+    };
+    properties.periodEnd = {
+      type: "string",
+      format: "date",
+      description: "Report period end (ISO)",
+    };
+    properties.valuationDate = {
+      type: "string",
+      format: "date",
+      description: "Valuation / holdings as-of date (ISO)",
+    };
+  }
+  if (opts.includeBenchmark !== false) {
+    properties.benchmarkName = {
+      type: "string",
+      description: "Benchmark display name",
+    };
+    properties.assetManagerName = {
+      type: "string",
+      description: "Asset manager legal name on the cover",
+    };
+  }
   if (opts.requiresFundId) {
     properties.fundId = { type: "string", description: "Fund / portfolio id" };
   }
@@ -250,8 +279,8 @@ export const INVESTMENT_REPORT_TEMPLATES: InvestmentReportTemplateDef[] = [
   ...DOCX_REPORTS.map((d) =>
     withTemplateContract({
       ...d,
-      // DOCX is preferred; also allow PDF/JSON/CSV so FE generate pickers are not blocked.
-      supportedFormats: ["DOCX", "PDF", "JSON", "CSV", "XLSX"] as InvestmentReportOutputFormat[],
+      // Word templates are the production path; flat formats use separate summary codes.
+      supportedFormats: ["DOCX"] as InvestmentReportOutputFormat[],
     })
   ),
   withTemplateContract({

@@ -30,6 +30,43 @@ function periodKey(date: Date) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+function csvCell(value: unknown): string {
+  const raw = value == null ? "" : String(value);
+  if (/[",\r\n]/.test(raw)) return `"${raw.replace(/"/g, '""')}"`;
+  return raw;
+}
+
+function buildLedgerExportCsv(
+  exportBatchRef: string,
+  fundName: string,
+  rows: Array<Record<string, unknown>>
+): string {
+  const headers = [
+    "export_batch_ref",
+    "portfolio",
+    "event_id",
+    "event_type",
+    "source_type",
+    "trade_ref",
+    "posted_at",
+    "currency",
+    "amount",
+    "journal_ref",
+    "account_no",
+    "account_name",
+    "debit",
+    "credit",
+    "line_description",
+  ];
+  const lines = [headers.join(",")];
+  for (const row of rows) {
+    lines.push(
+      headers.map((h) => csvCell(row[h])).join(",")
+    );
+  }
+  return `${lines.join("\r\n")}\r\n`;
+}
+
 async function assertPeriodOpen(date: Date) {
   const locked = await PeriodLockoutService.isPeriodLocked(periodKey(date));
   if (locked) {
@@ -824,8 +861,32 @@ export class InvestmentAccountingFacadeService {
     return updated;
   }
 
+  static async serializeLedgerExport(link: any, fundNameById?: Map<string, string>) {
+    const fundId = link.accountingEvent?.fundId ?? link.fundId ?? null;
+    const fundName =
+      link.fundName ??
+      (fundId && fundNameById?.get(fundId)) ??
+      (fundId
+        ? (await db.fund.findUnique({ where: { id: fundId }, select: { name: true } }))?.name
+        : null);
+    return {
+      id: link.id,
+      exportBatchRef: link.exportBatchRef,
+      reference: link.exportBatchRef,
+      batchRef: link.exportBatchRef,
+      fundId,
+      fundName,
+      portfolio: fundName,
+      status: link.status,
+      exportSystem: link.exportSystem,
+      exportedAt: link.exportedAt,
+      createdAt: link.createdAt,
+      payloadHash: link.payloadHash,
+    };
+  }
+
   static async createLedgerExport(
-    data: { fundId: string; from?: string; to?: string; exportSystem?: string },
+    data: { fundId: string; from?: string; to?: string; exportSystem?: string; format?: string },
     idempotencyKey: string,
     userId: string,
     user: any
@@ -839,34 +900,87 @@ export class InvestmentAccountingFacadeService {
     });
     if (existing) return this.getLedgerExport(existing.id, userId, user);
 
+    const fund = await db.fund.findUnique({ where: { id: fundId }, select: { name: true } });
+    const fundName = fund?.name ?? fundId;
+
     const where: any = { fundId, status: "POSTED" };
     if (data.from || data.to) {
       where.postedAt = {};
       if (data.from) where.postedAt.gte = new Date(data.from);
-      if (data.to) where.postedAt.lte = new Date(data.to);
+      if (data.to) {
+        const to = new Date(data.to);
+        to.setUTCHours(23, 59, 59, 999);
+        where.postedAt.lte = to;
+      }
     }
-    const events = await db.investmentAccountingEvent.findMany({ where, take: 500 });
+    const events = await db.investmentAccountingEvent.findMany({
+      where,
+      orderBy: { postedAt: "asc" },
+      take: 500,
+    });
+
+    const journalIds = [
+      ...new Set(events.map((e: any) => e.journalEntryId).filter(Boolean)),
+    ] as string[];
+    const journals = journalIds.length
+      ? await db.journalEntry.findMany({
+          where: { id: { in: journalIds } },
+          include: {
+            journalEntryLines: { include: { chartOfAccount: true } },
+          },
+        })
+      : [];
+    const journalById = new Map(journals.map((j: any) => [j.id, j]));
+
     const exportSystem = data.exportSystem || "INVESTMENT_OPS_LEDGER";
     const exportBatchRef = `LEX-${Date.now().toString(36).toUpperCase()}`;
-    const payload = {
-      fundId,
-      exportedAt: new Date().toISOString(),
-      events: events.map((e: any) => ({
-        id: e.id,
-        eventType: e.eventType,
-        journalEntryId: e.journalEntryId,
-        amount: e.amount != null ? String(e.amount) : null,
-        currencyCode: e.currencyCode,
-        tradeRef: e.tradeRef,
-        postedAt: e.postedAt,
-      })),
-    };
-    const payloadHash = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+    const csvRows: Array<Record<string, unknown>> = [];
+
+    for (const event of events) {
+      const journal = event.journalEntryId ? journalById.get(event.journalEntryId) : null;
+      const base = {
+        export_batch_ref: exportBatchRef,
+        portfolio: fundName,
+        event_id: event.id,
+        event_type: event.eventType,
+        source_type: event.sourceType,
+        trade_ref: event.tradeRef ?? "",
+        posted_at: event.postedAt ? new Date(event.postedAt).toISOString() : "",
+        currency: event.currencyCode ?? "",
+        amount: event.amount != null ? String(event.amount) : "",
+        journal_ref: journal?.referenceNumber ?? "",
+      };
+      const lines = journal?.journalEntryLines ?? [];
+      if (!lines.length) {
+        csvRows.push({
+          ...base,
+          account_no: "",
+          account_name: "",
+          debit: "",
+          credit: "",
+          line_description: "",
+        });
+        continue;
+      }
+      for (const line of lines) {
+        csvRows.push({
+          ...base,
+          account_no: line.chartOfAccount?.accountNo ?? "",
+          account_name: line.chartOfAccount?.accountName ?? "",
+          debit: line.debitAmount != null ? String(line.debitAmount) : "0",
+          credit: line.creditAmount != null ? String(line.creditAmount) : "0",
+          line_description: line.description ?? "",
+        });
+      }
+    }
+
+    const csvContent = buildLedgerExportCsv(exportBatchRef, fundName, csvRows);
+    const payloadHash = createHash("sha256").update(csvContent).digest("hex");
 
     const dir = path.join(process.cwd(), "storage", "local-upload-mock", "investment-ops-ledger-exports");
     await mkdir(dir, { recursive: true });
-    const filePath = path.join(dir, `${exportBatchRef}.json`);
-    await writeFile(filePath, JSON.stringify(payload, null, 2), "utf8");
+    const filePath = path.join(dir, `${exportBatchRef}.csv`);
+    await writeFile(filePath, csvContent, "utf8");
 
     const anchorEventId =
       events[0]?.id ||
@@ -897,7 +1011,6 @@ export class InvestmentAccountingFacadeService {
       },
     });
 
-    // Link remaining events for audit trail
     for (const event of events.slice(1, 50)) {
       try {
         await db.investmentAccountingExportLink.create({
@@ -920,7 +1033,7 @@ export class InvestmentAccountingFacadeService {
       "LEDGER_EXPORT_CREATED",
       "AccountingExport",
       link.id,
-      { fundId, exportBatchRef, eventCount: events.length },
+      { fundId, fundName, exportBatchRef, eventCount: events.length, lineCount: csvRows.length },
       userId
     );
     return this.getLedgerExport(link.id, userId, user);
@@ -944,14 +1057,21 @@ export class InvestmentAccountingFacadeService {
       }),
       db.investmentAccountingExportLink.count({ where }),
     ]);
-    // Deduplicate by exportBatchRef for list view
+    const fundIds = [
+      ...new Set(rows.map((r: any) => r.accountingEvent?.fundId).filter(Boolean)),
+    ] as string[];
+    const funds = fundIds.length
+      ? await db.fund.findMany({ where: { id: { in: fundIds } }, select: { id: true, name: true } })
+      : [];
+    const fundNameById = new Map(funds.map((f: any) => [f.id, f.name]));
+
     const seen = new Set<string>();
     const unique = [];
     for (const row of rows) {
       const key = `${row.exportSystem}:${row.exportBatchRef}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      unique.push(row);
+      unique.push(await this.serializeLedgerExport(row, fundNameById));
     }
     return paginatedResult(unique, total, page.page, page.pageSize);
   }
@@ -959,15 +1079,21 @@ export class InvestmentAccountingFacadeService {
   static async getLedgerExport(exportId: string, userId: string, user: any) {
     const link = await db.investmentAccountingExportLink.findUnique({
       where: { id: exportId },
-      include: { accountingEvent: true },
+      include: { accountingEvent: { select: { fundId: true } } },
     });
     if (!link) fail("EXPORT_NOT_FOUND", "Ledger export not found", 404);
     await ListedEquityAccessService.assertFundAccess(userId, link.accountingEvent.fundId, user);
-    return link;
+    return this.serializeLedgerExport(link);
   }
 
   static async downloadLedgerExport(exportId: string, userId: string, user: any) {
-    const link = await this.getLedgerExport(exportId, userId, user);
+    const link = await db.investmentAccountingExportLink.findUnique({
+      where: { id: exportId },
+      include: { accountingEvent: { select: { fundId: true } } },
+    });
+    if (!link) fail("EXPORT_NOT_FOUND", "Ledger export not found", 404);
+    await ListedEquityAccessService.assertFundAccess(userId, link.accountingEvent.fundId, user);
+
     const root = path.resolve(
       process.cwd(),
       "storage",
@@ -976,22 +1102,21 @@ export class InvestmentAccountingFacadeService {
     );
     let resolved = link.externalRef ? path.resolve(link.externalRef) : "";
     if (!resolved.startsWith(root)) {
-      resolved = path.join(root, `${link.exportBatchRef || exportId}.json`);
+      resolved = path.join(root, `${link.exportBatchRef || exportId}.csv`);
     }
     await mkdir(root, { recursive: true });
     let content: Buffer;
     try {
       content = await readFile(resolved);
     } catch {
-      const event = link.accountingEvent;
-      const payload = {
-        fundId: event?.fundId,
-        exportBatchRef: link.exportBatchRef,
-        exportedAt: link.exportedAt?.toISOString?.() || new Date().toISOString(),
-        note: "Materialized on download for demo/UAT",
-        accountingEventId: event?.id,
-      };
-      content = Buffer.from(JSON.stringify(payload, null, 2), "utf8");
+      const fund = link.accountingEvent?.fundId
+        ? await db.fund.findUnique({
+            where: { id: link.accountingEvent.fundId },
+            select: { name: true },
+          })
+        : null;
+      const csvContent = buildLedgerExportCsv(link.exportBatchRef || exportId, fund?.name ?? "", []);
+      content = Buffer.from(csvContent, "utf8");
       await writeFile(resolved, content);
       if (!link.externalRef) {
         await db.investmentAccountingExportLink.update({
@@ -1000,9 +1125,10 @@ export class InvestmentAccountingFacadeService {
         });
       }
     }
+    const isCsv = resolved.toLowerCase().endsWith(".csv");
     return {
-      fileName: `${link.exportBatchRef || exportId}.json`,
-      contentType: "application/json",
+      fileName: `${link.exportBatchRef || exportId}.${isCsv ? "csv" : "json"}`,
+      contentType: isCsv ? "text/csv; charset=utf-8" : "application/json",
       content,
       payloadHash: link.payloadHash,
     };

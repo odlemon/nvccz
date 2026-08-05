@@ -174,15 +174,18 @@ export class ArcusPlaceholderFillEngine {
       const n = i + 1;
       if (!t) continue;
       const gross = num(t.quantity) * num(t.price ?? t.executionPrice);
-      out[`broker_counterparty_${n}`] = t.symbol || "Broker";
+      out[`trade_broker_counterparty_${n}`] = t.security?.symbol || t.symbol || "Broker";
+      out[`broker_counterparty_${n}`] = out[`trade_broker_counterparty_${n}`];
       out[`trade_date_${n}`] = fmtDate(t.tradeDate ?? t.executedAt);
-      out[`settlement_date_${n}`] = fmtDate(t.tradeDate ?? t.executedAt);
+      out[`settlement_date_${n}`] = fmtDate(t.settlement?.settlementDate ?? t.tradeDate ?? t.executedAt);
       out[`trade_ref_${n}`] = t.tradeRef || t.id?.slice(-8) || DASH;
       out[`side_${n}`] = t.type === "SALE" || t.side === "SELL" ? "SELL" : "BUY";
-      out[`quantity_${n}`] = num(t.quantity).toLocaleString();
+      out[`trade_quantity_${n}`] = num(t.quantity).toLocaleString();
+      out[`trade_price_${n}`] = fmtMoney(num(t.price ?? t.executionPrice), c);
       out[`amount_${n}`] = fmtMoney(gross, c);
       out[`charges_tax_${n}`] = fmtMoney(num(t.fees), c);
       out[`realised_pnl_${n}`] = fmtMoney(num(t.realizedPnl), c);
+      out[`instrument_traded_${n}`] = t.security?.symbol || t.symbol || DASH;
     }
 
     // Fees

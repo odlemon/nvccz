@@ -56,10 +56,19 @@ function mapRow(raw: Record<string, string>, columnMap: Record<string, string>) 
   };
 }
 
-function serializeException(e: any) {
+function serializeException(e: any, tradeRefById?: Map<string, string>) {
   if (!e) return e;
   return {
     ...e,
+    symbol: e.instrumentSymbol ?? e.symbol ?? null,
+    internalQty: e.internalQuantity != null ? String(e.internalQuantity) : e.internalQty != null ? String(e.internalQty) : null,
+    brokerQty: e.brokerQuantity != null ? String(e.brokerQuantity) : e.brokerQty != null ? String(e.brokerQty) : null,
+    custodianQty:
+      e.custodianQuantity != null
+        ? String(e.custodianQuantity)
+        : e.custodianQty != null
+          ? String(e.custodianQty)
+          : null,
     internalQuantity: e.internalQuantity != null ? String(e.internalQuantity) : null,
     brokerQuantity: e.brokerQuantity != null ? String(e.brokerQuantity) : null,
     custodianQuantity: e.custodianQuantity != null ? String(e.custodianQuantity) : null,
@@ -69,6 +78,15 @@ function serializeException(e: any) {
         ? e.tradeDate.toISOString().slice(0, 10)
         : String(e.tradeDate).slice(0, 10)
       : null,
+    tradeRef: e.tradeId && tradeRefById ? tradeRefById.get(e.tradeId) || null : e.tradeRef || null,
+    // Hide raw DB ids from API consumers that render directly
+    tradeId: undefined,
+    brokerLineId: undefined,
+    custodianLineId: undefined,
+    resolvedById: undefined,
+    _tradeId: e.tradeId || null,
+    _brokerLineId: e.brokerLineId || null,
+    _custodianLineId: e.custodianLineId || null,
   };
 }
 
@@ -93,6 +111,83 @@ export class InvestmentTradeReconService {
     }));
   }
 
+  /** List trade recon batches (drafts + completed) for accessible funds. */
+  static async listBatches(
+    query: { fundId?: string; status?: string; limit?: number },
+    userId: string,
+    user: any
+  ) {
+    const accessible = await ListedEquityAccessService.getAccessibleFundIds(userId, user);
+    const fundId = query.fundId ? String(query.fundId) : "";
+
+    if (accessible !== "ALL") {
+      if (!accessible.length) return { items: [], total: 0 };
+      if (fundId && !accessible.includes(fundId)) {
+        fail("FORBIDDEN", "No access to this fund", 403);
+      }
+    } else if (fundId) {
+      await ListedEquityAccessService.assertFundAccess(userId, fundId, user);
+    }
+
+    const statusRaw = String(query.status || "").trim().toUpperCase();
+    let statusFilter: string | { in: string[] } | undefined;
+    if (statusRaw === "DRAFT" || statusRaw === "OPEN_DRAFTS") {
+      statusFilter = { in: ["OPEN", "INGESTED", "MATCHED"] };
+    } else if (statusRaw === "COMPLETED") {
+      statusFilter = "COMPLETED";
+    } else if (statusRaw) {
+      statusFilter = statusRaw;
+    }
+
+    const where: any = {};
+    if (fundId) where.fundId = fundId;
+    else if (accessible !== "ALL") where.fundId = { in: accessible };
+    if (statusFilter) where.status = statusFilter;
+
+    const take = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
+    const rows = await db.investmentTradeReconBatch.findMany({
+      where,
+      orderBy: [{ asOfDate: "desc" }, { createdAt: "desc" }],
+      take,
+    });
+
+    const fundIds = [...new Set(rows.map((r: any) => r.fundId))];
+    const funds = fundIds.length
+      ? await db.fund.findMany({
+          where: { id: { in: fundIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const fundNameById = new Map(funds.map((f: any) => [f.id, f.name]));
+
+    const items = rows.map((r: any) => {
+      const asOf =
+        r.asOfDate instanceof Date
+          ? r.asOfDate.toISOString().slice(0, 10)
+          : String(r.asOfDate || "").slice(0, 10);
+      const fundName = fundNameById.get(r.fundId) || null;
+      const isDraft = ["OPEN", "INGESTED", "MATCHED"].includes(String(r.status || "").toUpperCase());
+      return {
+        id: r.id,
+        fundId: r.fundId,
+        fundName,
+        asOfDate: asOf,
+        status: r.status,
+        bucket: isDraft ? "DRAFT" : String(r.status || "").toUpperCase() === "COMPLETED" ? "COMPLETED" : "OTHER",
+        displayLabel: `${fundName || "Portfolio"} · ${asOf || "—"}`,
+        matchedCount: r.matchedCount ?? 0,
+        exceptionCount: r.exceptionCount ?? 0,
+        brokerTemplateCode: r.brokerTemplateCode,
+        custodianTemplateCode: r.custodianTemplateCode,
+        completedAt: r.completedAt || null,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      };
+    });
+
+    return { items, total: items.length };
+  }
+
   static async createBatch(
     data: { fundId: string; asOfDate: string; brokerTemplateCode?: string; custodianTemplateCode?: string },
     idempotencyKey: string,
@@ -102,9 +197,9 @@ export class InvestmentTradeReconService {
     await ListedEquityAccessService.assertFundAccess(userId, data.fundId, user);
     if (idempotencyKey) {
       const replay = await db.investmentTradeReconBatch.findUnique({ where: { idempotencyKey } });
-      if (replay) return replay;
+      if (replay) return this.getBatch(replay.id, userId, user);
     }
-    return db.investmentTradeReconBatch.create({
+    const created = await db.investmentTradeReconBatch.create({
       data: {
         id: `trb_${randomUUID().replace(/-/g, "").slice(0, 20)}`,
         fundId: data.fundId,
@@ -116,6 +211,7 @@ export class InvestmentTradeReconService {
         createdById: userId,
       },
     });
+    return this.getBatch(created.id, userId, user);
   }
 
   static async getBatch(batchId: string, userId: string, user: any) {
@@ -128,13 +224,93 @@ export class InvestmentTradeReconService {
     });
     if (!batch) fail("TRADE_RECON_BATCH_NOT_FOUND", "Batch not found", 404);
     await ListedEquityAccessService.assertFundAccess(userId, batch.fundId, user);
+
+    const tradeIds = [
+      ...new Set(
+        batch.exceptions
+          .map((e: any) => e.tradeId)
+          .concat(batch.lines.map((l: any) => l.matchedTradeId))
+          .filter(Boolean)
+      ),
+    ] as string[];
+    const trades = tradeIds.length
+      ? await db.listedEquityTrade.findMany({
+          where: { id: { in: tradeIds } },
+          select: {
+            id: true,
+            tradeRef: true,
+            side: true,
+            quantity: true,
+            executionPrice: true,
+            security: { select: { symbol: true } },
+          },
+        })
+      : [];
+    const tradeById = new Map(trades.map((t: any) => [t.id, t]));
+    const tradeRefById = new Map(trades.map((t: any) => [t.id, t.tradeRef]));
+
+    const fund = await db.fund.findUnique({
+      where: { id: batch.fundId },
+      select: { id: true, name: true },
+    });
+
+    const asOf =
+      batch.asOfDate instanceof Date
+        ? batch.asOfDate.toISOString().slice(0, 10)
+        : String(batch.asOfDate || "").slice(0, 10);
+
+    const matchedTradeIdSet = new Set(
+      batch.lines.filter((l: any) => l.matchedTradeId && l.matchStatus === "MATCHED").map((l: any) => l.matchedTradeId)
+    );
+    const autoMatches = [...matchedTradeIdSet].map((tradeId: string) => {
+      const trade = tradeById.get(tradeId);
+      const broker = batch.lines.find((l: any) => l.source === "BROKER" && l.matchedTradeId === tradeId);
+      const custodian = batch.lines.find((l: any) => l.source === "CUSTODIAN" && l.matchedTradeId === tradeId);
+      const symbol =
+        String(trade?.security?.symbol || broker?.instrumentSymbol || custodian?.instrumentSymbol || "").toUpperCase() ||
+        null;
+      return {
+        id: `match_${tradeId}`,
+        how: "AUTO",
+        status: "MATCHED",
+        symbol,
+        side: trade?.side || broker?.side || custodian?.side || null,
+        tradeRef: trade?.tradeRef || null,
+        internalQty: trade?.quantity != null ? String(trade.quantity) : null,
+        brokerQty: broker?.quantity != null ? String(broker.quantity) : null,
+        custodianQty: custodian?.quantity != null ? String(custodian.quantity) : null,
+        price: trade?.executionPrice != null ? String(trade.executionPrice) : null,
+      };
+    });
+    const manualMatches = batch.exceptions
+      .filter((e: any) => String(e.status || "").toUpperCase() === "MATCHED")
+      .map((e: any) => ({
+        id: `manual_${e.id}`,
+        how: "MANUAL",
+        status: "MATCHED",
+        symbol: e.instrumentSymbol || null,
+        side: e.side || null,
+        tradeRef: e.tradeId ? tradeRefById.get(e.tradeId) || null : null,
+        internalQty: e.internalQuantity != null ? String(e.internalQuantity) : null,
+        brokerQty: e.brokerQuantity != null ? String(e.brokerQuantity) : null,
+        custodianQty: e.custodianQuantity != null ? String(e.custodianQuantity) : null,
+        price: e.price != null ? String(e.price) : null,
+      }));
+
     return {
       ...batch,
-      exceptions: batch.exceptions.map(serializeException),
+      fundName: fund?.name ?? null,
+      asOfDate: asOf,
+      displayLabel: `${fund?.name || "Portfolio"} · ${asOf || "—"}`,
+      matches: [...autoMatches, ...manualMatches],
+      exceptions: batch.exceptions.map((e: any) => serializeException(e, tradeRefById)),
       lines: batch.lines.map((l: any) => ({
         ...l,
         quantity: l.quantity != null ? String(l.quantity) : null,
         price: l.price != null ? String(l.price) : null,
+        matchedTradeId: undefined,
+        matchedTradeRef: l.matchedTradeId ? tradeRefById.get(l.matchedTradeId) || null : null,
+        _matchedTradeId: l.matchedTradeId || null,
       })),
     };
   }
@@ -215,7 +391,7 @@ export class InvestmentTradeReconService {
       userId
     );
 
-    return { batchId, source, lineCount: created.length, templateCode: code };
+    return this.getBatch(batchId, userId, user);
   }
 
   static async runMatch(batchId: string, userId: string, user: any) {
@@ -293,7 +469,7 @@ export class InvestmentTradeReconService {
     flagDuplicates(custodianLines, "CUSTODIAN");
 
     for (const trade of internalTrades) {
-      const symbol = String(trade.security?.ticker || trade.security?.symbol || "").toUpperCase();
+      const symbol = String(trade.security?.symbol || "").toUpperCase();
       const side = String(trade.side || "").toUpperCase();
       const tradeDate = (trade.executedAt || trade.createdAt || asOf).toISOString?.().slice(0, 10);
       const qty = dec(trade.quantity);
@@ -514,7 +690,8 @@ export class InvestmentTradeReconService {
   static async writeOff(exceptionId: string, reason: string, userId: string, user: any) {
     const exc = await db.investmentTradeReconException.findUnique({ where: { id: exceptionId } });
     if (!exc) fail("EXCEPTION_NOT_FOUND", "Exception not found", 404);
-    await this.getBatch(exc.batchId, userId, user);
+    const batch = await this.getBatch(exc.batchId, userId, user);
+    if (exc.status !== "OPEN") fail("EXCEPTION_NOT_OPEN", "Exception is not open", 422);
     if (!String(reason || "").trim()) fail("VALIDATION_ERROR", "reason is required", 422);
     const updated = await db.investmentTradeReconException.update({
       where: { id: exceptionId },
@@ -524,6 +701,10 @@ export class InvestmentTradeReconService {
         resolvedById: userId,
         resolvedAt: new Date(),
       },
+    });
+    await db.investmentTradeReconBatch.update({
+      where: { id: batch.id },
+      data: { exceptionCount: { decrement: 1 } },
     });
     return serializeException(updated);
   }
@@ -568,7 +749,7 @@ export class InvestmentTradeReconService {
       custodianMatched: Boolean(custodianMatched),
       openExceptionIds: openExceptions.map((e: any) => e.id),
       openExceptions,
-      deepLink: `/investments-v2/reconciliation?tab=trade&tradeId=${tradeId}`,
+      deepLink: `/investments-v2/reconciliation/trade?tab=trade&tradeId=${tradeId}`,
     };
   }
 
@@ -607,8 +788,8 @@ export class InvestmentTradeReconService {
         breaks.push({
           securityId: sid,
           symbol:
-            pos?.security?.ticker ||
-            settled.find((t: any) => t.securityId === sid)?.security?.ticker ||
+            pos?.security?.symbol ||
+            settled.find((t: any) => t.securityId === sid)?.security?.symbol ||
             null,
           positionQuantity: String(actual),
           expectedFromSettledTrades: String(expected),

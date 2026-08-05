@@ -151,6 +151,7 @@
     "db:migrate:investments-v2-e2e-be-gap:all-dbs": "python scripts/run-investments-v2-e2e-be-gap-migration-all-dbs.py",
     "db:migrate:investments-trading-recon-retune": "ts-node --transpile-only -r dotenv/config scripts/run-investments-trading-recon-retune-migration.ts",
     "db:migrate:investments-trading-recon-retune:all-dbs": "python scripts/run-investments-trading-recon-retune-migration-all-dbs.py",
+    "db:migrate:investments-broker-instruction-email": "ts-node --transpile-only -r dotenv/config scripts/run-investments-broker-instruction-email-migration.ts",
     "db:seed:stock-picker-cash": "ts-node --transpile-only -r dotenv/config scripts/seed-stock-picker-cash-demo.ts",
     "uat:stock-picker-cash:r1": "ts-node --transpile-only -r dotenv/config scripts/uat-stock-picker-cash-r1-http.ts",
     "uat:stock-picker-cash:r2": "ts-node --transpile-only -r dotenv/config scripts/uat-stock-picker-cash-r2-http.ts",

@@ -265,9 +265,18 @@ Demo files:
 6. [x] Blotter CTA → `GET …/reconciliation-summary` then deep-link (fallback `reconDeepLink` → `/reconciliation/trade`).
 7. [x] Clients: `lib/api/investment-ops-api.ts` — confirmation + trade-recon + client-account methods.
 8. [x] Phase-1 custodian auth on Send (custodian + value date + settlement account shown).
-9. [ ] Phase-2 outbound custodian instruction message (not in this wave).
+9. [x] Broker email instruction + magic-link reply (PO-style email via ZeptoMail; public `/broker-instruction/:token`).
+10. [ ] Custodian outbound settlement instruction (same pattern later; SWIFT later).
 
-**FE files:** `app/investments-v2/orders/orderbook/page.tsx`, `…/blotter/page.tsx`, `app/investments-v2/reconciliation/trade/page.tsx`, `app/investments-v2/reconciliation/page.tsx` (tab=trade redirect), `components/investments-v2/recon-ui.tsx`, `lib/investments-v2/adapters/orders-adapter.ts`, `public/demo-templates/trade-recon/*`.
+**Public broker reply**
+
+| Method | Path |
+|--------|------|
+| GET | `/api/investment-ops/public/broker-instructions/:token` |
+| POST | `/api/investment-ops/public/broker-instructions/:token/reply` `{ outcome, quantity?, price?, notes?, proceed?, brokerReference? }` |
+| GET | `/api/investment-ops/orders/:id/broker-messages` (auth) |
+
+`POST …/send-to-broker` now returns `instruction: { replyUrl, status, toEmail, deliveryError }`. Optional body `brokerEmail` overrides profile inbox.
 
 ---
 
@@ -276,6 +285,7 @@ Demo files:
 ```powershell
 Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
 npm run db:migrate:investments-trading-recon-retune
+npm run db:migrate:investments-broker-instruction-email
 npx prisma generate
 npm run dev   # separate terminal
 npm run uat:investments-v2:trading-recon-retune
@@ -283,9 +293,9 @@ npm run uat:investments-v2:trading-recon-retune
 
 Walkthrough:
 
-1. Create → Submit → Approve → Send to broker → **no blotter**.
-2. Record counter → Reject → still no blotter.
-3. Record fill → Accept → trade on blotter; order Executed.
+1. Create → Submit → Approve → Send to broker (set broker email) → **email + reply link**.
+2. Open `/broker-instruction/{token}` → Counter / Unable / Filled.
+3. On orderbook: Accept → trade on blotter.
 4. Settle → order + trade Settled.
 5. Import broker 900 vs internal 1000 → `QTY_MISMATCH`.
 6. Happy ingest → match → complete batch.
@@ -298,4 +308,5 @@ Walkthrough:
 |--------|---------|
 | `db:migrate:investments-trading-recon-retune` | Idempotent DDL |
 | `db:migrate:investments-trading-recon-retune:all-dbs` | nts + client1_db + demo_env |
+| `db:migrate:investments-broker-instruction-email` | Broker instruction + message log tables |
 | `uat:investments-v2:trading-recon-retune` | HTTP acceptance on DEV `nts` |

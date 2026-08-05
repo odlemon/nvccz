@@ -20,6 +20,16 @@ import "../services/investmentOps/InvestmentReportingService";
 const router = express.Router();
 router.use(investmentOpsContract);
 
+// Public broker reply (magic link) — no auth
+router.get(
+  "/public/broker-instructions/:token",
+  InvestmentOpsController.getPublicBrokerInstruction
+);
+router.post(
+  "/public/broker-instructions/:token/reply",
+  InvestmentOpsController.replyPublicBrokerInstruction
+);
+
 const access = (permission: string) => [
   authenticate,
   requireInvestmentPermission(permission),
@@ -438,6 +448,11 @@ router.get(
   ...auth,
   InvestmentOpsController.listBrokerConfirmations
 );
+router.get(
+  "/orders/:id/broker-messages",
+  ...auth,
+  InvestmentOpsController.listBrokerMessages
+);
 router.post(
   "/orders/:id/broker-confirmations",
   ...execute,
@@ -634,6 +649,11 @@ router.get(
   "/trade-reconciliation/templates",
   ...auth,
   InvestmentOpsController.listTradeReconTemplates
+);
+router.get(
+  "/trade-reconciliation/batches",
+  ...auth,
+  InvestmentOpsController.listTradeReconBatches
 );
 router.post(
   "/trade-reconciliation/batches",
