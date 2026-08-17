@@ -37,14 +37,23 @@ def main() -> int:
     host = creds.get("VPS_HOST", "")
     user = creds.get("VPS_USER", "root")
     password = creds.get("VPS_PASSWORD", "")
+    port = int(creds.get("VPS_PORT", "2299"))
     if not host or not password:
         print("Missing VPS_HOST or VPS_PASSWORD in credentials file", file=sys.stderr)
         return 1
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    print(f"Connecting to {user}@{host}...")
-    client.connect(host, username=user, password=password, timeout=30, look_for_keys=False, allow_agent=False)
+    print(f"Connecting to {user}@{host}:{port}...")
+    client.connect(
+        host,
+        port=port,
+        username=user,
+        password=password,
+        timeout=45,
+        look_for_keys=False,
+        allow_agent=False,
+    )
 
     commands = (
         "set -e; "

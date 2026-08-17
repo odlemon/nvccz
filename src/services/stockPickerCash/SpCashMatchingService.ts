@@ -15,6 +15,14 @@ import {
   withIdempotency,
 } from "./spCashSupport";
 
+function availableCashAmount(line: any): Decimal {
+  const status = String(line?.matchStatus || "UNMATCHED").toUpperCase();
+  if (status === "MATCHED") return new Decimal(0);
+  const residual = line?.residualAmount;
+  if (residual != null && !d(residual).isZero()) return d(residual).abs();
+  return d(line?.signedCashAmount).abs();
+}
+
 const DEFAULT_WEIGHTS = {
   amountWeight: 0.5,
   dateWeight: 0.2,
@@ -309,6 +317,64 @@ export class SpCashMatchingService {
     return presentBatch(row);
   }
 
+  static async deleteBatch(id: string, actorId: string) {
+    const row = await db.spCashReconciliationBatch.findUnique({ where: { id } });
+    if (!row) throw new InvestmentOpsError("NOT_FOUND", "Batch not found", 404);
+
+    const links = await db.spCashMatchLink.findMany({
+      where: { batchId: id },
+      select: { internalLineId: true, externalLineId: true },
+    });
+    const internalIds = [...new Set(links.map((l) => l.internalLineId).filter(Boolean))];
+    const externalIds = [...new Set(links.map((l) => l.externalLineId).filter(Boolean))];
+
+    await db.$transaction(async (tx) => {
+      if (internalIds.length) {
+        await tx.spCashJournalLine.updateMany({
+          where: { id: { in: internalIds } },
+          data: { matchStatus: "UNMATCHED" },
+        });
+        const internals = await tx.spCashJournalLine.findMany({
+          where: { id: { in: internalIds } },
+          select: { id: true, signedCashAmount: true },
+        });
+        for (const row of internals) {
+          await tx.spCashJournalLine.update({
+            where: { id: row.id },
+            data: { residualAmount: row.signedCashAmount },
+          });
+        }
+      }
+      if (externalIds.length) {
+        await tx.spCashExternalStatementLine.updateMany({
+          where: { id: { in: externalIds } },
+          data: { matchStatus: "UNMATCHED" },
+        });
+        const externals = await tx.spCashExternalStatementLine.findMany({
+          where: { id: { in: externalIds } },
+          select: { id: true, signedCashAmount: true },
+        });
+        for (const row of externals) {
+          await tx.spCashExternalStatementLine.update({
+            where: { id: row.id },
+            data: { residualAmount: row.signedCashAmount },
+          });
+        }
+      }
+      await tx.spCashReconciliationBatch.delete({ where: { id } });
+    });
+
+    await emitCash({
+      eventType: "cash.recon.batch.deleted",
+      aggregateType: "SpCashReconciliationBatch",
+      aggregateId: id,
+      aggregateVersion: row.version,
+      actorId,
+    });
+
+    return { id, deleted: true };
+  }
+
   static async run(id: string, body: any = {}, actorId: string, tx?: any) {
     const client = tx || db;
     const batch = await client.spCashReconciliationBatch.findUnique({ where: { id } });
@@ -424,7 +490,6 @@ export class SpCashMatchingService {
           { matchStatus: null },
           { matchStatus: { in: ["UNMATCHED", "PARTIAL", "SUGGESTED"] } },
         ],
-        residualAmount: { not: 0 },
         statement: { cashAccountId: batch.cashAccountId, currency: batch.currency },
       },
     });
@@ -473,7 +538,8 @@ export class SpCashMatchingService {
       const best = candidates[0];
       if (!best || best.scored.scoreTotal < weights.autoMatchThreshold) continue;
 
-      const matchAmt = Decimal.min(d(intl.signedCashAmount).abs(), d(best.ext.residualAmount ?? best.ext.signedCashAmount).abs());
+      const matchAmt = Decimal.min(availableCashAmount(intl), availableCashAmount(best.ext));
+      if (matchAmt.lte(0)) continue;
       const link = await client.spCashMatchLink.create({
         data: {
           batchId: id,
@@ -550,12 +616,16 @@ export class SpCashMatchingService {
       include: { journal: true },
       take: 500,
     });
-    const external = await db.spCashExternalStatementLine.findMany({
+    const externalRaw = await db.spCashExternalStatementLine.findMany({
       where: {
         statement: {
           cashAccountId: batch.cashAccountId,
           currency: batch.currency,
         },
+        OR: [
+          { valueDate: { gte: batch.periodFrom, lte: batch.periodTo } },
+          { valueDate: null },
+        ],
       },
       take: 500,
     });
@@ -568,12 +638,19 @@ export class SpCashMatchingService {
       where: { batchId: id, status: { in: ["CONFIRMED", "PROPOSED"] } },
       take: 500,
     });
+    const linkedInt = new Set(links.map((l: any) => l.internalLineId).filter(Boolean));
+    const linkedExt = new Set(links.map((l: any) => l.externalLineId).filter(Boolean));
+    // Bank lines matched on another batch stay there — a new batch starts with no statement until import.
+    const external = externalRaw.filter((l: any) => {
+      if (linkedExt.has(l.id)) return true;
+      return String(l.matchStatus || "").toUpperCase() !== "MATCHED";
+    });
     const weights = await activeWeights();
 
     // Suggestions for unmatched
     const suggestions: any[] = [];
-    const unmatchedInt = internal.filter((l: any) => !["MATCHED"].includes(String(l.matchStatus)));
-    const unmatchedExt = external.filter((l: any) => !["MATCHED"].includes(String(l.matchStatus)));
+    const unmatchedInt = internal.filter((l: any) => !linkedInt.has(l.id));
+    const unmatchedExt = external.filter((l: any) => !linkedExt.has(l.id));
     for (const intl of unmatchedInt.slice(0, 50)) {
       for (const ext of unmatchedExt.slice(0, 50)) {
         const scored = scorePair(
@@ -605,8 +682,8 @@ export class SpCashMatchingService {
     }
     suggestions.sort((a, b) => b.confidence - a.confidence);
 
-    const iTotal = unmatchedInt.reduce((s: Decimal, l: any) => s.plus(d(l.signedCashAmount)), new Decimal(0));
-    const eTotal = unmatchedExt.reduce((s: Decimal, l: any) => s.plus(d(l.signedCashAmount)), new Decimal(0));
+    const iTotal = internal.reduce((s: Decimal, l: any) => s.plus(d(l.signedCashAmount)), new Decimal(0));
+    const eTotal = external.reduce((s: Decimal, l: any) => s.plus(d(l.signedCashAmount)), new Decimal(0));
 
     const mapInternal = (l: any) => ({
       id: l.id,
@@ -614,7 +691,7 @@ export class SpCashMatchingService {
       valueDate: l.journal?.valueDate,
       description: l.description,
       signedCashAmount: moneyStr(l.signedCashAmount),
-      matchStatus: l.matchStatus,
+      matchStatus: linkedInt.has(l.id) ? "MATCHED" : "UNMATCHED",
       residualAmount: l.residualAmount != null ? moneyStr(l.residualAmount) : null,
     });
     const mapExternal = (l: any) => ({
@@ -623,7 +700,7 @@ export class SpCashMatchingService {
       valueDate: l.valueDate,
       description: l.reference,
       signedCashAmount: moneyStr(l.signedCashAmount),
-      matchStatus: l.matchStatus,
+      matchStatus: linkedExt.has(l.id) ? "MATCHED" : "UNMATCHED",
       residualAmount: l.residualAmount != null ? moneyStr(l.residualAmount) : null,
     });
     const matchItems = links.map((l: any) => ({
@@ -651,13 +728,13 @@ export class SpCashMatchingService {
         sourceLabel: "Arcus Internal Ledger",
         total: moneyStr(iTotal),
         currency: batch.currency,
-        entries: unmatchedInt.map(mapInternal),
+        entries: internal.map(mapInternal),
       },
       external: {
         sourceLabel: "External Statement",
         total: moneyStr(eTotal),
         currency: batch.currency,
-        entries: unmatchedExt.map(mapExternal),
+        entries: external.map(mapExternal),
       },
       results: {
         matchedCount: links.filter((l: any) => l.status === "CONFIRMED").length,
@@ -670,6 +747,8 @@ export class SpCashMatchingService {
       // Flat aliases (legacy adapters)
       unmatchedInternal: unmatchedInt.map(mapInternal),
       unmatchedExternal: unmatchedExt.map(mapExternal),
+      allInternal: internal.map(mapInternal),
+      allExternal: external.map(mapExternal),
       matches: matchItems,
       breaks: breakItems,
       suggested: suggestions.slice(0, 50),

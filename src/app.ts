@@ -198,6 +198,10 @@ app.use(cors({
       "https://app.kyntaro.com",
       "https://nvccz-new-taupe.vercel.app",
       "http://31.220.82.129",
+      "http://207.180.234.151",
+      "http://207.180.234.151:8080",
+      "http://207.180.234.151:3006",
+      "http://207.180.234.151:3009",
       "http://kyntaro.com",
       "https://kyntaro.com",
       "https://nvccz-frontend.vercel.app", 
@@ -209,6 +213,8 @@ app.use(cors({
       "https://nvccz-pi.vercel.app",  // Added Swagger UI origin
       "http://localhost:3000",
       "http://localhost:3001",
+      "http://127.0.0.1:3000",
+      "http://127.0.0.1:3001",
       "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io",
       "http://yoogo0gw888okwwsgk0s88og.31.220.82.129.sslip.io",
       "http://rk0kkk0wok0c4c8s48wc04k0.31.220.82.129.sslip.io",
@@ -217,6 +223,15 @@ app.use(cors({
       "https://demo.arcus.co.zw",
       "https://demo-api.arcus.co.zw"
     ];
+
+    // Also honor CORS_ORIGINS from env (comma-separated), used on Singapore/VPS deploys
+    const fromEnv = (process.env.CORS_ORIGINS || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const o of fromEnv) {
+      if (!allowedOrigins.includes(o)) allowedOrigins.push(o);
+    }
     
     // Allow all Vercel preview deployments for development
     if (origin && origin.includes('.vercel.app')) {

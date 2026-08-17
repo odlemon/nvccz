@@ -1,0 +1,16 @@
+node_modules
+dist
+.git
+coverage
+tmp-smoke-io-reports
+tmp-report-placeholder-audit.json
+storage/local-upload-mock
+.env
+.env.*
+!.env.example
+*.log
+docs
+tracking
+scripts/_vps*
+.cursor
+tmp-*

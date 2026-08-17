@@ -897,6 +897,9 @@ export const investmentOpsSwaggerPaths = {
   "/investment-ops/external-statements/imports": {
     post: op("Create external statement import"),
   },
+  "/investment-ops/external-statements/imports/ingest": {
+    post: op("Ingest and commit external statement (validate + commit in one step)"),
+  },
   "/investment-ops/external-statements/imports/{id}": {
     get: op("Get external statement import", { parameters: [pathParam("id", SWAGGER_EX.instrumentId)] }),
   },
@@ -921,6 +924,7 @@ export const investmentOpsSwaggerPaths = {
   },
   "/investment-ops/reconciliation-batches/{id}": {
     get: op("Get cash reconciliation batch", { parameters: [pathParam("id", SWAGGER_EX.instrumentId)] }),
+    delete: op("Delete cash reconciliation batch", { parameters: [pathParam("id", SWAGGER_EX.instrumentId)] }),
   },
   "/investment-ops/reconciliation-batches/{id}/run": {
     post: op("Run cash reconciliation batch", { parameters: [pathParam("id", SWAGGER_EX.instrumentId)] }),

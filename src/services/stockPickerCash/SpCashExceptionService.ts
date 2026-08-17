@@ -197,7 +197,15 @@ export class SpCashExceptionService {
       where: { status: "CONFIRMED", method: "AUTO" },
     });
     const allLinks = await db.spCashMatchLink.count();
-    const stmRate = allLinks ? Math.round((confirmed / allLinks) * 10000) / 100 : 100;
+    const stmRate = allLinks ? Math.round((confirmed / allLinks) * 10000) / 100 : null;
+    const [openCount, investigatingCount] = await Promise.all([
+      db.spCashReconciliationException.count({
+        where: { ...whereBase, status: { in: OPEN_STATUSES } },
+      }),
+      db.spCashReconciliationException.count({
+        where: { ...whereBase, status: "INVESTIGATING" },
+      }),
+    ]);
 
     return {
       from: query.from || null,
@@ -218,13 +226,19 @@ export class SpCashExceptionService {
         trendPct: null,
       },
       straightThroughMatchRate: { pct: stmRate, trendPp: null },
-      // FE aliases
+      // FE aliases — scalars, not nested objects
+      critical: critical.length,
       criticalAmount: sumAmt(critical).toFixed(2),
       overdue: overdue.length,
       overdueAmount: sumAmt(overdue).toFixed(2),
+      pending: pendingAdj.length,
       pendingAmount: sumAmt(pendingAdj).toFixed(2),
       stpRate: stmRate,
       matchRate: stmRate,
+      open: openCount,
+      investigating: investigatingCount,
+      autoConfirmedCount: confirmed,
+      matchLinkCount: allLinks,
       trendVsPrior7d: { matchRatePp: null },
       bySeverity: {
         CRITICAL: critical.length,

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { createHash } from "crypto";
-import { createReadStream } from "fs";
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { createReadStream, existsSync } from "fs";
+import { access, mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import PDFDocument from "pdfkit";
 import * as XLSX from "xlsx";
@@ -400,16 +400,81 @@ function writeCsv(fileRef: string, payload: object) {
   return writeFile(fileRef, lines.join("\n"), "utf8");
 }
 
+function formatExt(format?: string): string {
+  const fmt = String(format || "json").toUpperCase();
+  if (fmt === "EXCEL" || fmt === "XLSX") return "xlsx";
+  return fmt.toLowerCase();
+}
+
+/** Professional download name — no database ids. e.g. "Performance Report - 05 Aug 2026.docx" */
+function buildDownloadFilename(run: {
+  reportType?: string;
+  format?: string;
+  createdAt?: Date | string;
+  completedAt?: Date | string | null;
+  parametersJson?: unknown;
+}): string {
+  let title = String(run.reportType || "Investment Report");
+  try {
+    title = getInvestmentReportTemplate(String(run.reportType || "")).name;
+  } catch {
+    /* keep code as title */
+  }
+  title = title
+    .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const { userParams } = splitParameters(run.parametersJson);
+  const asOfRaw =
+    userParams?.asOf ||
+    userParams?.valuationDate ||
+    userParams?.periodEnd ||
+    run.completedAt ||
+    run.createdAt ||
+    new Date();
+  const asOf = new Date(asOfRaw);
+  const dateLabel = Number.isNaN(asOf.getTime())
+    ? new Date().toISOString().slice(0, 10)
+    : asOf.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  return `${title} - ${dateLabel}.${formatExt(run.format)}`;
+}
+
+function resolveStoredFileRef(fileRef: string): string {
+  if (!fileRef) return fileRef;
+  // Absolute paths (legacy Windows/Linux) — use as-is when present.
+  if (path.isAbsolute(fileRef) && existsSync(fileRef)) return fileRef;
+  // Prefer cwd-relative storage keys written by newer deploys.
+  const fromCwd = path.resolve(process.cwd(), fileRef);
+  if (existsSync(fromCwd)) return fromCwd;
+  // Recover basename under the standard reports directory.
+  const base = path.basename(fileRef.replace(/\\/g, "/"));
+  const underReports = path.join(
+    process.cwd(),
+    "storage",
+    "local-upload-mock",
+    "investment-ops-reports",
+    base
+  );
+  return underReports;
+}
+
 function serializeReport(run: any, user?: any) {
   if (!run) return run;
   const { userParams, meta } = splitParameters(run.parametersJson);
   const expired = meta.expiresAt ? new Date(meta.expiresAt).getTime() < Date.now() : false;
+  let reportTypeName = run.reportType;
+  try {
+    reportTypeName = getInvestmentReportTemplate(run.reportType).name;
+  } catch {
+    /* keep code */
+  }
   return {
     id: run.id,
     fundId: run.fundId,
     clientId: run.clientId,
     scopeType: run.scopeType,
     reportType: run.reportType,
+    reportTypeName,
     format: run.format,
     status: run.status,
     parameters: userParams,
@@ -424,6 +489,7 @@ function serializeReport(run: any, user?: any) {
     createdAt: run.createdAt,
     completedAt: run.completedAt,
     downloadAvailable: Boolean(run.fileRef && run.status === "COMPLETED" && !expired),
+    downloadFileName: buildDownloadFilename(run),
     permittedActions: user ? permittedActionsFor(user, "report", run.status) : undefined,
   };
 }
@@ -710,8 +776,9 @@ export class InvestmentReportingService {
           parameters: userParams as any,
         });
         const buffer = DocxTemplateRenderService.render(templatePath, mergeData);
-        fileRef = path.join(dir, `${base}.docx`);
-        await writeFile(fileRef, buffer);
+        const absPath = path.join(dir, `${base}.docx`);
+        await writeFile(absPath, buffer);
+        fileRef = path.relative(process.cwd(), absPath).replace(/\\/g, "/");
       } else {
         const builder = REPORT_BUILDERS[run.reportType];
         if (!builder || !run.fundId) {
@@ -722,24 +789,26 @@ export class InvestmentReportingService {
           );
         }
         const payload = await builder(run.fundId, userId, user);
+        let absPath: string;
         if (fmt === "PDF") {
-          fileRef = path.join(dir, `${base}.pdf`);
-          await writePdf(fileRef, templateDef.name || run.reportType, payload);
+          absPath = path.join(dir, `${base}.pdf`);
+          await writePdf(absPath, templateDef.name || run.reportType, payload);
         } else if (fmt === "EXCEL" || fmt === "XLSX") {
-          fileRef = path.join(dir, `${base}.xlsx`);
-          await writeExcel(fileRef, payload);
+          absPath = path.join(dir, `${base}.xlsx`);
+          await writeExcel(absPath, payload);
         } else if (fmt === "CSV") {
-          fileRef = path.join(dir, `${base}.csv`);
-          await writeCsv(fileRef, payload);
+          absPath = path.join(dir, `${base}.csv`);
+          await writeCsv(absPath, payload);
         } else if (fmt === "JSON") {
-          fileRef = path.join(dir, `${base}.json`);
-          await writeFile(fileRef, JSON.stringify(payload, null, 2), "utf8");
+          absPath = path.join(dir, `${base}.json`);
+          await writeFile(absPath, JSON.stringify(payload, null, 2), "utf8");
         } else {
           throw new InvestmentOpsError("UNSUPPORTED_REPORT_FORMAT", `Unsupported format ${fmt}`, 400);
         }
+        fileRef = path.relative(process.cwd(), absPath).replace(/\\/g, "/");
       }
 
-      const bytes = await readFile(fileRef);
+      const bytes = await readFile(resolveStoredFileRef(fileRef));
       const checksumSha256 = createHash("sha256").update(bytes).digest("hex");
       const expiresAt = new Date(Date.now() + REPORT_EXPIRY_MS).toISOString();
 
@@ -915,17 +984,23 @@ export class InvestmentReportingService {
     return "application/json";
   }
 
-  static downloadFilename(run: { reportType?: string; format?: string; id: string }): string {
-    const ext =
-      String(run.format || "json").toLowerCase() === "xlsx"
-        ? "xlsx"
-        : String(run.format || "json").toLowerCase();
-    const safe = String(run.reportType || "report").replace(/[^a-zA-Z0-9_-]/g, "_");
-    return `${safe}-${run.id}.${ext}`;
+  static downloadFilename(run: {
+    reportType?: string;
+    format?: string;
+    id?: string;
+    createdAt?: Date | string;
+    completedAt?: Date | string | null;
+    parametersJson?: unknown;
+  }): string {
+    return buildDownloadFilename(run);
+  }
+
+  static resolveFileRef(fileRef: string): string {
+    return resolveStoredFileRef(fileRef);
   }
 
   static openDownloadStream(fileRef: string) {
-    return createReadStream(fileRef);
+    return createReadStream(resolveStoredFileRef(fileRef));
   }
 
   static async assertDownloadable(id: string, userId: string, user: any) {
@@ -938,7 +1013,17 @@ export class InvestmentReportingService {
     if (meta.expiresAt && new Date(meta.expiresAt).getTime() < Date.now()) {
       throw new InvestmentOpsError("REPORT_EXPIRED", "Report output has expired", 410);
     }
-    return run;
+    const absolute = resolveStoredFileRef(run.fileRef);
+    try {
+      await access(absolute);
+    } catch {
+      throw new InvestmentOpsError(
+        "REPORT_FILE_MISSING",
+        "Report file is no longer on this server. Please generate the report again.",
+        410
+      );
+    }
+    return { ...run, fileRef: absolute };
   }
 }
 

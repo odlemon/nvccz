@@ -182,7 +182,7 @@ export class SpCashJournalService {
     return presentJournal(updated);
   }
 
-  static async approve(id: string, body: any, actorId: string) {
+  static async approve(id: string, body: any, actorId: string, actorUser?: any) {
     const result = await db.$transaction(
       async (tx: any) => {
         const row = await tx.spCashJournal.findUnique({
@@ -201,7 +201,7 @@ export class SpCashJournalService {
             409
           );
         }
-        assertMakerNotChecker(row.makerId, actorId);
+        assertMakerNotChecker(row.makerId, actorId, actorUser);
         if (body?.expectedVersion != null) assertVersion(row, body.expectedVersion);
         assertBalanced(row.lines);
 

@@ -1226,6 +1226,7 @@ router.post("/cash-journals/:id/reverse", ...spJournalsReverse, StockPickerCashC
 
 // 14.5 External statement imports
 router.post("/external-statements/imports", ...spImportsUpload, requireIdempotencyKey, StockPickerCashController.createImport);
+router.post("/external-statements/imports/ingest", ...spImportsCommit, requireIdempotencyKey, StockPickerCashController.ingestImport);
 router.get("/external-statements/imports/:id", ...spReconView, StockPickerCashController.getImport);
 router.get("/external-statements/imports/:id/errors", ...spReconView, StockPickerCashController.importErrors);
 router.post("/external-statements/imports/:id/validate", ...spImportsValidate, StockPickerCashController.validateImport);
@@ -1237,6 +1238,7 @@ router.post("/external-statements/imports/:id/reject", ...spImportsCommit, Stock
 router.post("/reconciliation-batches", ...spReconRun, requireIdempotencyKey, StockPickerCashController.createReconBatch);
 router.get("/reconciliation-batches", ...spReconView, StockPickerCashController.listReconBatches);
 router.get("/reconciliation-batches/:id", ...spReconView, StockPickerCashController.getReconBatch);
+router.delete("/reconciliation-batches/:id", ...spReconRun, StockPickerCashController.deleteReconBatch);
 router.post("/reconciliation-batches/:id/run", ...spReconRun, StockPickerCashController.runReconBatch);
 router.get("/reconciliation-batches/:id/workspace", ...spReconView, StockPickerCashController.reconWorkspace);
 router.get("/reconciliation-batches/:id/summary", ...spReconView, StockPickerCashController.reconSummary);

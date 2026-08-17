@@ -172,7 +172,7 @@ export class StockPickerCashController {
   }
 
   static approveJournal(req: AuthRequest, res: Response) {
-    handle(res, SpCashJournalService.approve(req.params.id, req.body, req.user!.id));
+    handle(res, SpCashJournalService.approve(req.params.id, req.body, req.user!.id, req.user));
   }
 
   static rejectJournal(req: AuthRequest, res: Response) {
@@ -188,6 +188,19 @@ export class StockPickerCashController {
     handle(
       res,
       SpCashImportService.create(req.body, req.user!.id, optionalIdempotency(req)),
+      201
+    );
+  }
+
+  static ingestImport(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      SpCashImportService.ingestAndCommit(
+        req.body,
+        req.user!.id,
+        req.user,
+        optionalIdempotency(req)
+      ),
       201
     );
   }
@@ -231,6 +244,10 @@ export class StockPickerCashController {
 
   static getReconBatch(req: AuthRequest, res: Response) {
     handle(res, SpCashMatchingService.get(req.params.id));
+  }
+
+  static deleteReconBatch(req: AuthRequest, res: Response) {
+    handle(res, SpCashMatchingService.deleteBatch(req.params.id, req.user!.id));
   }
 
   static runReconBatch(req: AuthRequest, res: Response) {

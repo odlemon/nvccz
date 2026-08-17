@@ -185,7 +185,7 @@ export class InvestmentModelPortfolioService {
 
     const liveWeights: Record<string, number> = {};
     for (const h of holdings) {
-      const key = h.security?.exchangeCode ?? "EQUITY";
+      const key = h.security?.symbol ?? h.security?.exchangeCode ?? "EQUITY";
       liveWeights[key] = (liveWeights[key] || 0) + ((h.marketValue ?? 0) / totalMv) * 100;
     }
 
@@ -228,59 +228,88 @@ export class InvestmentModelPortfolioService {
     if (!version) throw new InvestmentOpsError("MODEL_NOT_ACTIVE", "Activate a model version before rebalancing", 409);
     const holdings = await ListedEquityPortfolioService.getHoldings(fundId, userId, user);
     const byKey = new Map(holdings.map((holding: any) => [holding.security?.exchangeCode, holding]));
-    return db.$transaction(async (tx: any) => {
-      const run = await tx.investmentRebalanceRun.create({
-        data: {
-          fundId,
-          modelPortfolioId: modelId,
-          modelPortfolioVersionId: version.id,
-          asOf: new Date(),
-          inputSnapshotJson: {
-            modelVersionId: version.id,
-            holdings: holdings.map((holding: any) => ({
-              holdingId: holding.id,
-              quantity: String(holding.quantity),
-              marketValue: holding.marketValue == null ? null : String(holding.marketValue),
-            })),
-          },
-          summaryJson: { recommendationCount: detail.recommendations.length },
-          idempotencyKey,
-          createdById: userId,
+    // Also index by symbol so SECURITY allocation keys resolve
+    for (const holding of holdings as any[]) {
+      const symbol = holding?.security?.symbol;
+      if (symbol && !byKey.has(symbol)) byKey.set(symbol, holding);
+    }
+
+    const securityIds = [
+      ...new Set(
+        (holdings as any[])
+          .map((h) => h.securityId)
+          .filter(Boolean)
+      ),
+    ];
+    const instruments = securityIds.length
+      ? await db.investmentInstrument.findMany({
+          where: { listedEquitySecurityId: { in: securityIds }, status: "APPROVED" },
+        })
+      : [];
+    const instrumentBySecurity = new Map(
+      instruments.map((row: any) => [row.listedEquitySecurityId, row])
+    );
+
+    const itemRows = detail.recommendations.map((item) => {
+      const holding: any = byKey.get(item.key);
+      const amount = holding?.marketValue
+        ? new Decimal(holding.marketValue).mul(Math.abs(item.driftPct)).div(Math.max(item.liveWeightPct, 1))
+        : null;
+      const quantity = amount && holding?.currentPrice ? amount.div(holding.currentPrice) : null;
+      const instrument = holding?.securityId
+        ? instrumentBySecurity.get(holding.securityId)
+        : null;
+      return {
+        instrumentId: instrument?.id || null,
+        allocationKey: item.key,
+        currentWeightPct: item.liveWeightPct,
+        targetWeightPct: item.targetWeightPct,
+        deltaWeightPct: -item.driftPct,
+        proposedQuantity: quantity,
+        proposedAmount: amount,
+        action: item.rebalanceAction === "REDUCE" ? "SELL" : "BUY",
+        rationaleJson: {
+          driftThresholdPct: "2",
+          sourceHoldingId: holding?.id || null,
+          securityId: holding?.securityId || null,
+          tradeCurrency: instrument?.listingCurrencyCode || holding?.wacCurrencyCode || null,
         },
-      });
-      for (const item of detail.recommendations) {
-        const holding: any = byKey.get(item.key);
-        const amount = holding?.marketValue
-          ? new Decimal(holding.marketValue).mul(Math.abs(item.driftPct)).div(Math.max(item.liveWeightPct, 1))
-          : null;
-        const quantity = amount && holding?.currentPrice ? amount.div(holding.currentPrice) : null;
-        const instrument = holding?.securityId
-          ? await tx.investmentInstrument.findFirst({
-              where: { listedEquitySecurityId: holding.securityId, status: "APPROVED" },
-            })
-          : null;
-        await tx.investmentRebalanceItem.create({
+      };
+    });
+
+    return db.$transaction(
+      async (tx: any) => {
+        const run = await tx.investmentRebalanceRun.create({
           data: {
-            rebalanceRunId: run.id,
-            instrumentId: instrument?.id || null,
-            allocationKey: item.key,
-            currentWeightPct: item.liveWeightPct,
-            targetWeightPct: item.targetWeightPct,
-            deltaWeightPct: -item.driftPct,
-            proposedQuantity: quantity,
-            proposedAmount: amount,
-            action: item.rebalanceAction === "REDUCE" ? "SELL" : "BUY",
-            rationaleJson: {
-              driftThresholdPct: "2",
-              sourceHoldingId: holding?.id || null,
-              securityId: holding?.securityId || null,
-              tradeCurrency: instrument?.listingCurrencyCode || holding?.wacCurrencyCode || null,
+            fundId,
+            modelPortfolioId: modelId,
+            modelPortfolioVersionId: version.id,
+            asOf: new Date(),
+            inputSnapshotJson: {
+              modelVersionId: version.id,
+              holdings: holdings.map((holding: any) => ({
+                holdingId: holding.id,
+                quantity: String(holding.quantity),
+                marketValue: holding.marketValue == null ? null : String(holding.marketValue),
+              })),
             },
+            summaryJson: { recommendationCount: detail.recommendations.length },
+            idempotencyKey,
+            createdById: userId,
           },
         });
-      }
-      return tx.investmentRebalanceRun.findUnique({ where: { id: run.id }, include: { items: true } });
-    });
+        if (itemRows.length) {
+          await tx.investmentRebalanceItem.createMany({
+            data: itemRows.map((row) => ({
+              rebalanceRunId: run.id,
+              ...row,
+            })),
+          });
+        }
+        return tx.investmentRebalanceRun.findUnique({ where: { id: run.id }, include: { items: true } });
+      },
+      { timeout: 20000 }
+    );
   }
 
   static async convertToDraftOrders(

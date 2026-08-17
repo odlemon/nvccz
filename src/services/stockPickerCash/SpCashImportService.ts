@@ -209,6 +209,70 @@ export class SpCashImportService {
     );
   }
 
+  /**
+   * One-shot: parse file → validate → commit.
+   * Control totals default to opening 0 / closing = movement sum when omitted.
+   * Skips maker-checker (the file either posts or it doesn't).
+   */
+  static async ingestAndCommit(body: any, actorId: string, actorUser?: any, idempotencyKey?: string) {
+    const created = await this.create(body, actorId, idempotencyKey);
+    const id = created.id;
+    const staged = await loadStaging(id);
+    let sum = new Decimal(0);
+    for (const l of staged) sum = sum.plus(d(l.signedCashAmount ?? l.amount ?? 0));
+    const controlOpening =
+      body?.controlOpening != null
+        ? d(body.controlOpening)
+        : created.controlOpening != null
+          ? d(created.controlOpening)
+          : new Decimal(0);
+    const controlClosing =
+      body?.controlClosing != null
+        ? d(body.controlClosing)
+        : created.controlClosing != null
+          ? d(created.controlClosing)
+          : controlOpening.plus(sum);
+
+    const validated = await this.validate(
+      id,
+      {
+        controlOpening: moneyStr(controlOpening),
+        controlClosing: moneyStr(controlClosing),
+      },
+      actorId
+    );
+    if (!validated.valid) {
+      const errors = Array.isArray(validated.errors) ? validated.errors : [];
+      const summary = errors.length
+        ? errors
+            .slice(0, 8)
+            .map((e: any) => {
+              const loc = e.lineNumber != null ? `Line ${e.lineNumber}` : e.code || "File";
+              return `${loc}: ${e.message}`;
+            })
+            .join("; ")
+        : "Statement file failed validation";
+      throw new InvestmentOpsError("IMPORT_VALIDATION_FAILED", summary, 400, {
+        importId: id,
+        errors,
+        controlTotals: validated.controlTotals || null,
+      });
+    }
+
+    await this.submit(id, {}, actorId);
+    return this.commit(
+      id,
+      {
+        controlOpening: moneyStr(controlOpening),
+        controlClosing: moneyStr(controlClosing),
+        skipMakerChecker: true,
+        skipAutoMatchBatch: true,
+      },
+      actorId,
+      actorUser
+    );
+  }
+
   static async get(id: string) {
     const row = await db.spCashStatementImport.findUnique({ where: { id } });
     if (!row) throw new InvestmentOpsError("NOT_FOUND", "Import not found", 404);
@@ -386,24 +450,35 @@ export class SpCashImportService {
       async (tx: any) => {
         const row = await tx.spCashStatementImport.findUnique({ where: { id } });
         if (!row) throw new InvestmentOpsError("NOT_FOUND", "Import not found", 404);
-        if (row.status !== "PENDING_APPROVAL") {
-          throw new InvestmentOpsError(
-            "INVALID_STATUS",
-            `Cannot commit import in ${row.status}; submit for checker approval first`,
-            409
-          );
+        const autoCommit = body?.skipMakerChecker === true;
+        if (autoCommit) {
+          if (!["VALIDATED", "PENDING_APPROVAL"].includes(row.status)) {
+            throw new InvestmentOpsError(
+              "INVALID_STATUS",
+              `Cannot auto-commit import in ${row.status}`,
+              409
+            );
+          }
+        } else {
+          if (row.status !== "PENDING_APPROVAL") {
+            throw new InvestmentOpsError(
+              "INVALID_STATUS",
+              `Cannot commit import in ${row.status}; submit for checker approval first`,
+              409
+            );
+          }
+          assertMakerNotChecker(row.makerId, actorId, actorUser);
         }
-        assertMakerNotChecker(row.makerId, actorId, actorUser);
         if (body?.expectedVersion != null) assertVersion(row, body.expectedVersion);
 
         // Optional control totals override at commit (must still balance).
-        const controlOpening =
+        let controlOpening =
           body?.controlOpening != null
             ? d(body.controlOpening)
             : row.controlOpening != null
               ? d(row.controlOpening)
               : null;
-        const controlClosing =
+        let controlClosing =
           body?.controlClosing != null
             ? d(body.controlClosing)
             : row.controlClosing != null
@@ -424,11 +499,16 @@ export class SpCashImportService {
         let sum = new Decimal(0);
         for (const l of lines) sum = sum.plus(d(l.signedCashAmount ?? l.amount ?? 0));
         if (controlOpening == null || controlClosing == null) {
-          throw new InvestmentOpsError(
-            "CONTROL_TOTALS_REQUIRED",
-            "controlOpening and controlClosing are required to commit",
-            400
-          );
+          if (autoCommit) {
+            controlOpening = controlOpening ?? new Decimal(0);
+            controlClosing = controlClosing ?? controlOpening.plus(sum);
+          } else {
+            throw new InvestmentOpsError(
+              "CONTROL_TOTALS_REQUIRED",
+              "controlOpening and controlClosing are required to commit",
+              400
+            );
+          }
         }
         const expected = controlClosing.minus(controlOpening);
         if (sum.minus(expected).abs().gt(new Decimal("0.01"))) {
@@ -544,7 +624,7 @@ export class SpCashImportService {
       lineCount: committed.statement.lines.length,
     });
 
-    if (committed.statement.lines.length <= 500) {
+    if (!body?.skipAutoMatchBatch && committed.statement.lines.length <= 500) {
       try {
         const { SpCashMatchingService } = require("./SpCashMatchingService");
         const batch = await SpCashMatchingService.createBatch(

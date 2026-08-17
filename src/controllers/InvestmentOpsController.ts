@@ -2431,16 +2431,32 @@ export class InvestmentOpsController {
         req.user!.id,
         req.user
       );
+      const filename = InvestmentReportingService.downloadFilename(run);
       res.setHeader("Content-Type", InvestmentReportingService.contentTypeForRun(run));
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${InvestmentReportingService.downloadFilename(run)}"`
+        `attachment; filename="${filename.replace(/"/g, "")}"; filename*=UTF-8''${encodeURIComponent(filename)}`
       );
       const meta = (run.parametersJson as any)?._platform;
       if (meta?.checksumSha256) {
         res.setHeader("X-Checksum-Sha256", meta.checksumSha256);
       }
-      InvestmentReportingService.openDownloadStream(run.fileRef!).pipe(res);
+      const stream = InvestmentReportingService.openDownloadStream(run.fileRef!);
+      stream.on("error", (err) => {
+        if (!res.headersSent) {
+          sendInvestmentOpsError(
+            res,
+            Object.assign(err, {
+              code: "REPORT_FILE_MISSING",
+              statusCode: 410,
+              message: "Report file could not be read. Please regenerate.",
+            })
+          );
+        } else {
+          res.destroy(err);
+        }
+      });
+      stream.pipe(res);
     } catch (e: any) {
       sendInvestmentOpsError(res, e);
     }

@@ -90,6 +90,43 @@ function serializeException(e: any, tradeRefById?: Map<string, string>) {
   };
 }
 
+function dateStr(v: unknown): string | null {
+  if (v == null || v === "") return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  const s = String(v);
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
+function qtyStr(v: unknown): string | null {
+  return v == null || v === "" ? null : String(v);
+}
+
+function tradeLeg(trade: any) {
+  if (!trade) return null;
+  return {
+    symbol: trade.security?.symbol ? String(trade.security.symbol).toUpperCase() : null,
+    side: trade.side || null,
+    qty: qtyStr(trade.quantity),
+    price: qtyStr(trade.executionPrice),
+    date: dateStr(trade.executedAt || trade.createdAt),
+    ref: trade.tradeRef || null,
+    currency: trade.executionCurrencyCode || null,
+  };
+}
+
+function statementLeg(line: any) {
+  if (!line) return null;
+  return {
+    symbol: line.instrumentSymbol ? String(line.instrumentSymbol).toUpperCase() : null,
+    side: line.side || null,
+    qty: qtyStr(line.quantity),
+    price: qtyStr(line.price),
+    date: dateStr(line.tradeDate),
+    ref: line.externalRef || null,
+    currency: line.currencyCode || null,
+  };
+}
+
 function matchKey(symbol: string, side: string, tradeDate: string | null) {
   return `${symbol}|${side}|${tradeDate || ""}`;
 }
@@ -242,6 +279,9 @@ export class InvestmentTradeReconService {
             side: true,
             quantity: true,
             executionPrice: true,
+            executionCurrencyCode: true,
+            executedAt: true,
+            createdAt: true,
             security: { select: { symbol: true } },
           },
         })
@@ -269,6 +309,9 @@ export class InvestmentTradeReconService {
       const symbol =
         String(trade?.security?.symbol || broker?.instrumentSymbol || custodian?.instrumentSymbol || "").toUpperCase() ||
         null;
+      const us = tradeLeg(trade);
+      const brokerLeg = statementLeg(broker);
+      const custodianLeg = statementLeg(custodian);
       return {
         id: `match_${tradeId}`,
         how: "AUTO",
@@ -280,22 +323,41 @@ export class InvestmentTradeReconService {
         brokerQty: broker?.quantity != null ? String(broker.quantity) : null,
         custodianQty: custodian?.quantity != null ? String(custodian.quantity) : null,
         price: trade?.executionPrice != null ? String(trade.executionPrice) : null,
+        us,
+        broker: brokerLeg,
+        custodian: custodianLeg,
       };
     });
     const manualMatches = batch.exceptions
       .filter((e: any) => String(e.status || "").toUpperCase() === "MATCHED")
-      .map((e: any) => ({
-        id: `manual_${e.id}`,
-        how: "MANUAL",
-        status: "MATCHED",
-        symbol: e.instrumentSymbol || null,
-        side: e.side || null,
-        tradeRef: e.tradeId ? tradeRefById.get(e.tradeId) || null : null,
-        internalQty: e.internalQuantity != null ? String(e.internalQuantity) : null,
-        brokerQty: e.brokerQuantity != null ? String(e.brokerQuantity) : null,
-        custodianQty: e.custodianQuantity != null ? String(e.custodianQuantity) : null,
-        price: e.price != null ? String(e.price) : null,
-      }));
+      .map((e: any) => {
+        const broker = e.brokerLineId ? batch.lines.find((l: any) => l.id === e.brokerLineId) : null;
+        const custodian = e.custodianLineId ? batch.lines.find((l: any) => l.id === e.custodianLineId) : null;
+        const trade = e.tradeId ? tradeById.get(e.tradeId) : null;
+        return {
+          id: `manual_${e.id}`,
+          how: "MANUAL",
+          status: "MATCHED",
+          symbol: e.instrumentSymbol || null,
+          side: e.side || null,
+          tradeRef: e.tradeId ? tradeRefById.get(e.tradeId) || null : null,
+          internalQty: e.internalQuantity != null ? String(e.internalQuantity) : null,
+          brokerQty: e.brokerQuantity != null ? String(e.brokerQuantity) : null,
+          custodianQty: e.custodianQuantity != null ? String(e.custodianQuantity) : null,
+          price: e.price != null ? String(e.price) : null,
+          us: tradeLeg(trade) || {
+            symbol: e.instrumentSymbol || null,
+            side: e.side || null,
+            qty: e.internalQuantity != null ? String(e.internalQuantity) : null,
+            price: e.price != null ? String(e.price) : null,
+            date: dateStr(e.tradeDate),
+            ref: e.tradeId ? tradeRefById.get(e.tradeId) || null : null,
+            currency: null,
+          },
+          broker: statementLeg(broker),
+          custodian: statementLeg(custodian),
+        };
+      });
 
     return {
       ...batch,

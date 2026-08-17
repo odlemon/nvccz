@@ -153,13 +153,13 @@ export function presentCashAccountLabels(account: any | null | undefined): {
     account.clientName && !isOpaqueDbId(account.clientName)
       ? String(account.clientName)
       : null;
-  const label = masked || (clientName ? `${clientName} cash` : null);
+  // Operators see the vehicle/client name — never ****FUND as the account column.
+  const human = clientName || null;
   return {
-    // FE field name — display-safe (masked), never cleartext bank number / cuid.
-    accountNumber: label,
+    accountNumber: human,
     accountNumberMasked: masked,
-    cashAccountLabel: label,
-    cashAccountName: label,
+    cashAccountLabel: human,
+    cashAccountName: human,
     clientName,
   };
 }
