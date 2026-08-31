@@ -10,7 +10,7 @@
  * **Rotate this key** before any production deploy that exposes the repo; treat as test/UAT.
  */
 export const LLM_GLOBAL_DEFAULTS = {
-  apiKey: "sk-7304b429a9dc4272bc0ab3a81bff65a0",
+  apiKey: "sk-5cd1b96ac10349cfb520e81631aa48d4",
   apiBaseUrl: "https://api.deepseek.com/v1",
   model: "deepseek-chat",
 } as const;

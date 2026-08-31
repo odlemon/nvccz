@@ -47,7 +47,8 @@ export class ApplicationController {
         requestedAmount,
         fundId,
         documents,
-        documentTypes
+        documentTypes,
+        applicationFormData,
       } = req.body;
 
       // Validate required fields
@@ -184,6 +185,19 @@ export class ApplicationController {
         return;
       }
 
+      let parsedFormData: Record<string, unknown> | null = null;
+      if (applicationFormData != null) {
+        try {
+          parsedFormData =
+            typeof applicationFormData === "string"
+              ? JSON.parse(applicationFormData)
+              : applicationFormData;
+        } catch {
+          ResponseHelper.error(res, "Invalid applicationFormData JSON", undefined, 400);
+          return;
+        }
+      }
+
       const applicationParams: CreateApplicationRequest = {
         applicantName,
         applicantEmail,
@@ -196,6 +210,7 @@ export class ApplicationController {
         foundingDate: foundingDate ? parseDate(foundingDate) : undefined,
         requestedAmount: Number(requestedAmount),
         fundId,
+        applicationFormData: parsedFormData,
         documents: processedDocuments
       };
 
@@ -205,41 +220,14 @@ export class ApplicationController {
       // (The upload already happened with temp ID, but files are linked to application now)
       // Note: Firebase paths are already set, so this is fine
 
-      // Send application received email notification
-      try {
-        await EmailNotificationService.sendApplicationReceivedEmail({
-          applicantName: application.applicantName,
-          applicantEmail: application.applicantEmail,
-          businessName: application.businessName,
+      // Respond immediately — email + AI shortlisting must not block the applicant UI
+      // (DeepSeek + document extraction can take 1–2+ minutes).
+      void ApplicationController.runPostCreateSideEffects(application).catch((sideEffectError: any) => {
+        logger.error("Post-create side effects failed", {
           applicationId: application.id,
-          currentStage: application.currentStage
+          error: sideEffectError?.message || String(sideEffectError),
         });
-        logger.info("Application received email sent successfully", {
-          applicationId: application.id,
-          applicantEmail: application.applicantEmail
-        });
-      } catch (emailError) {
-        logger.error("Failed to send application received email", {
-          applicationId: application.id,
-          error: emailError.message
-        });
-        // Don't fail the application creation if email fails
-      }
-
-      logger.info("Application created - starting shortlisting pipeline", {
-        applicationId: application.id,
-        businessName: application.businessName,
-        applicantEmail: application.applicantEmail
       });
-
-      try {
-        await ApplicationController.startShortlisting(application.id);
-      } catch (shortlistingError: any) {
-        logger.error("Failed to process shortlisting after creation", {
-          applicationId: application.id,
-          error: shortlistingError.message
-        });
-      }
 
       ResponseHelper.success(res, "Application created successfully", application, 201);
     } catch (error: any) {
@@ -554,6 +542,45 @@ export class ApplicationController {
     } catch (error: any) {
       logger.error("Error submitting application", { error: error.message });
       ResponseHelper.error(res, `Failed to submit application: ${error.message}`, undefined, 500);
+    }
+  }
+
+  /**
+   * Request clarification from applicant (sends real email)
+   */
+  static async requestClarification(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { subject, message, recipientEmail } = req.body || {};
+      if (!id) {
+        ResponseHelper.error(res, "Application ID is required", undefined, 400);
+        return;
+      }
+      const user = (req as any).user;
+      const result = await ApplicationService.requestClarification(id, {
+        subject: String(subject || ""),
+        message: String(message || ""),
+        recipientEmail: recipientEmail ? String(recipientEmail) : undefined,
+        requestedByUserId: user?.id,
+        requestedByName:
+          [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim() ||
+          user?.email ||
+          undefined,
+      });
+      logger.info("Clarification request sent", {
+        applicationId: id,
+        recipientEmail: result.recipientEmail,
+        requestedBy: user?.id,
+      });
+      ResponseHelper.success(res, "Clarification request sent", result);
+    } catch (error: any) {
+      logger.error("Error requesting clarification", { error: error.message });
+      const status = /not found/i.test(error.message)
+        ? 404
+        : /required|recipient/i.test(error.message)
+          ? 400
+          : 500;
+      ResponseHelper.error(res, `Failed to request clarification: ${error.message}`, undefined, status);
     }
   }
 
@@ -921,6 +948,52 @@ export class ApplicationController {
   }
 
   /**
+   * Email + AI shortlisting after create. Always run in the background — never await
+   * from the HTTP create handler (applicant submit must stay fast).
+   */
+  private static async runPostCreateSideEffects(application: {
+    id: string;
+    applicantName: string;
+    applicantEmail: string;
+    businessName: string;
+    currentStage: string;
+  }): Promise<void> {
+    try {
+      await EmailNotificationService.sendApplicationReceivedEmail({
+        applicantName: application.applicantName,
+        applicantEmail: application.applicantEmail,
+        businessName: application.businessName,
+        applicationId: application.id,
+        currentStage: application.currentStage,
+      });
+      logger.info("Application received email sent successfully", {
+        applicationId: application.id,
+        applicantEmail: application.applicantEmail,
+      });
+    } catch (emailError: any) {
+      logger.error("Failed to send application received email", {
+        applicationId: application.id,
+        error: emailError?.message || String(emailError),
+      });
+    }
+
+    logger.info("Application created - starting shortlisting pipeline (background)", {
+      applicationId: application.id,
+      businessName: application.businessName,
+      applicantEmail: application.applicantEmail,
+    });
+
+    try {
+      await ApplicationController.startShortlisting(application.id);
+    } catch (shortlistingError: any) {
+      logger.error("Failed to process shortlisting after creation", {
+        applicationId: application.id,
+        error: shortlistingError?.message || String(shortlistingError),
+      });
+    }
+  }
+
+  /**
    * Internal helper to start shortlisting asynchronously
    */
   private static async startShortlisting(applicationId: string): Promise<void> {
@@ -1008,11 +1081,16 @@ export class ApplicationController {
         limit: limitParam,
         stage,
         fundId,
-        paginate: paginateParam
+        paginate: paginateParam,
+        light: lightParam
       } = req.query;
 
       const paginationExplicit = typeof paginateParam !== 'undefined' || typeof pageParam !== 'undefined' || typeof limitParam !== 'undefined';
       const paginate = paginationExplicit ? paginateParam !== 'false' && paginateParam !== '0' : false;
+      const light =
+        lightParam === 'true' ||
+        lightParam === '1' ||
+        String(lightParam || '').toLowerCase() === 'yes';
 
       const page = paginate ? Number(pageParam ?? 1) : undefined;
       const limit = paginate ? Number(limitParam ?? 10) : undefined;
@@ -1022,7 +1100,8 @@ export class ApplicationController {
         limit,
         stage as string,
         fundId as string,
-        paginate
+        paginate,
+        light
       );
 
       logger.info("Applications retrieved successfully", {

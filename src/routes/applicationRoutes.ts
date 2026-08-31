@@ -799,6 +799,17 @@ router.post("/:id/change-stage", authenticate, ApplicationController.changeAppli
 
 /**
  * @swagger
+ * /api/applications/{id}/request-clarification:
+ *   post:
+ *     summary: Email the applicant a clarification request
+ *     tags: [Portfolio Management]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post("/:id/request-clarification", authenticate, ApplicationController.requestClarification);
+
+/**
+ * @swagger
  * /api/applications/{id}/statutory-compliance:
  *   patch:
  *     summary: Update KYC / statutory compliance flags

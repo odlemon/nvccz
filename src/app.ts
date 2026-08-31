@@ -211,6 +211,10 @@ app.use(cors({
       "https://nvccz-new.vercel.app",
       "https://nvcc.vercel.app",
       "https://nvccz-pi.vercel.app",  // Added Swagger UI origin
+      "https://nvccz.online",
+      "https://lp.nvccz.online",
+      "https://investee.nvccz.online",
+      "https://api.nvccz.online",
       "http://localhost:3000",
       "http://localhost:3001",
       "http://127.0.0.1:3000",

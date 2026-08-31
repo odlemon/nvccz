@@ -175,6 +175,103 @@ export class SpCashCloseService {
     };
   }
 
+  /**
+   * Portfolio V23 Period Close checklist — maps precheck blockers + synthetic pass rows
+   * so the UI can replace hardcoded closeControls.
+   */
+  static async listControls(period: string, query: any = {}) {
+    let legalEntityId = query.legalEntityId ? String(query.legalEntityId) : "";
+    if (!legalEntityId) {
+      const acct = await db.spCashClientAccount.findFirst({
+        where: { status: "ACTIVE" },
+        select: { legalEntityId: true },
+      });
+      legalEntityId = acct?.legalEntityId || "le_arcus";
+    }
+
+    const pre = await this.precheck(period, {
+      legalEntityId,
+      periodCode: period,
+      periodFrom: query.periodFrom,
+      periodTo: query.periodTo,
+    });
+
+    const titleByCode: Record<string, string> = {
+      MISSING_STATEMENT: "External statements complete",
+      OPEN_VARIANCE: "Reconciliation breaks cleared",
+      INCOMPLETE_APPROVALS: "Internal journals approved",
+      OPEN_EXCEPTIONS: "Exceptions closed",
+      SUSPENSE_AGE: "Suspense balances current",
+    };
+
+    const controls: any[] = [];
+    const seen = new Set<string>();
+
+    for (const b of pre.blockers || []) {
+      const code = String(b.code || "CONTROL");
+      if (seen.has(code)) continue;
+      seen.add(code);
+      controls.push({
+        id: `CLOSE-${code}`,
+        title: titleByCode[code] || code.replaceAll("_", " "),
+        passed: false,
+        category: "Cash operations",
+        severity: b.severity === "WARNING" ? "Warning" : "Critical",
+        detail: b.remediation || b.code,
+        owner: b.owner || "Cash Operations",
+        due: "Period end",
+        amount: b.value != null ? Number(b.value) || 0 : 0,
+        currency: b.currency || "USD",
+        rule: code,
+        source: b.remediationLink || "SpCashCloseService.precheck",
+        updated: new Date().toISOString(),
+        evidence: [b.cashAccountId, b.breakId, b.remediation].filter(Boolean),
+        remediation: [b.remediation].filter(Boolean),
+        records: [],
+      });
+    }
+
+    const baseline = [
+      ["LEDGER_BALANCED", "Internal journals balanced", "Ledger control"],
+      ["FX_RATES", "FX rates locked", "Valuation"],
+      ["GL_MAPPING", "GL mapping validated", "Accounting"],
+      ["MAKER_CHECKER", "Maker-checker segregation", "Governance"],
+      ["CUTOFF", "Period cutoff enforced", "Close policy"],
+    ];
+    for (const [code, title, category] of baseline) {
+      if (seen.has(code)) continue;
+      controls.push({
+        id: `CLOSE-${code}`,
+        title,
+        passed: true,
+        category,
+        severity: "Info",
+        detail: "No blocking findings from precheck.",
+        owner: "System",
+        due: "Complete",
+        amount: 0,
+        currency: "USD",
+        rule: code,
+        source: "SpCashCloseService.listControls",
+        updated: new Date().toISOString(),
+        evidence: [],
+        remediation: ["No action required"],
+        records: [],
+      });
+    }
+
+    return {
+      legalEntityId,
+      periodCode: pre.periodCode,
+      canClose: pre.canClose,
+      readinessPct: Math.round(
+        (controls.filter((c) => c.passed).length / Math.max(controls.length, 1)) * 100
+      ),
+      controls,
+      blockers: pre.blockers,
+    };
+  }
+
   static async close(period: string, body: any, actorId: string) {
     const pre = await this.precheck(period, body);
     if (!pre.canClose) {

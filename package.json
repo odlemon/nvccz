@@ -122,6 +122,8 @@
     "db:migrate:lp-portal-fe-gaps": "ts-node --transpile-only -r dotenv/config scripts/run-lp-portal-fe-gaps-migration.ts",
     "db:migrate:lp-portal-fe-gaps:all-dbs": "python scripts/run-lp-portal-fe-gaps-migration-all-dbs.py",
     "db:seed:lp-portal-srd": "ts-node --transpile-only -r dotenv/config scripts/seed-lp-portal-srd-demo.ts",
+    "db:seed:portal-test-users": "ts-node --transpile-only -r dotenv/config scripts/seed-portal-test-users.ts",
+    "db:seed:portfolio-v11-local-demo": "ts-node --transpile-only -r dotenv/config scripts/seed-portfolio-v11-local-demo.ts",
     "uat:lp-portal:phase1": "ts-node --transpile-only -r dotenv/config scripts/uat-lp-portal-phase1-http.ts",
     "uat:lp-portal:phase2": "ts-node --transpile-only -r dotenv/config scripts/uat-lp-portal-phase2-http.ts",
     "uat:lp-portal:phase3": "ts-node --transpile-only -r dotenv/config scripts/uat-lp-portal-phase3-http.ts",

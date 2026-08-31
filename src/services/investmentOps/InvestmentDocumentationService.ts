@@ -766,7 +766,10 @@ export class InvestmentDocumentationService {
       const placeholder = `%PDF-1.4\n% Demo document: ${doc.title || doc.id}\n`;
       await writeFile(absolute, placeholder, "utf8");
     }
-    const fileName = path.basename(absolute);
+    let fileName = path.basename(absolute);
+    if (!/\.[a-z0-9]{2,5}$/i.test(fileName)) {
+      fileName = `${fileName}.pdf`;
+    }
     const mimeType = fileName.toLowerCase().endsWith(".pdf")
       ? "application/pdf"
       : fileName.toLowerCase().endsWith(".json")

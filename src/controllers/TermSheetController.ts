@@ -26,6 +26,12 @@ export class TermSheetController {
       isFinal: termSheet.isFinal,
       isSigned: termSheet.isSigned,
       signedAt: termSheet.signedAt,
+      keyTerms: termSheet.keyTerms,
+      conditions: termSheet.conditions,
+      timeline: termSheet.timeline,
+      documentUrl: termSheet.documentUrl ? rewritePublicMediaUrl(termSheet.documentUrl) : null,
+      documentFileName: termSheet.documentFileName,
+      documentSize: termSheet.documentSize,
       createdAt: termSheet.createdAt,
       updatedAt: termSheet.updatedAt,
       // Include application basic info

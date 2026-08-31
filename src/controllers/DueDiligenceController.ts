@@ -118,25 +118,47 @@ export class DueDiligenceController {
 
       const dueDiligence = await DueDiligenceService.completeDueDiligence(id);
 
-      // Send due diligence completed email notification
+      // Send due diligence completed email notification (applicant)
       try {
         await EmailNotificationService.sendDueDiligenceCompletedEmail({
           applicantName: dueDiligence.application.applicantName,
           applicantEmail: dueDiligence.application.applicantEmail,
           businessName: dueDiligence.application.businessName,
           applicationId: dueDiligence.application.id,
-          currentStage: dueDiligence.application.currentStage || 'TERM_SHEET' // New workflow: moves to TERM_SHEET after due diligence
+          currentStage: dueDiligence.application.currentStage || 'TERM_SHEET'
         });
-        logger.info("Due diligence completed email sent successfully", {
+        logger.info("Due diligence completed email sent to applicant", {
           applicationId: id,
           applicantEmail: dueDiligence.application.applicantEmail
         });
-      } catch (emailError) {
-        logger.error("Failed to send due diligence completed email", {
+      } catch (emailError: any) {
+        logger.error("Failed to send due diligence completed email to applicant", {
           applicationId: id,
           error: emailError.message
         });
-        // Don't fail the due diligence completion if email fails
+      }
+
+      // Notify DD reviewer / deal owner (internal)
+      if (dueDiligence.reviewer?.email) {
+        try {
+          await EmailNotificationService.sendDueDiligenceCompletedReviewerEmail({
+            reviewerName: `${dueDiligence.reviewer.firstName || ''} ${dueDiligence.reviewer.lastName || ''}`.trim() || 'Reviewer',
+            reviewerEmail: dueDiligence.reviewer.email,
+            businessName: dueDiligence.application.businessName,
+            applicationId: dueDiligence.application.id,
+            recommendation: dueDiligence.recommendation || '',
+            overallScore: dueDiligence.overallScore != null ? String(dueDiligence.overallScore) : '',
+          });
+          logger.info("Due diligence completed email sent to reviewer", {
+            applicationId: id,
+            reviewerEmail: dueDiligence.reviewer.email
+          });
+        } catch (emailError: any) {
+          logger.error("Failed to send due diligence completed email to reviewer", {
+            applicationId: id,
+            error: emailError.message
+          });
+        }
       }
 
       logger.info("Due diligence completed", {

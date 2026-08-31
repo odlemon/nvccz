@@ -36,13 +36,30 @@ router.use(async (req: Request, res: Response) => {
 
   const base = resolveInternalMediaBaseUrl();
   const url = `${base}/${relativePath}`;
+  const localBase = "http://127.0.0.1:3050/uploads";
 
-  try {
-    const upstream = await axios.get(url, {
+  const tryFetch = async (upstreamUrl: string) =>
+    axios.get(upstreamUrl, {
       responseType: "stream",
       timeout: 60000,
       validateStatus: (s) => s < 500,
     });
+
+  try {
+    let upstream;
+    try {
+      upstream = await tryFetch(url);
+      if (upstream.status >= 400 && base !== localBase) {
+        upstream = await tryFetch(`${localBase}/${relativePath}`);
+      }
+    } catch (primaryErr: any) {
+      if (base === localBase) throw primaryErr;
+      logger.warn("public media primary failed; retrying local upload mock", {
+        url,
+        error: primaryErr?.message,
+      });
+      upstream = await tryFetch(`${localBase}/${relativePath}`);
+    }
 
     if (upstream.status >= 400) {
       return res.status(404).end();

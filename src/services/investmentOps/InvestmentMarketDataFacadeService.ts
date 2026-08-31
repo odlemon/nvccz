@@ -4,6 +4,10 @@ import { MarketDataScraperService } from "../listedEquity/MarketDataScraperServi
 import { Decimal } from "@prisma/client/runtime/library";
 import { InvestmentOpsError } from "../../middleware/investmentOpsFoundation";
 import { paginatedResult, parsePagination } from "./investmentOpsSupport";
+import {
+  findLatestDisplayPriceTick,
+  serializeDisplayPriceTick,
+} from "../listedEquity/listedEquityLatestTick";
 
 const STALE_HOURS_DEFAULT = 24;
 
@@ -26,19 +30,18 @@ export class InvestmentMarketDataFacadeService {
       take: 500,
     });
     const out = [];
-    for (const s of securities) {
-      const tick = await prisma.listedEquityPriceTick.findFirst({
-        where: { securityId: s.id, validationStatus: { in: ["APPROVED", "API_CONFIRMED"] } },
-        orderBy: { pricedAt: "desc" },
-      });
+    for (const sec of securities) {
+      const latest = await findLatestDisplayPriceTick(sec.id);
       out.push({
-        securityId: s.id,
-        symbol: s.symbol,
-        exchangeCode: s.exchangeCode,
-        price: tick ? String(tick.price) : null,
-        pricedAt: tick?.pricedAt ?? null,
-        validationStatus: tick?.validationStatus ?? "STALE",
-        sourceStatus: tick?.sourceStatus ?? "FALLBACK",
+        security: {
+          id: sec.id,
+          symbol: sec.symbol,
+          name: sec.name,
+          exchangeCode: sec.exchangeCode,
+          listingCurrencyCode: sec.listingCurrencyCode,
+          isin: sec.isin,
+        },
+        latestTick: latest ? serializeDisplayPriceTick(latest.tick, latest.previousClose) : null,
       });
     }
     return out;

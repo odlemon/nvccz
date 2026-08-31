@@ -1092,8 +1092,10 @@ router.post("/setup/funds/:id/managers", ...approve, InvestmentOpsController.add
 
 router.get("/setup/brokers", ...auth, InvestmentOpsController.listBrokers);
 router.post("/setup/brokers", ...write, InvestmentOpsController.createBroker);
+router.put("/setup/brokers/:id", ...write, InvestmentOpsController.updateBroker);
 router.get("/setup/custodians", ...auth, InvestmentOpsController.listCustodians);
 router.post("/setup/custodians", ...write, InvestmentOpsController.createCustodian);
+router.put("/setup/custodians/:id", ...write, InvestmentOpsController.updateCustodian);
 router.get("/setup/reference-types", ...auth, InvestmentOpsController.referenceTypes);
 
 const referenceTypes = [
@@ -1227,6 +1229,7 @@ router.post("/cash-journals/:id/reverse", ...spJournalsReverse, StockPickerCashC
 // 14.5 External statement imports
 router.post("/external-statements/imports", ...spImportsUpload, requireIdempotencyKey, StockPickerCashController.createImport);
 router.post("/external-statements/imports/ingest", ...spImportsCommit, requireIdempotencyKey, StockPickerCashController.ingestImport);
+router.get("/external-statements/imports", ...spReconView, StockPickerCashController.listImports);
 router.get("/external-statements/imports/:id", ...spReconView, StockPickerCashController.getImport);
 router.get("/external-statements/imports/:id/errors", ...spReconView, StockPickerCashController.importErrors);
 router.post("/external-statements/imports/:id/validate", ...spImportsValidate, StockPickerCashController.validateImport);
@@ -1290,6 +1293,7 @@ router.post("/reconciliation-breaks/:breakId/create-manual-entry", ...spJournals
 router.post("/reconciliation-breaks/:breakId/comments", ...spExcAssign, StockPickerCashController.commentBreak);
 
 // 14.11 Period close / GL
+router.get("/cash-periods/:period/controls", ...spReconView, StockPickerCashController.listPeriodControls);
 router.post("/cash-periods/:period/precheck", ...spClosePrecheck, StockPickerCashController.periodPrecheck);
 router.post("/cash-periods/:period/close", ...spCloseExecute, requireIdempotencyKey, StockPickerCashController.periodClose);
 router.post("/cash-periods/:period/reopen-request", ...spCloseReopen, StockPickerCashController.periodReopenRequest);

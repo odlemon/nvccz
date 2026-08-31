@@ -27,6 +27,8 @@ export interface CreateApplicationRequest {
   // Investment Details
   requestedAmount: number;
   fundId?: string;
+  /** Extended form payload from the public funding application (use-of-funds, declarations, impact/ESG…). */
+  applicationFormData?: Record<string, unknown> | null;
   
   // Documents
   documents: Array<{
@@ -219,6 +221,9 @@ export class ApplicationService {
             foundingDate: params.foundingDate,
             requestedAmount: new Decimal(params.requestedAmount),
             fundId: params.fundId,
+            applicationFormData: params.applicationFormData
+              ? (params.applicationFormData as Prisma.InputJsonValue)
+              : undefined,
             dealReference,
             currentStage: "SCREENING_PENDING",
             submittedAt: new Date(),
@@ -261,6 +266,167 @@ export class ApplicationService {
     }
   }
 
+  /** Document fields returned on application detail (Deal Detail / data room). */
+  private static readonly applicationDocumentSelect = {
+    id: true,
+    documentType: true,
+    fileName: true,
+    fileUrl: true,
+    fileSize: true,
+    uploadedAt: true,
+    createdAt: true,
+    isRequired: true,
+    isSubmitted: true,
+  } as const;
+
+  private static readonly requiredApplicationDocumentTypes = [
+    'BUSINESS_PLAN',
+    'PROOF_OF_CONCEPT',
+    'MARKET_RESEARCH',
+    'PROJECTED_CASH_FLOWS',
+  ];
+
+  private static applicationDocumentTypeLabel(type: string): string {
+    const labels: Record<string, string> = {
+      BUSINESS_PLAN: 'Business Plan',
+      PROOF_OF_CONCEPT: 'Proof of Concept',
+      MARKET_RESEARCH: 'Market Research',
+      PROJECTED_CASH_FLOWS: 'Projected Cash Flows',
+      HISTORICAL_FINANCIALS: 'Historical Financials',
+    };
+    return labels[type] || type.replace(/_/g, ' ');
+  }
+
+  private static displayUserName(user?: {
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+  } | null): string {
+    if (!user) return '';
+    const name = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+    return name || user.email || '';
+  }
+
+  /** Enrich documents + data-room panels for Portfolio V11 Deal Detail. */
+  static enrichApplicationForPortfolio(application: any): any {
+    if (!application) return application;
+
+    const applicantOwner = application.applicantName || 'Applicant';
+    const internalUsers: Array<{ name: string; email?: string; role: string }> = [];
+
+    if (application.assignedAnalyst) {
+      internalUsers.push({
+        name: ApplicationService.displayUserName(application.assignedAnalyst),
+        email: application.assignedAnalyst.email,
+        role: 'Assigned analyst',
+      });
+    }
+    if (application.dueDiligenceReview?.reviewer) {
+      const reviewer = application.dueDiligenceReview.reviewer;
+      if (!internalUsers.some((u) => u.email === reviewer.email)) {
+        internalUsers.push({
+          name: ApplicationService.displayUserName(reviewer),
+          email: reviewer.email,
+          role: 'Due diligence reviewer',
+        });
+      }
+    }
+    if (application.boardReview?.reviewer) {
+      const reviewer = application.boardReview.reviewer;
+      if (!internalUsers.some((u) => u.email === reviewer.email)) {
+        internalUsers.push({
+          name: ApplicationService.displayUserName(reviewer),
+          email: reviewer.email,
+          role: 'Board reviewer',
+        });
+      }
+    }
+
+    const documents = (application.documents || []).map((doc: any) => {
+      const uploadedAt = doc.uploadedAt || doc.createdAt || null;
+      const version = 'v1.0';
+      const status = doc.isSubmitted ? 'Submitted' : doc.isRequired ? 'Required' : 'Available';
+      return {
+        ...doc,
+        folder: doc.documentType,
+        version,
+        uploadedBy: applicantOwner,
+        owner: applicantOwner,
+        uploadedAt,
+        status,
+        access: 'Internal',
+        versionHistory: [
+          {
+            version,
+            uploadedAt,
+            uploadedBy: applicantOwner,
+            note: doc.isSubmitted ? 'Submitted with application' : 'Uploaded',
+          },
+        ],
+        reviewers: application.assignedAnalyst
+          ? [
+              {
+                name: ApplicationService.displayUserName(application.assignedAnalyst),
+                role: 'Assigned analyst',
+                status: doc.isSubmitted ? 'Acknowledged' : 'Pending review',
+              },
+            ]
+          : [],
+      };
+    });
+
+    const providedTypes = new Set(
+      (application.documents || []).map((d: any) => d.documentType),
+    );
+    const documentRequests = ApplicationService.requiredApplicationDocumentTypes
+      .filter((type) => !providedTypes.has(type))
+      .map((type) => ({
+        id: `REQ-${type}`,
+        title: ApplicationService.applicationDocumentTypeLabel(type),
+        documentType: type,
+        dueDate: null,
+        status: 'Outstanding',
+      }));
+
+    const applicantCount = 1;
+    const internalCount = internalUsers.length;
+
+    const dataRoom = {
+      accessGroups: [
+        {
+          label: 'Internal team',
+          count: internalCount,
+          users: internalUsers,
+        },
+        {
+          label: application.businessName || 'Applicant',
+          count: applicantCount,
+          users: [
+            {
+              name: applicantOwner,
+              email: application.applicantEmail,
+              role: 'Applicant contact',
+            },
+          ],
+        },
+      ],
+      permissionsSummary: [
+        { label: 'View only', count: applicantCount },
+        { label: 'Download', count: applicantCount + internalCount },
+        {
+          label: 'Upload',
+          count: applicantCount + (application.assignedAnalyst ? 1 : 0),
+        },
+        { label: 'Full control', count: internalCount || 0 },
+      ],
+      documentRequests,
+      encryptionEnabled: true,
+      auditLoggingEnabled: true,
+    };
+
+    return { ...application, documents, dataRoom };
+  }
+
   /**
    * Get application by ID (admin/fund manager access)
    * @param options.light Faster response: omits heavy disbursement / nested user joins.
@@ -282,14 +448,7 @@ export class ApplicationService {
               }
             },
             documents: {
-              select: {
-                id: true,
-                documentType: true,
-                fileName: true,
-                fileUrl: true,
-                isRequired: true,
-                isSubmitted: true
-              }
+              select: ApplicationService.applicationDocumentSelect,
             },
             assignedAnalyst: {
               select: {
@@ -353,7 +512,7 @@ export class ApplicationService {
         if (!application) {
           return null;
         }
-        return {
+        return ApplicationService.enrichApplicationForPortfolio({
           ...application,
           disbursements: {
             disbursementMode: null,
@@ -361,7 +520,7 @@ export class ApplicationService {
             totalDisbursedAmount: 0,
             disbursements: []
           }
-        } as any;
+        }) as any;
       }
 
       const application = await prisma.application.findUnique({
@@ -374,15 +533,17 @@ export class ApplicationService {
               status: true
             }
           },
-          documents: {
+          assignedAnalyst: {
             select: {
               id: true,
-              documentType: true,
-              fileName: true,
-              fileUrl: true,
-              isRequired: true,
-              isSubmitted: true
+              firstName: true,
+              lastName: true,
+              email: true,
+              roleCode: true
             }
+          },
+          documents: {
+            select: ApplicationService.applicationDocumentSelect,
           },
           dueDiligenceReview: {
             include: {
@@ -536,10 +697,10 @@ export class ApplicationService {
       }
 
       // Add disbursements object to application
-      return {
+      return ApplicationService.enrichApplicationForPortfolio({
         ...application,
         disbursements: disbursementsData
-      } as any;
+      }) as any;
     } catch (error: any) {
       throw new Error(`Failed to get application: ${error.message}`);
     }
@@ -1080,16 +1241,35 @@ export class ApplicationService {
   /**
    * Get all applications (admin/fund manager access)
    */
+  private static lightListCache = new Map<
+    string,
+    { at: number; value: { applications: ApplicationWithRelations[]; total: number; page: number; totalPages: number } }
+  >()
+
   static async getAllApplications(
     page?: number,
     limit?: number,
     stage?: string | string[],
     fundId?: string,
-    paginate: boolean = false
+    paginate: boolean = false,
+    light: boolean = false
   ): Promise<{ applications: ApplicationWithRelations[]; total: number; page: number; totalPages: number }> {
     try {
       const skip = paginate && limit ? (Math.max(page ?? 1, 1) - 1) * limit : undefined;
       const take = paginate && limit ? limit : undefined;
+
+      // Short TTL for light pipeline lists — local FE → remote MySQL is otherwise multi-second every nav.
+      if (light && !paginate) {
+        const cacheKey = JSON.stringify({
+          stage: stage || null,
+          fundId: fundId || null,
+          light: true,
+        })
+        const hit = this.lightListCache.get(cacheKey)
+        if (hit && Date.now() - hit.at < 30_000) {
+          return hit.value
+        }
+      }
       
       const where: any = {};
       
@@ -1116,6 +1296,97 @@ export class ApplicationService {
       }
       
       if (fundId) where.fundId = fundId;
+
+      // Pipeline / Deal Flow list: skip nested DD/term/board/docs/disbursements.
+      if (light) {
+        const findManyLight: any = {
+          where,
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            applicantName: true,
+            applicantEmail: true,
+            applicantPhone: true,
+            applicantAddress: true,
+            businessName: true,
+            businessDescription: true,
+            industry: true,
+            businessStage: true,
+            requestedAmount: true,
+            currentStage: true,
+            screeningScore: true,
+            initialScreeningScore: true,
+            screeningOutcome: true,
+            submittedAt: true,
+            createdAt: true,
+            updatedAt: true,
+            fundId: true,
+            fund: {
+              select: {
+                id: true,
+                name: true,
+                status: true
+              }
+            },
+            assignedAnalyst: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            },
+            dueDiligenceReview: { select: { id: true, status: true } },
+            termSheet: { select: { id: true, status: true } },
+            boardReview: { select: { id: true, status: true } },
+            investmentImplementation: { select: { id: true } }
+          }
+        };
+        if (typeof skip === 'number') findManyLight.skip = skip;
+        if (typeof take === 'number') findManyLight.take = take;
+
+        const [lightApps, lightTotal] = await Promise.all([
+          prisma.application.findMany(findManyLight),
+          prisma.application.count({ where })
+        ]);
+
+        const lightMapped = lightApps.map((app: any) => {
+          const applicationProgress = this.calculateApplicationProgress(app.currentStage);
+          const analyst = app.assignedAnalyst;
+          return {
+            ...app,
+            assignedAnalystName: analyst
+              ? `${analyst.firstName || ''} ${analyst.lastName || ''}`.trim()
+              : null,
+            portfolioCompanyId: null,
+            portfolioCompany: null,
+            disbursements: [],
+            applicationProgress,
+            hasDueDiligence: Boolean(app.dueDiligenceReview?.id),
+            hasTermSheet: Boolean(app.termSheet?.id),
+            hasBoardReview: Boolean(app.boardReview?.id),
+            hasImplementation: Boolean(app.investmentImplementation?.id)
+          };
+        });
+
+        const totalPagesLight = paginate && take ? Math.max(Math.ceil(lightTotal / take), 1) : 1;
+        const currentPageLight = paginate && page ? Math.max(page, 1) : 1;
+        const lightResult = {
+          applications: lightMapped as ApplicationWithRelations[],
+          total: lightTotal,
+          page: currentPageLight,
+          totalPages: totalPagesLight
+        };
+        if (light && !paginate) {
+          const cacheKey = JSON.stringify({
+            stage: stage || null,
+            fundId: fundId || null,
+            light: true,
+          })
+          this.lightListCache.set(cacheKey, { at: Date.now(), value: lightResult })
+        }
+        return lightResult;
+      }
 
       const findManyArgs: any = {
         where,
@@ -1542,5 +1813,61 @@ export class ApplicationService {
     } catch (error: any) {
       throw new Error(`Failed to delete application: ${error.message}`);
     }
+  }
+
+  /**
+   * Request clarification from the applicant by email (analyst / IC workflow).
+   */
+  static async requestClarification(
+    applicationId: string,
+    params: {
+      subject: string;
+      message: string;
+      recipientEmail?: string;
+      requestedByUserId?: string;
+      requestedByName?: string;
+    }
+  ) {
+    const application = await prisma.application.findUnique({
+      where: { id: applicationId },
+      select: {
+        id: true,
+        dealReference: true,
+        businessName: true,
+        applicantName: true,
+        applicantEmail: true,
+        currentStage: true,
+      },
+    });
+
+    if (!application) {
+      throw new Error("Application not found");
+    }
+
+    const to = (params.recipientEmail || application.applicantEmail || "").trim();
+    if (!to) {
+      throw new Error("No recipient email on application");
+    }
+    if (!params.subject?.trim() || !params.message?.trim()) {
+      throw new Error("Subject and message are required");
+    }
+
+    await EmailNotificationService.sendClarificationRequest({
+      to,
+      subject: params.subject.trim(),
+      message: params.message.trim(),
+      businessName: application.businessName,
+      dealReference: application.dealReference,
+      applicantName: application.applicantName,
+      requestedByName: params.requestedByName,
+    });
+
+    return {
+      applicationId: application.id,
+      dealReference: application.dealReference,
+      recipientEmail: to,
+      subject: params.subject.trim(),
+      sentAt: new Date().toISOString(),
+    };
   }
 }

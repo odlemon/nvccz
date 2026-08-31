@@ -69,12 +69,17 @@ export const emailTransport = nodemailer.createTransport({
   host: emailConfig.smtp.host,
   port: emailConfig.smtp.port,
   secure: false,
+  requireTLS: true,
+  connectionTimeout: 20000,
+  greetingTimeout: 20000,
+  socketTimeout: 30000,
   auth: {
     user: emailConfig.smtp.auth.user,
     pass: emailConfig.smtp.auth.pass,
   },
   tls: {
     rejectUnauthorized: false,
+    minVersion: "TLSv1.2",
   },
 });
 

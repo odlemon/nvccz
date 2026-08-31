@@ -450,6 +450,14 @@ export class DueDiligenceService {
         // Check each task's activities for approval status
         for (const task of relatedTasks) {
           const activities = task.activityLogs || [];
+
+          if (task.stage === 'completed') {
+            logger.info(`Task "${task.title}" is marked completed — skipping activity approval check`, {
+              taskId: task.id,
+              activitiesCount: activities.length,
+            });
+            continue;
+          }
           
           if (activities.length > 0) {
             // Check if all activities are approved using status field
@@ -773,6 +781,10 @@ export class DueDiligenceService {
         throw new Error('Due diligence not found for this application');
       }
 
+      if (dueDiligence.status === 'COMPLETED') {
+        throw new Error('Cannot assign workstreams after due diligence is completed');
+      }
+
       // Get assignee user
       const assignee = await prisma.user.findUnique({
         where: { id: assigneeId },
@@ -805,13 +817,7 @@ export class DueDiligenceService {
         assignedById
       );
 
-      // Append marker for legacy references
-      await prisma.task.update({
-        where: { id: task.id },
-        data: {
-          description: `${task.description || ''}\n\n[DueDiligenceApplication:${applicationId}]`
-        }
-      });
+      // applicationId + fromDueDiligence link the task; no legacy description marker needed.
 
       // Send email notification to assignee
       try {

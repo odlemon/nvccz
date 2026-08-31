@@ -104,6 +104,7 @@ export class MarketDataIngestService {
       tickRows.push({
         securityId,
         batchId: batch.id,
+        sourceCode: params.sourceCode,
         priceType: tick.priceType,
         price: tick.price,
         previousClose,

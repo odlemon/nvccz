@@ -13,9 +13,19 @@ import { logger } from "../utils/logger";
 import { emailTransport, getFromAddress } from "../config/email.config";
 import { companyNameShortFromEnv } from "../config/companyDisplay";
 import { LpPortalMfaService } from "../services/lpPortal/LpPortalMfaService";
+import {
+  assertPortalLoginAllowed,
+  normalizeAuthPortal,
+  type AuthPortal,
+} from "../utils/portalAuth";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
 
-function signUserJwt(user: any, roleDisplay: string | null, roleCodeEffective: string | null) {
+function signUserJwt(
+  user: any,
+  roleDisplay: string | null,
+  roleCodeEffective: string | null,
+  portal: AuthPortal = "staff"
+) {
   return jwt.sign(
     {
       userId: user.id,
@@ -27,6 +37,7 @@ function signUserJwt(user: any, roleDisplay: string | null, roleCodeEffective: s
       department: user.userDepartment,
       roleCode: roleCodeEffective,
       tokenVersion: user.tokenVersion ?? 0,
+      aud: portal,
     },
     JWT_SECRET,
     { expiresIn: "7d" }
@@ -36,7 +47,7 @@ function signUserJwt(user: any, roleDisplay: string | null, roleCodeEffective: s
 export class AuthController {
   async login(req: Request, res: Response, next: NextFunction) {
     try {
-      const { email, password } = req.body;
+      const { email, password, portal: portalRaw } = req.body;
       
       if (!email || !password) {
         return res.status(400).json({ 
@@ -45,6 +56,7 @@ export class AuthController {
         });
       }
 
+      const portal = normalizeAuthPortal(portalRaw);
       const normalizedEmail = email.trim().toLowerCase();
       
       const user = await prisma.user.findUnique({
@@ -87,7 +99,12 @@ export class AuthController {
         (user.roleCode && String(user.roleCode).trim()) || roleNameFromDb || null;
       const roleDisplay = roleNameFromDb || roleCodeEffective;
 
-      const requiresMfa = await LpPortalMfaService.userRequiresMfaAtLogin(user.id);
+      const portalCheck = await assertPortalLoginAllowed(portal, user, normalizedEmail);
+      if (!portalCheck.ok) {
+        return res.status(403).json({ success: false, message: portalCheck.message });
+      }
+
+      const requiresMfa = portal === "lp" && (await LpPortalMfaService.userRequiresMfaAtLogin(user.id));
       if (requiresMfa) {
         const mfaPendingToken = await LpPortalMfaService.createPendingToken(user.id);
         return res.status(200).json({
@@ -104,7 +121,7 @@ export class AuthController {
         });
       }
 
-      const token = signUserJwt(user, roleDisplay, roleCodeEffective);
+      const token = signUserJwt(user, roleDisplay, roleCodeEffective, portal);
 
       // Check if user is an applicant (applicants don't have roles - identified by having an application)
       const application = await prisma.application.findFirst({
@@ -595,7 +612,7 @@ export class AuthController {
       const roleCodeEffective =
         (user.roleCode && String(user.roleCode).trim()) || roleNameFromDb || null;
       const roleDisplay = roleNameFromDb || roleCodeEffective;
-      const jwtToken = signUserJwt(user, roleDisplay, roleCodeEffective);
+      const jwtToken = signUserJwt(user, roleDisplay, roleCodeEffective, "lp");
 
       res.json({
         success: true,

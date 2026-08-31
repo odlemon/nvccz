@@ -103,8 +103,8 @@ async function sharedMasterCounts() {
 
 async function main() {
   const database = await assertDevDatabase(prisma, "clear-fpa-presentation");
-  if (database !== "nts") {
-    throw new Error(`FP&A presentation reset is restricted to nts; got ${database}`);
+  if (database !== "nts" && database !== "arcus_dev") {
+    throw new Error(`FP&A presentation reset is restricted to nts|arcus_dev; got ${database}`);
   }
   if (process.env.CONFIRM_FPA_DEV_RESET !== "1") {
     throw new Error(
@@ -184,7 +184,7 @@ async function main() {
   if (await tableExists("fpa_settings")) {
     await prisma.$executeRawUnsafe(`DELETE FROM fpa_settings`);
     await prisma.$executeRawUnsafe(`
-      INSERT INTO fpa_settings (id, variance_json, workflow_json)
+      INSERT INTO fpa_settings (id, variance_json, workflow_json, updated_at)
       VALUES (
         'default',
         JSON_OBJECT(
@@ -196,15 +196,16 @@ async function main() {
           'path', 'LINEAR',
           'requireCfoSignature', TRUE,
           'allowRerunAfterReturn', TRUE
-        )
+        ),
+        NOW(3)
       )
     `);
   }
   if (await tableExists("fpa_sync_sources")) {
     await prisma.$executeRawUnsafe(`DELETE FROM fpa_sync_sources`);
     await prisma.$executeRawUnsafe(`
-      INSERT INTO fpa_sync_sources (id, label, status, last_sync_at, last_error, config_json, updated_by)
-      VALUES ('netsuite', 'NetSuite', 'DISCONNECTED', NULL, NULL, NULL, NULL)
+      INSERT INTO fpa_sync_sources (id, label, status, last_sync_at, last_error, config_json, updated_by, updated_at)
+      VALUES ('netsuite', 'NetSuite', 'DISCONNECTED', NULL, NULL, NULL, NULL, NOW(3))
     `);
   }
 

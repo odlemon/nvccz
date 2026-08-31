@@ -5,6 +5,7 @@ import { ListedEquityAccessService } from "../listedEquity/ListedEquityAccessSer
 import { assertFourEyeSeparation } from "./investmentOpsFourEye";
 
 import { paginatedResult, parsePagination, userDisplayName } from "./investmentOpsSupport";
+import { findLatestDisplayPriceTick } from "../listedEquity/listedEquityLatestTick";
 
 /** Active trading status per SRD. Legacy APPROVED is accepted as equivalent during transition. */
 export const INSTRUMENT_TRADEABLE_STATUSES = new Set(["ACTIVE", "APPROVED"]);
@@ -91,35 +92,41 @@ export class InvestmentInstrumentService {
       prisma.investmentInstrument.count({ where }),
     ]);
     const securityIds = rows.map((r) => r.listedEquitySecurityId).filter(Boolean) as string[];
+    const secById = new Map<string, { isin: string | null; exchangeCode: string; listingCurrencyCode: string | null; symbol: string }>();
+    if (securityIds.length) {
+      const securities = await prisma.listedEquitySecurity.findMany({
+        where: { id: { in: securityIds } },
+        select: { id: true, isin: true, exchangeCode: true, listingCurrencyCode: true, symbol: true },
+      });
+      for (const sec of securities) {
+        secById.set(sec.id, sec);
+      }
+    }
     const latestBySecurity = new Map<string, { price: string; pricedAt: Date }>();
     if (securityIds.length) {
       // Latest approved tick per security — avoid loading full tick history (remote MySQL timeouts).
       const latestTicks = await Promise.all(
-        securityIds.map((securityId) =>
-          prisma.listedEquityPriceTick.findFirst({
-            where: {
-              securityId,
-              validationStatus: { in: ["APPROVED", "API_CONFIRMED"] },
-            },
-            orderBy: { pricedAt: "desc" },
-            select: { securityId: true, price: true, pricedAt: true },
-          })
-        )
+        securityIds.map((securityId) => findLatestDisplayPriceTick(securityId))
       );
-      for (const tick of latestTicks) {
-        if (!tick) continue;
-        latestBySecurity.set(tick.securityId, {
-          price: decimalString(tick.price)!,
-          pricedAt: tick.pricedAt,
+      for (let i = 0; i < securityIds.length; i++) {
+        const latest = latestTicks[i];
+        if (!latest) continue;
+        latestBySecurity.set(securityIds[i], {
+          price: decimalString(latest.tick.price)!,
+          pricedAt: latest.tick.pricedAt,
         });
       }
     }
     const items = rows.map((row) => {
+      const sec = row.listedEquitySecurityId ? secById.get(row.listedEquitySecurityId) : null;
       const latest = row.listedEquitySecurityId
         ? latestBySecurity.get(row.listedEquitySecurityId)
         : null;
       return {
         ...row,
+        isin: row.isin ?? sec?.isin ?? row.instrumentCode ?? null,
+        exchangeCode: row.exchangeCode ?? sec?.exchangeCode ?? null,
+        listingCurrencyCode: row.listingCurrencyCode ?? sec?.listingCurrencyCode ?? null,
         latestPrice: latest?.price ?? null,
         pricedAt: latest?.pricedAt ?? null,
         createdByName: null as string | null,

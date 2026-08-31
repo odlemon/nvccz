@@ -209,6 +209,10 @@ export class StockPickerCashController {
     handle(res, SpCashImportService.get(req.params.id));
   }
 
+  static listImports(req: AuthRequest, res: Response) {
+    handle(res, SpCashImportService.list(req.query));
+  }
+
   static importErrors(req: AuthRequest, res: Response) {
     handle(res, SpCashImportService.errors(req.params.id));
   }
@@ -421,6 +425,10 @@ export class StockPickerCashController {
   // ─── 14.11 Period close & GL export ──────────────────────────────────────
   static periodPrecheck(req: AuthRequest, res: Response) {
     handle(res, SpCashCloseService.precheck(req.params.period, req.body));
+  }
+
+  static listPeriodControls(req: AuthRequest, res: Response) {
+    handle(res, SpCashCloseService.listControls(req.params.period, { ...req.query, ...req.body }));
   }
 
   static periodClose(req: AuthRequest, res: Response) {

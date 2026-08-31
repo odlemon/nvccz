@@ -1762,6 +1762,8 @@ model Application {
   businessDescription      String                    @db.Text
   businessName             String
   businessStage            String
+  /// Extended funding-application form payload (use-of-funds, declarations, impact/ESG, etc.).
+  applicationFormData      Json?                     @map("application_form_data")
   dueDiligenceScore        Decimal?                  @db.Decimal(5, 2)
   foundingDate             DateTime?
   industry                 String
@@ -1792,6 +1794,14 @@ model Application {
   dealExecutionPacks       DealExecutionPack[]
 
   @@map("applications")
+}
+
+/// Sequential deal reference counter per calendar year (see DealReferenceService).
+model DealReferenceCounter {
+  year      Int    @id
+  lastValue BigInt @default(0) @map("last_value")
+
+  @@map("deal_reference_counters")
 }
 
 model ApplicationDocument {

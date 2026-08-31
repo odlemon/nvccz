@@ -10,7 +10,9 @@ import {
   fingerprint,
   hashFile,
   moneyStr,
+  paginated,
   parseDateOnly,
+  parsePagination,
   requireStr,
   withIdempotency,
 } from "./spCashSupport";
@@ -278,6 +280,26 @@ export class SpCashImportService {
     if (!row) throw new InvestmentOpsError("NOT_FOUND", "Import not found", 404);
     const lines = await loadStaging(id);
     return presentImport(row, { stagedLines: lines.slice(0, 100), stagedLineCount: lines.length });
+  }
+
+  /** List statement imports for Portfolio V23 / cash ops UI. */
+  static async list(query: any = {}) {
+    const { page, pageSize, skip, take } = parsePagination(query);
+    const where: any = {};
+    if (query.cashAccountId) where.cashAccountId = String(query.cashAccountId);
+    if (query.providerId) where.providerId = String(query.providerId);
+    if (query.status) where.status = String(query.status);
+    if (query.currency) where.currency = String(query.currency);
+    const [total, rows] = await Promise.all([
+      db.spCashStatementImport.count({ where }),
+      db.spCashStatementImport.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take,
+      }),
+    ]);
+    return paginated(rows.map((row) => presentImport(row)), total, page, pageSize);
   }
 
   static async errors(id: string) {

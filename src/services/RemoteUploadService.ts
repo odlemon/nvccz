@@ -127,32 +127,44 @@ export function rewritePublicMediaUrl(
 
 function toPublicMediaUrlFromUploadResponse(
   uploadResponseUrl: string,
-  fallbackFilename?: string
+  fallbackFilename?: string,
+  mediaBaseOverride?: string
 ): string {
+  const mediaBase = (mediaBaseOverride || resolveMediaBaseUrl()).replace(/\/+$/, "");
   const marker = "/uploads/";
   const idx = uploadResponseUrl.indexOf(marker);
   if (idx >= 0) {
     const relative = normalizeMalformedSignaturePath(
       uploadResponseUrl.slice(idx + marker.length).replace(/^\/+/, "")
     );
-    return appendPublicMediaCacheBuster(`${resolveMediaBaseUrl()}/${relative}`);
+    return appendPublicMediaCacheBuster(`${mediaBase}/${relative}`);
   }
   // Upload service may already return .../api/public-media/<file> — do not prefix again (avoids /api/public-media/api/public-media/).
   const pmInResponse = "/api/public-media/";
   if (uploadResponseUrl.indexOf(pmInResponse) >= 0) {
     const relative = extractRelativeMediaPath(uploadResponseUrl);
-    return appendPublicMediaCacheBuster(`${resolveMediaBaseUrl()}/${relative}`);
+    return appendPublicMediaCacheBuster(`${mediaBase}/${relative}`);
   }
   const trimmed = uploadResponseUrl.replace(/^https?:\/\/[^/]+\//, "");
   if (trimmed && trimmed !== uploadResponseUrl) {
     return appendPublicMediaCacheBuster(
-      `${resolveMediaBaseUrl()}/${normalizeMalformedSignaturePath(trimmed.replace(/^\/+/, ""))}`
+      `${mediaBase}/${normalizeMalformedSignaturePath(trimmed.replace(/^\/+/, ""))}`
     );
   }
   const name = fallbackFilename || uploadResponseUrl;
   return appendPublicMediaCacheBuster(
-    `${resolveMediaBaseUrl()}/${normalizeMalformedSignaturePath(name.replace(/^\/+/, ""))}`
+    `${mediaBase}/${normalizeMalformedSignaturePath(name.replace(/^\/+/, ""))}`
   );
+}
+
+/** When files land on the local :3050 mock, public URLs must hit this API (not remote BASE_URL). */
+function localDevPublicMediaBase(): string {
+  const origin = (
+    process.env.API_INTERNAL_BASE_URL?.trim() ||
+    `http://127.0.0.1:${process.env.PORT || 3009}`
+  ).replace(/\/+$/, "");
+  const root = /\/api$/i.test(origin) ? origin.replace(/\/api$/i, "") : origin;
+  return `${root}/api/public-media`;
 }
 
 // Upload type mapping - maps our internal types to server directory structure
@@ -388,11 +400,17 @@ export class RemoteUploadService {
 
       if (uploadData.success && uploadData.files) {
         logger.info(`Successfully uploaded ${uploadData.files.length} file(s) via ${usedUploadUrl}`);
+        const usedLocalMock = usedUploadUrl === LOCAL_FALLBACK_UPLOAD_SERVICE_URL;
+        const mediaBase = usedLocalMock ? localDevPublicMediaBase() : undefined;
+        if (usedLocalMock) {
+          logger.info("Using local public-media base for uploaded file URLs", { mediaBase });
+        }
         const files = uploadData.files.map((f: any) => ({
           ...f,
           url: toPublicMediaUrlFromUploadResponse(
             f.url || "",
-            f.filename || f.originalname
+            f.filename || f.originalname,
+            mediaBase
           ),
         }));
         return {
@@ -493,10 +511,16 @@ export class RemoteUploadService {
     }
 
     const uploadedFile = result.files[0];
-    const publicUrl = toPublicMediaUrlFromUploadResponse(
-      uploadedFile.url || "",
-      uploadedFile.filename || uploadedFile.originalname
-    );
+    // uploadFiles already rewrote to a public-media URL — do not rewrite again via remote BASE_URL.
+    const alreadyPublic =
+      typeof uploadedFile.url === "string" &&
+      (/\/api\/public-media\//i.test(uploadedFile.url) || /^https?:\/\//i.test(uploadedFile.url));
+    const publicUrl = alreadyPublic
+      ? appendPublicMediaCacheBuster(collapseDuplicatePublicMediaPath(uploadedFile.url))
+      : toPublicMediaUrlFromUploadResponse(
+          uploadedFile.url || "",
+          uploadedFile.filename || uploadedFile.originalname
+        );
 
     // Extract file path from URL for backward compatibility
     // URL format: …/uploads/{type}/{filename}

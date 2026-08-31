@@ -30,6 +30,9 @@ import {
   escapeAttrForEmail,
   escapeHtmlForEmail,
   wrapTransactionalNewsletterEmailDocument,
+  buildNewsletterEmailDocumentHtml,
+  buildNewsletterTransactionalEmailRows,
+  fetchNewsletterTransactionalLogoAttachment,
 } from "../utils/newsletterEmailLayout";
 import { buildVendorRfqResponsePageUrl } from "../utils/vendorRfqEmailLinks";
 import { buildVendorPoInvoiceResponsePageUrl } from "../utils/vendorPoInvoiceEmailLinks";
@@ -72,19 +75,34 @@ export class EmailNotificationService {
   }
 
   /**
-   * Send application received confirmation email
+   * Send application received confirmation email (newsletter letterhead + CID logo).
    */
   static async sendApplicationReceivedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Investment Application Received - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getApplicationReceivedTemplate(data);
-      
-      const from = getFromAddress('investment');
+      const { html, attachments, subject } =
+        await EmailNotificationService.buildApplicationLifecycleEmailBrandedDocument({
+          data,
+          emailHeading: "Application received",
+          headerTagline: "Investment applications",
+          subjectPrefix: "Investment application received",
+          preheader: `We received your application for ${data.businessName}.`,
+          bodyInnerHtml: EmailNotificationService.buildApplicationReceivedBodyHtml(data),
+          metaLine: `Investment applications · ${new Date().toLocaleDateString("en-GB", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })}`,
+          footerAudienceNote:
+            "You are receiving this because you submitted an investment application. This is an automated message — please do not reply.",
+        });
+
+      const from = getFromAddress("investment");
       await emailTransport.sendMail({
         from: `"${from.name}" <${from.address}>`,
         to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject: subject,
-        html: htmlContent
+        subject,
+        html,
+        attachments: attachments.length ? attachments : undefined,
       });
 
       console.log(`Application received email sent to ${data.applicantEmail}`);
@@ -99,17 +117,12 @@ export class EmailNotificationService {
    */
   static async sendDueDiligenceStartedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Application passed screening — Active Due Diligence - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getDueDiligenceStartedTemplate(data);
-      
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject: subject,
-        html: htmlContent
+      await EmailNotificationService.sendBrandedApplicantEmail(data, {
+        emailHeading: "Active due diligence",
+        subjectPrefix: "Application passed screening — Active Due Diligence",
+        preheader: `Due diligence has started for ${data.businessName}.`,
+        bodyInnerHtml: EmailNotificationService.buildDueDiligenceStartedBodyHtml(data),
       });
-
       console.log(`Due diligence started email sent to ${data.applicantEmail}`);
     } catch (error) {
       console.error("Error sending due diligence started email:", error);
@@ -122,20 +135,57 @@ export class EmailNotificationService {
    */
   static async sendDueDiligenceCompletedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Due Diligence Process Completed - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getDueDiligenceCompletedTemplate(data);
-      
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject: subject,
-        html: htmlContent
+      await EmailNotificationService.sendBrandedApplicantEmail(data, {
+        emailHeading: "Due diligence completed",
+        subjectPrefix: "Due Diligence Process Completed",
+        preheader: `Due diligence is complete for ${data.businessName}.`,
+        bodyInnerHtml: EmailNotificationService.buildDueDiligenceCompletedBodyHtml(data),
       });
-
       console.log(`Due diligence completed email sent to ${data.applicantEmail}`);
     } catch (error) {
       console.error("Error sending due diligence completed email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Notify DD reviewer / deal owner when due diligence is completed.
+   */
+  static async sendDueDiligenceCompletedReviewerEmail(data: {
+    reviewerName: string;
+    reviewerEmail: string;
+    businessName: string;
+    applicationId: string;
+    recommendation: string;
+    overallScore: string;
+  }): Promise<void> {
+    try {
+      const esc = escapeHtmlForEmail;
+      const bodyInnerHtml = `
+        <p style="margin:0 0 16px 0;">Hello ${esc(data.reviewerName)},</p>
+        <p style="margin:0 0 16px 0;">Due diligence has been completed for <strong>${esc(data.businessName)}</strong>. The deal is ready for term sheet preparation.</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:18px 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">
+          <tr><td style="padding:16px 18px;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#334155;">
+            <div><strong>Application:</strong> ${esc(data.applicationId)}</div>
+            <div style="margin-top:8px;"><strong>Recommendation:</strong> ${esc(data.recommendation || '—')}</div>
+            <div style="margin-top:8px;"><strong>Overall score:</strong> ${esc(data.overallScore || '—')}</div>
+          </td></tr>
+        </table>
+        ${EmailNotificationService.brandedSignoffHtml()}`;
+      await EmailNotificationService.sendBrandedInvestmentMail({
+        toName: data.reviewerName,
+        toEmail: data.reviewerEmail,
+        emailHeading: "Due diligence completed",
+        headerTagline: "Deal workflow",
+        subjectPrefix: "Due Diligence Completed",
+        preheader: `DD complete · ${data.businessName}`,
+        bodyInnerHtml,
+        footerAudienceNote:
+          "You are receiving this because you are the assigned due diligence reviewer for this deal.",
+      });
+      console.log(`Due diligence completed reviewer email sent to ${data.reviewerEmail}`);
+    } catch (error) {
+      console.error("Error sending due diligence completed reviewer email:", error);
       throw error;
     }
   }
@@ -152,17 +202,29 @@ export class EmailNotificationService {
     taskId: string;
   }): Promise<void> {
     try {
-      const subject = `New Due Diligence Task Assigned - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getDueDiligenceTaskAssignedTemplate(data);
-      
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.assigneeName}" <${data.assigneeEmail}>`,
-        subject: subject,
-        html: htmlContent
+      const esc = escapeHtmlForEmail;
+      const bodyInnerHtml = `
+        <p style="margin:0 0 16px 0;">Dear ${esc(data.assigneeName)},</p>
+        <p style="margin:0 0 16px 0;">You have been assigned a new due diligence task. Please open the performance module to view details and start work.</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:18px 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">
+          <tr><td style="padding:16px 18px;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#334155;">
+            <div><strong>Task:</strong> ${esc(data.taskTitle)}</div>
+            <div style="margin-top:8px;"><strong>Business:</strong> ${esc(data.businessName)}</div>
+            <div style="margin-top:8px;"><strong>Application ID:</strong> ${esc(data.applicationId)}</div>
+          </td></tr>
+        </table>
+        ${EmailNotificationService.brandedSignoffHtml()}`;
+      await EmailNotificationService.sendBrandedInvestmentMail({
+        toName: data.assigneeName,
+        toEmail: data.assigneeEmail,
+        emailHeading: "New due diligence task",
+        headerTagline: "Deal workflow",
+        subjectPrefix: "New Due Diligence Task Assigned",
+        preheader: `Task assigned: ${data.taskTitle}`,
+        bodyInnerHtml,
+        footerAudienceNote:
+          "You are receiving this because you were assigned a due diligence task. This is an automated message — please do not reply.",
       });
-
       console.log(`Due diligence task assigned email sent to ${data.assigneeEmail}`);
     } catch (error) {
       console.error("Error sending due diligence task assigned email:", error);
@@ -447,17 +509,29 @@ export class EmailNotificationService {
     hasDocuments: boolean;
   }): Promise<void> {
     try {
-      const subject = `Due Diligence Activity Update - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getDueDiligenceActivityUpdateTemplate(data);
-      
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.cioName}" <${data.cioEmail}>`,
-        subject: subject,
-        html: htmlContent
+      const esc = escapeHtmlForEmail;
+      const bodyInnerHtml = `
+        <p style="margin:0 0 16px 0;">Dear ${esc(data.cioName)},</p>
+        <p style="margin:0 0 16px 0;"><strong>${esc(data.assigneeName)}</strong> submitted a due diligence activity update that needs your review.</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:18px 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">
+          <tr><td style="padding:16px 18px;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#334155;">
+            <div><strong>Task:</strong> ${esc(data.taskTitle)}</div>
+            <div style="margin-top:8px;"><strong>Activity:</strong> ${esc(data.activityTitle)}</div>
+            <div style="margin-top:8px;"><strong>Documents attached:</strong> ${data.hasDocuments ? "Yes" : "No"}</div>
+          </td></tr>
+        </table>
+        ${EmailNotificationService.brandedSignoffHtml()}`;
+      await EmailNotificationService.sendBrandedInvestmentMail({
+        toName: data.cioName,
+        toEmail: data.cioEmail,
+        emailHeading: "Due diligence activity update",
+        headerTagline: "Deal workflow",
+        subjectPrefix: "Due Diligence Activity Update",
+        preheader: `Update on ${data.activityTitle}`,
+        bodyInnerHtml,
+        footerAudienceNote:
+          "You are receiving this because you review due diligence activities. This is an automated message — please do not reply.",
       });
-
       console.log(`Due diligence activity update email sent to ${data.cioEmail}`);
     } catch (error) {
       console.error("Error sending due diligence activity update email:", error);
@@ -479,34 +553,28 @@ export class EmailNotificationService {
       if (!to) {
         return;
       }
+      const esc = escapeHtmlForEmail;
       const base = String(process.env.FRONTEND_URL || "http://app.kyntaro.com").replace(/\/+$/, "");
-      const applicationsPath = `${base}/portfolio/applications`;
-      const esc = (s: string) =>
-        String(s || "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;");
-      const refSuffix = data.dealReference
-        ? ` — ${data.dealReference}`
-        : "";
-      const subject = `Lead analyst assignment — ${data.businessName}${refSuffix}`;
+      const applicationsPath = `${base}/portfolio-v11/deals`;
       const refSentence = data.dealReference
         ? ` Deal reference: <strong>${esc(data.dealReference)}</strong>.`
         : "";
-      const htmlContent = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px;">
-          <p>Dear ${esc(data.analystName)},</p>
-          <p>You have been assigned as the <strong>lead investment analyst</strong> for <strong>${esc(data.businessName)}</strong>.${refSentence}</p>
-          <p><a href="${applicationsPath}" style="color: #1e40af;">Open portfolio applications</a></p>
-        </div>
-      `;
-      const headerName = String(data.analystName || "Analyst").replace(/"/g, "'").slice(0, 120);
-      const from = getFromAddress("investment");
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${headerName}" <${to}>`,
-        subject,
-        html: htmlContent
+      const bodyInnerHtml = `
+        <p style="margin:0 0 16px 0;">Dear ${esc(data.analystName)},</p>
+        <p style="margin:0 0 16px 0;">You have been assigned as the <strong>lead investment analyst</strong> for <strong>${esc(data.businessName)}</strong>.${refSentence}</p>
+        ${EmailNotificationService.brandedCtaHtml(applicationsPath, "Open Deal Flow")}
+        ${EmailNotificationService.brandedSignoffHtml()}`;
+      const refSuffix = data.dealReference ? ` — ${data.dealReference}` : "";
+      await EmailNotificationService.sendBrandedInvestmentMail({
+        toName: data.analystName,
+        toEmail: to,
+        emailHeading: "Lead analyst assignment",
+        headerTagline: "Deal workflow",
+        subjectPrefix: `Lead analyst assignment — ${data.businessName}${refSuffix}`,
+        preheader: `You are lead analyst for ${data.businessName}`,
+        bodyInnerHtml,
+        footerAudienceNote:
+          "You are receiving this because you were assigned as lead analyst on a deal. This is an automated message — please do not reply.",
       });
       console.log(`Lead analyst assignment email sent to ${to}`);
     } catch (error) {
@@ -524,26 +592,26 @@ export class EmailNotificationService {
     commentPreview: string;
   }): Promise<void> {
     try {
+      const esc = escapeHtmlForEmail;
       const base = String(process.env.FRONTEND_URL || "http://app.kyntaro.com").replace(/\/+$/, "");
-      const dealPath = `${base}/deals/${data.applicationId}`;
-      const subject = `Deal mention — ${data.businessName} — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}`;
-      const safePreview = String(data.commentPreview || "")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-      const htmlContent = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px;">
-          <p>Dear ${data.recipientName},</p>
-          <p><strong>${data.authorName}</strong> mentioned you in the <strong>portfolio deal collaboration</strong> thread for <strong>${data.businessName}</strong>.</p>
-          <p style="white-space: pre-wrap; background: #f8fafc; padding: 12px; border-radius: 8px;">${safePreview}</p>
-          <p><a href="${dealPath}" style="color: #1e40af;">Open deal</a></p>
-        </div>
-      `;
-      const from = getFromAddress("investment");
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.recipientName}" <${data.recipientEmail}>`,
-        subject,
-        html: htmlContent
+      const dealPath = `${base}/portfolio-v11/deals`;
+      const safePreview = esc(String(data.commentPreview || ""));
+      const bodyInnerHtml = `
+        <p style="margin:0 0 16px 0;">Dear ${esc(data.recipientName)},</p>
+        <p style="margin:0 0 16px 0;"><strong>${esc(data.authorName)}</strong> mentioned you in the portfolio deal collaboration thread for <strong>${esc(data.businessName)}</strong>.</p>
+        <p style="margin:0 0 16px 0;padding:14px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;white-space:pre-wrap;">${safePreview}</p>
+        ${EmailNotificationService.brandedCtaHtml(dealPath, "Open Deal Flow")}
+        ${EmailNotificationService.brandedSignoffHtml()}`;
+      await EmailNotificationService.sendBrandedInvestmentMail({
+        toName: data.recipientName,
+        toEmail: data.recipientEmail,
+        emailHeading: "Deal mention",
+        headerTagline: "Deal collaboration",
+        subjectPrefix: `Deal mention — ${data.businessName}`,
+        preheader: `${data.authorName} mentioned you on ${data.businessName}`,
+        bodyInnerHtml,
+        footerAudienceNote:
+          "You are receiving this because you were mentioned on a deal. This is an automated message — please do not reply.",
       });
       console.log(`Portfolio deal feed mention email sent to ${data.recipientEmail}`);
     } catch (error) {
@@ -564,26 +632,26 @@ export class EmailNotificationService {
     commentPreview: string;
   }): Promise<void> {
     try {
+      const esc = escapeHtmlForEmail;
       const base = String(process.env.FRONTEND_URL || "http://app.kyntaro.com").replace(/\/+$/, "");
-      const dealPath = data.dealId ? `${base}/deals/${data.dealId}` : `${base}/tasks`;
-      const subject = `You were mentioned — ${data.taskTitle} — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}`;
-      const safePreview = String(data.commentPreview || "")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-      const htmlContent = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px;">
-          <p>Dear ${data.recipientName},</p>
-          <p><strong>${data.authorName}</strong> mentioned you in the collaboration thread for task <strong>${data.taskTitle}</strong>.</p>
-          <p style="white-space: pre-wrap; background: #f8fafc; padding: 12px; border-radius: 8px;">${safePreview}</p>
-          <p><a href="${dealPath}" style="color: #1e40af;">Open deal</a></p>
-        </div>
-      `;
-      const from = getFromAddress("investment");
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.recipientName}" <${data.recipientEmail}>`,
-        subject,
-        html: htmlContent
+      const dealPath = data.dealId ? `${base}/portfolio-v11/deals` : `${base}/tasks`;
+      const safePreview = esc(String(data.commentPreview || ""));
+      const bodyInnerHtml = `
+        <p style="margin:0 0 16px 0;">Dear ${esc(data.recipientName)},</p>
+        <p style="margin:0 0 16px 0;"><strong>${esc(data.authorName)}</strong> mentioned you in the collaboration thread for task <strong>${esc(data.taskTitle)}</strong>.</p>
+        <p style="margin:0 0 16px 0;padding:14px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;white-space:pre-wrap;">${safePreview}</p>
+        ${EmailNotificationService.brandedCtaHtml(dealPath, "Open in Arcus")}
+        ${EmailNotificationService.brandedSignoffHtml()}`;
+      await EmailNotificationService.sendBrandedInvestmentMail({
+        toName: data.recipientName,
+        toEmail: data.recipientEmail,
+        emailHeading: "You were mentioned",
+        headerTagline: "Deal collaboration",
+        subjectPrefix: `You were mentioned — ${data.taskTitle}`,
+        preheader: `${data.authorName} mentioned you on ${data.taskTitle}`,
+        bodyInnerHtml,
+        footerAudienceNote:
+          "You are receiving this because you were mentioned on a deal task. This is an automated message — please do not reply.",
       });
       console.log(`Deal collaboration mention email sent to ${data.recipientEmail}`);
     } catch (error) {
@@ -605,20 +673,30 @@ export class EmailNotificationService {
     comments?: string;
   }): Promise<void> {
     try {
-      const subject = data.approved 
-        ? `Due Diligence Activity Approved - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`
-        : `Due Diligence Activity Rejected - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getDueDiligenceActivityApprovedTemplate(data);
-      
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.assigneeName}" <${data.assigneeEmail}>`,
-        subject: subject,
-        html: htmlContent
+      const esc = escapeHtmlForEmail;
+      const outcome = data.approved ? "approved" : "rejected";
+      const commentsBlock = data.comments
+        ? `<p style="margin:0 0 16px 0;padding:14px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">${esc(data.comments)}</p>`
+        : "";
+      const bodyInnerHtml = `
+        <p style="margin:0 0 16px 0;">Dear ${esc(data.assigneeName)},</p>
+        <p style="margin:0 0 16px 0;">Your due diligence activity <strong>${esc(data.activityTitle)}</strong> on task <strong>${esc(data.taskTitle)}</strong> was <strong>${outcome}</strong>.</p>
+        ${commentsBlock}
+        ${EmailNotificationService.brandedSignoffHtml()}`;
+      await EmailNotificationService.sendBrandedInvestmentMail({
+        toName: data.assigneeName,
+        toEmail: data.assigneeEmail,
+        emailHeading: data.approved ? "Activity approved" : "Activity rejected",
+        headerTagline: "Deal workflow",
+        subjectPrefix: data.approved
+          ? "Due Diligence Activity Approved"
+          : "Due Diligence Activity Rejected",
+        preheader: `${data.activityTitle} was ${outcome}`,
+        bodyInnerHtml,
+        footerAudienceNote:
+          "You are receiving this because of a due diligence activity review. This is an automated message — please do not reply.",
       });
-
-      console.log(`Due diligence activity ${data.approved ? 'approved' : 'rejected'} email sent to ${data.assigneeEmail}`);
+      console.log(`Due diligence activity ${outcome} email sent to ${data.assigneeEmail}`);
     } catch (error) {
       console.error("Error sending due diligence activity approval email:", error);
       throw error;
@@ -630,17 +708,12 @@ export class EmailNotificationService {
    */
   static async sendBoardReviewStartedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Board Review Process Started - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getBoardReviewStartedTemplate(data);
-      
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject: subject,
-        html: htmlContent
+      await EmailNotificationService.sendBrandedApplicantEmail(data, {
+        emailHeading: "Board review started",
+        subjectPrefix: "Board Review Process Started",
+        preheader: `Board review has started for ${data.businessName}.`,
+        bodyInnerHtml: EmailNotificationService.buildBoardReviewStartedBodyHtml(data),
       });
-
       console.log(`Board review started email sent to ${data.applicantEmail}`);
     } catch (error) {
       console.error("Error sending board review started email:", error);
@@ -657,21 +730,29 @@ export class EmailNotificationService {
     voteUrl: string;
   }): Promise<void> {
     try {
-      const subject = `Board Vote Requested - ${data.businessName}`;
-      const htmlContent = this.getBoardVoteRequestTemplate(data);
-
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.recipientName}" <${data.recipientEmail}>`,
-        subject,
-        html: htmlContent,
-        headers: {
-          'X-Priority': '1',
-          Importance: 'high'
-        }
+      const esc = escapeHtmlForEmail;
+      const refPart =
+        data.dealReference && String(data.dealReference).trim()
+          ? ` (Deal reference: <strong>${esc(String(data.dealReference).trim())}</strong>)`
+          : "";
+      const bodyInnerHtml = `
+        <p style="margin:0 0 16px 0;">Dear ${esc(data.recipientName)},</p>
+        <p style="margin:0 0 16px 0;">A board review vote is required for <strong>${esc(data.businessName)}</strong>${refPart}.</p>
+        <p style="margin:0 0 16px 0;">Please review the materials and cast your vote at your earliest convenience. Your voting power will be applied automatically.</p>
+        ${EmailNotificationService.brandedCtaHtml(data.voteUrl, "Cast your vote")}
+        ${EmailNotificationService.brandedSignoffHtml()}`;
+      await EmailNotificationService.sendBrandedInvestmentMail({
+        toName: data.recipientName,
+        toEmail: data.recipientEmail,
+        emailHeading: "Board vote required",
+        headerTagline: "Board review",
+        subjectPrefix: `Board Vote Requested - ${data.businessName}`,
+        preheader: `Please vote on ${data.businessName}`,
+        bodyInnerHtml,
+        headers: { "X-Priority": "1", Importance: "high" },
+        footerAudienceNote:
+          "You are receiving this because you are a board voter on this deal. This is an automated message — please do not reply.",
       });
-
       console.log(`Board vote request email sent to ${data.recipientEmail}`);
     } catch (error) {
       console.error("Error sending board vote request email:", error);
@@ -690,17 +771,51 @@ export class EmailNotificationService {
     votes: Array<{ voterName: string; vote: string; comment?: string | null; votingPower: number }>;
   }): Promise<void> {
     try {
-      const subject = `Board Vote Results - ${data.businessName}`;
-      const htmlContent = this.getBoardVoteResultsTemplate(data);
-
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.recipientName}" <${data.recipientEmail}>`,
-        subject,
-        html: htmlContent
+      const esc = escapeHtmlForEmail;
+      const votesRows = data.votes
+        .map(
+          (vote) => `
+          <tr>
+            <td style="padding:8px;border:1px solid #e2e8f0;">${esc(vote.voterName)}</td>
+            <td style="padding:8px;border:1px solid #e2e8f0;">${vote.vote === "APPROVE" ? "Approve" : "Reject"}</td>
+            <td style="padding:8px;border:1px solid #e2e8f0;">${vote.votingPower.toFixed(2)}%</td>
+            <td style="padding:8px;border:1px solid #e2e8f0;">${vote.comment ? esc(vote.comment) : "—"}</td>
+          </tr>`
+        )
+        .join("");
+      const bodyInnerHtml = `
+        <p style="margin:0 0 16px 0;">Dear ${esc(data.recipientName)},</p>
+        <p style="margin:0 0 16px 0;">Voting for <strong>${esc(data.businessName)}</strong> has concluded.</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:18px 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">
+          <tr><td style="padding:16px 18px;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#334155;">
+            <div><strong>Majority decision:</strong> ${data.majorityDecision === "APPROVE" ? "Approved" : "Rejected"}</div>
+            <div style="margin-top:8px;"><strong>Approve power:</strong> ${data.approvePower.toFixed(2)}%</div>
+            <div style="margin-top:8px;"><strong>Reject power:</strong> ${data.rejectPower.toFixed(2)}%</div>
+          </td></tr>
+        </table>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 16px 0;font-family:Helvetica,Arial,sans-serif;font-size:13px;">
+          <thead>
+            <tr style="background:#f1f5f9;">
+              <th style="padding:8px;border:1px solid #e2e8f0;text-align:left;">Board member</th>
+              <th style="padding:8px;border:1px solid #e2e8f0;text-align:left;">Vote</th>
+              <th style="padding:8px;border:1px solid #e2e8f0;text-align:left;">Power</th>
+              <th style="padding:8px;border:1px solid #e2e8f0;text-align:left;">Comment</th>
+            </tr>
+          </thead>
+          <tbody>${votesRows}</tbody>
+        </table>
+        ${EmailNotificationService.brandedSignoffHtml()}`;
+      await EmailNotificationService.sendBrandedInvestmentMail({
+        toName: data.recipientName,
+        toEmail: data.recipientEmail,
+        emailHeading: "Board vote results",
+        headerTagline: "Board review",
+        subjectPrefix: `Board Vote Results - ${data.businessName}`,
+        preheader: `Vote results for ${data.businessName}`,
+        bodyInnerHtml,
+        footerAudienceNote:
+          "You are receiving this because you participated in a board vote. This is an automated message — please do not reply.",
       });
-
       console.log(`Board vote results email sent to ${data.recipientEmail}`);
     } catch (error) {
       console.error("Error sending board vote results email:", error);
@@ -1179,17 +1294,19 @@ export class EmailNotificationService {
    */
   static async sendInvestmentDecisionEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Investment Decision Update - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = EmailNotificationService.getInvestmentDecisionTemplate(data);
-      
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject: subject,
-        html: htmlContent
+      const isApproved = data.currentStage === "BOARD_APPROVED";
+      const isRejected = data.currentStage === "BOARD_REJECTED";
+      const heading = isApproved
+        ? "Investment approved"
+        : isRejected
+          ? "Investment not approved"
+          : "Conditional approval";
+      await EmailNotificationService.sendBrandedApplicantEmail(data, {
+        emailHeading: heading,
+        subjectPrefix: "Investment Decision Update",
+        preheader: `Board decision for ${data.businessName}`,
+        bodyInnerHtml: EmailNotificationService.buildInvestmentDecisionBodyHtml(data),
       });
-
       console.log(`Investment decision email sent to ${data.applicantEmail}`);
     } catch (error) {
       console.error("Error sending investment decision email:", error);
@@ -1202,17 +1319,12 @@ export class EmailNotificationService {
    */
   static async sendInvestmentImplementationStartedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Investment Implementation Started - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getInvestmentImplementationStartedTemplate(data);
-      
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject: subject,
-        html: htmlContent
+      await EmailNotificationService.sendBrandedApplicantEmail(data, {
+        emailHeading: "Investment implementation started",
+        subjectPrefix: "Investment Implementation Started",
+        preheader: `Implementation has started for ${data.businessName}.`,
+        bodyInnerHtml: EmailNotificationService.buildInvestmentImplementationStartedBodyHtml(data),
       });
-
       console.log(`Investment implementation started email sent to ${data.applicantEmail}`);
     } catch (error) {
       console.error("Error sending investment implementation started email:", error);
@@ -1221,19 +1333,85 @@ export class EmailNotificationService {
   }
 
   /**
-   * Send application shortlisted email
+   * Analyst request for clarification on a submitted funding application.
+   */
+  static async sendClarificationRequest(params: {
+    to: string;
+    subject: string;
+    message: string;
+    businessName: string;
+    dealReference?: string | null;
+    applicantName?: string | null;
+    requestedByName?: string | null;
+  }): Promise<void> {
+    const from = getFromAddress("investment");
+    const applicant = params.applicantName || "Applicant";
+    const ref = params.dealReference ? ` (${params.dealReference})` : "";
+    const body = `
+      <p>Dear ${escapeHtmlForEmail(applicant)},</p>
+      <p>The investment team has requested clarification on your application for
+      <strong>${escapeHtmlForEmail(params.businessName)}</strong>${escapeHtmlForEmail(ref)}.</p>
+      <p><strong>Subject:</strong> ${escapeHtmlForEmail(params.subject)}</p>
+      <div style="white-space:pre-wrap;border-left:3px solid #2563eb;padding-left:12px;margin:16px 0;">
+        ${escapeHtmlForEmail(params.message)}
+      </div>
+      ${params.requestedByName ? `<p>Requested by: ${escapeHtmlForEmail(params.requestedByName)}</p>` : ""}
+      <p>Please reply to this email with the requested information.</p>
+    `;
+    const mail = {
+      from: `"${from.name}" <${from.address}>`,
+      to: params.to,
+      subject: params.subject.startsWith("[")
+        ? params.subject
+        : `[Clarification] ${params.subject}`,
+      html: body,
+      text: params.message,
+    };
+    let lastError: any;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await emailTransport.sendMail(mail);
+        console.log(`Clarification request email sent to ${params.to} (attempt ${attempt})`);
+        lastError = null;
+        break;
+      } catch (err) {
+        lastError = err;
+        console.error(`Clarification email attempt ${attempt} failed:`, (err as any)?.message || err);
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 800));
+      }
+    }
+    if (lastError) throw lastError;
+  }
+
+  /**
+   * Send application shortlisted email (newsletter letterhead + CID logo).
    */
   static async sendApplicationShortlistedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Application Shortlisted - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getApplicationShortlistedTemplate(data);
-      
-      const from = getFromAddress('investment');
+      const { html, attachments, subject } =
+        await EmailNotificationService.buildApplicationLifecycleEmailBrandedDocument({
+          data,
+          emailHeading: "Application shortlisted",
+          headerTagline: "Investment applications",
+          subjectPrefix: "Application shortlisted",
+          preheader: `Your application for ${data.businessName} has been shortlisted.`,
+          bodyInnerHtml: EmailNotificationService.buildApplicationShortlistedBodyHtml(data),
+          metaLine: `Investment applications · ${new Date().toLocaleDateString("en-GB", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })}`,
+          footerAudienceNote:
+            "You are receiving this because you submitted an investment application. This is an automated message — please do not reply.",
+        });
+
+      const from = getFromAddress("investment");
       await emailTransport.sendMail({
         from: `"${from.name}" <${from.address}>`,
         to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject: subject,
-        html: htmlContent
+        subject,
+        html,
+        attachments: attachments.length ? attachments : undefined,
       });
 
       console.log(`Application shortlisted email sent to ${data.applicantEmail}`);
@@ -1253,26 +1431,15 @@ export class EmailNotificationService {
         businessName: data.businessName
       });
 
-      const subject = `Application Update - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getApplicationBelowThresholdTemplate(data);
-      
-      console.log(`📧 Email content generated, sending via email service...`, {
-        applicantEmail: data.applicantEmail,
-        subject: subject,
-        contentLength: htmlContent.length
-      });
-
-      const from = getFromAddress('investment');
-      const result = await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject: subject,
-        html: htmlContent
+      await EmailNotificationService.sendBrandedApplicantEmail(data, {
+        emailHeading: "Application update",
+        subjectPrefix: "Application Update",
+        preheader: `An update on your application for ${data.businessName}.`,
+        bodyInnerHtml: EmailNotificationService.buildApplicationBelowThresholdBodyHtml(data),
       });
 
       console.log(`✅ Application below threshold email sent successfully to ${data.applicantEmail}`, {
-        applicationId: data.applicationId,
-        result: result
+        applicationId: data.applicationId
       });
     } catch (error: any) {
       console.error("❌ Error sending application below threshold email:", {
@@ -1628,17 +1795,12 @@ export class EmailNotificationService {
    */
   static async sendTermSheetCreatedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Your Term Sheet is Ready for Review - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getTermSheetCreatedTemplate(data);
-      
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject: subject,
-        html: htmlContent
+      await EmailNotificationService.sendBrandedApplicantEmail(data, {
+        emailHeading: "Your term sheet is ready",
+        subjectPrefix: "Your Term Sheet is Ready for Review",
+        preheader: `A term sheet is ready for ${data.businessName}.`,
+        bodyInnerHtml: EmailNotificationService.buildTermSheetCreatedBodyHtml(data),
       });
-
       console.log(`Term sheet created email sent to ${data.applicantEmail}`);
     } catch (error) {
       console.error("Error sending term sheet created email:", error);
@@ -1651,17 +1813,12 @@ export class EmailNotificationService {
    */
   static async sendTermSheetApprovedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Term Sheet Approved - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getTermSheetApprovedTemplate(data);
-      
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject: subject,
-        html: htmlContent
+      await EmailNotificationService.sendBrandedApplicantEmail(data, {
+        emailHeading: "Term sheet approved",
+        subjectPrefix: "Term Sheet Approved",
+        preheader: `Term sheet approved for ${data.businessName}.`,
+        bodyInnerHtml: EmailNotificationService.buildTermSheetApprovedBodyHtml(data),
       });
-
       console.log(`Term sheet approved email sent to ${data.applicantEmail}`);
     } catch (error) {
       console.error("Error sending term sheet approved email:", error);
@@ -1674,17 +1831,12 @@ export class EmailNotificationService {
    */
   static async sendTermSheetRejectedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Term Sheet Update - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getTermSheetRejectedTemplate(data);
-      
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject: subject,
-        html: htmlContent
+      await EmailNotificationService.sendBrandedApplicantEmail(data, {
+        emailHeading: "Term sheet update",
+        subjectPrefix: "Term Sheet Update",
+        preheader: `An update on the term sheet for ${data.businessName}.`,
+        bodyInnerHtml: EmailNotificationService.buildTermSheetRejectedBodyHtml(data),
       });
-
       console.log(`Term sheet rejected email sent to ${data.applicantEmail}`);
     } catch (error) {
       console.error("Error sending term sheet rejected email:", error);
@@ -1697,17 +1849,12 @@ export class EmailNotificationService {
    */
   static async sendInvestmentApprovedAccountCreatedEmail(data: EmailNotificationData & { tempPassword: string }): Promise<void> {
     try {
-      const subject = `Your ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} portal login`;
-      const htmlContent = this.getInvestmentApprovedAccountCreatedTemplate(data);
-      
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject: subject,
-        html: htmlContent
+      await EmailNotificationService.sendBrandedApplicantEmail(data, {
+        emailHeading: "Your portal login",
+        subjectPrefix: `Your ${process.env.COMPANY_NAME_SHORT || "NVCCZ"} portal login`,
+        preheader: "Your portal account credentials are ready.",
+        bodyInnerHtml: EmailNotificationService.buildPortalCredentialsBodyHtml(data),
       });
-
       console.log(`Applicant portal credentials email sent to ${data.applicantEmail}`);
     } catch (error) {
       console.error("Error sending applicant portal credentials email:", error);
@@ -1720,17 +1867,12 @@ export class EmailNotificationService {
    */
   static async sendPortfolioCompanyCreatedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Welcome to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Portfolio - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getPortfolioCompanyCreatedTemplate(data);
-      
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject: subject,
-        html: htmlContent
+      await EmailNotificationService.sendBrandedApplicantEmail(data, {
+        emailHeading: "Welcome to the portfolio",
+        subjectPrefix: `Welcome to ${process.env.COMPANY_NAME_SHORT || "NVCCZ"} Portfolio`,
+        preheader: `${data.businessName} is now a portfolio company.`,
+        bodyInnerHtml: EmailNotificationService.buildPortfolioCompanyCreatedBodyHtml(data),
       });
-
       console.log(`Portfolio company created email sent to ${data.applicantEmail}`);
     } catch (error) {
       console.error("Error sending portfolio company created email:", error);
@@ -1743,17 +1885,12 @@ export class EmailNotificationService {
    */
   static async sendStageUpdateEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Application Status Update - ${data.currentStage} - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getStageUpdateTemplate(data);
-      
-      const from = getFromAddress('investment');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject: subject,
-        html: htmlContent
+      await EmailNotificationService.sendBrandedApplicantEmail(data, {
+        emailHeading: "Application status update",
+        subjectPrefix: `Application Status Update - ${data.currentStage}`,
+        preheader: `Status update for ${data.businessName}: ${data.currentStage}`,
+        bodyInnerHtml: EmailNotificationService.buildStageUpdateBodyHtml(data),
       });
-
       console.log(`Stage update email sent to ${data.applicantEmail}`);
     } catch (error) {
       console.error("Error sending stage update email:", error);
@@ -1761,67 +1898,470 @@ export class EmailNotificationService {
     }
   }
 
-  // Email Templates
+  /**
+   * Shared newsletter letterhead shell for applicant lifecycle emails (received / shortlisted).
+   * Same card + gradient header + CID logo + dark footer as internal newsletters.
+   */
+  private static async buildApplicationLifecycleEmailBrandedDocument(params: {
+    data: EmailNotificationData;
+    emailHeading: string;
+    headerTagline: string;
+    subjectPrefix: string;
+    preheader: string;
+    bodyInnerHtml: string;
+    footerAudienceNote?: string;
+    metaLine?: string;
+  }): Promise<{ html: string; attachments: NewsletterInlineAttachment[]; subject: string }> {
+    let branding: EmailBranding;
+    try {
+      branding = await getEmailBrandingCached();
+    } catch {
+      branding = {
+        companyName: process.env.COMPANY_NAME_SHORT || "NVCCZ",
+        logoUrl: null,
+        addressLines: [],
+        contactEmail: null,
+        contactPhone: null,
+        website: null,
+      };
+    }
+
+    const { imgTag, attachment } = await fetchNewsletterTransactionalLogoAttachment(
+      branding,
+      "application-lifecycle-logo@nvccz"
+    );
+
+    const submittedLabel = new Date().toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+
+    const rows = buildNewsletterTransactionalEmailRows({
+      branding,
+      logoImgTag: imgTag,
+      headerTagline: params.headerTagline,
+      emailHeading: params.emailHeading,
+      metaLine: params.metaLine || `Portfolio · ${submittedLabel}`,
+      bodyInnerHtml: params.bodyInnerHtml,
+      footerAudienceNote:
+        params.footerAudienceNote ||
+        "You are receiving this because of activity on an investment application or deal. This is an automated message — please do not reply.",
+    });
+
+    const html = buildNewsletterEmailDocumentHtml({
+      pageTitleEscaped: escapeHtmlForEmail(params.emailHeading),
+      preheaderEscaped: escapeHtmlForEmail(params.preheader),
+      innerRowsHtml: rows,
+    });
+
+    return {
+      html,
+      attachments: attachment ? [attachment] : [],
+      subject: `${params.subjectPrefix} — ${branding.companyName}`,
+    };
+  }
+
+  private static async sendBrandedInvestmentMail(opts: {
+    toName: string;
+    toEmail: string;
+    emailHeading: string;
+    headerTagline?: string;
+    subjectPrefix: string;
+    preheader: string;
+    bodyInnerHtml: string;
+    footerAudienceNote?: string;
+    metaLine?: string;
+    fromKey?: "investment" | "platform";
+    headers?: Record<string, string>;
+  }): Promise<void> {
+    const dummy: EmailNotificationData = {
+      applicantName: opts.toName,
+      applicantEmail: opts.toEmail,
+      businessName: "",
+      applicationId: "",
+      currentStage: "",
+    };
+    const { html, attachments, subject } =
+      await EmailNotificationService.buildApplicationLifecycleEmailBrandedDocument({
+        data: dummy,
+        emailHeading: opts.emailHeading,
+        headerTagline: opts.headerTagline || "Portfolio",
+        subjectPrefix: opts.subjectPrefix,
+        preheader: opts.preheader,
+        bodyInnerHtml: opts.bodyInnerHtml,
+        footerAudienceNote: opts.footerAudienceNote,
+        metaLine: opts.metaLine,
+      });
+    const from = getFromAddress(opts.fromKey || "investment");
+    const safeName = String(opts.toName || "Recipient").replace(/"/g, "'").slice(0, 120);
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: `"${safeName}" <${opts.toEmail}>`,
+      subject,
+      html,
+      attachments: attachments.length ? attachments : undefined,
+      headers: opts.headers,
+    });
+  }
+
+  private static async sendBrandedApplicantEmail(
+    data: EmailNotificationData,
+    opts: {
+      emailHeading: string;
+      subjectPrefix: string;
+      preheader: string;
+      bodyInnerHtml: string;
+      headerTagline?: string;
+      fromKey?: "investment" | "platform";
+    }
+  ): Promise<void> {
+    await EmailNotificationService.sendBrandedInvestmentMail({
+      toName: data.applicantName,
+      toEmail: data.applicantEmail,
+      emailHeading: opts.emailHeading,
+      headerTagline: opts.headerTagline || "Investment applications",
+      subjectPrefix: opts.subjectPrefix,
+      preheader: opts.preheader,
+      bodyInnerHtml: opts.bodyInnerHtml,
+      fromKey: opts.fromKey,
+      footerAudienceNote:
+        "You are receiving this because you submitted an investment application. This is an automated message — please do not reply.",
+      metaLine: `Investment applications · ${new Date().toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      })}`,
+    });
+  }
+
+  private static brandedCtaHtml(href: string, label: string): string {
+    const esc = escapeHtmlForEmail;
+    return `<p style="margin:20px 0 16px 0;"><a href="${esc(href)}" target="_blank" style="display:inline-block;padding:12px 22px;background:#1e3a8a;color:#ffffff;text-decoration:none;border-radius:999px;font-family:Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;">${esc(label)}</a></p>`;
+  }
+
+  private static brandedSignoffHtml(): string {
+    return `<p style="margin:24px 0 0 0;">Kind regards,<br/><strong>Investment Team</strong></p>`;
+  }
+
+  private static buildApplicationDetailsCardHtml(data: EmailNotificationData, extraRowsHtml = ""): string {
+    const esc = escapeHtmlForEmail;
+    return `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:18px 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">
+        <tr>
+          <td style="padding:16px 18px;">
+            <div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:#64748b;margin-bottom:10px;">Application details</div>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#334155;">
+              <tr>
+                <td style="padding:4px 0;width:42%;color:#64748b;">Application ID</td>
+                <td style="padding:4px 0;font-weight:600;color:#0f172a;">${esc(data.applicationId)}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 0;color:#64748b;">Business</td>
+                <td style="padding:4px 0;font-weight:600;color:#0f172a;">${esc(data.businessName)}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 0;color:#64748b;">Status</td>
+                <td style="padding:4px 0;font-weight:600;color:#0f172a;">${esc(data.currentStage || "Received")}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 0;color:#64748b;">Date</td>
+                <td style="padding:4px 0;font-weight:600;color:#0f172a;">${esc(
+                  new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
+                )}</td>
+              </tr>
+              ${extraRowsHtml}
+            </table>
+          </td>
+        </tr>
+      </table>`;
+  }
+
+  private static buildApplicationReceivedBodyHtml(data: EmailNotificationData): string {
+    const esc = escapeHtmlForEmail;
+    const name = esc(data.applicantName);
+    const business = esc(data.businessName);
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${name},</p>
+      <p style="margin:0 0 16px 0;">Thank you for submitting your investment application for <strong>${business}</strong>. We have successfully received your application and supporting documents.</p>
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data, `
+              <tr>
+                <td style="padding:4px 0;color:#64748b;">Current stage</td>
+                <td style="padding:4px 0;font-weight:600;color:#0f172a;">Application received</td>
+              </tr>`)}
+      <p style="margin:0 0 10px 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:#64748b;">What happens next</p>
+      <ol style="margin:0 0 16px 0;padding-left:20px;">
+        <li style="margin-bottom:8px;"><strong>Initial review</strong> — we confirm completeness and strategic fit.</li>
+        <li style="margin-bottom:8px;"><strong>Screening</strong> — your application is assessed against our investment criteria.</li>
+        <li style="margin-bottom:8px;"><strong>Due diligence</strong> — if shortlisted, we undertake a deeper review.</li>
+        <li style="margin-bottom:8px;"><strong>Decision</strong> — you will receive a clear update by email.</li>
+      </ol>
+      <p style="margin:0 0 16px 0;">We typically review applications within 2–3 weeks. You will receive email updates at each stage.</p>
+      <p style="margin:24px 0 0 0;">Kind regards,<br/><strong>Investment Team</strong></p>`;
+  }
+
+  private static buildApplicationShortlistedBodyHtml(data: EmailNotificationData): string {
+    const esc = escapeHtmlForEmail;
+    const name = esc(data.applicantName);
+    const business = esc(data.businessName);
+    const scoreRow =
+      data.additionalInfo?.score != null
+        ? `<tr>
+                <td style="padding:4px 0;color:#64748b;">Screening score</td>
+                <td style="padding:4px 0;font-weight:600;color:#0f172a;">${esc(String(data.additionalInfo.score))}%</td>
+              </tr>`
+        : "";
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${name},</p>
+      <p style="margin:0 0 16px 0;">Congratulations — your application for <strong>${business}</strong> has been <strong>shortlisted</strong> and will proceed to the next stage of our process.</p>
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data, scoreRow)}
+      <p style="margin:0 0 10px 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:#64748b;">What happens next</p>
+      <ul style="margin:0 0 16px 0;padding-left:20px;">
+        <li style="margin-bottom:8px;">Financial analysis and verification</li>
+        <li style="margin-bottom:8px;">Market and competitive review</li>
+        <li style="margin-bottom:8px;">Management team evaluation</li>
+        <li style="margin-bottom:8px;">Legal and regulatory checks</li>
+            </ul>
+      <p style="margin:0 0 16px 0;">Our team may contact you if additional information is required. We anticipate completing this stage within 2–3 weeks.</p>
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  private static buildDueDiligenceStartedBodyHtml(data: EmailNotificationData): string {
+    const esc = escapeHtmlForEmail;
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${esc(data.applicantName)},</p>
+      <p style="margin:0 0 16px 0;">Your application for <strong>${esc(data.businessName)}</strong> has <strong>passed screening</strong> and moved to <strong>Active Due Diligence</strong>.</p>
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data)}
+      <p style="margin:0 0 10px 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:#64748b;">What we will review</p>
+      <ul style="margin:0 0 16px 0;padding-left:20px;">
+        <li style="margin-bottom:8px;">Financial analysis and projections</li>
+        <li style="margin-bottom:8px;">Market and competitive positioning</li>
+        <li style="margin-bottom:8px;">Management team evaluation</li>
+        <li style="margin-bottom:8px;">Legal and regulatory compliance</li>
+      </ul>
+      <p style="margin:0 0 16px 0;">Our team may contact you for additional information. Please respond promptly so the process can continue smoothly.</p>
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  private static buildDueDiligenceCompletedBodyHtml(data: EmailNotificationData): string {
+    const esc = escapeHtmlForEmail;
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${esc(data.applicantName)},</p>
+      <p style="margin:0 0 16px 0;">Due diligence for <strong>${esc(data.businessName)}</strong> is complete. Your application will now move to board review.</p>
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data)}
+      <p style="margin:0 0 16px 0;">Board review typically takes 1–2 weeks. We will email you when a decision is ready.</p>
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  private static buildBoardReviewStartedBodyHtml(data: EmailNotificationData): string {
+    const esc = escapeHtmlForEmail;
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${esc(data.applicantName)},</p>
+      <p style="margin:0 0 16px 0;">Your application for <strong>${esc(data.businessName)}</strong> is now under <strong>board review</strong>.</p>
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data)}
+      <p style="margin:0 0 16px 0;">The investment committee will review diligence findings and decide on next steps. This usually takes 1–2 weeks.</p>
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  private static buildInvestmentDecisionBodyHtml(data: EmailNotificationData): string {
+    const esc = escapeHtmlForEmail;
+    const isApproved = data.currentStage === "BOARD_APPROVED";
+    const isRejected = data.currentStage === "BOARD_REJECTED";
+    const statusText = isApproved
+      ? "Investment approved"
+      : isRejected
+        ? "Investment not approved"
+        : "Conditional approval";
+    const decisionCopy = isApproved
+      ? `<p style="margin:0 0 16px 0;">Congratulations — your application has been <strong>approved</strong>. Our team will contact you shortly about next steps, terms, and implementation.</p>`
+      : isRejected
+        ? `<p style="margin:0 0 16px 0;">After careful consideration, we will not proceed with an investment at this time. This does not reflect on the quality of your business — you are welcome to reapply in future.</p>`
+        : `<p style="margin:0 0 16px 0;">We are offering <strong>conditional approval</strong>. Our team will contact you to discuss the conditions that must be met before we proceed.</p>`;
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${esc(data.applicantName)},</p>
+      <p style="margin:0 0 16px 0;">We have completed board review of your application for <strong>${esc(data.businessName)}</strong>.</p>
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data, `
+              <tr>
+                <td style="padding:4px 0;color:#64748b;">Decision</td>
+                <td style="padding:4px 0;font-weight:600;color:#0f172a;">${esc(statusText)}</td>
+              </tr>`)}
+      ${decisionCopy}
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  private static buildInvestmentImplementationStartedBodyHtml(data: EmailNotificationData): string {
+    const esc = escapeHtmlForEmail;
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${esc(data.applicantName)},</p>
+      <p style="margin:0 0 16px 0;">We are beginning investment implementation for <strong>${esc(data.businessName)}</strong>.</p>
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data)}
+      <p style="margin:0 0 10px 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:#64748b;">Next steps</p>
+      <ul style="margin:0 0 16px 0;padding-left:20px;">
+        <li style="margin-bottom:8px;">Finalize documentation</li>
+        <li style="margin-bottom:8px;">Complete legal and regulatory requirements</li>
+        <li style="margin-bottom:8px;">Set up monitoring and reporting</li>
+        <li style="margin-bottom:8px;">Begin disbursement planning</li>
+      </ul>
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  private static buildApplicationBelowThresholdBodyHtml(data: EmailNotificationData): string {
+    const esc = escapeHtmlForEmail;
+    const reasoningText = String(
+      data.additionalInfo?.rejectionReason || data.additionalInfo?.aiReasoning || ""
+    );
+    let feedbackSummary = "";
+    if (reasoningText) {
+      const sentences = reasoningText.split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 0);
+      const summary = (sentences.slice(0, 2).join(" ") || reasoningText).substring(0, 200);
+      feedbackSummary = summary + (summary.length >= 200 ? "..." : "");
+    }
+    const scoreRow =
+      data.additionalInfo?.score != null
+        ? `<tr>
+                <td style="padding:4px 0;color:#64748b;">Screening score</td>
+                <td style="padding:4px 0;font-weight:600;color:#0f172a;">${esc(String(data.additionalInfo.score))}%</td>
+              </tr>`
+        : "";
+    const feedbackBlock = feedbackSummary
+      ? `<p style="margin:0 0 10px 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:#64748b;">Summary feedback</p>
+         <p style="margin:0 0 16px 0;padding:14px 16px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;color:#9a3412;">${esc(feedbackSummary)}</p>`
+      : "";
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${esc(data.applicantName)},</p>
+      <p style="margin:0 0 16px 0;">Thank you for submitting your application for <strong>${esc(data.businessName)}</strong>. After review, it does not meet our current investment criteria at this time.</p>
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data, scoreRow)}
+      ${feedbackBlock}
+      <p style="margin:0 0 16px 0;">We encourage you to continue developing the business and consider reapplying in the future.</p>
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  private static buildTermSheetCreatedBodyHtml(data: EmailNotificationData): string {
+    const esc = escapeHtmlForEmail;
+    const loginBase = String(process.env.FRONTEND_URL || "http://app.kyntaro.com").replace(/\/+$/, "");
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${esc(data.applicantName)},</p>
+      <p style="margin:0 0 16px 0;">A term sheet has been prepared for your investment in <strong>${esc(data.businessName)}</strong>. Please review it on the platform.</p>
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data)}
+      ${EmailNotificationService.brandedCtaHtml(`${loginBase}/login`, "Open platform login")}
+      <p style="margin:0 0 16px 0;">Sign in with <strong>${esc(data.applicantEmail)}</strong> to review and download the term sheet.</p>
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  private static buildTermSheetApprovedBodyHtml(data: EmailNotificationData): string {
+    const esc = escapeHtmlForEmail;
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${esc(data.applicantName)},</p>
+      <p style="margin:0 0 16px 0;">The term sheet for <strong>${esc(data.businessName)}</strong> has been <strong>approved</strong>. We will proceed with legal documentation and implementation.</p>
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data)}
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  private static buildTermSheetRejectedBodyHtml(data: EmailNotificationData): string {
+    const esc = escapeHtmlForEmail;
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${esc(data.applicantName)},</p>
+      <p style="margin:0 0 16px 0;">After careful consideration, we will not proceed with the current term sheet for <strong>${esc(data.businessName)}</strong>.</p>
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data)}
+      <p style="margin:0 0 16px 0;">We appreciate your understanding and encourage you to explore other funding options.</p>
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  private static buildPortalCredentialsBodyHtml(
+    data: EmailNotificationData & { tempPassword: string }
+  ): string {
+    const esc = escapeHtmlForEmail;
+    const loginBase = String(process.env.FRONTEND_URL || "http://app.kyntaro.com").replace(/\/+$/, "");
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${esc(data.applicantName)},</p>
+      <p style="margin:0 0 16px 0;">An account has been created for <strong>${esc(data.businessName)}</strong>. Use the credentials below to sign in.</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:18px 0;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;">
+        <tr><td style="padding:16px 18px;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#1e3a8a;">
+          <div><strong>Email:</strong> ${esc(data.applicantEmail)}</div>
+          <div style="margin-top:8px;"><strong>Temporary password:</strong> ${esc(data.tempPassword)}</div>
+        </td></tr>
+      </table>
+      ${EmailNotificationService.brandedCtaHtml(`${loginBase}/login`, "Sign in to the portal")}
+      <p style="margin:0 0 16px 0;"><strong>Security:</strong> Change your password after your first login.</p>
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  private static buildPortfolioCompanyCreatedBodyHtml(data: EmailNotificationData): string {
+    const esc = escapeHtmlForEmail;
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${esc(data.applicantName)},</p>
+      <p style="margin:0 0 16px 0;">Welcome — <strong>${esc(data.businessName)}</strong> is now part of our portfolio.</p>
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data)}
+      <p style="margin:0 0 16px 0;">Our portfolio team will contact you to set up check-ins, reporting, and ongoing support.</p>
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  private static buildStageUpdateBodyHtml(data: EmailNotificationData): string {
+    const esc = escapeHtmlForEmail;
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${esc(data.applicantName)},</p>
+      <p style="margin:0 0 16px 0;">There is an update on your investment application for <strong>${esc(data.businessName)}</strong>.</p>
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data)}
+      <p style="margin:0 0 16px 0;">We will continue to email you as the application progresses.</p>
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  private static buildDisbursementApprovedBodyHtml(
+    data: EmailNotificationData & {
+      disbursementAmount: number;
+      disbursementDate: Date;
+      immediateDisbursement?: boolean;
+    }
+  ): string {
+    const esc = escapeHtmlForEmail;
+    const when = data.disbursementDate instanceof Date ? data.disbursementDate : new Date(data.disbursementDate);
+    const amount = `$${Number(data.disbursementAmount || 0).toLocaleString()}`;
+    const copy = data.immediateDisbursement
+      ? `<p style="margin:0 0 16px 0;">Your funding disbursement request has been <strong>approved</strong> and funds for this tranche have been disbursed.</p>`
+      : `<p style="margin:0 0 16px 0;">Your fund disbursement request has been <strong>approved</strong> and is being processed.</p>`;
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${esc(data.applicantName)},</p>
+      ${copy}
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data, `
+              <tr>
+                <td style="padding:4px 0;color:#64748b;">Amount</td>
+                <td style="padding:4px 0;font-weight:600;color:#0f172a;">${esc(amount)}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 0;color:#64748b;">Scheduled date</td>
+                <td style="padding:4px 0;font-weight:600;color:#0f172a;">${esc(when.toLocaleDateString())}</td>
+              </tr>`)}
+      <p style="margin:0 0 16px 0;">You will receive a separate confirmation with the transaction reference when the transfer completes.</p>
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  private static buildDisbursementCompletedBodyHtml(
+    data: EmailNotificationData & { disbursementAmount: number; transactionReference?: string }
+  ): string {
+    const esc = escapeHtmlForEmail;
+    const amount = `$${Number(data.disbursementAmount || 0).toLocaleString()}`;
+    const refRow = data.transactionReference
+      ? `<tr>
+                <td style="padding:4px 0;color:#64748b;">Transaction reference</td>
+                <td style="padding:4px 0;font-weight:600;color:#0f172a;">${esc(data.transactionReference)}</td>
+              </tr>`
+      : "";
+    return `
+      <p style="margin:0 0 16px 0;">Dear ${esc(data.applicantName)},</p>
+      <p style="margin:0 0 16px 0;">Fund disbursement for <strong>${esc(data.businessName)}</strong> is <strong>complete</strong>.</p>
+      ${EmailNotificationService.buildApplicationDetailsCardHtml(data, `
+              <tr>
+                <td style="padding:4px 0;color:#64748b;">Amount</td>
+                <td style="padding:4px 0;font-weight:600;color:#0f172a;">${esc(amount)}</td>
+              </tr>${refRow}`)}
+      ${EmailNotificationService.brandedSignoffHtml()}`;
+  }
+
+  // Email Templates (legacy fallbacks retained for other callers)
 
   private static getApplicationReceivedTemplate(data: EmailNotificationData): string {
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Application Received - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background-color: #1e40af; color: white; padding: 20px; text-align: center; }
-          .content { padding: 20px; background-color: #f8fafc; }
-          .footer { padding: 20px; text-align: center; color: #666; font-size: 14px; }
-          .button { background-color: #1e40af; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px 0; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
-            <h2>Application Received</h2>
-          </div>
-          <div class="content">
-            <p>Dear ${data.applicantName},</p>
-            
-            <p>Thank you for submitting your investment application for <strong>${data.businessName}</strong>. We have successfully received your application and it is now under review.</p>
-            
-            <h3>Application Details:</h3>
-            <ul>
-              <li><strong>Application ID:</strong> ${data.applicationId}</li>
-              <li><strong>Business Name:</strong> ${data.businessName}</li>
-              <li><strong>Current Status:</strong> Application Received</li>
-              <li><strong>Date Submitted:</strong> ${new Date().toLocaleDateString()}</li>
-            </ul>
-            
-            <h3>What happens next?</h3>
-            <p>Our investment team will review your application and supporting documents. You will receive updates at each stage of the process:</p>
-            <ol>
-              <li><strong>Initial Review</strong> - We'll assess your application completeness</li>
-              <li><strong>Due Diligence</strong> - Detailed analysis of your business</li>
-              <li><strong>Board Review</strong> - Investment committee evaluation</li>
-              <li><strong>Final Decision</strong> - Investment approval or feedback</li>
-            </ol>
-            
-            <p>We typically review applications within 2-3 weeks. You will receive email updates at each stage of the process.</p>
-            
-            <p>If you have any questions, please don't hesitate to contact our investment team.</p>
-            
-            <p>Best regards,<br>
-            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
-          </div>
-          <div class="footer">
-            <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
+    // Kept for backward compatibility; live sends use branded letterhead.
+    return EmailNotificationService.buildApplicationReceivedBodyHtml(data);
   }
 
   private static getDueDiligenceStartedTemplate(data: EmailNotificationData): string {
@@ -3203,9 +3743,6 @@ export class EmailNotificationService {
   }
 
   /**
-   * Send disbursement approved email
-   */
-  /**
    * Notify CFO users that a tranche is waiting for approval (after POST create disbursement).
    */
   static async sendFundDisbursementPendingCfoEmail(data: {
@@ -3221,65 +3758,41 @@ export class EmailNotificationService {
     disbursementDate: Date;
   }): Promise<void> {
     try {
-      const subject = `Fund disbursement pending your approval — ${data.businessName}`;
-      const esc = (s: string) =>
-        String(s)
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;");
-      const dealLine = data.dealReference
-        ? `Deal reference: <strong>${esc(data.dealReference)}</strong><br/>`
-        : "";
+      const esc = escapeHtmlForEmail;
       const when =
         data.disbursementDate instanceof Date
           ? data.disbursementDate
           : new Date(data.disbursementDate);
       const base = (process.env.FRONTEND_URL || "").replace(/\/$/, "");
-      const queueUrl = base ? `${base}/portfolio/disbursements` : "";
-      const html = `
-      <!DOCTYPE html>
-      <html>
-      <head><meta charset="utf-8"><title>Disbursement pending CFO</title>
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background-color: #0f172a; color: white; padding: 20px; text-align: center; }
-          .content { background: #fff; padding: 24px; border: 1px solid #e5e7eb; }
-          .footer { font-size: 12px; color: #6b7280; text-align: center; padding: 16px; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header"><h1 style="margin:0;">Tranche pending approval</h1></div>
-          <div class="content">
-            <p>Dear ${esc(data.recipientName)},</p>
-            <p>A fund disbursement request requires CFO approval.</p>
-            <p>
-              <strong>${esc(data.businessName)}</strong> (${esc(data.portfolioCompanyName)})<br/>
+      const queueUrl = base ? `${base}/portfolio-v11` : "";
+      const dealLine = data.dealReference
+        ? `<div style="margin-top:8px;"><strong>Deal reference:</strong> ${esc(data.dealReference)}</div>`
+        : "";
+      const bodyInnerHtml = `
+        <p style="margin:0 0 16px 0;">Dear ${esc(data.recipientName)},</p>
+        <p style="margin:0 0 16px 0;">A fund disbursement request requires CFO approval.</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:18px 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">
+          <tr><td style="padding:16px 18px;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#334155;">
+            <div><strong>${esc(data.businessName)}</strong> (${esc(data.portfolioCompanyName)})</div>
               ${dealLine}
-              Tranche: <strong>${data.trancheIndex}</strong><br/>
-              Amount: <strong>${esc(data.amountDisplay)}</strong><br/>
-              Scheduled date: <strong>${when.toLocaleDateString()}</strong><br/>
-              Disbursement ID: <code>${esc(data.disbursementId)}</code>
-            </p>
-            <p>Use the app queue or API <code>GET /api/investment-implementations/disbursements/pending</code>,
-            <code>GET /api/investment-implementations/disbursement-banks</code> (optional <code>?paymentCurrencyId=</code>),
-            then <code>POST /api/investment-implementations/disbursements/&lt;id&gt;/decision</code> with
-            ${'<code>{"decision":"APPROVE","bankId":"&lt;bank id&gt;"}</code> or <code>{"decision":"REJECT","reason":"…"}</code>'}.</p>
-            ${queueUrl ? `<p><a href="${queueUrl}">Open disbursements (frontend)</a></p>` : ""}
-          </div>
-          <div class="footer">Automated — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}</div>
-        </div>
-      </body>
-      </html>`;
-      const from = getFromAddress("investment");
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.recipientName}" <${data.recipientEmail}>`,
-        subject,
-        html,
-        headers: { "X-Priority": "1", Importance: "high" }
+            <div style="margin-top:8px;"><strong>Tranche:</strong> ${data.trancheIndex}</div>
+            <div style="margin-top:8px;"><strong>Amount:</strong> ${esc(data.amountDisplay)}</div>
+            <div style="margin-top:8px;"><strong>Scheduled date:</strong> ${esc(when.toLocaleDateString())}</div>
+          </td></tr>
+        </table>
+        ${queueUrl ? EmailNotificationService.brandedCtaHtml(queueUrl, "Open portfolio") : ""}
+        ${EmailNotificationService.brandedSignoffHtml()}`;
+      await EmailNotificationService.sendBrandedInvestmentMail({
+        toName: data.recipientName,
+        toEmail: data.recipientEmail,
+        emailHeading: "Tranche pending approval",
+        headerTagline: "Fund disbursements",
+        subjectPrefix: `Fund disbursement pending your approval — ${data.businessName}`,
+        preheader: `CFO approval needed for ${data.businessName}`,
+        bodyInnerHtml,
+        headers: { "X-Priority": "1", Importance: "high" },
+        footerAudienceNote:
+          "You are receiving this because you approve fund disbursements. This is an automated message — please do not reply.",
       });
       console.log("CFO pending disbursement email sent", { to: data.recipientEmail, disbursementId: data.disbursementId });
     } catch (error) {
@@ -3296,17 +3809,13 @@ export class EmailNotificationService {
     }
   ): Promise<void> {
     try {
-      const subject = `Fund Disbursement Approved - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlBody = this.getDisbursementApprovedTemplate(data);
-
-      const from = getFromAddress('platform');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject,
-        html: htmlBody
+      await EmailNotificationService.sendBrandedApplicantEmail(data, {
+        emailHeading: "Fund disbursement approved",
+        subjectPrefix: "Fund Disbursement Approved",
+        preheader: `Disbursement approved for ${data.businessName}`,
+        bodyInnerHtml: EmailNotificationService.buildDisbursementApprovedBodyHtml(data),
+        fromKey: "platform",
       });
-
       console.log("Disbursement approved email sent successfully", {
         applicantEmail: data.applicantEmail,
         applicationId: data.applicationId
@@ -3321,17 +3830,13 @@ export class EmailNotificationService {
    */
   static async sendDisbursementCompletedEmail(data: EmailNotificationData & { disbursementAmount: number, transactionReference?: string }): Promise<void> {
     try {
-      const subject = `Fund Disbursement Completed - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlBody = this.getDisbursementCompletedTemplate(data);
-
-      const from = getFromAddress('platform');
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${data.applicantName}" <${data.applicantEmail}>`,
-        subject,
-        html: htmlBody
+      await EmailNotificationService.sendBrandedApplicantEmail(data, {
+        emailHeading: "Fund disbursement completed",
+        subjectPrefix: "Fund Disbursement Completed",
+        preheader: `Disbursement completed for ${data.businessName}`,
+        bodyInnerHtml: EmailNotificationService.buildDisbursementCompletedBodyHtml(data),
+        fromKey: "platform",
       });
-
       console.log("Disbursement completed email sent successfully", {
         applicantEmail: data.applicantEmail,
         applicationId: data.applicationId
@@ -3356,19 +3861,32 @@ export class EmailNotificationService {
     try {
       const to = String(data.analystEmail || "").trim();
       if (!to) return;
-
-      const subject = `Disbursement request approved — ${data.businessName} — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}`;
-      const htmlBody = this.getFundDisbursementApprovedAnalystTemplate(data);
-      const from = getFromAddress("platform");
-      const headerName = String(data.analystName || "Analyst").replace(/"/g, "'").slice(0, 120);
-
-      await emailTransport.sendMail({
-        from: `"${from.name}" <${from.address}>`,
-        to: `"${headerName}" <${to}>`,
-        subject,
-        html: htmlBody
+      const esc = escapeHtmlForEmail;
+      const amount = `$${Number(data.disbursementAmount || 0).toLocaleString()}`;
+      const ref = data.transactionReference ? esc(data.transactionReference) : "N/A";
+      const bodyInnerHtml = `
+        <p style="margin:0 0 16px 0;">Dear ${esc(data.analystName)},</p>
+        <p style="margin:0 0 16px 0;">The funding disbursement request for <strong>${esc(data.businessName)}</strong> has been <strong>approved</strong> by finance and posted.</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:18px 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">
+          <tr><td style="padding:16px 18px;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#334155;">
+            <div><strong>Amount:</strong> ${esc(amount)}</div>
+            <div style="margin-top:8px;"><strong>Transaction reference:</strong> ${ref}</div>
+            <div style="margin-top:8px;"><strong>Application ID:</strong> ${esc(data.applicationId)}</div>
+          </td></tr>
+        </table>
+        ${EmailNotificationService.brandedSignoffHtml()}`;
+      await EmailNotificationService.sendBrandedInvestmentMail({
+        toName: data.analystName,
+        toEmail: to,
+        emailHeading: "Disbursement approved",
+        headerTagline: "Fund disbursements",
+        subjectPrefix: `Disbursement request approved — ${data.businessName}`,
+        preheader: `Disbursement approved for ${data.businessName}`,
+        bodyInnerHtml,
+        fromKey: "platform",
+        footerAudienceNote:
+          "You are receiving this because you are the lead analyst on this deal. This is an automated message — please do not reply.",
       });
-
       console.log("Fund disbursement approved (analyst) email sent", { to, applicationId: data.applicationId });
     } catch (error) {
       console.error("Failed to send fund disbursement approved analyst email:", error);

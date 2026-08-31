@@ -53,6 +53,31 @@ export class InvestmentSetupService {
     return presentStakeholder(row);
   }
 
+  static async updateBroker(
+    id: string,
+    data: { name?: string; contactEmail?: string; deliveryMode?: string; isActive?: boolean }
+  ) {
+    const existing = await prisma.listedEquityStakeholderProfile.findFirst({
+      where: { id, profileType: "BROKER" },
+    });
+    if (!existing) {
+      const err: any = new Error("Broker not found");
+      err.statusCode = 404;
+      err.code = "BROKER_NOT_FOUND";
+      throw err;
+    }
+    const row = await prisma.listedEquityStakeholderProfile.update({
+      where: { id },
+      data: {
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.contactEmail !== undefined ? { contactEmail: data.contactEmail } : {}),
+        ...(data.deliveryMode !== undefined ? { deliveryMode: data.deliveryMode } : {}),
+        ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+      },
+    });
+    return presentStakeholder(row);
+  }
+
   static async listCustodians() {
     const rows = await prisma.listedEquityStakeholderProfile.findMany({
       where: { profileType: "CUSTODIAN", isActive: true },
@@ -69,6 +94,31 @@ export class InvestmentSetupService {
         name: data.name,
         contactEmail: data.contactEmail,
         deliveryMode: data.deliveryMode || "EMAIL",
+      },
+    });
+    return presentStakeholder(row);
+  }
+
+  static async updateCustodian(
+    id: string,
+    data: { name?: string; contactEmail?: string; deliveryMode?: string; isActive?: boolean }
+  ) {
+    const existing = await prisma.listedEquityStakeholderProfile.findFirst({
+      where: { id, profileType: "CUSTODIAN" },
+    });
+    if (!existing) {
+      const err: any = new Error("Custodian not found");
+      err.statusCode = 404;
+      err.code = "CUSTODIAN_NOT_FOUND";
+      throw err;
+    }
+    const row = await prisma.listedEquityStakeholderProfile.update({
+      where: { id },
+      data: {
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.contactEmail !== undefined ? { contactEmail: data.contactEmail } : {}),
+        ...(data.deliveryMode !== undefined ? { deliveryMode: data.deliveryMode } : {}),
+        ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
       },
     });
     return presentStakeholder(row);

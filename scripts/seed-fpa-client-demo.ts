@@ -284,16 +284,56 @@ async function resolvePeople(): Promise<{
 }
 
 async function resolveMasters() {
-  const [departments, entities, accounts] = await Promise.all([
+  let entities = await prisma.forecastEntity.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true },
+    orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+  });
+  if (entities.filter((entity) => !FORBIDDEN_VISIBLE.test(entity.name)).length < 2) {
+    const creator = await prisma.user.findFirst({
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    if (!creator) {
+      throw new Error("Cannot seed forecast entities without an active user");
+    }
+    const defaults = [
+      { name: "Arcus Group Holdings", type: "INTERNAL_SUBSIDIARY", isDefault: true },
+      { name: "Arcus Capital Partners", type: "INTERNAL_SUBSIDIARY", isDefault: false },
+      { name: "Arcus Advisory Limited", type: "INTERNAL_SUBSIDIARY", isDefault: false },
+    ];
+    for (const row of defaults) {
+      const existing = await prisma.forecastEntity.findFirst({ where: { name: row.name } });
+      if (existing) {
+        await prisma.forecastEntity.update({
+          where: { id: existing.id },
+          data: { isActive: true, isDefault: row.isDefault, baseCurrency: "USD" },
+        });
+      } else {
+        await prisma.forecastEntity.create({
+          data: {
+            name: row.name,
+            type: row.type,
+            baseCurrency: "USD",
+            isActive: true,
+            isDefault: row.isDefault,
+            createdById: creator.id,
+          },
+        });
+      }
+    }
+    entities = await prisma.forecastEntity.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+    });
+  }
+
+  const [departments, accounts] = await Promise.all([
     prisma.department.findMany({
       where: { isActive: true },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
-    }),
-    prisma.forecastEntity.findMany({
-      where: { isActive: true },
-      select: { id: true, name: true },
-      orderBy: [{ isDefault: "desc" }, { name: "asc" }],
     }),
     prisma.chartOfAccounts.findMany({
       where: { isActive: true },
@@ -1213,20 +1253,28 @@ async function seedSettings(primary: Awaited<ReturnType<typeof seedPrimaryModel>
     userId,
   ];
   inspectVisible(rollingParameters, "rollingForecastSettings");
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO fpa_rolling_forecast_settings
-      (id, model_id, version_id, actuals_cutoff, forecast_start, horizon_months, active_method, created_by, updated_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-     ON DUPLICATE KEY UPDATE
-       version_id=VALUES(version_id),
-       actuals_cutoff=VALUES(actuals_cutoff),
-       forecast_start=VALUES(forecast_start),
-       horizon_months=VALUES(horizon_months),
-       active_method=VALUES(active_method),
-       updated_by=VALUES(updated_by),
-       updated_at=NOW(3)`,
-    ...rollingParameters
+  const rollingTable = await prisma.$queryRawUnsafe<Array<{ c: bigint }>>(
+    `SELECT COUNT(*) AS c FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fpa_rolling_forecast_settings'`
   );
+  if (Number(rollingTable[0]?.c ?? 0) > 0) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO fpa_rolling_forecast_settings
+        (id, model_id, version_id, actuals_cutoff, forecast_start, horizon_months, active_method, created_by, updated_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+       ON DUPLICATE KEY UPDATE
+         version_id=VALUES(version_id),
+         actuals_cutoff=VALUES(actuals_cutoff),
+         forecast_start=VALUES(forecast_start),
+         horizon_months=VALUES(horizon_months),
+         active_method=VALUES(active_method),
+         updated_by=VALUES(updated_by),
+         updated_at=NOW(3)`,
+      ...rollingParameters
+    );
+  } else {
+    console.log("[seed-fpa] skip rolling forecast settings (table missing)");
+  }
   return { syncSourceIds: sources.map((source) => source.id), rollingSettingsId: rollingId };
 }
 
@@ -1259,8 +1307,8 @@ async function createExports(
 
 async function main() {
   const database = await assertDevDatabase(prisma, "seed:fpa-client-presentation");
-  if (database !== "nts") {
-    throw new Error(`FP&A presentation seed is restricted to nts; got ${database}`);
+  if (database !== "nts" && database !== "arcus_dev") {
+    throw new Error(`FP&A presentation seed is restricted to nts|arcus_dev; got ${database}`);
   }
   console.log("[seed-fpa] safety checks: database confirmed");
   await requireEmptyPlanningSchema();

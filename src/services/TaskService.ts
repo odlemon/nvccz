@@ -1014,6 +1014,18 @@ export class TaskService {
         throw new Error("Task not found");
       }
 
+      const normalizedStage = normaliseTaskStage(stage);
+
+      if (task.fromDueDiligence && task.applicationId) {
+        const ddReview = await prisma.dueDiligenceReview.findUnique({
+          where: { applicationId: task.applicationId },
+          select: { status: true },
+        });
+        if (ddReview?.status === 'COMPLETED') {
+          throw new Error('Due diligence workstreams are locked after completion');
+        }
+      }
+
       if (isTaskInOverdueState(task)) {
         throw new Error("The task is already overdue.");
       }
@@ -1023,7 +1035,6 @@ export class TaskService {
       // Check if task is overdue
       const isOverdue = new Date(task.date) < new Date();
       
-      const normalizedStage = normaliseTaskStage(stage);
       let updateData: any = {
         stage: normalizedStage,
         status: normalizedStage

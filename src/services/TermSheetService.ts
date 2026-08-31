@@ -154,6 +154,17 @@ export class TermSheetService {
         }
       });
 
+      // Ensure investee portal account + portfolio company exist (idempotent)
+      try {
+        const { BoardReviewService } = await import('./BoardReviewService');
+        await BoardReviewService.createUserAndPortfolioCompany(application);
+      } catch (portalError: any) {
+        console.error('Failed to ensure portfolio company after term sheet creation', {
+          applicationId: params.applicationId,
+          error: portalError?.message,
+        });
+      }
+
       return termSheet;
     } catch (error: any) {
       throw new Error(`Failed to create term sheet: ${error.message}`);

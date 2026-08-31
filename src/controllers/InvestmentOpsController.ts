@@ -2594,11 +2594,17 @@ export class InvestmentOpsController {
   static createBroker(req: AuthRequest, res: Response) {
     handle(res, InvestmentSetupService.createBroker(req.body), 201);
   }
+  static updateBroker(req: AuthRequest, res: Response) {
+    handle(res, InvestmentSetupService.updateBroker(req.params.id, req.body));
+  }
   static listCustodians(req: AuthRequest, res: Response) {
     handle(res, InvestmentSetupService.listCustodians());
   }
   static createCustodian(req: AuthRequest, res: Response) {
     handle(res, InvestmentSetupService.createCustodian(req.body), 201);
+  }
+  static updateCustodian(req: AuthRequest, res: Response) {
+    handle(res, InvestmentSetupService.updateCustodian(req.params.id, req.body));
   }
   static listCommissions(req: AuthRequest, res: Response) {
     handle(res, InvestmentSetupService.listCommissions(req.query.stakeholderProfileId as string));
