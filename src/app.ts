@@ -191,7 +191,7 @@ app.use(cors({
     const allowedOrigins = [
       "https://nvcczz.vercel.app",
       "http://app.kyntaro.com",
-        "https://dev.arcus.co.zw",
+      "https://dev.arcus.co.zw",
       "https://dev-api.arcus.co.zw",
       "https://app.arcus.co.zw",
       "https://arcus.co.zw",
@@ -204,17 +204,31 @@ app.use(cors({
       "http://207.180.234.151:3009",
       "http://kyntaro.com",
       "https://kyntaro.com",
-      "https://nvccz-frontend.vercel.app", 
+      "https://nvccz-frontend.vercel.app",
       "https://arcus-eight.vercel.app",
       "http://dev.kyntaro.com",
       "https://dev.kyntaro.com",
       "https://nvccz-new.vercel.app",
       "https://nvcc.vercel.app",
-      "https://nvccz-pi.vercel.app",  // Added Swagger UI origin
+      "https://nvccz-pi.vercel.app",
+      // NVCCZ production portals
       "https://nvccz.online",
       "https://lp.nvccz.online",
       "https://investee.nvccz.online",
+      "https://vendor.nvccz.online",
+      "https://events.nvccz.online",
       "https://api.nvccz.online",
+      // NVCCZ staff portal (Matanho alias)
+      "https://nvfnvvcz.my.matanho.com",
+      // Arcus dev Matanho domains
+      "https://dev.matanho.com",
+      "https://dev-api.matanho.com",
+      "https://dev.lp.matanho.com",
+      "https://dev.investee.matanho.com",
+      "https://dev.apply.matanho.com",
+      "https://dev.vendor.matanho.com",
+      "https://dev.events.matanho.com",
+      // Localhost / dev
       "http://localhost:3000",
       "http://localhost:3001",
       "http://127.0.0.1:3000",
