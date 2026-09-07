@@ -635,6 +635,7 @@ app.use("/api/cashbook", cashbookRoutes)
 import contraEntryRoutes from "./routes/contraEntryRoutes"
 import batchImportExportRoutes from "./routes/batchImportExportRoutes"
 import periodLockoutRoutes from "./routes/periodLockoutRoutes"
+import recurringJournalRoutes from "./routes/recurringJournalRoutes"
 
 // Register new cashbook routes (must be BEFORE general /api/cashbook route)
 app.use("/api/cashbook/contra", contraEntryRoutes)
@@ -642,6 +643,7 @@ app.use("/api/cashbook/entry-types", entryTypeRoutes)
 app.use("/api/cashbook/periods", periodLockoutRoutes)
 app.use("/api/accounting/trial-balance", trialBalanceRoutes)
 app.use("/api/accounting/fiscal-calendar", fiscalCalendarRoutes)
+app.use("/api/accounting/recurring-journal-templates", recurringJournalRoutes)
 app.use("/accounting/api", accountingApiRoutes)
 
 // Mini-KYC routes
