@@ -95,8 +95,15 @@ async function main() {
     console.log("[skip] fpa_sync_sources");
   }
 
+  // created_at/updated_at are supplied explicitly rather than relying on the
+  // column defaults in the CREATE above. That CREATE only runs when the table
+  // is absent; where fpa_settings/fpa_sync_sources already exist from an
+  // earlier schema their updated_at may carry no default, and a raw INSERT
+  // (which bypasses Prisma's @updatedAt handling) then fails under strict mode
+  // with "Field 'updated_at' doesn't have a default value" (MySQL 1364) —
+  // exactly how this migration failed on arcus_dev on 7 September 2026.
   await prisma.$executeRawUnsafe(`
-    INSERT INTO fpa_settings (id, variance_json, workflow_json)
+    INSERT INTO fpa_settings (id, variance_json, workflow_json, created_at, updated_at)
     VALUES (
       'default',
       JSON_OBJECT(
@@ -108,13 +115,15 @@ async function main() {
         'path', 'LINEAR',
         'requireCfoSignature', TRUE,
         'allowRerunAfterReturn', TRUE
-      )
+      ),
+      NOW(3),
+      NOW(3)
     )
     ON DUPLICATE KEY UPDATE id = VALUES(id)
   `);
   await prisma.$executeRawUnsafe(`
-    INSERT INTO fpa_sync_sources (id, label, status)
-    VALUES ('netsuite', 'NetSuite', 'DISCONNECTED')
+    INSERT INTO fpa_sync_sources (id, label, status, created_at, updated_at)
+    VALUES ('netsuite', 'NetSuite', 'DISCONNECTED', NOW(3), NOW(3))
     ON DUPLICATE KEY UPDATE label = VALUES(label)
   `);
   console.log("[ok] defaults seeded");

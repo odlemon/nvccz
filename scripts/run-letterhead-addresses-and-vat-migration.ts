@@ -105,14 +105,37 @@ async function main() {
     console.log(`[skip] ${vatTable} exists`);
   }
 
+  // Backfill columns on an older vat_rates that predates them. The CREATE above
+  // only runs when the table is absent, so a table left over from an earlier
+  // schema never gains these — and the INSERT below then fails with
+  // "Unknown column 'effective_from' in 'field list'" (MySQL 1054), which is
+  // exactly how this migration failed on arcus_dev on 7 September 2026.
+  await addColumnIfMissing(vatTable, 'effective_from', 'DATETIME(3) NULL');
+  await addColumnIfMissing(vatTable, 'is_active', 'BOOLEAN NOT NULL DEFAULT FALSE');
+  await addColumnIfMissing(vatTable, 'rate_decimal', 'DECIMAL(10,6) NOT NULL DEFAULT 0');
+  await addColumnIfMissing(vatTable, 'name', 'VARCHAR(255) NOT NULL DEFAULT \'\'');
+  await addColumnIfMissing(
+    vatTable,
+    'created_at',
+    'DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)'
+  );
+  await addColumnIfMissing(
+    vatTable,
+    'updated_at',
+    'DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)'
+  );
+
   // 4) Ensure there is at least one active VAT row (15.5%) so system behaviour matches current default
   const active = await prisma.$queryRawUnsafe<Array<{ c: bigint }>>(
     `SELECT COUNT(*) AS c FROM \`${vatTable}\` WHERE is_active = TRUE`
   );
   if (Number(active[0]?.c ?? 0) === 0) {
     await prisma.$executeRawUnsafe(
-      `INSERT INTO \`${vatTable}\` (id, name, rate_decimal, is_active, effective_from)
-       VALUES (UUID(), 'Standard VAT', 0.155000, TRUE, NOW())`
+      // created_at/updated_at are supplied explicitly: where vat_rates predates
+      // the CREATE above, those columns can exist without defaults and this raw
+      // INSERT then fails with MySQL 1364.
+      `INSERT INTO \`${vatTable}\` (id, name, rate_decimal, is_active, effective_from, created_at, updated_at)
+       VALUES (UUID(), 'Standard VAT', 0.155000, TRUE, NOW(3), NOW(3), NOW(3))`
     );
     console.log('[ok] inserted default active VAT (0.155000)');
   } else {
