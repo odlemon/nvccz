@@ -30,7 +30,7 @@ export class ApprovalService {
    * Create approval request and approval records when an entity (requisition, PO, etc.) is submitted
    */
   static async createApprovalRequest(params: {
-    stageType: "PURCHASE_REQUISITION" | "PURCHASE_ORDER" | "INVOICE" | "GRN";
+    stageType: "PURCHASE_REQUISITION" | "PURCHASE_ORDER" | "INVOICE" | "GRN" | "MASTER_DATA_COA";
     entityId: string;
     entityData?: any;
     requestedById: string;
@@ -49,8 +49,13 @@ export class ApprovalService {
       // Get active approval configuration for the specific department
       // Try department-specific config first, then fall back to general config (department = null)
       const config = await prisma.procurementApprovalConfig.findFirst({
-        where: { 
+        where: {
           isActive: true,
+          // Only consider configs that actually have a stage for this stageType — otherwise findFirst
+          // can return an unrelated active config (e.g. one scoped to a different stageType entirely),
+          // whose stages sub-filter below would then come back empty and silently fall through to the
+          // "no stages configured, auto-approve" branch instead of finding the real config.
+          stages: { some: { stageType: params.stageType } },
           OR: [
             { department: params.department as any },  // Department-specific config
             { department: null }                       // General/default config
@@ -467,7 +472,12 @@ export class ApprovalService {
           console.log(`✅ All approvals complete - Request ${approval.requestId} marked as APPROVED`);
 
           // Update the entity status based on stageType
-          await this.updateEntityStatusAfterApproval(tx, approval.request.stageType, approval.request.entityId);
+          await this.updateEntityStatusAfterApproval(
+            tx,
+            approval.request.stageType,
+            approval.request.entityId,
+            approval.request.entityData
+          );
         } else if (allCurrentStepApproved && currentStepNumber < approval.request.totalSteps) {
           // Move to next step
           updatedRequest = await tx.approvalRequest.update({
@@ -609,13 +619,30 @@ export class ApprovalService {
   /**
    * Update entity status after approval is complete
    */
-  private static async updateEntityStatusAfterApproval(tx: any, stageType: string, entityId: string) {
+  private static async updateEntityStatusAfterApproval(tx: any, stageType: string, entityId: string, entityData?: any) {
     try {
       console.log(`🔄 Updating entity status after approval...`);
       console.log(`   Stage Type: ${stageType}`);
       console.log(`   Entity ID: ${entityId}`);
 
       switch (stageType) {
+        case "MASTER_DATA_COA": {
+          // Chart of Accounts master-data edit, gated for non-privileged users (see
+          // ChartOfAccountsController.updateChartOfAccounts). The proposed change was stored as JSON
+          // on the ApprovalRequest at submission time — apply it now via the same shared update
+          // function the direct-apply (admin/CFO) path uses, inside this same transaction so the
+          // Approval/ApprovalRequest status change and the actual CoA mutation commit atomically.
+          const { applyChartOfAccountsUpdate } = await import("./ChartOfAccountsUpdateService");
+          const result = await applyChartOfAccountsUpdate(entityId, entityData, tx);
+          if (!result.ok) {
+            throw new Error(
+              `Failed to apply approved Chart of Accounts change for ${entityId}: [${result.status}] ${result.message}`
+            );
+          }
+          console.log(`   ✅ Chart of Accounts ${entityId} updated per approved change`);
+          break;
+        }
+
         case "PURCHASE_REQUISITION":
           await tx.purchaseRequisition.update({
             where: { id: entityId },
@@ -667,6 +694,13 @@ export class ApprovalService {
       console.log(`   Entity ID: ${entityId}`);
 
       switch (stageType) {
+        case "MASTER_DATA_COA":
+          // Nothing was ever applied to the ChartOfAccounts row for a pending request (see
+          // updateEntityStatusAfterApproval) — the row is left exactly as it was. Only the
+          // Approval/ApprovalRequest status (already set to REJECTED by the caller) records the outcome.
+          console.log(`   ❌ Chart of Accounts change for ${entityId} rejected — no changes were applied, nothing to revert`);
+          break;
+
         case "PURCHASE_REQUISITION":
         case "PURCHASE_ORDER":
         case "INVOICE":
