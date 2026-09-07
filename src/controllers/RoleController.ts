@@ -121,7 +121,7 @@ export class RoleController {
   async updateRole(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { name, description, permissions } = req.body;
+      const { name, description, permissions, portfolioSettingsPermissions } = req.body;
 
       // Check if role exists
       const existingRole = await prisma.role.findUnique({
@@ -157,7 +157,8 @@ export class RoleController {
         data: {
           name: name ? name.toLowerCase() : undefined,
           description: description !== undefined ? description : undefined,
-          permissions: permissions || undefined
+          permissions: permissions || undefined,
+          portfolioSettingsPermissions: portfolioSettingsPermissions !== undefined ? portfolioSettingsPermissions : undefined
         }
       });
 

@@ -226,6 +226,39 @@ export class FirebaseStorageService {
   }
 
   /**
+   * Upload a fund-level document (Portfolio Funds detail — Documents tab) to the remote server.
+   */
+  static async uploadFundDocument(
+    file: Buffer,
+    fileName: string,
+    fundId: string,
+    category: string
+  ): Promise<{ filePath: string; downloadURL: string }> {
+    try {
+      const sanitizedName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+      const safeCategory = category || 'GENERAL';
+      const timestamp = Date.now();
+
+      const result = await remoteUploadService.uploadSingleFile(
+        {
+          buffer: file,
+          originalname: `${timestamp}-${sanitizedName}`,
+          mimetype: this.getMimeType(fileName),
+        },
+        'fund-documents'
+      );
+
+      return {
+        filePath: `fund-documents/${fundId}/${safeCategory}/${timestamp}-${sanitizedName}`,
+        downloadURL: result.downloadURL
+      };
+    } catch (error: any) {
+      console.error('❌ Error uploading fund document:', error.message);
+      throw new Error(`Failed to upload fund document: ${error.message}`);
+    }
+  }
+
+  /**
    * Download file from Remote Server (replaces Firebase)
    */
   static async downloadImportFile(filePath: string): Promise<Buffer> {

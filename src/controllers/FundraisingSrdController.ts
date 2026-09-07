@@ -468,6 +468,8 @@ export class FundraisingSrdController {
       campaignId: req.query.campaignId as string | undefined,
       opportunityId: req.query.opportunityId as string | undefined,
       investorId: req.query.investorId as string | undefined,
+      applicationId: req.query.applicationId as string | undefined,
+      fundId: req.query.fundId as string | undefined,
       status: req.query.status as string | undefined,
     });
     res.json({ success: true, data });
@@ -475,6 +477,16 @@ export class FundraisingSrdController {
 
   static createAgreement = wrap(async (req, res) => {
     const data = await FundraisingSrdService.createAgreement(req.user!.id, req.body, req);
+    res.status(201).json({ success: true, data });
+  });
+
+  static listAgreementTemplates = wrap(async (req, res) => {
+    const data = await FundraisingSrdService.listAgreementTemplates();
+    res.json({ success: true, data });
+  });
+
+  static createAgreementTemplate = wrap(async (req, res) => {
+    const data = await FundraisingSrdService.createAgreementTemplate(req.user!.id, req.body);
     res.status(201).json({ success: true, data });
   });
 

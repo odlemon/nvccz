@@ -5,6 +5,45 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../utils/database';
 import { AumRealtimeSyncService } from './AumRealtimeSyncService';
 
+/**
+ * XIRR via Newton-Raphson with a bisection fallback. `flows` is [{date, amount}] — amount is
+ * negative for money paid in (capital calls), positive for money received/held (NAV, distributions).
+ * Returns null when there are fewer than two flows or the amounts never change sign (no real return
+ * to compute), rather than guessing.
+ */
+function calculateXirr(flows: Array<{ date: Date; amount: number }>): number | null {
+  const valid = flows.filter((f) => f.amount !== 0);
+  if (valid.length < 2) return null;
+  const hasNegative = valid.some((f) => f.amount < 0);
+  const hasPositive = valid.some((f) => f.amount > 0);
+  if (!hasNegative || !hasPositive) return null;
+  const t0 = valid[0].date.getTime();
+  const years = valid.map((f) => (f.date.getTime() - t0) / (365.25 * 86400000));
+  const npv = (rate: number) => valid.reduce((sum, f, i) => sum + f.amount / Math.pow(1 + rate, years[i]), 0);
+  const dnpv = (rate: number) =>
+    valid.reduce((sum, f, i) => sum - (years[i] * f.amount) / Math.pow(1 + rate, years[i] + 1), 0);
+  let rate = 0.1;
+  for (let i = 0; i < 100; i++) {
+    const f = npv(rate);
+    const df = dnpv(rate);
+    if (Math.abs(df) < 1e-10) break;
+    const next = rate - f / df;
+    if (!Number.isFinite(next) || next <= -0.999) break;
+    if (Math.abs(next - rate) < 1e-7) return next;
+    rate = next;
+  }
+  // Bisection fallback over a wide, sane range if Newton didn't converge.
+  let lo = -0.99, hi = 10;
+  let fLo = npv(lo);
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    const fMid = npv(mid);
+    if (Math.abs(fMid) < 1e-6) return mid;
+    if ((fLo < 0) === (fMid < 0)) { lo = mid; fLo = fMid; } else { hi = mid; }
+  }
+  return null;
+}
+
 export interface CreateFundRequest {
   name: string;
   description: string;
@@ -16,6 +55,12 @@ export interface CreateFundRequest {
   applicationEnd: Date;
   status?: string; // OPEN, CLOSED, COMING_SOON
   createdById: string; // Required - ID of the user creating the fund
+  managementFeeRate?: number; // decimal fraction, e.g. 0.02 for 2%
+  carryRate?: number; // decimal fraction, e.g. 0.20 for 20%
+  hurdleRate?: number; // decimal fraction, e.g. 0.08 for 8%
+  vintageYear?: number;
+  currencyCode?: string;
+  geography?: string;
 }
 
 export interface UpdateFundRequest {
@@ -28,6 +73,12 @@ export interface UpdateFundRequest {
   applicationStart?: Date;
   applicationEnd?: Date;
   status?: string;
+  managementFeeRate?: number;
+  carryRate?: number;
+  hurdleRate?: number;
+  vintageYear?: number;
+  currencyCode?: string;
+  geography?: string;
 }
 
 export interface FundWithRelations extends Fund {
@@ -72,11 +123,18 @@ export class FundService {
           applicationEnd: params.applicationEnd,
           status: params.status || "OPEN",
           fundPurpose: "PRIVATE_EQUITY",
-          createdById: params.createdById
+          createdById: params.createdById,
+          managementFeeRate: params.managementFeeRate != null ? new Decimal(params.managementFeeRate) : undefined,
+          carryRate: params.carryRate != null ? new Decimal(params.carryRate) : undefined,
+          hurdleRate: params.hurdleRate != null ? new Decimal(params.hurdleRate) : undefined,
+          vintageYear: params.vintageYear ?? undefined,
+          currencyCode: params.currencyCode ?? undefined,
+          geography: params.geography ?? undefined,
         }
       });
 
       await AumRealtimeSyncService.recomputeAndPersist({ source: "funds" });
+      await FundService.recordPerformanceSnapshot(fund.id, params.createdById);
 
       return fund;
     } catch (error: any) {
@@ -107,6 +165,12 @@ export class FundService {
       if (params.applicationStart) updateData.applicationStart = params.applicationStart;
       if (params.applicationEnd) updateData.applicationEnd = params.applicationEnd;
       if (params.status) updateData.status = params.status;
+      if (params.managementFeeRate != null) updateData.managementFeeRate = new Decimal(params.managementFeeRate);
+      if (params.carryRate != null) updateData.carryRate = new Decimal(params.carryRate);
+      if (params.hurdleRate != null) updateData.hurdleRate = new Decimal(params.hurdleRate);
+      if (params.vintageYear != null) updateData.vintageYear = params.vintageYear;
+      if (params.currencyCode) updateData.currencyCode = params.currencyCode;
+      if (params.geography) updateData.geography = params.geography;
 
       // If total amount is being updated, also update remaining amount proportionally
       if (params.totalAmount) {
@@ -128,11 +192,111 @@ export class FundService {
       });
 
       await AumRealtimeSyncService.recomputeAndPersist({ source: "funds" });
+      await FundService.recordPerformanceSnapshot(fundId);
 
       return updatedFund;
     } catch (error: any) {
       throw new Error(`Failed to update fund: ${error.message}`);
     }
+  }
+
+  /**
+   * List a fund's recorded performance snapshots, oldest first.
+   */
+  static async listPerformanceSnapshots(fundId: string) {
+    return prisma.fundPerformanceSnapshot.findMany({
+      where: { fundId },
+      orderBy: { asOfDate: "asc" },
+    });
+  }
+
+  /**
+   * List a fund's documents, most recent first.
+   */
+  static async listFundDocuments(fundId: string) {
+    return prisma.fundDocument.findMany({
+      where: { fundId },
+      orderBy: { createdAt: "desc" },
+      include: { uploadedBy: { select: { id: true, firstName: true, lastName: true } } },
+    });
+  }
+
+  /**
+   * Record a fund document after it has been uploaded to storage.
+   */
+  static async createFundDocument(params: {
+    fundId: string;
+    name: string;
+    category: string;
+    fileUrl: string;
+    storagePath?: string;
+    mimeType?: string;
+    fileSizeBytes?: number;
+    uploadedById?: string;
+  }) {
+    return prisma.fundDocument.create({
+      data: {
+        fundId: params.fundId,
+        name: params.name,
+        category: params.category,
+        fileUrl: params.fileUrl,
+        storagePath: params.storagePath,
+        mimeType: params.mimeType,
+        fileSizeBytes: params.fileSizeBytes,
+        uploadedById: params.uploadedById,
+      },
+    });
+  }
+
+  /**
+   * Record (or update) today's performance snapshot for a fund from its current real state.
+   * Called after fund-affecting actions (create/update, capital call activity) so the Portfolio
+   * Funds detail page's NAV/IRR trend charts accumulate real history going forward — there is no
+   * historical data to backfill, so the series starts from whenever this first runs.
+   */
+  static async recordPerformanceSnapshot(fundId: string, createdById?: string): Promise<void> {
+    const fund = await prisma.fund.findUnique({ where: { id: fundId } });
+    if (!fund) return;
+    const calledCapital = fund.totalAmount.sub(fund.remainingAmount);
+    const asOfDate = new Date();
+    asOfDate.setUTCHours(0, 0, 0, 0);
+
+    // Real Gross IRR from LP perspective: capital actually collected (negative — paid in by LPs,
+    // dated at each call's real transactionDate) versus current NAV (positive, dated today).
+    // No fabricated cash flows and no distributions assumed — there is no real distribution
+    // record type yet, so this honestly reflects "called capital vs current value" only.
+    const calls = await prisma.capitalCall.findMany({
+      where: { fundId },
+      include: { allocations: { select: { amountPaid: true } } },
+    });
+    const flows: Array<{ date: Date; amount: number }> = [];
+    for (const call of calls) {
+      const collected = call.allocations.reduce((sum, a) => sum + Number(a.amountPaid), 0);
+      if (collected > 0) flows.push({ date: call.transactionDate, amount: -collected });
+    }
+    flows.push({ date: asOfDate, amount: Number(fund.remainingAmount) });
+    flows.sort((a, b) => a.date.getTime() - b.date.getTime());
+    const grossIrr = calculateXirr(flows);
+
+    await prisma.fundPerformanceSnapshot.upsert({
+      where: { fundId_asOfDate: { fundId, asOfDate } },
+      create: {
+        fundId,
+        asOfDate,
+        totalCommitment: fund.totalAmount,
+        calledCapital,
+        distributedCapital: new Decimal(0),
+        nav: fund.remainingAmount,
+        grossIrr: grossIrr != null ? new Decimal(grossIrr) : undefined,
+        createdById,
+      },
+      update: {
+        totalCommitment: fund.totalAmount,
+        calledCapital,
+        nav: fund.remainingAmount,
+        grossIrr: grossIrr != null ? new Decimal(grossIrr) : undefined,
+      },
+    });
   }
 
   /**

@@ -9,6 +9,7 @@ import {
   type CapitalCallAccountingLetterhead,
 } from "../utils/capitalCallAccountingLetterhead";
 import { buildCapitalCallNoticePdfBuffer, safePdfFileBaseName } from "../utils/capitalCallNoticePdf";
+import { FundService } from "./FundService";
 
 const COMMITMENT_STATUSES_ELIGIBLE = ["ACTIVE", "PENDING"];
 /** Must match chart_of_accounts.account_no — created by `npm run db:ensure:capital-call-accounts` (or `db:ensure:chart-of-accounts`). */
@@ -426,6 +427,9 @@ export class CapitalCallService {
     );
 
     const detail = await this.getById(params.fundId, result.capitalCallId);
+    // Issuing a call changes the fund's real cash-flow history — refresh its performance snapshot
+    // (and Gross IRR) rather than leaving it stale until the fund itself is next edited.
+    await FundService.recordPerformanceSnapshot(params.fundId).catch(() => {});
     return detail;
   }
 
@@ -886,6 +890,8 @@ export class CapitalCallService {
       { maxWait: 8000, timeout: 20_000 }
     );
 
+    // A real payment just changed this fund's actual cash flows — refresh its Gross IRR snapshot.
+    await FundService.recordPerformanceSnapshot(params.fundId).catch(() => {});
     return this.getById(params.fundId, params.capitalCallId);
   }
 

@@ -27,6 +27,8 @@ export interface CreateApplicationRequest {
   // Investment Details
   requestedAmount: number;
   fundId?: string;
+  /** Intake origin: INTERNAL (staff Add Deal) | APPLICANT_FORM (public form). Default APPLICANT_FORM. */
+  source?: string;
   /** Extended form payload from the public funding application (use-of-funds, declarations, impact/ESG…). */
   applicationFormData?: Record<string, unknown> | null;
   
@@ -67,6 +69,8 @@ export interface ApplicationWithRelations {
   foundingDate?: Date;
   requestedAmount: Decimal;
   fundId?: string;
+  /** Intake origin: INTERNAL | APPLICANT_FORM */
+  source?: string;
   currentStage: string;
   submittedAt?: Date;
   initialScreeningScore?: Decimal;
@@ -206,6 +210,10 @@ export class ApplicationService {
         throw new Error(`Missing required documents: ${missingDocuments.join(", ")}`);
       }
 
+      const rawSource = String(params.source || "").trim().toUpperCase();
+      const intakeSource =
+        rawSource === "INTERNAL" ? "INTERNAL" : "APPLICANT_FORM";
+
       const application = await prisma.$transaction(async (tx) => {
         const dealReference = await DealReferenceService.allocateNext(tx);
         return tx.application.create({
@@ -221,6 +229,7 @@ export class ApplicationService {
             foundingDate: params.foundingDate,
             requestedAmount: new Decimal(params.requestedAmount),
             fundId: params.fundId,
+            source: intakeSource,
             applicationFormData: params.applicationFormData
               ? (params.applicationFormData as Prisma.InputJsonValue)
               : undefined,
@@ -1283,13 +1292,16 @@ export class ApplicationService {
           where.currentStage = stage;
         }
       } else {
+        // Note: SCREENING_PENDING is intentionally NOT excluded — it's the "Sourcing"
+        // column (the very first pipeline stage) on the Deal Flow board. Excluding it
+        // made a freshly submitted application invisible to every staff user, so
+        // nobody could ever see it to screen it in the first place.
         where.currentStage = {
           notIn: [
             'REJECTED',
             'REJECTED_SCREENING',
             'AUTO_REJECTED',
             'BELOW_THRESHOLD',
-            'SCREENING_PENDING',
             'PENDING_SHORTLISTING'
           ]
         };

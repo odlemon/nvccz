@@ -370,6 +370,8 @@ router.delete(
 );
 
 // ── Agreements / e-sign ─────────────────────────────────────────
+router.get("/agreement-templates", FundraisingSrdController.listAgreementTemplates);
+router.post("/agreement-templates", requireFundraisingEdit, FundraisingSrdController.createAgreementTemplate);
 router.get("/agreements", FundraisingSrdController.listAgreements);
 router.post("/agreements", requireFundraisingEdit, FundraisingSrdController.createAgreement);
 router.get("/agreements/:agreementId", FundraisingSrdController.getAgreement);

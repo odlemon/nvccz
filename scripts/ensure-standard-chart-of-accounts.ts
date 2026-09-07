@@ -33,6 +33,7 @@ const STANDARD_CHART_OF_ACCOUNTS: StdRow[] = [
   { accountNo: '1200', accountName: 'Accounts Receivable', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT' },
   { accountNo: '1210', accountName: 'Capital Contributions Receivable', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT', notes: 'LP capital calls: Dr on initiation (see CapitalCallService / npm run db:ensure:capital-call-accounts)' },
   { accountNo: '1300', accountName: 'Prepayments', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT' },
+  { accountNo: '1501', accountName: 'Portfolio Investments', accountType: 'Fixed Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT', notes: 'Fund disbursement approval debits this account (see InvestmentImplementationService.approveFundDisbursement / listedSecuritiesAsset in investment-ops scripts)' },
   { accountNo: '1510', accountName: 'Office Equipment', accountType: 'Fixed Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT', notes: 'Furniture, computers, equipment' },
 
   // —— Liabilities ——

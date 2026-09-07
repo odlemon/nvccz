@@ -4,8 +4,14 @@ import { FundController } from "../controllers/FundController";
 import { CapitalCallController } from "../controllers/CapitalCallController";
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
+import multer from "multer";
 
 const router = express.Router();
+
+const fundDocumentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+});
 
 /**
  * @swagger
@@ -230,6 +236,44 @@ router.get("/:fundId", authenticate, authorize(["admin", "fund_manager"]), FundC
  *         description: Update error
  */
 router.put("/:fundId", authenticate, authorize(["admin"]), FundController.updateFund);
+
+/**
+ * @swagger
+ * /funds/{fundId}/performance-snapshots:
+ *   get:
+ *     summary: List a fund's recorded performance snapshots (NAV/called/distributed over time)
+ *     tags: [Fund Management]
+ */
+router.get(
+  "/:fundId/performance-snapshots",
+  authenticate,
+  authorize(["admin", "fund_manager"]),
+  FundController.getPerformanceSnapshots
+);
+
+/**
+ * @swagger
+ * /funds/{fundId}/documents:
+ *   get:
+ *     summary: List a fund's documents
+ *     tags: [Fund Management]
+ *   post:
+ *     summary: Upload a document to a fund
+ *     tags: [Fund Management]
+ */
+router.get(
+  "/:fundId/documents",
+  authenticate,
+  authorize(["admin", "fund_manager"]),
+  FundController.listDocuments
+);
+router.post(
+  "/:fundId/documents",
+  authenticate,
+  authorize(["admin", "fund_manager"]),
+  fundDocumentUpload.single("file"),
+  FundController.uploadDocument
+);
 
 /**
  * @swagger

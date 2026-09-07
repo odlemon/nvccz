@@ -565,8 +565,19 @@ export class TermSheetService {
         }
       });
 
-      // Only update application stage if both signatures are present (fully signed)
-      if (updatedTermSheet.isSigned && updatedTermSheet.applicantSignatureUrl && updatedTermSheet.investorSignatureUrl) {
+      // Only update application stage if both signatures are present (fully signed), and only when
+      // the application hasn't already progressed past term sheet (e.g. board review already
+      // completed while the applicant signature was still pending) — otherwise this would
+      // incorrectly regress the stage backwards.
+      const stageBeforeSign = String(termSheet.application.currentStage || "");
+      const stillAtTermSheet =
+        stageBeforeSign === "TERM_SHEET" || stageBeforeSign === "TERM_SHEET_NEGOTIATION";
+      if (
+        stillAtTermSheet &&
+        updatedTermSheet.isSigned &&
+        updatedTermSheet.applicantSignatureUrl &&
+        updatedTermSheet.investorSignatureUrl
+      ) {
         // Update application stage to UNDER_BOARD_REVIEW (new workflow: term sheet → board review → investment implementation)
         await prisma.application.update({
           where: { id: applicationId },

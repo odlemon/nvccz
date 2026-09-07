@@ -46,6 +46,7 @@ export class ApplicationController {
         foundingDate,
         requestedAmount,
         fundId,
+        source,
         documents,
         documentTypes,
         applicationFormData,
@@ -210,6 +211,7 @@ export class ApplicationController {
         foundingDate: foundingDate ? parseDate(foundingDate) : undefined,
         requestedAmount: Number(requestedAmount),
         fundId,
+        source,
         applicationFormData: parsedFormData,
         documents: processedDocuments
       };

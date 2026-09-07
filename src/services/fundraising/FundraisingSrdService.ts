@@ -2063,12 +2063,16 @@ export class FundraisingSrdService {
     campaignId?: string;
     opportunityId?: string;
     investorId?: string;
+    applicationId?: string;
+    fundId?: string;
     status?: string;
   }) {
     const where: any = {};
     if (filters.campaignId) where.campaignId = filters.campaignId;
     if (filters.opportunityId) where.opportunityId = filters.opportunityId;
     if (filters.investorId) where.investorId = filters.investorId;
+    if (filters.applicationId) where.applicationId = filters.applicationId;
+    if (filters.fundId) where.fundId = filters.fundId;
     if (filters.status) where.status = filters.status;
 
     return prisma.fundraisingAgreement.findMany({
@@ -2076,6 +2080,8 @@ export class FundraisingSrdService {
       include: {
         versions: { orderBy: { versionNumber: "desc" }, take: 1 },
         signatories: { take: 10 },
+        application: { select: { id: true, businessName: true } },
+        fund: { select: { id: true, name: true } },
       },
       orderBy: { updatedAt: "desc" },
     });
@@ -2085,12 +2091,23 @@ export class FundraisingSrdService {
     if (!body?.documentType) throw FundraisingIrError.badRequest("documentType is required", "VALIDATION_ERROR");
     if (!body?.title) throw FundraisingIrError.badRequest("title is required", "VALIDATION_ERROR");
 
+    if (body.applicationId) {
+      const application = await prisma.application.findUnique({ where: { id: body.applicationId }, select: { id: true } });
+      if (!application) throw FundraisingIrError.badRequest("applicationId does not reference an existing deal", "VALIDATION_ERROR");
+    }
+    if (body.fundId) {
+      const fund = await prisma.fund.findUnique({ where: { id: body.fundId }, select: { id: true } });
+      if (!fund) throw FundraisingIrError.badRequest("fundId does not reference an existing fund", "VALIDATION_ERROR");
+    }
+
     const created = await prisma.fundraisingAgreement.create({
       data: {
         opportunityId: body.opportunityId ?? null,
         investorId: body.investorId ?? null,
         campaignId: body.campaignId ?? null,
         commitmentId: body.commitmentId ?? null,
+        applicationId: body.applicationId ?? null,
+        fundId: body.fundId ?? null,
         documentType: body.documentType,
         title: body.title,
         status: body.status || "DRAFT",
@@ -2109,6 +2126,26 @@ export class FundraisingSrdService {
       reqMeta(req)
     );
     return FundraisingSrdService.getAgreement(created.id);
+  }
+
+  static async listAgreementTemplates() {
+    return prisma.fundraisingAgreementTemplate.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+    });
+  }
+
+  static async createAgreementTemplate(userId: string, body: any) {
+    if (!body?.name) throw FundraisingIrError.badRequest("name is required", "VALIDATION_ERROR");
+    if (!body?.documentType) throw FundraisingIrError.badRequest("documentType is required", "VALIDATION_ERROR");
+    return prisma.fundraisingAgreementTemplate.create({
+      data: {
+        name: body.name,
+        documentType: body.documentType,
+        description: body.description ?? null,
+        createdById: userId,
+      },
+    });
   }
 
   static async getAgreement(agreementId: string) {
@@ -2199,6 +2236,7 @@ export class FundraisingSrdService {
         versionId: versionId ?? null,
         fullName: body.fullName,
         email: body.email,
+        role: body.role ?? null,
         sequenceOrder: toNum(body.sequenceOrder) ?? 0,
         status: "PENDING",
         invitedAt: new Date(),
