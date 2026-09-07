@@ -639,6 +639,8 @@ import contraEntryRoutes from "./routes/contraEntryRoutes"
 import batchImportExportRoutes from "./routes/batchImportExportRoutes"
 import periodLockoutRoutes from "./routes/periodLockoutRoutes"
 import recurringJournalRoutes from "./routes/recurringJournalRoutes"
+import projectRoutes from "./routes/projectRoutes"
+import timesheetRoutes from "./routes/timesheetRoutes"
 import accountingDocumentRoutes from "./routes/accountingDocumentRoutes"
 
 // Register new cashbook routes (must be BEFORE general /api/cashbook route)
@@ -649,6 +651,8 @@ app.use("/api/accounting/trial-balance", trialBalanceRoutes)
 app.use("/api/accounting/fiscal-calendar", fiscalCalendarRoutes)
 app.use("/api/accounting/close-tasks", accountingCloseTaskRoutes)
 app.use("/api/accounting/recurring-journal-templates", recurringJournalRoutes)
+app.use("/api/accounting/projects", projectRoutes)
+app.use("/api/accounting/timesheets", timesheetRoutes)
 app.use("/api/accounting/documents", accountingDocumentRoutes)
 app.use("/accounting/api", accountingApiRoutes)
 

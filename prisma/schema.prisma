@@ -215,6 +215,9 @@ model User {
   listedEquityTicksReviewed             ListedEquityPriceTick[]         @relation("ListedEquityTickReviewer")
   accountingCloseTasksOwned             AccountingCloseTask[]           @relation("AccountingCloseTaskOwner")
   accountingCloseTasksCompleted         AccountingCloseTask[]           @relation("AccountingCloseTaskCompletedBy")
+  projectsCreated                       Project[]
+  timesheets                            Timesheet[]                     @relation("TimesheetUser")
+  timesheetsApproved                    Timesheet[]                     @relation("TimesheetApprover")
 
   @@map("users")
 }
@@ -11689,4 +11692,65 @@ model SpCashBreakComment {
 
   @@index([breakId], map: "sp_cash_break_comments_break_idx")
   @@map("sp_cash_break_comments")
+}
+
+/// Lightweight internal/client work-item lookup for timesheet tracking. Deliberately NOT the
+/// investment Fund model — entries here mix real fund names with plain internal work items
+/// (e.g. "Corporate Close", "Workshop ERP"), so this is its own catalog, not fund-domain data.
+model Project {
+  id          String   @id @default(cuid())
+  name        String   @db.VarChar(255)
+  clientName  String?  @map("client_name") @db.VarChar(255)
+  projectType String?  @map("project_type") @db.VarChar(64)
+  budget      Decimal? @db.Decimal(14, 2)
+  status      String   @default("ACTIVE") @db.VarChar(32)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  createdBy User?            @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  entries   TimesheetEntry[]
+
+  @@map("projects")
+}
+
+/// Weekly timesheet header, one per user per week-ending date. Day-by-day hours live on
+/// TimesheetEntry so they stay independently queryable for billing/WIP reporting later.
+model Timesheet {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  weekEnding   DateTime  @map("week_ending") @db.Date
+  /// DRAFT | SUBMITTED | APPROVED | RETURNED
+  status       String    @default("DRAFT") @db.VarChar(32)
+  submittedAt  DateTime? @map("submitted_at")
+  approvedById String?   @map("approved_by_id")
+  approvedAt   DateTime? @map("approved_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  user       User             @relation("TimesheetUser", fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy User?            @relation("TimesheetApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  entries    TimesheetEntry[]
+
+  @@unique([userId, weekEnding])
+  @@map("timesheets")
+}
+
+/// One project/day line on a Timesheet — real FK to both header and Project (not a JSON blob),
+/// so hours are independently queryable for billing/WIP reporting.
+model TimesheetEntry {
+  id          String   @id @default(cuid())
+  timesheetId String   @map("timesheet_id")
+  projectId   String   @map("project_id")
+  date        DateTime @db.Date
+  hours       Decimal  @db.Decimal(5, 2)
+  billable    Boolean  @default(false)
+  notes       String?  @db.VarChar(500)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  timesheet Timesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+  project   Project   @relation(fields: [projectId], references: [id])
+
+  @@map("timesheet_entries")
 }
