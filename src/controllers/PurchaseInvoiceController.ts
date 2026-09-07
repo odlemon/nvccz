@@ -12,6 +12,11 @@ import {
 import { CreditorsAgeAnalysisService } from "../services/CreditorsAgeAnalysisService";
 import { ResponseHelper } from "../utils/responseHelper";
 import { logger } from "../utils/logger";
+import { isModulePrivilegedUser } from "../config/cfoModulePermissions";
+import {
+  evaluateSinglePaymentThreshold,
+  evaluateBatchPaymentThreshold,
+} from "../services/PaymentInvestmentApprovalService";
 
 export class PurchaseInvoiceController {
   /**
@@ -457,6 +462,61 @@ export class PurchaseInvoiceController {
         return;
       }
 
+      // Payment-approval gate (mirrors MASTER_DATA_COA / ChartOfAccountsController): privileged
+      // (admin/CFO) users and below-threshold payments continue to execute immediately, exactly as
+      // before. A non-privileged user paying PAYMENT_APPROVAL_THRESHOLD_USD (USD-equivalent) or more
+      // gets the payment queued for CFO approval (ApprovalRequest, stageType "PAYMENT_EXECUTION")
+      // instead of executed here — see PaymentInvestmentApprovalService and
+      // ApprovalService.updateEntityStatusAfterApproval.
+      const { requiresApproval, amountUsd, currencyCode } = await evaluateSinglePaymentThreshold(id);
+      if (requiresApproval && !isModulePrivilegedUser((req as any).user)) {
+        const { ApprovalService } = await import("../services/ApprovalService");
+        const approvalResult = await ApprovalService.createApprovalRequest({
+          stageType: "PAYMENT_EXECUTION",
+          entityId: id,
+          entityData: {
+            kind: "SINGLE",
+            paymentMethod,
+            bankId,
+            paymentDateIso: parseDate(paymentDate).toISOString(),
+            paymentReference,
+            notes,
+            amountUsd,
+            currencyCode,
+          },
+          requestedById: processedById,
+          department: "Finance",
+        });
+
+        if (!approvalResult) {
+          // No active PAYMENT_EXECUTION approval configuration/stage found (see
+          // scripts/run-payment-investment-approval-configs-seed.ts). Fail closed rather than
+          // silently executing the payment for a non-privileged caller.
+          ResponseHelper.error(
+            res,
+            "Payment requires CFO approval, but no approval workflow is configured. Contact an administrator.",
+            undefined,
+            503
+          );
+          return;
+        }
+
+        ResponseHelper.success(
+          res,
+          "Payment submitted for CFO approval",
+          {
+            status: "pending_approval",
+            approvalRequestId: approvalResult.approvalRequest.id,
+            purchaseInvoiceId: id,
+            proposedPayment: { paymentMethod, bankId, paymentDate, paymentReference, notes },
+            amountUsd,
+            currencyCode,
+          },
+          202
+        );
+        return;
+      }
+
       const invoice = await PurchaseInvoiceService.payInvoice(
         id,
         {
@@ -525,6 +585,57 @@ export class PurchaseInvoiceController {
       const processedById = (req as any).user?.id;
       if (!processedById) {
         ResponseHelper.error(res, "User not authenticated", undefined, 401);
+        return;
+      }
+
+      // Same payment-approval gate as payInvoice, applied to the batch total (see
+      // PaymentInvestmentApprovalService.evaluateBatchPaymentThreshold). Gating batch-pay
+      // separately from single-pay matters: without it, a non-privileged user could route a
+      // large payment through this endpoint to bypass the single-invoice threshold entirely.
+      const { requiresApproval, amountUsd, currencyCode } = await evaluateBatchPaymentThreshold(invoiceIds);
+      if (requiresApproval && !isModulePrivilegedUser((req as any).user)) {
+        const { ApprovalService } = await import("../services/ApprovalService");
+        const batchEntityId = `BATCH-PAY-${invoiceIds.length}-BILLS-${Date.now()}`;
+        const approvalResult = await ApprovalService.createApprovalRequest({
+          stageType: "PAYMENT_EXECUTION",
+          entityId: batchEntityId,
+          entityData: {
+            kind: "BATCH",
+            invoiceIds,
+            paymentMethod,
+            bankId,
+            paymentDateIso: parseDate(paymentDate).toISOString(),
+            paymentReference,
+            notes,
+            amountUsd,
+            currencyCode,
+          },
+          requestedById: processedById,
+          department: "Finance",
+        });
+
+        if (!approvalResult) {
+          ResponseHelper.error(
+            res,
+            "Batch payment requires CFO approval, but no approval workflow is configured. Contact an administrator.",
+            undefined,
+            503
+          );
+          return;
+        }
+
+        ResponseHelper.success(
+          res,
+          "Batch payment submitted for CFO approval",
+          {
+            status: "pending_approval",
+            approvalRequestId: approvalResult.approvalRequest.id,
+            proposedBatchPayment: { invoiceIds, paymentMethod, bankId, paymentDate, paymentReference, notes },
+            amountUsd,
+            currencyCode,
+          },
+          202
+        );
         return;
       }
 

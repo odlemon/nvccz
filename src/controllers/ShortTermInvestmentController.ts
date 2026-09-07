@@ -1,9 +1,13 @@
 import { Prisma } from "@prisma/client";
 import { Response } from "express";
+import { randomUUID } from "crypto";
 import { AuthRequest } from "../middleware/authenticate";
 import { prisma } from "../utils/database";
 import AuditService from "../services/AuditService";
 import { ShortTermInvestmentService } from "../services/ShortTermInvestmentService";
+import { isModulePrivilegedUser } from "../config/cfoModulePermissions";
+import { evaluateInvestmentThreshold } from "../services/PaymentInvestmentApprovalService";
+import { Department } from "../services/ProcurementService";
 
 /** Max accrual rows returned on GET instrument (newest first); avoids huge payloads after long catch-ups. */
 const TAKE_INSTRUMENT_ACCRUALS = 500;
@@ -161,34 +165,88 @@ export class ShortTermInvestmentController {
       const b = req.body || {};
       const optId = (v: unknown): string | null =>
         v != null && String(v).trim() !== "" ? String(v).trim() : null;
-      const row = await ShortTermInvestmentService.createInstrument(
-        {
-          name: String(b.name || ""),
-          category: b.category ?? null,
-          broker: b.broker ?? null,
-          principal: b.principal,
-          currencyId: String(b.currencyId || ""),
-          functionalCurrencyId: optId(b.functionalCurrencyId),
-          compoundingMethod: String(b.compoundingMethod || "SIMPLE"),
-          dayCountConvention: b.dayCountConvention ?? "ACTUAL_365",
-          settlementBankId: String(b.settlementBankId || ""),
-          principalGlAccountId: String(b.principalGlAccountId || ""),
-          accruedInterestGlAccountId: String(b.accruedInterestGlAccountId || ""),
-          interestIncomeGlAccountId: String(b.interestIncomeGlAccountId || ""),
-          negativeYieldExpenseGlAccountId: String(b.negativeYieldExpenseGlAccountId || ""),
-          unrealizedFxGlAccountId: optId(b.unrealizedFxGlAccountId),
-          realizedFxGlAccountId: optId(b.realizedFxGlAccountId),
-          startDateIso: String(b.startDateIso || b.startDate || ""),
-          maturityDateIso: b.maturityDateIso ?? b.maturityDate ?? null,
-          initialApy: b.initialApy ?? b.apy,
-          initialApyEffectiveFromIso: b.initialApyEffectiveFromIso ?? b.effectiveFromIso,
-        },
-        {
-          userId,
-          ipAddress: req.ip,
-          userAgent: req.get("user-agent"),
-        }
+      const payload = {
+        name: String(b.name || ""),
+        category: b.category ?? null,
+        broker: b.broker ?? null,
+        principal: b.principal,
+        currencyId: String(b.currencyId || ""),
+        functionalCurrencyId: optId(b.functionalCurrencyId),
+        compoundingMethod: String(b.compoundingMethod || "SIMPLE"),
+        dayCountConvention: b.dayCountConvention ?? "ACTUAL_365",
+        settlementBankId: String(b.settlementBankId || ""),
+        principalGlAccountId: String(b.principalGlAccountId || ""),
+        accruedInterestGlAccountId: String(b.accruedInterestGlAccountId || ""),
+        interestIncomeGlAccountId: String(b.interestIncomeGlAccountId || ""),
+        negativeYieldExpenseGlAccountId: String(b.negativeYieldExpenseGlAccountId || ""),
+        unrealizedFxGlAccountId: optId(b.unrealizedFxGlAccountId),
+        realizedFxGlAccountId: optId(b.realizedFxGlAccountId),
+        startDateIso: String(b.startDateIso || b.startDate || ""),
+        maturityDateIso: b.maturityDateIso ?? b.maturityDate ?? null,
+        initialApy: b.initialApy ?? b.apy,
+        initialApyEffectiveFromIso: b.initialApyEffectiveFromIso ?? b.effectiveFromIso,
+      };
+
+      // Investment-approval gate (mirrors MASTER_DATA_COA / ChartOfAccountsController): privileged
+      // (admin/CFO) users and below-threshold placements continue to book immediately, exactly as
+      // before. A non-privileged user booking INVESTMENT_APPROVAL_THRESHOLD_USD (USD-equivalent
+      // principal) or more gets the placement queued for CFO approval (ApprovalRequest, stageType
+      // "INVESTMENT_BOOKING") instead of booked here — see PaymentInvestmentApprovalService and
+      // ApprovalService.updateEntityStatusAfterApproval.
+      const { requiresApproval, amountUsd, currencyCode } = await evaluateInvestmentThreshold(
+        payload.principal,
+        payload.currencyId
       );
+      if (requiresApproval && !isModulePrivilegedUser(req.user)) {
+        const { ApprovalService } = await import("../services/ApprovalService");
+        // No ShortTermInvestmentInstrument row exists yet — synthesize a placeholder id for the
+        // ApprovalRequest; the real instrument (and its real id) is only created on approval.
+        const pendingEntityId = `PENDING-STI-${randomUUID()}`;
+        const approvalResult = await ApprovalService.createApprovalRequest({
+          stageType: "INVESTMENT_BOOKING",
+          entityId: pendingEntityId,
+          entityData: {
+            ...payload,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent"),
+            amountUsd,
+            currencyCode,
+          },
+          requestedById: userId,
+          department: Department.FINANCE,
+        });
+
+        if (!approvalResult) {
+          // No active INVESTMENT_BOOKING approval configuration/stage found (see
+          // scripts/run-payment-investment-approval-configs-seed.ts). Fail closed rather than
+          // silently booking the investment for a non-privileged caller.
+          res.status(503).json({
+            success: false,
+            error:
+              "Investment booking requires CFO approval, but no approval workflow is configured. Contact an administrator.",
+          });
+          return;
+        }
+
+        res.status(202).json({
+          success: true,
+          message: "Investment submitted for CFO approval",
+          data: {
+            status: "pending_approval",
+            approvalRequestId: approvalResult.approvalRequest.id,
+            proposedInvestment: payload,
+            amountUsd,
+            currencyCode,
+          },
+        });
+        return;
+      }
+
+      const row = await ShortTermInvestmentService.createInstrument(payload, {
+        userId,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      });
       res.status(201).json({ success: true, data: row });
     } catch (e: any) {
       res.status(400).json({ success: false, error: e?.message ?? String(e) });

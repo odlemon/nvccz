@@ -65,6 +65,7 @@
     "db:migrate:bank-gl-to-cash-equivalents": "ts-node scripts/run-bank-gl-to-cash-equivalents-migration.ts",
     "db:verify:bank-gl-cace": "ts-node scripts/verify-bank-gl-cace.ts",
     "db:migrate:accounting-approval-configs-seed": "ts-node --transpile-only scripts/run-accounting-approval-configs-seed.ts",
+    "db:migrate:payment-investment-approval-configs-seed": "ts-node --transpile-only scripts/run-payment-investment-approval-configs-seed.ts",
     "db:cleanup:sti-accruals-by-date": "ts-node --transpile-only scripts/delete-sti-accruals-by-date.ts",
     "verify:sti-approve-routes": "ts-node --transpile-only scripts/verify-sti-approve-routes.ts",
     "db:sti:catch-up-instrument": "ts-node --transpile-only -r dotenv/config scripts/run-sti-instrument-catch-up.ts",
