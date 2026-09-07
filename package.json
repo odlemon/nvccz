@@ -461,7 +461,8 @@
     "db:repair:coa-1100-bank": "ts-node scripts/repair-chart-of-accounts-1100-bank.ts",
     "db:verify:exchange-snapshots": "ts-node scripts/verify-exchange-snapshot-schema.ts",
     "check:null-createdby": "ts-node scripts/check-null-createdby-values.ts",
-    "vercel-build": "npm run prisma:generate && tsc"
+    "vercel-build": "npm run prisma:generate && tsc",
+    "db:migrate:portfolio-fund-schema": "ts-node --transpile-only scripts/run-portfolio-fund-schema-migration.ts"
   },
   "keywords": [
     "erp",
