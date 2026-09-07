@@ -462,7 +462,8 @@
     "db:verify:exchange-snapshots": "ts-node scripts/verify-exchange-snapshot-schema.ts",
     "check:null-createdby": "ts-node scripts/check-null-createdby-values.ts",
     "vercel-build": "npm run prisma:generate && tsc",
-    "db:migrate:portfolio-fund-schema": "ts-node --transpile-only scripts/run-portfolio-fund-schema-migration.ts"
+    "db:migrate:portfolio-fund-schema": "ts-node --transpile-only scripts/run-portfolio-fund-schema-migration.ts",
+    "db:migrate:board-review-votes-agreement-links": "ts-node --transpile-only scripts/run-board-review-votes-and-agreement-links-migration.ts"
   },
   "keywords": [
     "erp",
