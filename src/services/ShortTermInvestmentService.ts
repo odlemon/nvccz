@@ -7,6 +7,8 @@ import {
   assignNextAuditIdAndCreateJournal,
   createJournalEntryWithAuditSequence,
   reserveAuditSequencesInTx,
+  resolveDefaultForecastEntityId,
+  type PrismaLike,
 } from "./AuditTrailSequenceService";
 import { JournalEntryService } from "./JournalEntryService";
 import { MultiCurrencyService } from "./MultiCurrencyService";
@@ -273,7 +275,11 @@ export class ShortTermInvestmentService {
     const je =
       args.auditTrailSequenceNumber != null
         ? await tx.journalEntry.create({
-            data: { ...jePayload, auditTrailSequenceNumber: args.auditTrailSequenceNumber },
+            data: {
+              ...jePayload,
+              auditTrailSequenceNumber: args.auditTrailSequenceNumber,
+              forecastEntityId: await resolveDefaultForecastEntityId(tx as PrismaLike),
+            },
           })
         : await assignNextAuditIdAndCreateJournal(tx, jePayload);
 

@@ -17,7 +17,7 @@ export type JournalEntryCreateWithoutAudit = Omit<
 const SEQUENCE_NAME = "journal_entry";
 const INITIAL_VALUE = 1000;
 
-type PrismaLike = typeof prisma;
+export type PrismaLike = typeof prisma;
 
 /** Optional: pass from HTTP layer for WARN/override; jobs omit. */
 export type JournalEntryPeriodLockOptions = {
@@ -74,9 +74,28 @@ export async function assignNextAuditIdAndCreateJournal(
   });
   await ensureAuditTrailSequenceExists(tx as PrismaLike);
   const auditTrailSequenceNumber = await getNextAuditTrailSequenceNumber(tx as PrismaLike);
+  const forecastEntityId = data.forecastEntityId || (await resolveDefaultForecastEntityId(tx as PrismaLike));
   return tx.journalEntry.create({
-    data: { ...data, auditTrailSequenceNumber },
+    data: { ...data, auditTrailSequenceNumber, forecastEntityId },
   });
+}
+
+/**
+ * Default entity to tag a journal with when the caller doesn't set forecastEntityId explicitly.
+ * Without this, Group Consolidation's per-entity totals (ConsolidatedReportService.
+ * getConsolidationSummary) silently exclude any journal posted after the one-time backfill
+ * migration that tagged pre-existing entries onto the default entity — found live: Consolidation
+ * showed $6,870 combined assets while the real ledger held $3.5M+, because nothing since that
+ * migration had ever set this field on a new journal. Used by assignNextAuditIdAndCreateJournal
+ * (the shared chokepoint most services funnel through) and by the handful of services that create
+ * journalEntry rows directly with a pre-reserved audit sequence (batch depreciation/accrual runs).
+ */
+export async function resolveDefaultForecastEntityId(client: PrismaLike): Promise<string | null> {
+  const defaultEntity = await client.forecastEntity.findFirst({
+    where: { isDefault: true },
+    select: { id: true },
+  });
+  return defaultEntity?.id ?? null;
 }
 
 /**

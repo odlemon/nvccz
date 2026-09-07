@@ -9,6 +9,7 @@ import {
   assignNextAuditIdAndCreateJournal,
   createJournalEntryWithAuditSequence,
   reserveAuditSequences,
+  resolveDefaultForecastEntityId,
 } from './AuditTrailSequenceService';
 import { resolveUsdZwgAvgForSnapshot } from './UsdZwgRateResolver';
 
@@ -1665,6 +1666,7 @@ export class AssetService {
     if (params.autoPost && currency && postQueue.length > 0) {
       const firstSeq = await reserveAuditSequences(postQueue.length);
       const now = new Date();
+      const forecastEntityId = await resolveDefaultForecastEntityId(prisma);
 
       await Promise.all(
         postQueue.map(async ({ plan, depRecordId }, i) => {
@@ -1684,6 +1686,7 @@ export class AssetService {
                 status: 'POSTED',
                 createdById: params.createdById,
                 auditTrailSequenceNumber,
+                forecastEntityId,
                 ...(rateSnapshotDecimal !== undefined ? { usdZwgRateSnapshot: rateSnapshotDecimal } : {}),
               },
             });
@@ -2044,7 +2047,8 @@ export class AssetService {
           totalAmount: total,
           currencyId,
           status: 'POSTED',
-          createdById
+          createdById,
+          forecastEntityId: await resolveDefaultForecastEntityId(prisma),
         }
       });
 
