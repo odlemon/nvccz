@@ -60,6 +60,7 @@
     "db:migrate:invoice-payment-snapshots": "ts-node scripts/run-invoice-payment-snapshot-migration.ts",
     "db:migrate:journal-line-amount-precision": "ts-node scripts/run-journal-entry-line-amount-precision-migration.ts",
     "db:migrate:journal-line-recorded-currency": "ts-node scripts/run-journal-entry-line-recorded-currency-migration.ts",
+    "db:migrate:journal-entry-forecast-entity": "ts-node --transpile-only -r dotenv/config scripts/run-journal-entry-forecast-entity-migration.ts",
     "db:migrate:chart-natural-balance": "ts-node scripts/run-chart-of-accounts-natural-balance-migration.ts",
     "db:migrate:bank-gl-to-cash-equivalents": "ts-node scripts/run-bank-gl-to-cash-equivalents-migration.ts",
     "db:verify:bank-gl-cace": "ts-node scripts/verify-bank-gl-cace.ts",

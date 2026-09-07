@@ -785,8 +785,13 @@ model JournalEntry {
   updatedAt                    DateTime                           @updatedAt
   /// USD/ZWG avg from Zimrate at posting (see ZimrateRateService + prisma middleware)
   usdZwgRateSnapshot           Decimal?                           @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
+  /// Multi-entity GL tagging (Group Consolidation report). Null on legacy rows until backfilled by db:migrate:journal-entry-forecast-entity.
+  forecastEntityId             String?                            @map("forecast_entity_id")
+  /// Manually-flagged inter-entity elimination journal — no automated matching engine; a human posts + flags it. Netted out as its own layer in consolidation reporting.
+  isEliminationEntry           Boolean                            @default(false) @map("is_elimination_entry")
   currency                     Currency                           @relation(fields: [currencyId], references: [id])
   createdBy                    User                               @relation(fields: [createdById], references: [id])
+  forecastEntity                ForecastEntity?                    @relation(fields: [forecastEntityId], references: [id], onDelete: SetNull)
   journalEntryLines            JournalEntryLine[]
   expenses                     Expense[]
   invoices                     Invoice[]
@@ -812,6 +817,7 @@ model JournalEntry {
   payrollRuns                  PayrollRun[]
   listedEquityTradeSettlements ListedEquityTradeSettlement[]      @relation("ListedEquityTradeJournal")
 
+  @@index([forecastEntityId], map: "journal_entries_forecast_entity_id_idx")
   @@map("journal_entries")
 }
 
@@ -1198,6 +1204,7 @@ model ForecastEntity {
   createdBy        User                   @relation("ForecastEntityCreatedBy", fields: [createdById], references: [id])
   accounts         EntityChartOfAccount[]
   taxReturnPacks   TaxReturnPack[]
+  journalEntries   JournalEntry[]
 
   @@index([isDefault], map: "forecast_entities_is_default_idx")
   @@index([type, isActive], map: "forecast_entities_type_active_idx")
