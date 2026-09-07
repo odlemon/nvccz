@@ -91,6 +91,7 @@ model User {
   lpUserRelationsInvited                LpUserRelation[]                @relation("LpUserRelationInvitedBy")
   lpPortalDocumentsPublished            LpPortalDocument[]              @relation("LpPortalDocumentPublisher")
   fundDocuments                         FundDocument[]
+  accountingDocuments                   AccountingDocument[]
   userMfaTotp                           UserMfaTotp?
   fundReportRunsTriggered               FundReportRun[]                 @relation("FundReportRunTriggeredBy")
   fundReportAuditEvents                 FundReportAuditEvent[]          @relation("FundReportAuditAuthor")
@@ -212,6 +213,8 @@ model User {
   listedEquityWatchlistEntries          ListedEquityWatchlistEntry[]
   listedEquityTradesExecuted            ListedEquityTrade[]             @relation("ListedEquityTradeExecutor")
   listedEquityTicksReviewed             ListedEquityPriceTick[]         @relation("ListedEquityTickReviewer")
+  accountingCloseTasksOwned             AccountingCloseTask[]           @relation("AccountingCloseTaskOwner")
+  accountingCloseTasksCompleted         AccountingCloseTask[]           @relation("AccountingCloseTaskCompletedBy")
 
   @@map("users")
 }
@@ -5907,6 +5910,7 @@ model FiscalPeriod {
   fiscalYear         FiscalYear           @relation(fields: [fiscalYearId], references: [id], onDelete: Cascade)
   moduleLocks        ModulePeriodLock[]
   periodLockAuditLog PeriodLockAuditLog[]
+  closeTasks         AccountingCloseTask[]
 
   @@unique([fiscalYearId, periodNumber], map: "fiscal_periods_year_num_key")
   @@index([startDate, endDate], map: "fiscal_periods_start_end_idx")
@@ -5992,6 +5996,35 @@ model PeriodLockAuditLog {
   @@index([createdAt], map: "period_lock_audit_logs_created_idx")
   @@index([actionType], map: "period_lock_audit_logs_action_idx")
   @@map("period_lock_audit_logs")
+}
+
+/// Period-close checklist item gating a fiscal period lock. Task checklist only — the actual
+/// lock/commit engine lives in PeriodLockService; canLockPeriod() here just reports readiness.
+model AccountingCloseTask {
+  id             String    @id @default(cuid())
+  fiscalPeriodId String    @map("fiscal_period_id")
+  workstream     String    @db.VarChar(64)
+  task           String    @db.VarChar(255)
+  ownerId        String?   @map("owner_id")
+  dueAt          DateTime? @map("due_at")
+  /// OPEN | IN_PROGRESS | COMPLETE — plain string (not a Prisma enum) for flexibility.
+  status         String    @default("OPEN") @db.VarChar(32)
+  dependsOnId    String?   @map("depends_on_id")
+  completedById  String?   @map("completed_by_id")
+  completedAt    DateTime? @map("completed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  fiscalPeriod FiscalPeriod          @relation(fields: [fiscalPeriodId], references: [id], onDelete: Cascade)
+  owner        User?                 @relation("AccountingCloseTaskOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  completedBy  User?                 @relation("AccountingCloseTaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  dependsOn    AccountingCloseTask?  @relation("AccountingCloseTaskDependency", fields: [dependsOnId], references: [id], onDelete: SetNull)
+  dependents   AccountingCloseTask[] @relation("AccountingCloseTaskDependency")
+
+  @@index([fiscalPeriodId], map: "accounting_close_tasks_fp_idx")
+  @@index([status], map: "accounting_close_tasks_status_idx")
+  @@index([dependsOnId], map: "accounting_close_tasks_depends_on_idx")
+  @@map("accounting_close_tasks")
 }
 
 /// Singleton-style settings row (`id` = `default`). Posting mode and optional fiscal timezone for STI accrual cron.
@@ -7258,6 +7291,28 @@ model FundDocument {
 
   @@index([fundId], map: "fund_documents_fund_idx")
   @@map("fund_documents")
+}
+
+/// Company-wide accounting document vault (accounting-v52 "Document Vault"). Flat — not scoped to a
+/// fund or any other parent record — categorized only by a free-string `category` (real values used
+/// by the frontend: Close evidence, Financial reports, Tax & compliance, Payment controls,
+/// Accounting policies, Audit room), same shape as FundDocument otherwise.
+model AccountingDocument {
+  id            String   @id @default(cuid())
+  name          String   @db.VarChar(255)
+  category      String   @default("General") @db.VarChar(64)
+  fileUrl       String   @map("file_url") @db.Text
+  storagePath   String?  @map("storage_path") @db.VarChar(512)
+  mimeType      String?  @map("mime_type") @db.VarChar(128)
+  fileSizeBytes Int?     @map("file_size_bytes")
+  uploadedById  String?  @map("uploaded_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  uploadedBy User? @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([category], map: "accounting_documents_category_idx")
+  @@map("accounting_documents")
 }
 
 model ListedEquityValuationSnapshot {
@@ -10844,6 +10899,7 @@ model TaxReturnPack {
   status             String    @default("DRAFT") @db.VarChar(24)
   periodStart        DateTime  @map("period_start") @db.Date
   periodEnd          DateTime  @map("period_end") @db.Date
+  filingDueDate      DateTime? @map("filing_due_date") @db.Date
   accountingProfit   Decimal?  @map("accounting_profit") @db.Decimal(15, 2)
   taxableIncome      Decimal?  @map("taxable_income") @db.Decimal(15, 2)
   citLiability       Decimal?  @map("cit_liability") @db.Decimal(15, 2)

@@ -144,6 +144,7 @@
     "db:migrate:quarterly-client-statements": "ts-node --transpile-only -r dotenv/config scripts/run-quarterly-client-statements-migration.ts",
     "db:migrate:deal-execution-pack": "ts-node --transpile-only -r dotenv/config scripts/run-deal-execution-pack-migration.ts",
     "db:migrate:tax-return-pack": "ts-node --transpile-only -r dotenv/config scripts/run-tax-return-pack-migration.ts",
+    "db:migrate:tax-return-pack-gaps": "ts-node --transpile-only -r dotenv/config scripts/run-tax-return-pack-gaps-migration.ts",
     "db:migrate:listed-equity-market-terminal": "ts-node --transpile-only -r dotenv/config scripts/run-listed-equity-market-terminal-migration.ts",
     "db:migrate:investment-ops-v2": "ts-node --transpile-only -r dotenv/config scripts/run-investment-ops-v2-migration.ts",
     "db:migrate:investment-ops-gap": "ts-node --transpile-only -r dotenv/config scripts/run-investment-ops-gap-remediation-migration.ts",
@@ -259,6 +260,7 @@
     "db:migrate:recurring-journal-tables": "ts-node scripts/run-recurring-journal-tables-migration.ts",
     "db:migrate:short-term-investments": "ts-node scripts/run-short-term-investment-tables-migration.ts",
     "db:migrate:fiscal-period-lock": "ts-node scripts/run-fiscal-period-lock-migration.ts",
+    "db:migrate:accounting-close-tasks": "ts-node scripts/run-accounting-close-tasks-migration.ts",
     "db:seed:period-lock-permissions": "ts-node scripts/seed-period-lock-permissions.ts",
     "db:seed:cfo-module-permissions": "ts-node scripts/seed-cfo-module-permissions.ts",
     "db:repair:event-authors": "ts-node scripts/repair-orphan-event-authors.ts",
@@ -463,7 +465,8 @@
     "check:null-createdby": "ts-node scripts/check-null-createdby-values.ts",
     "vercel-build": "npm run prisma:generate && tsc",
     "db:migrate:portfolio-fund-schema": "ts-node --transpile-only scripts/run-portfolio-fund-schema-migration.ts",
-    "db:migrate:board-review-votes-agreement-links": "ts-node --transpile-only scripts/run-board-review-votes-and-agreement-links-migration.ts"
+    "db:migrate:board-review-votes-agreement-links": "ts-node --transpile-only scripts/run-board-review-votes-and-agreement-links-migration.ts",
+    "db:migrate:accounting-documents": "ts-node --transpile-only scripts/run-accounting-documents-migration.ts"
   },
   "keywords": [
     "erp",
