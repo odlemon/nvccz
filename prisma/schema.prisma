@@ -10921,6 +10921,9 @@ model TaxReturnPack {
   citLiabilityZig    Decimal?  @map("cit_liability_zig") @db.Decimal(15, 2)
   weightedEtr        Decimal?  @map("weighted_etr") @db.Decimal(8, 4)
   closingFxRate      Decimal?  @map("closing_fx_rate") @db.Decimal(18, 6)
+  vatOutputTax       Decimal?  @map("vat_output_tax") @db.Decimal(15, 2)
+  vatInputTax        Decimal?  @map("vat_input_tax") @db.Decimal(15, 2)
+  vatNetPayable      Decimal?  @map("vat_net_payable") @db.Decimal(15, 2)
   liabilitySnapshot  Json?     @map("liability_snapshot")
   failureReason      String?   @map("failure_reason") @db.Text
   compiledById       String?   @map("compiled_by_id")

@@ -5,7 +5,7 @@ import { TaxReturnPackAuditService } from "./TaxReturnPackAuditService";
 import { TaxReturnPackCitEngine } from "./TaxReturnPackCitEngine";
 import { TaxReturnPackDualCurrencyService } from "./TaxReturnPackDualCurrencyService";
 import { TaxReturnPackProvisionService } from "./TaxReturnPackProvisionService";
-import { TRP_AUDIT_EVENTS, TRP_PACK_STATUSES, TRP_TAX_CATEGORIES } from "./taxReturnPackSupport";
+import { TRP_AUDIT_EVENTS, TRP_PACK_STATUSES, TRP_TAX_CATEGORIES, TRP_TAX_REGIMES, roundMoney } from "./taxReturnPackSupport";
 
 export class TaxReturnPackReconciliationService {
   static async list(packId: string) {
@@ -68,6 +68,39 @@ export class TaxReturnPackReconciliationService {
 
   static async recalculatePackTotals(packId: string) {
     const pack = await TaxReturnPackProvisionService.getDetail(packId);
+
+    if (pack.taxRegime === TRP_TAX_REGIMES.ZIMRA_VAT) {
+      // VAT lines aren't CIT-style add-back/deduct adjustments — an override just re-tags which
+      // control account a line belongs to, so net payable is a straight re-sum of tagged lines.
+      const outputTotal = pack.reconciliationLines
+        .filter((l) => l.taxCategory === TRP_TAX_CATEGORIES.OUTPUT_TAX)
+        .reduce((s, l) => s + Number(l.glBalance), 0);
+      const inputTotal = pack.reconciliationLines
+        .filter((l) => l.taxCategory === TRP_TAX_CATEGORIES.INPUT_TAX)
+        .reduce((s, l) => s + Number(l.glBalance), 0);
+      const netPayable = roundMoney(outputTotal - inputTotal);
+
+      await prisma.taxReturnPack.update({
+        where: { id: packId },
+        data: {
+          vatOutputTax: roundMoney(outputTotal),
+          vatInputTax: roundMoney(inputTotal),
+          vatNetPayable: netPayable,
+          totalTaxLiability: netPayable,
+          liabilitySnapshot: {
+            vat: { outputTax: roundMoney(outputTotal), inputTax: roundMoney(inputTotal), netPayable },
+          },
+        },
+      });
+      return;
+    }
+
+    if (pack.taxRegime === TRP_TAX_REGIMES.ZIMRA_WHT || pack.taxRegime === TRP_TAX_REGIMES.ZIMRA_SAFT) {
+      // Evidence/tracking-only regimes: no liability math to redo when a line's category is overridden.
+      return;
+    }
+
+    // ZIMRA_CIT (default/legacy packs): existing behavior, unchanged.
     const bookLine = pack.reconciliationLines.find((l) => l.lineCode === "NET_INCOME_BOOK");
     const accountingProfit = bookLine ? Number(bookLine.glBalance) : Number(pack.accountingProfit ?? 0);
 

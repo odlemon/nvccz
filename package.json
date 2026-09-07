@@ -147,6 +147,7 @@
     "db:migrate:deal-execution-pack": "ts-node --transpile-only -r dotenv/config scripts/run-deal-execution-pack-migration.ts",
     "db:migrate:tax-return-pack": "ts-node --transpile-only -r dotenv/config scripts/run-tax-return-pack-migration.ts",
     "db:migrate:tax-return-pack-gaps": "ts-node --transpile-only -r dotenv/config scripts/run-tax-return-pack-gaps-migration.ts",
+    "db:migrate:tax-return-pack-vat-fields": "ts-node --transpile-only -r dotenv/config scripts/run-tax-return-pack-vat-fields-migration.ts",
     "db:migrate:listed-equity-market-terminal": "ts-node --transpile-only -r dotenv/config scripts/run-listed-equity-market-terminal-migration.ts",
     "db:migrate:investment-ops-v2": "ts-node --transpile-only -r dotenv/config scripts/run-investment-ops-v2-migration.ts",
     "db:migrate:investment-ops-gap": "ts-node --transpile-only -r dotenv/config scripts/run-investment-ops-gap-remediation-migration.ts",

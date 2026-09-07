@@ -17,6 +17,12 @@ export const TRP_TAX_PERIODS = {
 
 export const TRP_TAX_REGIMES = {
   ZIMRA_CIT: "ZIMRA_CIT",
+  /** VAT return pack — real liability computed by reusing VATReportService's GL aggregation. */
+  ZIMRA_VAT: "ZIMRA_VAT",
+  /** Withholding tax — evidence/tracking pass only, no computed liability (see TaxReturnPackWhtCompileService). */
+  ZIMRA_WHT: "ZIMRA_WHT",
+  /** ZIMRA Audit Support File — pack-readiness tracking only, no file generated (see TaxReturnPackSaftCompileService). */
+  ZIMRA_SAFT: "ZIMRA_SAFT",
 } as const;
 
 export const TRP_TAX_CATEGORIES = {
@@ -24,6 +30,9 @@ export const TRP_TAX_CATEGORIES = {
   ADD_BACK: "ADD_BACK",
   DEDUCT: "DEDUCT",
   EXEMPT: "EXEMPT",
+  /** VAT-only categories, used by TaxReturnPackVatCompileService reconciliation lines. */
+  OUTPUT_TAX: "OUTPUT_TAX",
+  INPUT_TAX: "INPUT_TAX",
 } as const;
 
 export const TRP_ENTITY_TYPES = {
