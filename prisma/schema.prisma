@@ -6018,7 +6018,9 @@ model AccountingCloseTask {
   fiscalPeriod FiscalPeriod          @relation(fields: [fiscalPeriodId], references: [id], onDelete: Cascade)
   owner        User?                 @relation("AccountingCloseTaskOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   completedBy  User?                 @relation("AccountingCloseTaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
-  dependsOn    AccountingCloseTask?  @relation("AccountingCloseTaskDependency", fields: [dependsOnId], references: [id], onDelete: SetNull)
+  /// Self-relation: Prisma requires NoAction/NoAction here (cyclic-referential-actions rule); the
+  /// actual DB FK (see scripts/run-accounting-close-tasks-migration.ts) is ON DELETE SET NULL.
+  dependsOn    AccountingCloseTask?  @relation("AccountingCloseTaskDependency", fields: [dependsOnId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   dependents   AccountingCloseTask[] @relation("AccountingCloseTaskDependency")
 
   @@index([fiscalPeriodId], map: "accounting_close_tasks_fp_idx")
