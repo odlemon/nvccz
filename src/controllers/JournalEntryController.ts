@@ -37,12 +37,13 @@ export class JournalEntryController {
    */
   static async createJournalEntry(req: Request, res: Response) {
     try {
-      const { 
-        transactionDate, 
-        referenceNumber, 
-        description, 
-        currencyId, 
-        journalEntryLines 
+      const {
+        transactionDate,
+        referenceNumber,
+        description,
+        currencyId,
+        journalEntryLines,
+        isEliminationEntry,
       } = req.body;
 
       const userId = (req as any).user?.id;
@@ -70,6 +71,7 @@ export class JournalEntryController {
           ...(line.currencyId ? { currencyId: line.currencyId } : {}),
         })),
         createdById: userId,
+        isEliminationEntry: !!isEliminationEntry,
         ipAddress: typeof ipAddress === "string" ? ipAddress : (Array.isArray(ipAddress) ? ipAddress[0] : String(ipAddress ?? "")),
         userAgent,
       });
