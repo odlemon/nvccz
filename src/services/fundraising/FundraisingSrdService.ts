@@ -2722,6 +2722,28 @@ export class FundraisingSrdService {
       byOwner[owner].signedAmount += Number(o.signedAmount ?? 0);
       byOwner[owner].fundedAmount += Number(o.fundedAmount ?? 0);
     }
+
+    // The map is keyed by user id, which is all the "Owner performance" table had to show.
+    // Attach the owner's name so the screen can label the row with a person rather than a
+    // cuid, and so a chart legend is readable.
+    const ownerIds = Object.keys(byOwner).filter((id) => id !== "UNASSIGNED");
+    if (ownerIds.length) {
+      const users = await prisma.user.findMany({
+        where: { id: { in: ownerIds } },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      });
+      for (const u of users) {
+        const name = `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email;
+        if (byOwner[u.id]) byOwner[u.id].ownerName = name || null;
+      }
+    }
+    for (const [id, row] of Object.entries(byOwner)) {
+      if (!(row as any).ownerName) {
+        (row as any).ownerName = id === "UNASSIGNED" ? "Unassigned" : null;
+      }
+      (row as any).ownerId = id;
+    }
+
     return { campaignId: filters.campaignId ?? null, byOwner };
   }
 
