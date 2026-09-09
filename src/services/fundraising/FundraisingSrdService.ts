@@ -2722,17 +2722,57 @@ export class FundraisingSrdService {
         prisma.fundraisingAuditLog.count({ where }),
       ]);
       return {
-        items,
+        items: await FundraisingSrdService.attachAuditActors(items),
         total,
         page: filters.page ? Number(filters.page) : Math.floor(skip / take) + 1,
         pageSize: take,
       };
     }
 
-    return prisma.fundraisingAuditLog.findMany({
+    const rows = await prisma.fundraisingAuditLog.findMany({
       where,
       orderBy: { timestamp: "desc" },
       take: Math.min(Number(filters.limit) || 100, 500),
+    });
+    return FundraisingSrdService.attachAuditActors(rows);
+  }
+
+  /**
+   * Resolve the acting user for each audit row into `userName` / `userRole`.
+   *
+   * SRD §34 requires the audit trail to identify the user and role, but
+   * `fundraising_audit_logs.user_id` is a plain column with no Prisma relation, so the rows
+   * carried only an opaque id and every activity feed rendered "Name unavailable". Look the
+   * users up in one batched query rather than adding a relation, which would be a schema
+   * change for a read-side concern.
+   *
+   * `role` on the row is the role recorded at the time of the action and is preferred when
+   * present; the user's current role is only a fallback.
+   */
+  private static async attachAuditActors<T extends { userId: string; role?: string | null }>(
+    rows: T[]
+  ): Promise<Array<T & { userName: string | null; userRole: string | null }>> {
+    if (rows.length === 0) return [];
+
+    const ids = [...new Set(rows.map((r) => r.userId).filter(Boolean))];
+    const users = ids.length
+      ? await prisma.user.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            role: { select: { name: true } },
+          },
+        })
+      : [];
+
+    const byId = new Map(users.map((u) => [u.id, u]));
+    return rows.map((r) => {
+      const u = byId.get(r.userId);
+      const name = u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email : null;
+      return { ...r, userName: name || null, userRole: r.role ?? u?.role?.name ?? null };
     });
   }
 
