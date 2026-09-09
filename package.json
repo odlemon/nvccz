@@ -483,7 +483,8 @@
     "db:seed:fundraising-demo": "ts-node --transpile-only -r dotenv/config scripts/seed-fundraising-demo-dataset.ts",
     "db:seed:payroll-v6-baseline": "ts-node --transpile-only -r dotenv/config scripts/seed-payroll-v6-baseline.ts",
     "e2e:payroll-v6-lifecycle": "ts-node --transpile-only -r dotenv/config scripts/e2e-payroll-v6-lifecycle.ts",
-    "db:seed:payroll-v6-history": "ts-node --transpile-only -r dotenv/config scripts/seed-payroll-v6-history.ts"
+    "db:seed:payroll-v6-history": "ts-node --transpile-only -r dotenv/config scripts/seed-payroll-v6-history.ts",
+    "db:cleanup:fundraising-test-artefacts": "ts-node --transpile-only -r dotenv/config scripts/cleanup-fundraising-test-artefacts.ts"
   },
   "keywords": [
     "erp",
