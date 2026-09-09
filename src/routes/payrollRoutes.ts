@@ -3,6 +3,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { PayrollController } from '../controllers/PayrollController';
 import { PayrollExtendedController } from '../controllers/PayrollExtendedController';
+import { PayrollAccessController } from '../controllers/PayrollAccessController';
 import { authenticate } from '../middleware/authenticate';
 import { requireAnyPermission } from '../middleware/permissionAuth';
 import { PAYROLL_PERMISSIONS as P } from '../config/payrollPermissions';
@@ -59,6 +60,11 @@ function employeeMultipart(req: any, res: any, next: any) {
   }
   next();
 }
+
+// ===== CURRENT-USER ACCESS =====
+// Authenticated-only and self-scoped: tells the caller which payroll grants
+// they hold so the UI can gate on the same answer the guards enforce.
+router.get('/me/access', authenticate, PayrollAccessController.getMyAccess);
 
 // ===== EMPLOYEE MANAGEMENT ROUTES =====
 /* Swagger: multipart create/update in src/config/payroll-endpoints.ts (Payroll tag) */
