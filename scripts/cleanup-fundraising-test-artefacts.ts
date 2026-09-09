@@ -18,7 +18,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const CHECK_ONLY = process.argv.includes("--check");
 
-const NAME_MARKERS = ["E2E ", "ROLE PROBE ", "Refusal probe "];
+const NAME_MARKERS = ["E2E ", "ROLE PROBE ", "Refusal probe ", "BEHAVIOUR "];
 
 async function main() {
   const investors = await prisma.investorOrganisation.findMany({
@@ -80,6 +80,21 @@ async function main() {
   const delInvestors = await prisma.investorOrganisation.deleteMany({
     where: { id: { in: investorIds.length ? investorIds : ["__none__"] } },
   });
+
+  // Scratch campaigns from the behaviour check, with their dependent rows.
+  const campaigns = await prisma.fundraisingCampaign.findMany({
+    where: { name: { startsWith: "BEHAVIOUR " } },
+    select: { id: true },
+  });
+  const campIds = campaigns.map((c) => c.id);
+  let delCampaigns = 0;
+  if (campIds.length) {
+    await prisma.fundraisingApprovalRequest.deleteMany({ where: { objectId: { in: campIds } } });
+    await prisma.fundraisingClosing.deleteMany({ where: { campaignId: { in: campIds } } });
+    await prisma.fundraisingPipelineStage.deleteMany({ where: { campaignId: { in: campIds } } });
+    delCampaigns = (await prisma.fundraisingCampaign.deleteMany({ where: { id: { in: campIds } } })).count;
+  }
+  console.log(`Deleted: ${delCampaigns} scratch campaigns`);
 
   console.log(
     `\nDeleted: ${delInvestors.count} investors, ${delContacts.count} contacts, ` +
