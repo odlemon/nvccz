@@ -478,7 +478,9 @@
     "db:migrate:portfolio-fund-schema": "ts-node --transpile-only scripts/run-portfolio-fund-schema-migration.ts",
     "db:migrate:board-review-votes-agreement-links": "ts-node --transpile-only scripts/run-board-review-votes-and-agreement-links-migration.ts",
     "db:migrate:accounting-documents": "ts-node --transpile-only scripts/run-accounting-documents-migration.ts",
-    "db:migrate:timesheets-projects": "ts-node scripts/run-timesheets-projects-migration.ts"
+    "db:migrate:timesheets-projects": "ts-node scripts/run-timesheets-projects-migration.ts",
+    "db:migrate:payroll-v6-permissions": "ts-node --transpile-only -r dotenv/config scripts/run-payroll-v6-permissions-migration.ts",
+    "db:seed:fundraising-demo": "ts-node --transpile-only -r dotenv/config scripts/seed-fundraising-demo-dataset.ts"
   },
   "keywords": [
     "erp",

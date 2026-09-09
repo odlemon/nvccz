@@ -3,6 +3,8 @@ import { Router } from "express";
 import { PayrollDashboardController } from "../controllers/PayrollDashboardController";
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
+import { requireAnyPermission } from "../middleware/permissionAuth";
+import { PAYROLL_PERMISSIONS } from "../config/payrollPermissions";
 
 const router = Router();
 
@@ -216,10 +218,14 @@ const router = Router();
  *                 details:
  *                   type: string
  */
+// Permission-based so the guard tracks the payroll grant catalogue rather than a
+// hand-maintained role-name list. The previous `authorize([...])` list matched on
+// role NAME, so "System Administrator" (roleCode SYSADMIN) 403'd on its own
+// dashboard. Grants: npm run db:migrate:payroll-v6-permissions
 router.get(
   "/",
   authenticate,
-  authorize(["admin", "hr_manager", "payroll_manager", "finance_manager", "cfo"]),
+  requireAnyPermission([PAYROLL_PERMISSIONS.dashboardView]),
   PayrollDashboardController.getDashboard
 );
 
