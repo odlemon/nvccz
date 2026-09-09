@@ -269,7 +269,7 @@ async function main() {
     { n: 9, campaignId: "frs-camp-pe3", investorIdx: 6, stageCode: "CONTACTED", indicative: 4_000_000, priority: "LOW" },
     { n: 10, campaignId: "frs-camp-pe3", investorIdx: 9, stageCode: "QUALIFIED", indicative: 6_000_000, priority: "MEDIUM", status: "LOST", lostReason: "Sanctions screening hit — relationship paused" },
     { n: 11, campaignId: "frs-camp-am1", investorIdx: 0, stageCode: "ACTIVATED", indicative: 18_000_000, priority: "HIGH", signed: 18_000_000, admitted: 18_000_000, funded: 18_000_000 },
-    { n: 12, campaignId: "frs-camp-am1", investorIdx: 4, stageCode: "AWARDED", indicative: 9_000_000, priority: "HIGH", signed: 9_000_000 },
+    { n: 12, campaignId: "frs-camp-am1", investorIdx: 4, stageCode: "AWARDED", indicative: 9_000_000, priority: "HIGH", signed: 9_000_000, admitted: 9_000_000 },
     { n: 13, campaignId: "frs-camp-am1", investorIdx: 1, stageCode: "NEGOTIATION", indicative: 11_000_000, priority: "HIGH" },
     { n: 14, campaignId: "frs-camp-am1", investorIdx: 5, stageCode: "PRESENTATION", indicative: 14_000_000, priority: "MEDIUM" },
     { n: 15, campaignId: "frs-camp-am1", investorIdx: 8, stageCode: "RFI_RFP", indicative: 7_000_000, priority: "MEDIUM" },
@@ -407,7 +407,18 @@ async function main() {
       commitmentAmount: dec(o.signed!),
       fundedAmount: dec(funded),
       unfundedAmount: dec(o.signed! - funded),
-      status: funded >= o.signed! ? "FUNDED" : o.admitted ? "ADMITTED" : "SIGNED",
+      // Canonical statuses come from FundraisingSrdService (admitCommitment /
+      // fundCommitment): SIGNED -> ADMITTED_AT_CLOSE -> PARTIALLY_FUNDED -> FUNDED.
+      // "ADMITTED" is not one of them and would silently drop the row out of every
+      // commitment KPI bucket on the frontend.
+      status:
+        funded >= o.signed!
+          ? "FUNDED"
+          : funded > 0
+            ? "PARTIALLY_FUNDED"
+            : o.admitted
+              ? "ADMITTED_AT_CLOSE"
+              : "SIGNED",
       signedAt: new Date(Date.UTC(2026, 6, 10 + (o.n % 18))),
       admissionDate: o.admitted ? new Date(Date.UTC(2026, 7, 1 + (o.n % 20))) : null,
       complianceStatus: "CLEARED",

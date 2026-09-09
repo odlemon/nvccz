@@ -1470,14 +1470,112 @@ export class FundraisingSrdService {
     return row;
   }
 
+  /**
+   * Approval requests, each resolved into the names the approvals screen renders.
+   *
+   * The stored row holds only ids — objectType/objectId plus requestedById/decidedById — so
+   * the screen's Request, Campaign, Investor and Requester columns had nothing to display
+   * and every row read "Name unavailable". Resolve them here, in batched lookups per object
+   * type, rather than making the client issue a request per row.
+   */
   static async listApprovals(filters: { status?: string; objectType?: string }) {
     const where: any = {};
     if (filters.status) where.status = filters.status;
     if (filters.objectType) where.objectType = filters.objectType;
-    return prisma.fundraisingApprovalRequest.findMany({
+    const rows = await prisma.fundraisingApprovalRequest.findMany({
       where,
       orderBy: { createdAt: "desc" },
       take: 200,
+    });
+    if (rows.length === 0) return rows;
+
+    const idsFor = (type: string) =>
+      rows.filter((r) => String(r.objectType).toUpperCase() === type).map((r) => r.objectId);
+
+    const [users, opportunities, commitments, campaigns, closings] = await Promise.all([
+      prisma.user.findMany({
+        where: {
+          id: {
+            in: [
+              ...new Set(
+                rows.flatMap((r) => [r.requestedById, r.decidedById]).filter(Boolean) as string[]
+              ),
+            ],
+          },
+        },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      }),
+      prisma.fundraisingOpportunity.findMany({
+        where: { id: { in: idsFor("OPPORTUNITY") } },
+        select: {
+          id: true,
+          campaign: { select: { id: true, name: true } },
+          investor: { select: { id: true, legalName: true } },
+        },
+      }),
+      prisma.fundraisingCommitment.findMany({
+        where: { id: { in: idsFor("COMMITMENT") } },
+        select: {
+          id: true,
+          campaign: { select: { id: true, name: true } },
+          investor: { select: { id: true, legalName: true } },
+        },
+      }),
+      prisma.fundraisingCampaign.findMany({
+        where: { id: { in: idsFor("CAMPAIGN") } },
+        select: { id: true, name: true },
+      }),
+      prisma.fundraisingClosing.findMany({
+        where: { id: { in: idsFor("CLOSING") } },
+        select: { id: true, name: true, campaign: { select: { id: true, name: true } } },
+      }),
+    ]);
+
+    const userName = (id?: string | null) => {
+      if (!id) return null;
+      const u = users.find((x) => x.id === id);
+      if (!u) return null;
+      return `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email || null;
+    };
+
+    const oppById = new Map(opportunities.map((o) => [o.id, o]));
+    const commitById = new Map(commitments.map((c) => [c.id, c]));
+    const campById = new Map(campaigns.map((c) => [c.id, c]));
+    const closeById = new Map(closings.map((c) => [c.id, c]));
+
+    return rows.map((r) => {
+      const type = String(r.objectType).toUpperCase();
+      let campaignName: string | null = null;
+      let investorName: string | null = null;
+      let objectName: string | null = null;
+
+      if (type === "OPPORTUNITY") {
+        const o = oppById.get(r.objectId);
+        campaignName = o?.campaign?.name ?? null;
+        investorName = o?.investor?.legalName ?? null;
+        objectName = investorName && campaignName ? `${investorName} — ${campaignName}` : null;
+      } else if (type === "COMMITMENT") {
+        const c = commitById.get(r.objectId);
+        campaignName = c?.campaign?.name ?? null;
+        investorName = c?.investor?.legalName ?? null;
+        objectName = investorName && campaignName ? `${investorName} — ${campaignName}` : null;
+      } else if (type === "CAMPAIGN") {
+        campaignName = campById.get(r.objectId)?.name ?? null;
+        objectName = campaignName;
+      } else if (type === "CLOSING") {
+        const c = closeById.get(r.objectId);
+        campaignName = c?.campaign?.name ?? null;
+        objectName = c?.name ?? null;
+      }
+
+      return {
+        ...r,
+        objectName,
+        campaignName,
+        investorName,
+        requestedByName: userName(r.requestedById),
+        decidedByName: userName(r.decidedById),
+      };
     });
   }
 
