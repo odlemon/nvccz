@@ -7,6 +7,7 @@ import { PayslipDocumentService } from "../services/payroll/PayslipDocumentServi
 import { PayrollComplianceService } from "../services/payroll/PayrollComplianceService";
 import { ComplianceExpiryCronService } from "../services/payroll/ComplianceExpiryCronService";
 import { assertPayrollHrAccess } from "../services/payroll/payrollAccessHelpers";
+import { PayrollAuditService } from "../services/payroll/PayrollAuditService";
 
 function assertHrRole(req: Request, res: Response): boolean {
   return assertPayrollHrAccess(req, res);
@@ -126,6 +127,15 @@ export class PayrollExtendedController {
         payrollRunId,
         (req as any).user.id
       );
+      await PayrollAuditService.record({
+        action: "PAYROLL_RUN_SUBMITTED",
+        eventClass: "Approval",
+        entityType: "payroll_run",
+        entityId: payrollRunId,
+        entityLabel: (data as any)?.name ?? null,
+        detail: `Submitted ${(data as any)?.payPeriod ?? payrollRunId} for independent approval`,
+        actor: (req as any).user,
+      });
       res.json({ success: true, data });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
@@ -137,6 +147,15 @@ export class PayrollExtendedController {
       if (!assertHrRole(req, res)) return;
       const { payrollRunId } = req.params;
       const data = await PayrollRunApprovalService.approve(payrollRunId, (req as any).user.id);
+      await PayrollAuditService.record({
+        action: "PAYROLL_RUN_APPROVED",
+        eventClass: "Approval",
+        entityType: "payroll_run",
+        entityId: payrollRunId,
+        entityLabel: (data as any)?.name ?? null,
+        detail: `Approved ${(data as any)?.payPeriod ?? payrollRunId} by an independent checker`,
+        actor: (req as any).user,
+      });
       res.json({ success: true, data });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
@@ -153,6 +172,15 @@ export class PayrollExtendedController {
         (req as any).user.id,
         reason
       );
+      await PayrollAuditService.record({
+        action: "PAYROLL_RUN_REJECTED",
+        eventClass: "Approval",
+        entityType: "payroll_run",
+        entityId: payrollRunId,
+        entityLabel: (data as any)?.name ?? null,
+        detail: reason ? `Returned for correction: ${reason}` : 'Returned for correction',
+        actor: (req as any).user,
+      });
       res.json({ success: true, data });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });

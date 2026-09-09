@@ -66,6 +66,12 @@ function employeeMultipart(req: any, res: any, next: any) {
 // they hold so the UI can gate on the same answer the guards enforce.
 router.get('/me/access', authenticate, PayrollAccessController.getMyAccess);
 
+// ===== AUDIT TRAIL =====
+// Payroll had no audit store at all: the runtime logged events to an in-memory
+// array that died with the page, so the governance screen showed invented
+// history. Backed by payroll_audit_events (npm run db:migrate:payroll-v6-audit-table).
+router.get('/audit', authenticate, requireAnyPermission([P.auditView]), PayrollAccessController.listAudit);
+
 // ===== EMPLOYEE MANAGEMENT ROUTES =====
 /* Swagger: multipart create/update in src/config/payroll-endpoints.ts (Payroll tag) */
 router.post(

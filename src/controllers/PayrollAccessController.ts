@@ -16,6 +16,7 @@ import type { Request, Response } from "express"
 import { prisma } from "../utils/database"
 import { userHasEffectivePermission } from "../config/cfoModulePermissions"
 import { ALL_PAYROLL_PERMISSIONS } from "../config/payrollPermissions"
+import { PayrollAuditService } from "../services/payroll/PayrollAuditService"
 
 export class PayrollAccessController {
   static async getMyAccess(req: Request, res: Response) {
@@ -57,6 +58,33 @@ export class PayrollAccessController {
       return res.status(500).json({
         success: false,
         message: "Failed to resolve payroll access",
+        error: error instanceof Error ? error.message : "Unknown error",
+      })
+    }
+  }
+
+  /**
+   * Payroll audit trail, newest first.
+   *
+   * Guarded by payroll.audit.view on the route. Returns an empty trail rather
+   * than a 500 when the table has not been created yet, because it is managed
+   * by a migration script outside Prisma.
+   */
+  static async listAudit(req: Request, res: Response) {
+    try {
+      const { limit, entityType, entityId, action } = req.query as Record<string, string>
+      const data = await PayrollAuditService.list({
+        limit: limit ? Number(limit) : 100,
+        entityType,
+        entityId,
+        action,
+      })
+      return res.json({ success: true, data })
+    } catch (error) {
+      console.error("Error reading payroll audit trail:", error)
+      return res.status(500).json({
+        success: false,
+        message: "Failed to read the payroll audit trail",
         error: error instanceof Error ? error.message : "Unknown error",
       })
     }

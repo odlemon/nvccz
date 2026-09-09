@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { Request, Response } from 'express';
+import { PayrollAuditService } from "../services/payroll/PayrollAuditService";
 import { PrismaClient } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PayrollService } from '../services/PayrollService';
@@ -309,6 +310,15 @@ export class PayrollController {
         }
       });
 
+      await PayrollAuditService.record({
+        action: 'PAYROLL_RUN_CREATED',
+        eventClass: 'Change',
+        entityType: 'payroll_run',
+        entityId: (payrollRun as any)?.id ?? null,
+        entityLabel: (payrollRun as any)?.name ?? null,
+        detail: `Created payroll run for ${(payrollRun as any)?.payPeriod ?? 'an unnamed period'}`,
+        actor: (req as any).user,
+      });
       res.status(201).json({
         success: true,
         message: 'Payroll run created successfully',
@@ -336,6 +346,15 @@ export class PayrollController {
 
       const payrollRun = await PayrollService.getPayrollRunSummary(payrollRunId);
 
+      await PayrollAuditService.record({
+        action: 'PAYROLL_RUN_PROCESSED',
+        eventClass: 'Change',
+        entityType: 'payroll_run',
+        entityId: payrollRunId,
+        entityLabel: (payrollRun as any)?.name ?? null,
+        detail: `Calculated payroll and generated payslips: gross ${(payrollRun as any)?.totalGrossPay ?? '0'}, net ${(payrollRun as any)?.totalNetPay ?? '0'}`,
+        actor: (req as any).user,
+      });
       res.json({
         success: true,
         message: 'Payroll run processed successfully',
