@@ -595,16 +595,22 @@ export class PayrollService {
       // Process each employee
       for (const employee of employees) {
         const effectiveDate = payrollRun.endDate;
-        let calculation;
-        if (usesDualCurrency(employee, payrollRun)) {
-          calculation = await calculateEmployeePayrollWithLegs(employee, effectiveDate, fxRate);
-        } else {
-          calculation = await this.calculateEmployeePayroll(
-            employee.id,
-            payrollRunId,
-            payrollRun.currencyId || ''
-          );
-        }
+        // One PAYE engine for everybody.
+        //
+        // This used to branch: split-salary employees went through the
+        // bracket-driven ZimraStatutoryEngine, while single-currency employees
+        // went through calculateEmployeePayroll, which applies flat TaxRules
+        // with a `rate / 100` convention. The two disagreed badly for the same
+        // salary — a single-currency employee on 1,515 gross was assessed 2.27
+        // in total deductions (0.15%) because bracket-driven PAYE never ran for
+        // them. calculateEmployeePayrollWithLegs handles a 100%-USD contract as
+        // a single USD leg, so routing everyone through it gives one consistent,
+        // progressive calculation.
+        const calculation = await calculateEmployeePayrollWithLegs(
+          employee,
+          effectiveDate,
+          fxRate
+        );
 
         // Create or update employee payroll record
         await prisma.employeePayroll.upsert({

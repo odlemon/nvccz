@@ -85,6 +85,29 @@ const STRUCTURE_BY_EMPLOYEE: Record<string, Array<{ code: string; amount: string
   "EMP-0012": [{ code: "HOUSING", amount: "427" }, { code: "TRANSPORT", amount: "165" }, { code: "MEDICAL", amount: "120" }],
 }
 
+/**
+ * Bank file layout. `columnOrder` is a JSON array of labels; PayrollService
+ * matches them case-insensitively against a fixed switch, so these exact
+ * strings are the contract — an unrecognised label silently emits an empty
+ * column.
+ */
+const BANK_TEMPLATES = [
+  {
+    name: "Standard USD Salary Batch",
+    bankName: "Stanbic Bank",
+    delimiter: ",",
+    hasHeader: true,
+    columnOrder: [
+      "Employee Name",
+      "Bank Name",
+      "Branch Code",
+      "Account Number",
+      "Payment Amount (Net Pay)",
+      "Payment Reference",
+    ],
+  },
+]
+
 const LEAVE_TYPES = [
   { type: "ANNUAL", base: 22 },
   { type: "SICK", base: 10 },
@@ -290,6 +313,24 @@ async function main() {
     }
   }
   console.log(`leave balances: ${balances}`)
+
+  // --- bank file templates --------------------------------------------------
+  // Without at least one template, POST /payroll-runs/:id/bank-file returns
+  // 400 "Bank template ID is required" and the release step cannot complete.
+  for (const t of BANK_TEMPLATES) {
+    const existing = await prisma.bankFileTemplate.findFirst({ where: { name: t.name } })
+    const data = {
+      name: t.name,
+      bankName: t.bankName,
+      delimiter: t.delimiter,
+      hasHeader: t.hasHeader,
+      columnOrder: JSON.stringify(t.columnOrder),
+      isActive: true,
+    }
+    if (existing) await prisma.bankFileTemplate.update({ where: { id: existing.id }, data })
+    else await prisma.bankFileTemplate.create({ data: { ...data, createdById: operator.id } })
+  }
+  console.log(`bank file templates: ${BANK_TEMPLATES.length}`)
 
   console.log("\nBaseline seed complete.")
 }

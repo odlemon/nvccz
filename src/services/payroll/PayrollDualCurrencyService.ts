@@ -24,6 +24,16 @@ export interface DualPayrollCalculation {
   legs: StatutoryLegResult[];
 }
 
+/**
+ * Convert a leg amount into the USD reporting currency.
+ * USD legs pass through; ZiG legs are divided by the run's USD->ZiG rate.
+ */
+function toUsd(amount: Decimal, currencyCode: string, fxRateUsdZig: Decimal): Decimal {
+  if (currencyCode !== "ZIG") return amount
+  if (fxRateUsdZig.lte(0)) return new Decimal(0)
+  return amount.div(fxRateUsdZig)
+}
+
 export async function calculateEmployeePayrollWithLegs(
   employee: any,
   effectiveDate: Date,
@@ -33,7 +43,34 @@ export async function calculateEmployeePayrollWithLegs(
   const zigPct = new Decimal(employee.salarySplitZigPct?.toString() || "0");
   const basicSalary = new Decimal(employee.basicSalary?.toString() || "0");
 
-  const { usdGross, zigGross } = splitGrossByContract(basicSalary, usdPct, zigPct, fxRateUsdZig);
+  // Allowances used to be dropped entirely on this path (`totalAllowances: 0`,
+  // `allowances: []`), so any employee on a split contract silently lost their
+  // housing/transport/medical lines while single-currency employees kept theirs.
+  // Load the same active salary structures the single-currency path uses.
+  const structures = await prisma.salaryStructure.findMany({
+    where: {
+      employeeId: employee.id,
+      isActive: true,
+      effectiveDate: { lte: effectiveDate },
+      OR: [{ endDate: null }, { endDate: { gte: effectiveDate } }],
+    },
+    include: { allowanceType: true },
+  });
+
+  const allowances = structures.map((s: any) => ({
+    type: s.allowanceType?.name ?? "Allowance",
+    amount: new Decimal(s.amount?.toString() || "0"),
+    isTaxable: s.allowanceType?.isTaxable !== false,
+  }));
+  const totalAllowances = allowances.reduce(
+    (sum, a) => sum.add(a.amount),
+    new Decimal(0)
+  );
+
+  // Allowances are contractual pay and are split across the same currency
+  // proportions as the basic, so statutory tax is assessed on the full package.
+  const packageGross = basicSalary.add(totalAllowances);
+  const { usdGross, zigGross } = splitGrossByContract(packageGross, usdPct, zigPct, fxRateUsdZig);
 
   const legs: StatutoryLegResult[] = [];
 
@@ -45,12 +82,26 @@ export async function calculateEmployeePayrollWithLegs(
   }
 
   if (!legs.length) {
-    legs.push(await calculateStatutoryLeg(basicSalary, "USD", effectiveDate));
+    legs.push(await calculateStatutoryLeg(packageGross, "USD", effectiveDate));
   }
 
-  const grossPay = legs.reduce((s, l) => s.add(l.grossPay), new Decimal(0));
-  const totalDeductions = legs.reduce((s, l) => s.add(l.totalDeductions), new Decimal(0));
-  const netPay = legs.reduce((s, l) => s.add(l.netPay), new Decimal(0));
+  // The employee-level scalars are REPORTING values in USD. They previously
+  // added a USD leg to a ZiG leg as if they were the same unit, which produced
+  // figures roughly 4x too large (a 2,975 basic reported a 25,849 gross) and
+  // made run totals meaningless. The true per-currency amounts stay on `legs`,
+  // which is what payslips and bank files read.
+  const grossPay = legs.reduce(
+    (s, l) => s.add(toUsd(l.grossPay, l.currencyCode, fxRateUsdZig)),
+    new Decimal(0)
+  );
+  const totalDeductions = legs.reduce(
+    (s, l) => s.add(toUsd(l.totalDeductions, l.currencyCode, fxRateUsdZig)),
+    new Decimal(0)
+  );
+  const netPay = legs.reduce(
+    (s, l) => s.add(toUsd(l.netPay, l.currencyCode, fxRateUsdZig)),
+    new Decimal(0)
+  );
 
   const deductions = legs.flatMap((leg) => [
     { type: `PAYE (${leg.currencyCode})`, amount: leg.payeAmount, isStatutory: true },
@@ -61,11 +112,11 @@ export async function calculateEmployeePayrollWithLegs(
 
   return {
     basicSalary,
-    totalAllowances: new Decimal(0),
+    totalAllowances,
     grossPay,
     totalDeductions,
     netPay,
-    allowances: [],
+    allowances,
     deductions,
     legs,
   };
