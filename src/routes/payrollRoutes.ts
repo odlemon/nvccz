@@ -8,6 +8,7 @@ import { PayrollEmployeeProvisionController } from '../controllers/PayrollEmploy
 import { authenticate } from '../middleware/authenticate';
 import { requireAnyPermission } from '../middleware/permissionAuth';
 import { PAYROLL_PERMISSIONS as P } from '../config/payrollPermissions';
+import { PayrollVendorService } from '../services/payroll/PayrollVendorService';
 
 /**
  * Authorisation note.
@@ -38,6 +39,7 @@ const canManageTax = requireAnyPermission([P.taxManage]);
 const canViewLeave = requireAnyPermission([P.leaveView, P.leaveManage]);
 const canManageLeave = requireAnyPermission([P.leaveManage]);
 const canViewSettings = requireAnyPermission([P.settingsView, P.settingsManage]);
+const canViewVendors = requireAnyPermission([P.vendorsView]);
 const canManageSettings = requireAnyPermission([P.settingsManage]);
 
 const employeePictureUpload = multer({
@@ -181,6 +183,17 @@ router.delete('/deduction-types/:id/employees', authenticate, canManageComponent
 
 // ===== BANK FILE TEMPLATES MANAGEMENT =====
 router.post('/bank-templates', authenticate, canManageSettings, PayrollController.createBankFileTemplate);
+// Vendors & Quotations read its suppliers from a hardcoded fixture — invented companies with
+// invented ratings and contract values, shown to staff as real records. `payroll.vendors.view`
+// already existed as a permission and was already granted; only the endpoint was missing.
+router.get('/vendors', authenticate, canViewVendors, async (req, res) => {
+  try {
+    res.json({ success: true, data: await PayrollVendorService.list(req.query) });
+  } catch (e: any) {
+    res.status(e?.status || 500).json({ success: false, message: e?.message || 'Error' });
+  }
+});
+
 router.get('/bank-templates', authenticate, canViewSettings, PayrollController.getBankFileTemplates);
 router.put('/bank-templates/:id', authenticate, canManageSettings, PayrollController.updateBankFileTemplate);
 router.delete('/bank-templates/:id', authenticate, canManageSettings, PayrollController.deleteBankFileTemplate);
