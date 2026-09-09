@@ -5,6 +5,19 @@ import { LpPortalAccessService } from "./LpPortalAccessService";
 import { LpPortalVaultService } from "./LpPortalVaultService";
 import { LpPortalInviteService } from "./LpPortalInviteService";
 
+/** Extension for the document types the vault accepts, so a stored file is named honestly. */
+const MIME_EXTENSIONS: Record<string, string> = {
+  "application/pdf": "pdf",
+  "text/plain": "txt",
+  "text/csv": "csv",
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "application/msword": "doc",
+  "application/vnd.ms-excel": "xls",
+};
+
 export class LpPortalAdminService {
   static async listMemberships(clientId?: string) {
     const where = clientId ? { clientId } : {};
@@ -127,10 +140,21 @@ export class LpPortalAdminService {
     publishedById: string;
   }) {
     const sha256 = crypto.createHash("sha256").update(params.fileBuffer).digest("hex");
-    const RemoteUploadService = (await import("../RemoteUploadService")).default;
-    const upload = new RemoteUploadService();
-    const filename = params.title.replace(/[^\w.-]+/g, "-") + ".pdf";
-    const staged = await upload.uploadSingleFile(params.fileBuffer, "lp-portal-vault");
+    // `RemoteUploadService` has no default export — it exports the named class and a ready-made
+    // singleton. Reaching for `.default` yielded undefined, so every attempt to publish a document
+    // to an investor died with "RemoteUploadService is not a constructor". Use the singleton the
+    // module already provides.
+    const { remoteUploadService } = await import("../RemoteUploadService");
+    // The uploader takes `{ buffer, originalname, mimetype }` (or a Multer file); a bare Buffer
+    // reaches form-data with nothing to stream and fails with "source.on is not a function".
+    // The extension follows the actual mime type — the previous code built a filename it never
+    // passed and hardcoded ".pdf" whatever the file really was.
+    const ext = MIME_EXTENSIONS[params.mimeType] || "bin";
+    const originalname = `${params.title.replace(/[^\w.-]+/g, "-")}.${ext}`;
+    const staged = await remoteUploadService.uploadSingleFile(
+      { buffer: params.fileBuffer, originalname, mimetype: params.mimeType },
+      "lp-portal-vault"
+    );
 
     return LpPortalVaultService.publishDocument({
       clientId: params.clientId,

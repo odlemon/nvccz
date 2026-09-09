@@ -239,11 +239,17 @@ app.use(cors({
       "http://localhost:3000",
       "http://localhost:3001",
       "http://localhost:3110",
+      // A second set of portal instances, for running a test pass without disturbing the
+      // default 3001/3110 pair. See scripts/run-portal-dev.mjs --port/--dist.
+      "http://localhost:3201",
+      "http://localhost:3210",
       "http://localhost:3120",
       "http://localhost:3130",
       "http://127.0.0.1:3000",
       "http://127.0.0.1:3001",
       "http://127.0.0.1:3110",
+      "http://127.0.0.1:3201",
+      "http://127.0.0.1:3210",
       "http://127.0.0.1:3120",
       "http://127.0.0.1:3130",
       "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io",
@@ -266,6 +272,14 @@ app.use(cors({
     
     // Allow all Vercel preview deployments for development
     if (origin && origin.includes('.vercel.app')) {
+      return callback(null, true);
+    }
+
+    // Escape hatch for local work on a port that is not in the list above. Opt-in via
+    // ALLOW_LOOPBACK_CORS=1 rather than keyed off NODE_ENV, because this dev machine's .env pins
+    // NODE_ENV=production and a NODE_ENV-gated branch would be silently dead here. A rejected
+    // origin surfaces in the browser only as "Request failed", with no clue as to the cause.
+    if (origin && process.env.ALLOW_LOOPBACK_CORS === "1" && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
       return callback(null, true);
     }
     

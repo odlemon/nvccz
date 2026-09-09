@@ -67,6 +67,7 @@ export class AuthController {
           firstName: true,
           lastName: true,
           password: true,
+          mustChangePassword: true,
           userDepartment: true,
           roleCode: true,
           roleId: true,
@@ -170,7 +171,12 @@ export class AuthController {
           roleCode: user.roleCode ?? null,
           roleId: user.roleId,
           isApplicant: isApplicant,
-          passwordChanged: passwordChanged // Flag to indicate if user has changed password from initial email
+          passwordChanged: passwordChanged, // Flag to indicate if user has changed password from initial email
+          // Explicit requirement, as opposed to `passwordChanged` which is inferred from audit
+          // history. Set when we issued the password ourselves — an invited LP is emailed a
+          // temporary one — and cleared the moment they choose their own. The portal uses this to
+          // force the change before anything else is reachable.
+          mustChangePassword: !!user.mustChangePassword
         }
       });
 
@@ -252,6 +258,8 @@ export class AuthController {
         where: { id: userId },
         data: {
           password: hashedPassword,
+          // The user has now chosen their own password, so any requirement we imposed is met.
+          mustChangePassword: false,
           tokenVersion: { increment: 1 },
         }
       });
@@ -508,6 +516,7 @@ export class AuthController {
           where: { id: user.id },
           data: {
             password: hashedPassword,
+            mustChangePassword: false,
             tokenVersion: { increment: 1 },
           }
         }),

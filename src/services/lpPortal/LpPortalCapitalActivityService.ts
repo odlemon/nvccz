@@ -33,7 +33,15 @@ function todayDateOnly(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function isCapitalCallVisible(cc: { status: string; noticesSentAt: Date | null }): boolean {
+/**
+ * Whether a capital call has reached the investor at all.
+ *
+ * SRD section 10 puts the portal notification at ISSUED, after maker-checker — a call that has
+ * only been created is not yet the investor's business. Exported because the dashboard has to
+ * report the investor's called/outstanding position on exactly this basis: counting calls the
+ * investor cannot see told them they owed money against no visible call.
+ */
+export function isCapitalCallVisible(cc: { status: string; noticesSentAt: Date | null }): boolean {
   const status = String(cc.status || "").toUpperCase();
   if (status === "DRAFT" || status === "CANCELLED") return false;
   if (cc.noticesSentAt != null) return true;
@@ -385,10 +393,16 @@ export class LpPortalCapitalActivityService {
       orderBy: { createdAt: "desc" },
     });
 
+    // SRD section 11 requires the distribution drawer to show the masked bank destination, and
+    // section 11 also requires account numbers to be masked. `destinationBankMasked` was
+    // hardcoded null, so the field was always empty however much bank data existed.
+    // LpBankAccount already stores a pre-masked account number, so nothing is unmasked here.
+    const bankByFund = await this.resolveDestinationBanks(ctx.clientId);
+
     let items = rows
       .filter((r) => LpPortalAccessService.fundAllowed(ctx, r.distribution.fundId))
       .filter((r) => isDistributionVisible(r.distribution))
-      .map((r) => this.mapDistSummary(r));
+      .map((r) => this.mapDistSummary(r, bankByFund));
 
     if (q.from) items = items.filter((i) => !i.paymentDate || i.paymentDate >= q.from!);
     if (q.to) items = items.filter((i) => !i.paymentDate || i.paymentDate <= q.to!);
@@ -405,7 +419,26 @@ export class LpPortalCapitalActivityService {
   static async getDistribution(ctx: LpPortalContext, allocationId: string) {
     await LpPortalAccessService.assertClientActive(ctx.clientId);
     const row = await this.loadDistAllocation(ctx, allocationId);
-    return this.mapDistDetail(row);
+    const bankByFund = await this.resolveDestinationBanks(ctx.clientId);
+    return this.mapDistDetail(row, bankByFund);
+  }
+
+  /**
+   * The investor's active bank accounts, keyed by fund, with a `null` key holding the account that
+   * applies to any fund. Values are already masked in storage (`accountNumberMasked`).
+   */
+  private static async resolveDestinationBanks(clientId: string): Promise<Map<string | null, string>> {
+    const accounts = await db().lpBankAccount.findMany({
+      where: { clientId, status: "ACTIVE" },
+      select: { fundId: true, bankName: true, accountNumberMasked: true, isDefault: true },
+      orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }],
+    });
+    const out = new Map<string | null, string>();
+    for (const a of accounts) {
+      const label = [a.bankName, a.accountNumberMasked].filter(Boolean).join(" ");
+      if (!out.has(a.fundId ?? null)) out.set(a.fundId ?? null, label);
+    }
+    return out;
   }
 
   static async downloadDistribution(ctx: LpPortalContext, allocationId: string) {
@@ -584,7 +617,7 @@ export class LpPortalCapitalActivityService {
     };
   }
 
-  private static mapDistSummary(row: any) {
+  private static mapDistSummary(row: any, bankByFund?: Map<string | null, string>) {
     const d = row.distribution;
     const gross = Number(row.shareAmount.toString());
     const net = Number(row.amountPaid.toString()) || gross;
@@ -601,13 +634,13 @@ export class LpPortalCapitalActivityService {
       adjustments: moneyStr(adjustments),
       netPaid: moneyStr(net),
       status: String(row.status || "PENDING").toUpperCase() === "PAID" ? "PAID" : String(row.status || "PENDING").toUpperCase(),
-      destinationBankMasked: null,
+      destinationBankMasked: bankByFund?.get(d.fundId) ?? bankByFund?.get(null) ?? null,
       documentId: null,
     };
   }
 
-  private static mapDistDetail(row: any) {
-    return this.mapDistSummary(row);
+  private static mapDistDetail(row: any, bankByFund?: Map<string | null, string>) {
+    return this.mapDistSummary(row, bankByFund);
   }
 
   private static deriveCallNo(cc: any): number | string {

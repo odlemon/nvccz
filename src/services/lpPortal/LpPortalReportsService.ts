@@ -53,9 +53,11 @@ export class LpPortalReportsService {
       throw Object.assign(new Error("PDF not yet available"), { statusCode: 404 });
 
     if (job.pdfFileUrl || job.pdfStoragePath) {
-      const RemoteUploadService = (await import("../RemoteUploadService")).default;
+      // See LpPortalVaultService: the module exports a named class and a singleton, never a
+      // default, so `.default` was undefined and this threw on every download.
+      const { remoteUploadService } = await import("../RemoteUploadService");
       const url = job.pdfFileUrl || job.pdfStoragePath!;
-      const buffer = await new RemoteUploadService().downloadFile(url);
+      const buffer = await remoteUploadService.downloadFile(url);
       return {
         buffer,
         filename: `fund-performance-${job.run.fund.name.replace(/\s+/g, "-")}.pdf`,

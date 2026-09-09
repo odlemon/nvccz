@@ -38,6 +38,30 @@ export interface LpInviteResult {
   activationEmailSent: boolean;
 }
 
+/**
+ * A readable one-time password for an invitation email.
+ *
+ * Deliberately avoids characters that are mistaken for one another when retyped from an email
+ * (0/O, 1/l/I), because the investor has to copy this by hand. Entropy comes from length and from
+ * `crypto.randomInt`, not from an awkward alphabet.
+ */
+function generateTemporaryPassword(): string {
+  const upper = "ABCDEFGHJKMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const digits = "23456789";
+  const symbols = "!@#$%*?";
+  const all = upper + lower + digits + symbols;
+  const pick = (set: string) => set[crypto.randomInt(0, set.length)];
+  // Guarantee one of each class so the result satisfies any password policy on the way back in.
+  const chars = [pick(upper), pick(lower), pick(digits), pick(symbols)];
+  while (chars.length < 14) chars.push(pick(all));
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
+
 export class LpPortalInviteService {
   /**
    * Resolve an email to a User, creating one when it does not exist.
@@ -50,7 +74,7 @@ export class LpPortalInviteService {
     email: string;
     firstName?: string;
     lastName?: string;
-  }): Promise<{ user: any; created: boolean }> {
+  }): Promise<{ user: any; created: boolean; temporaryPassword?: string }> {
     const email = params.email.trim().toLowerCase();
     if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
       throw Object.assign(new Error("A valid email address is required"), { statusCode: 400 });
@@ -70,18 +94,23 @@ export class LpPortalInviteService {
       );
     }
 
-    const unusablePassword = await bcrypt.hash(crypto.randomBytes(48).toString("hex"), 10);
+    // The invitation email carries sign-in credentials, so the account is created with a real
+    // temporary password rather than an unusable one. `mustChangePassword` makes it single-use in
+    // practice: the investor can sign in with it once and is required to choose their own before
+    // they can do anything else.
+    const temporaryPassword = generateTemporaryPassword();
     const user = await prisma.user.create({
       data: {
         email,
         firstName: params.firstName?.trim() || email.split("@")[0],
         lastName: params.lastName?.trim() || "",
-        password: unusablePassword,
+        password: await bcrypt.hash(temporaryPassword, 10),
         roleId: lpRole.id,
         roleCode: "LIMITED_PARTNER",
+        mustChangePassword: true,
       },
     });
-    return { user, created: true };
+    return { user, created: true, temporaryPassword };
   }
 
   /**
@@ -118,18 +147,62 @@ export class LpPortalInviteService {
     rawToken: string;
     organisationName?: string | null;
     invitedByName?: string | null;
+    temporaryPassword?: string | null;
   }): Promise<boolean> {
-    const frontendUrl = process.env.LP_PORTAL_URL || process.env.FRONTEND_URL || "http://localhost:3110";
-    const activationUrl = `${frontendUrl}/reset-password?token=${params.rawToken}`;
+    // The investor signs in on the LP portal, which is a separate origin from the staff app.
+    //
+    // `FRONTEND_URL` is deliberately NOT in this chain. It is the staff origin, and it was the
+    // effective value everywhere, because `LP_PORTAL_URL` is not set in any environment file: a
+    // freshly invited investor was emailed a link to the staff portal, which refuses LP accounts
+    // outright (see portalAuth), so the invitation could not be completed at all. Falling back to
+    // the wrong portal silently is worse than failing loudly, so an unset value warns and uses the
+    // conventional local LP port rather than borrowing the staff origin.
+    const configuredPortalUrl =
+      process.env.LP_PORTAL_URL || process.env.NEXT_PUBLIC_LP_PORTAL_URL || null;
+    if (!configuredPortalUrl) {
+      console.warn(
+        "[LP invite] LP_PORTAL_URL is not configured — invitation links will point at " +
+          "http://localhost:3110. Set LP_PORTAL_URL to the investor portal origin for this " +
+          "environment, or invited investors will receive an unusable link."
+      );
+    }
+    const portalUrl = (configuredPortalUrl || "http://localhost:3110").replace(/\/+$/, "");
+    const signInUrl = `${portalUrl}/login`;
+    const activationUrl = `${portalUrl}/reset-password?token=${params.rawToken}`;
     const shortName = companyNameShortFromEnv();
     const org = params.organisationName ? ` for ${params.organisationName}` : "";
     const by = params.invitedByName ? `${params.invitedByName} has invited you` : "You have been invited";
     const from = getFromAddress("it");
 
-    const html = `
-      <h1>Your ${shortName} Investor Portal access</h1>
-      <p>Hi ${params.user.firstName || "there"},</p>
-      <p>${by} to the ${shortName} Investor Portal${org}.</p>
+    const credentialsBlock = params.temporaryPassword
+      ? `
+      <p>Sign in with these details:</p>
+      <table style="border-collapse:collapse;margin:12px 0;">
+        <tr>
+          <td style="padding:6px 14px 6px 0;color:#4b5563;">Portal</td>
+          <td style="padding:6px 0;"><a href="${signInUrl}">${signInUrl}</a></td>
+        </tr>
+        <tr>
+          <td style="padding:6px 14px 6px 0;color:#4b5563;">Email</td>
+          <td style="padding:6px 0;font-family:monospace;">${params.user.email}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 14px 6px 0;color:#4b5563;">Temporary password</td>
+          <td style="padding:6px 0;font-family:monospace;font-weight:bold;">${params.temporaryPassword}</td>
+        </tr>
+      </table>
+      <p><strong>You will be asked to choose your own password the first time you sign in.</strong>
+         The temporary password above stops working at that point.</p>
+      <p>
+        <a href="${signInUrl}" style="display:inline-block;padding:10px 20px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:4px;">
+          Sign in to the Investor Portal
+        </a>
+      </p>
+      <p style="color:#6b7280;font-size:13px;">
+        Prefer to set a password without signing in first? Use this link instead, valid for 7 days:<br/>
+        <a href="${activationUrl}">${activationUrl}</a>
+      </p>`
+      : `
       <p>Set your password to activate your account:</p>
       <p>
         <a href="${activationUrl}" style="display:inline-block;padding:10px 20px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:4px;">
@@ -137,7 +210,13 @@ export class LpPortalInviteService {
         </a>
       </p>
       <p>If the button doesn't work, copy and paste this link into your browser:</p>
-      <p>${activationUrl}</p>
+      <p>${activationUrl}</p>`;
+
+    const html = `
+      <h1>Your ${shortName} Investor Portal access</h1>
+      <p>Hi ${params.user.firstName || "there"},</p>
+      <p>${by} to the ${shortName} Investor Portal${org}.</p>
+      ${credentialsBlock}
       <p>This invitation expires in 7 days. If you were not expecting it, you can ignore this email.</p>
       <p>Best regards,<br/>${shortName}</p>
     `;
@@ -172,7 +251,7 @@ export class LpPortalInviteService {
     organisationName?: string | null;
     invitedByName?: string | null;
   }): Promise<LpInviteResult & { user: any }> {
-    const { user, created } = await this.findOrCreateLpUser(params);
+    const { user, created, temporaryPassword } = await this.findOrCreateLpUser(params);
 
     let activationEmailSent = false;
     if (created) {
@@ -182,6 +261,7 @@ export class LpPortalInviteService {
         rawToken,
         organisationName: params.organisationName,
         invitedByName: params.invitedByName,
+        temporaryPassword,
       });
     }
 

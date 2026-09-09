@@ -3,6 +3,7 @@ import { prisma } from "../../utils/database";
 import { moneyStr } from "../../middleware/lpPortalFoundation";
 import { LpFundMetricsService } from "../fundReporting/LpFundMetricsService";
 import { LpPortalAccessService, type LpPortalContext } from "./LpPortalAccessService";
+import { isCapitalCallVisible } from "./LpPortalCapitalActivityService";
 import { LpPortalCapitalActivityService } from "./LpPortalCapitalActivityService";
 
 const db = () => prisma as any;
@@ -60,6 +61,17 @@ export class LpPortalDashboardService {
     const periodStart = new Date(asOf);
     periodStart.setFullYear(periodStart.getFullYear() - 1);
 
+    // SRD section 3 requires every fund to carry an operating-model classification, and section 37
+    // forbids showing DPI/RVPI/TVPI (or unit-accounting concepts) regardless of that model. The
+    // classification is already stored on LpFundPortalContext and used by the performance and
+    // ledger services, but the dashboard's fund rows omitted it, so the client had nothing to gate
+    // on and rendered private-capital multiples for every fund.
+    const portalContexts = await db().lpFundPortalContext.findMany({
+      where: { fundId: { in: funds.map((f) => f.fundId) } },
+      select: { fundId: true, operatingModel: true, defaultShareClass: true, valuationStatus: true },
+    });
+    const contextByFund = new Map(portalContexts.map((c) => [c.fundId, c]));
+
     const fundMetrics = [];
     for (const ic of funds) {
       const snap = await prisma.lpPortalMetricSnapshot.findFirst({
@@ -76,9 +88,13 @@ export class LpPortalDashboardService {
         });
         metrics = live;
       }
+      const portalCtx = contextByFund.get(ic.fundId);
       fundMetrics.push({
         fundId: ic.fundId,
         fundName: ic.fund.name,
+        operatingModel: portalCtx?.operatingModel || "PRIVATE_CAPITAL",
+        defaultShareClass: portalCtx?.defaultShareClass ?? null,
+        valuationStatus: portalCtx?.valuationStatus || "FINAL",
         commitmentAmount: Number(ic.amount.toString()),
         commitmentCurrency: ic.currency,
         metrics: applyPresentationCurrency(metrics, presentation),
@@ -142,6 +158,7 @@ export class LpPortalDashboardService {
     let totalCommitment = 0;
     let paidIn = 0;
     let unfunded = 0;
+    let called = 0;
     let currentNav = 0;
     let distributions = 0;
     let netIrr: number | null = null;
@@ -169,6 +186,7 @@ export class LpPortalDashboardService {
       totalCommitment += Number(m.totalCommitment ?? 0);
       paidIn += Number(m.totalPaidIn ?? 0);
       unfunded += Number(m.unfundedCommitment ?? 0);
+      called += Number(m.totalCalled ?? 0);
       currentNav += Number(m.nav ?? 0);
       distributions += Number(m.totalDistributions ?? 0);
       if (m.netIrr != null) netIrr = Number(m.netIrr);
@@ -189,12 +207,52 @@ export class LpPortalDashboardService {
       rvpi = currentNav / paidIn;
     }
 
-    const companies = fundIds.length
+    // `called` from LpFundMetricsService counts every allocation whose call is not CANCELLED or
+    // DRAFT, which includes calls that have been created but never issued to the investor. The
+    // investor's own Capital Calls screen hides those (SRD section 10 puts the portal
+    // notification at ISSUED), so the two screens contradicted each other: the dashboard reported
+    // $875K called and outstanding while the Capital Calls list showed nothing outstanding at
+    // all — an obligation the investor could neither see nor act on.
+    //
+    // The shared metrics service is right for staff-side fund reporting and is left alone; the
+    // portal reports the investor's position on the basis of what the investor can actually see.
+    const visibleAllocations = fundIds.length
+      ? await db().capitalCallAllocation.findMany({
+          where: { clientId: ctx.clientId, capitalCall: { fundId: { in: fundIds } } },
+          select: {
+            currentCallAmount: true,
+            capitalCall: { select: { status: true, noticesSentAt: true } },
+          },
+        })
+      : [];
+    called = visibleAllocations
+      .filter((a) => a.capitalCall && isCapitalCallVisible(a.capitalCall))
+      .reduce((sum, a) => sum + Number(a.currentCallAmount?.toString() ?? "0"), 0);
+    // Keep the identity paidIn + outstanding + unfunded = commitment true on that same basis.
+    unfunded = Math.max(0, totalCommitment - called);
+
+    // Two different counts were being conflated. `investmentCount` is rendered on the dashboard
+    // as the helper line directly under "Total Commitment", so it has to be a count of the
+    // things that commitment is made of — the investor's own fund commitments. It was being set
+    // to the number of portfolio companies held by those funds instead, which is a real number
+    // but answers a different question: an LP with a single $25M commitment to one fund was
+    // shown "4 Investments" because that fund happens to hold four companies.
+    //
+    // Both figures are worth showing, so both are returned, each under its own name.
+    const portfolioCompanyCount = fundIds.length
       ? await prisma.portfolioCompany.count({
           where: { fundId: { in: fundIds }, status: { not: "EXITED" } },
         }).catch(() => 0)
       : 0;
-    investmentCount = companies;
+    investmentCount = fundIds.length
+      ? await prisma.investmentCommitment.count({
+          where: {
+            clientId: ctx.clientId,
+            fundId: { in: fundIds },
+            status: { in: ["ACTIVE", "PENDING"] },
+          },
+        }).catch(() => 0)
+      : 0;
 
     const holdings = await db().lpHoldingPosition.findMany({
       where: {
@@ -236,6 +294,13 @@ export class LpPortalDashboardService {
       kpis: {
         totalCommitment: moneyStr(totalCommitment),
         paidIn: moneyStr(paidIn),
+        // Unfunded is commitment MINUS CALLED, per the SRD — so on an account with a call
+        // outstanding, paidIn + unfunded does not reach the total commitment. The gap is capital
+        // the investor has been called for and not yet paid, which is the single number they most
+        // need to see, and it had no field to travel in. Both are sent so the UI can show the
+        // whole position instead of two slices that visibly fail to add up.
+        called: moneyStr(called),
+        outstandingCalled: moneyStr(Math.max(0, called - paidIn)),
         unfunded: moneyStr(unfunded),
         currentNav: moneyStr(currentNav),
         distributions: moneyStr(distributions),
@@ -244,6 +309,7 @@ export class LpPortalDashboardService {
         dpi: ratioStr(dpi, 4),
         rvpi: ratioStr(rvpi, 4),
         investmentCount,
+        portfolioCompanyCount,
       },
       openEndedSummary: {
         accountValue: moneyStr(accountValue),

@@ -108,8 +108,10 @@ export class FundReportingLpService {
     }
 
     if (job.pdfFileUrl) {
-      const RemoteUploadService = (await import("../RemoteUploadService")).default;
-      const buffer = await new RemoteUploadService().downloadFile(job.pdfFileUrl);
+      // No default export on that module; `.default` was undefined, so this threw
+      // "RemoteUploadService is not a constructor" every time a report was downloaded.
+      const { remoteUploadService } = await import("../RemoteUploadService");
+      const buffer = await remoteUploadService.downloadFile(job.pdfFileUrl);
       return {
         buffer,
         filename: `fund-performance-${job.run.fund.name.replace(/\s+/g, "-")}.pdf`,
