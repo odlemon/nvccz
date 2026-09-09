@@ -92,6 +92,15 @@ model User {
   lpPortalDocumentsPublished            LpPortalDocument[]              @relation("LpPortalDocumentPublisher")
   fundDocuments                         FundDocument[]
   accountingDocuments                   AccountingDocument[]
+  correctiveActionsOwned                PerformanceCorrectiveAction[]   @relation("PerformanceCorrectiveActionOwner")
+  correctiveActionsCreated              PerformanceCorrectiveAction[]   @relation("PerformanceCorrectiveActionCreatedBy")
+  performanceAlertsOwned                PerformanceAlert[]              @relation("PerformanceAlertOwner")
+  performanceAlertsCreated              PerformanceAlert[]              @relation("PerformanceAlertCreatedBy")
+  performanceDocumentsOwned             PerformanceDocument[]           @relation("PerformanceDocumentOwner")
+  performanceDocumentsUploaded          PerformanceDocument[]           @relation("PerformanceDocumentUploader")
+  performanceScorecardEntriesAsEmployee PerformanceScorecardEntry[]     @relation("PerformanceScorecardEntryEmployee")
+  performanceScorecardEntriesAsActor    PerformanceScorecardEntry[]     @relation("PerformanceScorecardEntryActor")
+  performanceSettingsUpdated            PerformanceSetting[]
   userMfaTotp                           UserMfaTotp?
   fundReportRunsTriggered               FundReportRun[]                 @relation("FundReportRunTriggeredBy")
   fundReportAuditEvents                 FundReportAuditEvent[]          @relation("FundReportAuditAuthor")
@@ -794,7 +803,7 @@ model JournalEntry {
   isEliminationEntry           Boolean                            @default(false) @map("is_elimination_entry")
   currency                     Currency                           @relation(fields: [currencyId], references: [id])
   createdBy                    User                               @relation(fields: [createdById], references: [id])
-  forecastEntity                ForecastEntity?                    @relation(fields: [forecastEntityId], references: [id], onDelete: SetNull)
+  forecastEntity               ForecastEntity?                    @relation(fields: [forecastEntityId], references: [id], onDelete: SetNull)
   journalEntryLines            JournalEntryLine[]
   expenses                     Expense[]
   invoices                     Invoice[]
@@ -2407,16 +2416,19 @@ model FundDisbursement {
 }
 
 model Department {
-  id                String                     @id @default(cuid())
-  name              String                     @unique
-  description       String?                    @db.Text
-  branch            String?
-  isActive          Boolean                    @default(true)
-  createdAt         DateTime                   @default(now())
-  updatedAt         DateTime                   @updatedAt
-  users             User[]                     @relation("UserDepartment")
-  dealSourcingGoals DealSourcingGoal[]
-  approvalStages    ProcurementApprovalStage[] @relation("ApprovalStageDepartment")
+  id                   String                        @id @default(cuid())
+  name                 String                        @unique
+  description          String?                       @db.Text
+  branch               String?
+  isActive             Boolean                       @default(true)
+  createdAt            DateTime                      @default(now())
+  updatedAt            DateTime                      @updatedAt
+  users                User[]                        @relation("UserDepartment")
+  dealSourcingGoals    DealSourcingGoal[]
+  approvalStages       ProcurementApprovalStage[]    @relation("ApprovalStageDepartment")
+  correctiveActions    PerformanceCorrectiveAction[]
+  performanceAlerts    PerformanceAlert[]            @relation("PerformanceAlertDepartment")
+  performanceDocuments PerformanceDocument[]         @relation("PerformanceDocumentDepartment")
 
   @@map("departments")
 }
@@ -5917,7 +5929,7 @@ model FiscalPeriod {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  fiscalYear         FiscalYear           @relation(fields: [fiscalYearId], references: [id], onDelete: Cascade)
+  fiscalYear         FiscalYear            @relation(fields: [fiscalYearId], references: [id], onDelete: Cascade)
   moduleLocks        ModulePeriodLock[]
   periodLockAuditLog PeriodLockAuditLog[]
   closeTasks         AccountingCloseTask[]
@@ -11756,4 +11768,163 @@ model TimesheetEntry {
   project   Project   @relation(fields: [projectId], references: [id])
 
   @@map("timesheet_entries")
+}
+
+/// Performance module corrective-action register (ID / Action / Trigger / Owner / Severity / Progress / Target).
+/// Table created by scripts/run-performance-corrective-actions-migration.ts.
+model PerformanceCorrectiveAction {
+  id           String    @id @default(cuid())
+  /// Short human code, e.g. CA-001. Auto-allocated by CorrectiveActionService when not supplied.
+  reference    String    @unique @db.VarChar(32)
+  title        String    @db.VarChar(255)
+  description  String?   @db.Text
+  /// What raised the action. Column is `trigger_source` - TRIGGER is a MySQL reserved word.
+  trigger      String?   @map("trigger_source") @db.Text
+  ownerId      String?   @map("owner_id")
+  departmentId String?   @map("department_id")
+  /// low | medium | high | critical - plain string (not a Prisma enum) for flexibility.
+  severity     String    @default("medium") @db.VarChar(16)
+  /// open | in_progress | blocked | closed - plain string (not a Prisma enum) for flexibility.
+  status       String    @default("open") @db.VarChar(32)
+  /// 0-100. NULL means progress has not been reported.
+  progress     Int?
+  targetDate   DateTime? @map("target_date")
+  closedAt     DateTime? @map("closed_at")
+  createdById  String    @map("created_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  owner      User?       @relation("PerformanceCorrectiveActionOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdBy  User        @relation("PerformanceCorrectiveActionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([status], map: "performance_corrective_actions_status_idx")
+  @@index([ownerId], map: "performance_corrective_actions_owner_idx")
+  @@index([departmentId], map: "performance_corrective_actions_department_idx")
+  /// relationMode = "prisma" implies no FK-backed index, and Prisma warns on any un-indexed
+  /// relation scalar. The migration creates it.
+  @@index([createdById], map: "performance_corrective_actions_created_by_idx")
+  @@map("performance_corrective_actions")
+}
+
+/// Performance module alert register. Table created by scripts/run-performance-alerts-migration.ts.
+model PerformanceAlert {
+  id              String    @id @default(cuid())
+  reference       String    @unique @db.VarChar(64)
+  title           String    @db.VarChar(255)
+  description     String?   @db.Text
+  /// Free text - where the alert came from, e.g. "KPI threshold", "Review overdue", "Manual".
+  source          String    @default("Manual") @db.VarChar(191)
+  /// info | warning | critical - plain string (not a Prisma enum), matching the rest of Performance.
+  severity        String    @default("warning") @db.VarChar(32)
+  /// open | acknowledged | escalated | resolved
+  status          String    @default("open") @db.VarChar(32)
+  ownerId         String?   @map("owner_id")
+  departmentId    String?   @map("department_id")
+  escalationLevel Int       @default(0) @map("escalation_level")
+  raisedAt        DateTime  @default(now()) @map("raised_at")
+  acknowledgedAt  DateTime? @map("acknowledged_at")
+  resolvedAt      DateTime? @map("resolved_at")
+  createdById     String    @map("created_by_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  /// NOTE: there is deliberately no `elapsed` column. Elapsed time is derived from raisedAt
+  /// by PerformanceAlertService on every read (elapsedMinutes), so it can never go stale.
+  owner      User?       @relation("PerformanceAlertOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  department Department? @relation("PerformanceAlertDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  createdBy  User        @relation("PerformanceAlertCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([status], map: "performance_alerts_status_idx")
+  @@index([severity], map: "performance_alerts_severity_idx")
+  @@index([ownerId], map: "performance_alerts_owner_idx")
+  @@index([departmentId], map: "performance_alerts_department_idx")
+  @@index([createdById], map: "performance_alerts_created_by_idx")
+  @@map("performance_alerts")
+}
+
+/// Employee Scorecard workspace apparatus (notes / evidence / update history / publish events).
+/// One append-only event log per employee+period, discriminated by `kind`, rather than four
+/// separate tables - mirrors how the scorecard UI already treats these as one activity stream.
+/// Table created by scripts/run-performance-scorecard-entries-migration.ts.
+model PerformanceScorecardEntry {
+  id       String @id @default(cuid())
+  /// The employee (User) whose scorecard this entry is attached to - not necessarily the actor.
+  employeeId String @map("employee_id")
+  /// Free-text scorecard period label, matching the UI's own periods (e.g. "Q3 FY2026").
+  period   String @db.VarChar(64)
+  /// note | evidence | history | publish
+  kind     String @db.VarChar(16)
+  /// note only: the note's category (e.g. "Manager note", "Employee response").
+  noteType String? @map("note_type") @db.VarChar(64)
+  /// note/history: free text body.
+  text     String? @db.Text
+  /// evidence only: Firebase Storage URL/path/mime/size, same shape as PerformanceDocument.
+  fileUrl       String? @map("file_url") @db.VarChar(1024)
+  storagePath   String? @map("storage_path") @db.VarChar(1024)
+  mimeType      String? @map("mime_type") @db.VarChar(191)
+  fileSizeBytes Int?    @map("file_size_bytes")
+  actorId  String   @map("actor_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  employee User @relation("PerformanceScorecardEntryEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  actor    User @relation("PerformanceScorecardEntryActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, period], map: "performance_scorecard_entries_employee_period_idx")
+  @@index([kind], map: "performance_scorecard_entries_kind_idx")
+  @@index([actorId], map: "performance_scorecard_entries_actor_idx")
+  @@map("performance_scorecard_entries")
+}
+
+/// Performance Document Vault (performance module "Documents"). Company-wide store - not scoped to
+/// a performance contract, review or scorecard - organised by a free-string folder (the vault's
+/// folder bar: Contracts, Reviews, Evidence, Policies) with a versioned lifecycle (version +
+/// status) and an optional retention date.
+model PerformanceDocument {
+  id             String    @id @default(cuid())
+  name           String    @db.VarChar(255)
+  folder         String    @default("General") @db.VarChar(64)
+  category       String?   @db.VarChar(64)
+  version        String    @default("v1") @db.VarChar(32)
+  /// draft | in_review | approved | archived
+  status         String    @default("draft") @db.VarChar(24)
+  fileUrl        String    @map("file_url") @db.Text
+  storagePath    String?   @map("storage_path") @db.VarChar(512)
+  mimeType       String?   @map("mime_type") @db.VarChar(128)
+  fileSizeBytes  Int?      @map("file_size_bytes")
+  ownerId        String?   @map("owner_id")
+  departmentId   String?   @map("department_id")
+  retentionUntil DateTime? @map("retention_until")
+  uploadedById   String?   @map("uploaded_by_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  owner      User?       @relation("PerformanceDocumentOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  department Department? @relation("PerformanceDocumentDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  uploadedBy User?       @relation("PerformanceDocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([folder], map: "performance_documents_folder_idx")
+  @@index([status], map: "performance_documents_status_idx")
+  @@index([ownerId], map: "performance_documents_owner_id_idx")
+  @@index([departmentId], map: "performance_documents_department_id_idx")
+  @@index([uploadedById], map: "performance_documents_uploaded_by_id_idx")
+  @@map("performance_documents")
+}
+
+/// Performance module settings - organisation-wide key/value store. See
+/// scripts/run-performance-settings-migration.ts for why a keyed store rather than a wide
+/// table: there is no written spec for the settings surface yet, so the schema stays stable
+/// while the field list is still being agreed.
+model PerformanceSetting {
+  id          String   @id @default(cuid())
+  settingKey  String   @unique @map("setting_key") @db.VarChar(191)
+  value       Json?
+  updatedById String?  @map("updated_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([updatedById], map: "performance_settings_updated_by_idx")
+  @@map("performance_settings")
 }

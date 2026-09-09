@@ -1,12 +1,17 @@
 // @ts-nocheck
 import express from "express";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 import { PerformanceAnalyticsController } from "../controllers/PerformanceAnalyticsController";
 
 const router = express.Router();
+const READ_KEYS = ["performance.analytics.view", "performance.analytics.manage"]
+const WRITE_KEYS = ["performance.analytics.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 // All routes require authentication
 router.use(authenticate);
+router.use(guard);
 
 /**
  * @swagger

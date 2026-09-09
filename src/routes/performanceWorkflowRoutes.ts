@@ -2,8 +2,12 @@
 import express from "express";
 import { PerformanceWorkflowController } from "../controllers/PerformanceWorkflowController";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 
 const router = express.Router();
+const READ_KEYS = ["performance.workflow.view", "performance.workflow.manage"]
+const WRITE_KEYS = ["performance.workflow.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 /**
  * @swagger
@@ -37,7 +41,7 @@ const router = express.Router();
  *       401:
  *         description: Unauthorized
  */
-router.post("/auto-assign-goals/:goalId", authenticate, PerformanceWorkflowController.autoAssignGoals);
+router.post("/auto-assign-goals/:goalId", authenticate, guard, PerformanceWorkflowController.autoAssignGoals);
 
 /**
  * @swagger
@@ -71,7 +75,7 @@ router.post("/auto-assign-goals/:goalId", authenticate, PerformanceWorkflowContr
  *       401:
  *         description: Unauthorized
  */
-router.post("/auto-assign-department-goals/:goalId", authenticate, PerformanceWorkflowController.autoAssignDepartmentGoals);
+router.post("/auto-assign-department-goals/:goalId", authenticate, guard, PerformanceWorkflowController.autoAssignDepartmentGoals);
 
 /**
  * @swagger
@@ -105,7 +109,7 @@ router.post("/auto-assign-department-goals/:goalId", authenticate, PerformanceWo
  *       401:
  *         description: Unauthorized
  */
-router.post("/update-progress-from-tasks/:taskId", authenticate, PerformanceWorkflowController.updateProgressFromTasks);
+router.post("/update-progress-from-tasks/:taskId", authenticate, guard, PerformanceWorkflowController.updateProgressFromTasks);
 
 /**
  * @swagger
@@ -139,7 +143,7 @@ router.post("/update-progress-from-tasks/:taskId", authenticate, PerformanceWork
  *       401:
  *         description: Unauthorized
  */
-router.post("/check-kpi-thresholds/:goalId", authenticate, PerformanceWorkflowController.checkKPIThresholds);
+router.post("/check-kpi-thresholds/:goalId", authenticate, guard, PerformanceWorkflowController.checkKPIThresholds);
 
 /**
  * @swagger
@@ -166,7 +170,7 @@ router.post("/check-kpi-thresholds/:goalId", authenticate, PerformanceWorkflowCo
  *       401:
  *         description: Unauthorized
  */
-router.post("/check-overdue-goals", authenticate, PerformanceWorkflowController.checkOverdueGoals);
+router.post("/check-overdue-goals", authenticate, guard, PerformanceWorkflowController.checkOverdueGoals);
 
 /**
  * @swagger
@@ -193,6 +197,6 @@ router.post("/check-overdue-goals", authenticate, PerformanceWorkflowController.
  *       401:
  *         description: Unauthorized
  */
-router.post("/run-automation", authenticate, PerformanceWorkflowController.runWorkflowAutomation);
+router.post("/run-automation", authenticate, guard, PerformanceWorkflowController.runWorkflowAutomation);
 
 export default router;

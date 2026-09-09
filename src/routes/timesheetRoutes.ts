@@ -15,6 +15,7 @@ const MANAGE_ONLY = ["accounting.timesheets.manage", "manage_accounting"];
 
 router.get("/mine", requireAnyPermission(SELF_SERVICE), timesheetController.mine);
 router.get("/pending-approval", requireAnyPermission(MANAGE_ONLY), timesheetController.pendingApproval);
+router.get("/team", requireAnyPermission(MANAGE_ONLY), timesheetController.team);
 router.post("/:weekEnding/entries", requireAnyPermission(SELF_SERVICE), timesheetController.upsertEntry);
 router.post("/:id/submit", requireAnyPermission(SELF_SERVICE), timesheetController.submit);
 router.post("/:id/approve", requireAnyPermission(MANAGE_ONLY), timesheetController.approve);

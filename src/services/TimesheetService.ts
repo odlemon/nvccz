@@ -59,6 +59,36 @@ export class TimesheetService {
   }
 
   /**
+   * A manager's team, every status, not just SUBMITTED.
+   *
+   * `listPendingApproval()` only ever showed items awaiting a decision — a manager could
+   * approve a pending timesheet but had no way to see a report's DRAFT, APPROVED or RETURNED
+   * weeks, despite the UI having a full approval-workflow panel. Scoped by department because
+   * `Timesheet` carries no manager/report-line relation; `User.userDepartment` is the only
+   * grouping that exists today. A manager with no department set (some exec roles) sees the
+   * organisation-wide list, since the guard on this route is already an org-level "manage"
+   * permission, not a department-scoped one.
+   */
+  static async listForManager(managerUserId: string) {
+    const manager = await prisma.user.findUnique({
+      where: { id: managerUserId },
+      select: { userDepartment: true },
+    });
+
+    const where = manager?.userDepartment ? { user: { userDepartment: manager.userDepartment } } : {};
+
+    return prisma.timesheet.findMany({
+      where,
+      orderBy: [{ weekEnding: "desc" }, { user: { firstName: "asc" } }],
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true, email: true, userDepartment: true } },
+        approvedBy: { select: { id: true, firstName: true, lastName: true } },
+        entries: { include: { project: true }, orderBy: { date: "asc" } },
+      },
+    });
+  }
+
+  /**
    * Create or update the entry for (timesheet, project, date). No DB-level unique constraint
    * backs this triple (not part of the sketched schema), so this does an application-level
    * find-then-write rather than a single atomic `upsert()`.

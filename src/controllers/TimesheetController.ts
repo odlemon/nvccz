@@ -22,6 +22,16 @@ export class TimesheetController {
     }
   }
 
+  /** A manager's team, every status — see TimesheetService.listForManager for the scoping rule. */
+  async team(req: AuthRequest, res: Response) {
+    try {
+      const timesheets = await TimesheetService.listForManager(req.user!.id);
+      res.json({ success: true, data: timesheets });
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message || "Failed to list team timesheets" });
+    }
+  }
+
   /** Upsert an entry on the current user's timesheet for :weekEnding, creating it if needed. */
   async upsertEntry(req: AuthRequest, res: Response) {
     try {

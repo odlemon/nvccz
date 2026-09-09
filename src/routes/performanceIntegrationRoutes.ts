@@ -3,9 +3,13 @@
 import express from "express";
 import multer from "multer";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 import { PerformanceIntegrationController } from "../controllers/PerformanceIntegrationController";
 
 const router = express.Router();
+const READ_KEYS = ["performance.integration.view", "performance.integration.manage"]
+const WRITE_KEYS = ["performance.integration.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -193,7 +197,7 @@ const upload = multer({
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.post("/sync", authenticate, PerformanceIntegrationController.runManualSync);
+router.post("/sync", authenticate, guard, PerformanceIntegrationController.runManualSync);
 
 /**
  * @swagger
@@ -231,6 +235,7 @@ router.post("/sync", authenticate, PerformanceIntegrationController.runManualSyn
 router.post(
   "/sync-pe-portfolio-irr",
   authenticate,
+  guard,
   PerformanceIntegrationController.syncPePortfolioIrr
 );
 
@@ -252,6 +257,7 @@ router.post(
 router.post(
   "/sync-pe-portfolio-total-revenue",
   authenticate,
+  guard,
   PerformanceIntegrationController.syncPePortfolioTotalRevenue
 );
 
@@ -286,6 +292,7 @@ router.post(
 router.post(
   "/sync-payroll-turnover-rate",
   authenticate,
+  guard,
   PerformanceIntegrationController.syncPayrollTurnoverRate
 );
 
@@ -329,7 +336,7 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.get("/jobs", authenticate, PerformanceIntegrationController.listSyncJobs);
+router.get("/jobs", authenticate, guard, PerformanceIntegrationController.listSyncJobs);
 
 /**
  * @swagger
@@ -364,7 +371,7 @@ router.get("/jobs", authenticate, PerformanceIntegrationController.listSyncJobs)
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.post("/approve", authenticate, PerformanceIntegrationController.approvePendingSync);
+router.post("/approve", authenticate, guard, PerformanceIntegrationController.approvePendingSync);
 
 /**
  * @swagger
@@ -406,7 +413,7 @@ router.post("/approve", authenticate, PerformanceIntegrationController.approvePe
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.post("/override", authenticate, PerformanceIntegrationController.overrideAutomatedGoal);
+router.post("/override", authenticate, guard, PerformanceIntegrationController.overrideAutomatedGoal);
 
 /**
  * @swagger
@@ -458,6 +465,6 @@ router.post("/override", authenticate, PerformanceIntegrationController.override
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.post("/import", authenticate, upload.single("file"), PerformanceIntegrationController.importGoalTargets);
+router.post("/import", authenticate, guard, upload.single("file"), PerformanceIntegrationController.importGoalTargets);
 
 export default router;

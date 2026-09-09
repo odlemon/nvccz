@@ -2,8 +2,12 @@
 import express from "express";
 import { PerformanceBreakdownController } from "../controllers/PerformanceBreakdownController";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 
 const router = express.Router();
+const READ_KEYS = ["performance.breakdown.view", "performance.breakdown.manage"]
+const WRITE_KEYS = ["performance.breakdown.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 /**
  * @swagger
@@ -91,7 +95,7 @@ const router = express.Router();
  *       500:
  *         description: Internal server error
  */
-router.post("/departments", authenticate, PerformanceBreakdownController.createDepartmentBreakdown);
+router.post("/departments", authenticate, guard, PerformanceBreakdownController.createDepartmentBreakdown);
 
 /**
  * @swagger
@@ -178,7 +182,7 @@ router.post("/departments", authenticate, PerformanceBreakdownController.createD
  *       500:
  *         description: Internal server error
  */
-router.post("/individuals", authenticate, PerformanceBreakdownController.createIndividualBreakdown);
+router.post("/individuals", authenticate, guard, PerformanceBreakdownController.createIndividualBreakdown);
 
 /**
  * @swagger
@@ -212,7 +216,10 @@ router.post("/individuals", authenticate, PerformanceBreakdownController.createI
  *       500:
  *         description: Internal server error
  */
-router.get("/departments/available", PerformanceBreakdownController.getAvailableDepartments);
+// `authenticate` was missing here while the two POSTs above already had it — an omission,
+// not a deliberate public endpoint. Verified unauthenticated 200 on local, arcus-dev and
+// nvccz-prod before this fix (see design-refs/performance-role-matrix.md §4.1).
+router.get("/departments/available", authenticate, guard, PerformanceBreakdownController.getAvailableDepartments);
 
 /**
  * @swagger
@@ -266,6 +273,8 @@ router.get("/departments/available", PerformanceBreakdownController.getAvailable
  *       500:
  *         description: Internal server error
  */
-router.get("/users/:departmentName", PerformanceBreakdownController.getUsersByDepartment);
+// Returns id, firstName, lastName and email for every user in the department — this was
+// reachable with no token at all. Same omission as the route above.
+router.get("/users/:departmentName", authenticate, guard, PerformanceBreakdownController.getUsersByDepartment);
 
 export default router;

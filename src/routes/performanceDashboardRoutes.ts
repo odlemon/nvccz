@@ -2,8 +2,12 @@
 import { Router } from "express";
 import { PerformanceDashboardController } from "../controllers/PerformanceDashboardController";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 
 const router = Router();
+const READ_KEYS = ["performance.dashboard.view", "performance.dashboard.manage"]
+const WRITE_KEYS = ["performance.dashboard.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 /**
  * @swagger
@@ -282,6 +286,7 @@ const router = Router();
 router.get(
   "/",
   authenticate,
+  guard,
   PerformanceDashboardController.getDashboard
 );
 

@@ -3,9 +3,13 @@
 import express from "express";
 import multer from "multer";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 import { PerformanceConfigController } from "../controllers/PerformanceConfigController";
 
 const router = express.Router();
+const READ_KEYS = ["performance.config.view", "performance.config.manage"]
+const WRITE_KEYS = ["performance.config.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -186,7 +190,7 @@ const upload = multer({
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.get("/vision-statement", authenticate, PerformanceConfigController.getVisionStatement);
+router.get("/vision-statement", authenticate, guard, PerformanceConfigController.getVisionStatement);
 
 /**
  * @swagger
@@ -215,7 +219,7 @@ router.get("/vision-statement", authenticate, PerformanceConfigController.getVis
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.get("/pillars", authenticate, PerformanceConfigController.getPillars);
+router.get("/pillars", authenticate, guard, PerformanceConfigController.getPillars);
 
 /**
  * @swagger
@@ -332,8 +336,8 @@ router.get("/pillars", authenticate, PerformanceConfigController.getPillars);
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.get("/strategies", authenticate, PerformanceConfigController.listStrategies);
-router.post("/strategies", authenticate, PerformanceConfigController.upsertStrategy);
+router.get("/strategies", authenticate, guard, PerformanceConfigController.listStrategies);
+router.post("/strategies", authenticate, guard, PerformanceConfigController.upsertStrategy);
 
 /**
  * @swagger
@@ -368,7 +372,7 @@ router.post("/strategies", authenticate, PerformanceConfigController.upsertStrat
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.get("/strategies/archives", authenticate, PerformanceConfigController.listArchivedStrategies);
+router.get("/strategies/archives", authenticate, guard, PerformanceConfigController.listArchivedStrategies);
 
 /**
  * @swagger
@@ -402,7 +406,7 @@ router.get("/strategies/archives", authenticate, PerformanceConfigController.lis
  *       401:
  *         description: Unauthorized
  */
-router.get("/strategies/:id", authenticate, PerformanceConfigController.getStrategyById);
+router.get("/strategies/:id", authenticate, guard, PerformanceConfigController.getStrategyById);
 
 /**
  * @swagger
@@ -478,7 +482,7 @@ router.get("/strategies/:id", authenticate, PerformanceConfigController.getStrat
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.put("/strategies/:id", authenticate, PerformanceConfigController.upsertStrategy);
+router.put("/strategies/:id", authenticate, guard, PerformanceConfigController.upsertStrategy);
 
 /**
  * @swagger
@@ -517,7 +521,7 @@ router.put("/strategies/:id", authenticate, PerformanceConfigController.upsertSt
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.post("/strategies/:id/archive", authenticate, PerformanceConfigController.archiveStrategy);
+router.post("/strategies/:id/archive", authenticate, guard, PerformanceConfigController.archiveStrategy);
 
 /**
  * @swagger
@@ -564,7 +568,7 @@ router.post("/strategies/:id/archive", authenticate, PerformanceConfigController
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.post("/strategies/:id/document", authenticate, upload.single("file"), PerformanceConfigController.uploadStrategyDocument);
+router.post("/strategies/:id/document", authenticate, guard, upload.single("file"), PerformanceConfigController.uploadStrategyDocument);
 
 /**
  * @swagger
@@ -635,8 +639,8 @@ router.post("/strategies/:id/document", authenticate, upload.single("file"), Per
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.get("/themes", authenticate, PerformanceConfigController.listThemes);
-router.post("/themes", authenticate, PerformanceConfigController.createTheme);
+router.get("/themes", authenticate, guard, PerformanceConfigController.listThemes);
+router.post("/themes", authenticate, guard, PerformanceConfigController.createTheme);
 
 /**
  * @swagger
@@ -722,8 +726,8 @@ router.post("/themes", authenticate, PerformanceConfigController.createTheme);
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.get("/themes/:id/goals", authenticate, PerformanceConfigController.getGoalsByTheme);
-router.post("/themes/:id/goals", authenticate, PerformanceConfigController.tagGoalsWithTheme);
+router.get("/themes/:id/goals", authenticate, guard, PerformanceConfigController.getGoalsByTheme);
+router.post("/themes/:id/goals", authenticate, guard, PerformanceConfigController.tagGoalsWithTheme);
 
 /**
  * @swagger
@@ -770,6 +774,6 @@ router.post("/themes/:id/goals", authenticate, PerformanceConfigController.tagGo
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.put("/goals/:goalId", authenticate, PerformanceConfigController.updateGoalScorecardConfig);
+router.put("/goals/:goalId", authenticate, guard, PerformanceConfigController.updateGoalScorecardConfig);
 
 export default router;
