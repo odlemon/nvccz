@@ -1842,12 +1842,48 @@ export class FundraisingSrdService {
 
   // ── Data rooms ────────────────────────────────────────────────
 
+  /**
+   * Data rooms for a campaign, each with its document/access counts and its view and
+   * download activity over the last 7 days.
+   *
+   * The activity counts are served here because the data-room screen renders "Views (7d)"
+   * and "Downloads (7d)" tiles per room and for the campaign as a whole. Without them the
+   * frontend had nothing to read and the tiles were permanently zero.
+   */
   static async listDataRooms(campaignId: string) {
-    return prisma.fundraisingDataRoom.findMany({
+    const rooms = await prisma.fundraisingDataRoom.findMany({
       where: { campaignId },
       include: { _count: { select: { documents: true, access: true } } },
       orderBy: { createdAt: "desc" },
     });
+    if (rooms.length === 0) return rooms;
+
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const activity = await prisma.fundraisingDataRoomAccessLog.groupBy({
+      by: ["dataRoomId", "action"],
+      where: {
+        dataRoomId: { in: rooms.map((r) => r.id) },
+        success: true,
+        createdAt: { gte: since },
+      },
+      _count: { _all: true },
+    });
+
+    const counts = new Map<string, { views7d: number; downloads7d: number }>();
+    for (const row of activity) {
+      const entry = counts.get(row.dataRoomId) ?? { views7d: 0, downloads7d: 0 };
+      const action = String(row.action || "").toUpperCase();
+      const n = row._count._all;
+      if (action === "DOWNLOAD") entry.downloads7d += n;
+      else if (action === "VIEW" || action === "PREVIEW") entry.views7d += n;
+      counts.set(row.dataRoomId, entry);
+    }
+
+    return rooms.map((r) => ({
+      ...r,
+      views7d: counts.get(r.id)?.views7d ?? 0,
+      downloads7d: counts.get(r.id)?.downloads7d ?? 0,
+    }));
   }
 
   static async createDataRoom(userId: string, campaignId: string, body: any, req?: any) {

@@ -670,6 +670,101 @@ async function main() {
     });
   }
 
+  // Folders, documents, grants and access events, so the data-room screen's "Documents"
+  // and "Views (7d)" tiles and its activity export have something real to report.
+  const roomFolders = ["Fund Documents", "Legal", "Financials", "ESG", "Track Record"];
+  let folderCount = 0;
+  let roomDocCount = 0;
+  let accessCount = 0;
+  let accessLogCount = 0;
+  for (const room of dataRooms) {
+    for (let i = 0; i < roomFolders.length; i++) {
+      const folderId = `${room.id}-folder-${i + 1}`;
+      const fdata = { dataRoomId: room.id, parentId: null, name: roomFolders[i], sortOrder: i + 1 };
+      await prisma.fundraisingDataRoomFolder.upsert({
+        where: { id: folderId },
+        create: { id: folderId, ...fdata },
+        update: fdata,
+      });
+      folderCount++;
+
+      for (let j = 0; j < 2; j++) {
+        const docId = `${folderId}-doc-${j + 1}`;
+        const ddata = {
+          dataRoomId: room.id,
+          folderId,
+          fileName: `${roomFolders[i].replace(/\s+/g, "-").toLowerCase()}-${j + 1}.pdf`,
+          mimeType: "application/pdf",
+          viewOnly: j === 0,
+          downloadLimit: j === 0 ? 0 : 10,
+          watermarkEnabled: true,
+          createdById: by,
+        };
+        await prisma.fundraisingDataRoomDocument.upsert({
+          where: { id: docId },
+          create: { id: docId, ...ddata },
+          update: ddata,
+        });
+        roomDocCount++;
+      }
+    }
+
+    // Grant three investors access to each room, one of them revoked.
+    for (let i = 0; i < 3; i++) {
+      const investorId = investors[i][0];
+      const accId = `${room.id}-access-${i + 1}`;
+      const contact = await prisma.investorContact.findFirst({
+        where: { investorId, isPrimary: true },
+        select: { id: true },
+      });
+      const adata = {
+        dataRoomId: room.id,
+        investorId,
+        contactId: contact?.id ?? null,
+        expiresAt: new Date(Date.UTC(2027, 2, 31)),
+        permissionLevel: i === 0 ? "DOWNLOAD" : "VIEW",
+        downloadLimit: i === 0 ? 25 : 0,
+        watermarkEnabled: true,
+        revokedAt: i === 2 ? new Date(Date.UTC(2026, 7, 28)) : null,
+        revokedById: i === 2 ? by : null,
+        revokeReason: i === 2 ? "Opportunity closed lost" : null,
+        createdById: by,
+      };
+      await prisma.fundraisingDataRoomAccess.upsert({
+        where: { id: accId },
+        create: { id: accId, ...adata },
+        update: adata,
+      });
+      accessCount++;
+
+      // Recent views so the "Views (7d)" tile is non-zero against a real window.
+      for (let k = 0; k < 3; k++) {
+        const logId = `${accId}-log-${k + 1}`;
+        const ldata = {
+          dataRoomId: room.id,
+          documentId: `${room.id}-folder-${(k % roomFolders.length) + 1}-doc-1`,
+          investorId,
+          userId: by,
+          action: k === 2 ? "DOWNLOAD" : "VIEW",
+          success: true,
+          ipAddress: `196.43.${i}.${k + 10}`,
+          device: k % 2 === 0 ? "Chrome / Windows" : "Safari / macOS",
+          country: investors[i][4],
+          createdAt: new Date(Date.now() - (k + 1) * 36e5 * 12),
+        };
+        await prisma.fundraisingDataRoomAccessLog.upsert({
+          where: { id: logId },
+          create: { id: logId, ...ldata },
+          update: ldata,
+        });
+        accessLogCount++;
+      }
+    }
+  }
+  console.log(
+    `  data room folders: ${folderCount}, documents: ${roomDocCount}, grants: ${accessCount}, access events: ${accessLogCount}`,
+  );
+
   // --------------------------------------------------------- communications
   const interactionTypes = ["EMAIL", "CALL", "MEETING", "ROADSHOW", "CONFERENCE"];
   const sentiments = ["POSITIVE", "NEUTRAL", "NEGATIVE"];
