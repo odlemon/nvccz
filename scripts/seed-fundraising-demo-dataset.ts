@@ -157,6 +157,107 @@ async function main() {
   }
   console.log(`  pipeline stages: ${stageCount}`);
 
+  // -------------------------------------------------- campaign operations
+  // The Campaigns screen has Templates, Distribution Lists, Events and Content & Materials
+  // tabs, each backed by a live endpoint. Without rows they render permanently empty, so the
+  // tabs can never be seen doing anything.
+  let opsCount = 0;
+  for (const c of campaigns.filter((x) => x.status === "ACTIVE")) {
+    const templates = [
+      { key: "teaser", name: "Teaser outreach", templateType: "EMAIL", subject: `${c.name} — introduction` },
+      { key: "followup", name: "Follow-up after intro call", templateType: "EMAIL", subject: `${c.name} — next steps` },
+      { key: "dataroom", name: "Data room invitation", templateType: "EMAIL", subject: `${c.name} — data room access` },
+    ];
+    for (const t of templates) {
+      const id = `${c.id}-tmpl-${t.key}`;
+      const data = {
+        campaignId: c.id,
+        name: t.name,
+        templateType: t.templateType,
+        subject: t.subject,
+        bodyHtml: `<p>Dear {{contact.firstName}},</p><p>Regarding ${c.name}.</p>`,
+        status: "ACTIVE",
+        createdById: by,
+      };
+      await prisma.fundraisingCampaignTemplate.upsert({
+        where: { id },
+        create: { id, ...data },
+        update: data,
+      });
+      opsCount++;
+    }
+
+    const lists = [
+      { key: "pension", name: "Pension funds", segment: { investorType: "PENSION_FUND" } },
+      { key: "dfi", name: "DFIs and sovereigns", segment: { investorType: ["DFI", "SOVEREIGN_WEALTH"] } },
+    ];
+    for (const l of lists) {
+      const id = `${c.id}-list-${l.key}`;
+      const data = {
+        campaignId: c.id,
+        name: l.name,
+        segmentJson: l.segment as Prisma.InputJsonValue,
+        createdById: by,
+      };
+      await prisma.fundraisingCampaignDistributionList.upsert({
+        where: { id },
+        create: { id, ...data },
+        update: data,
+      });
+      opsCount++;
+    }
+
+    const events = [
+      { key: "roadshow-hre", title: "Harare roadshow", eventType: "ROADSHOW", startsAt: d("2026-10-14"), location: "Arcus House, Harare", status: "SCHEDULED" },
+      { key: "webinar", title: "Strategy webinar", eventType: "WEBINAR", startsAt: d("2026-11-05"), location: null, status: "SCHEDULED" },
+      { key: "agm", title: "Annual investor briefing", eventType: "BRIEFING", startsAt: d("2026-08-20"), location: "Victoria Falls", status: "COMPLETED" },
+    ];
+    for (const e of events) {
+      const id = `${c.id}-event-${e.key}`;
+      const data = {
+        campaignId: c.id,
+        title: e.title,
+        eventType: e.eventType,
+        startsAt: e.startsAt,
+        endsAt: new Date(e.startsAt.getTime() + 3 * 3600e3),
+        location: e.location,
+        status: e.status,
+        notes: `${e.title} for ${c.name}.`,
+        createdById: by,
+      };
+      await prisma.fundraisingCampaignEvent.upsert({
+        where: { id },
+        create: { id, ...data },
+        update: data,
+      });
+      opsCount++;
+    }
+
+    const materials = [
+      { key: "teaser", name: "Teaser deck", category: "TEASER", confidential: false },
+      { key: "ppm", name: "Private placement memorandum", category: "PPM", confidential: true },
+      { key: "track", name: "Track record pack", category: "PERFORMANCE", confidential: true },
+      { key: "esg", name: "ESG policy summary", category: "ESG", confidential: false },
+    ];
+    for (const m of materials) {
+      const id = `${c.id}-material-${m.key}`;
+      const data = {
+        campaignId: c.id,
+        name: m.name,
+        category: m.category,
+        confidential: m.confidential,
+        createdById: by,
+      };
+      await prisma.fundraisingCampaignMaterial.upsert({
+        where: { id },
+        create: { id, ...data },
+        update: data,
+      });
+      opsCount++;
+    }
+  }
+  console.log(`  campaign ops (templates/lists/events/materials): ${opsCount}`);
+
   // --------------------------------------------------------------- investors
   const investors = [
     ["frs-inv-01", "Zimbabwe National Pension Authority", "ZNPA", "PENSION_FUND", "ZW", "Zimbabwe", 850_000_000, "APPROVED", "CLEAR", "LOW"],
