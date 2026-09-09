@@ -320,6 +320,80 @@ async function main() {
   }
   console.log(`  opportunities: ${opps.length}`);
 
+  // ------------------------------------------------------- stage/amount history
+  // SRD acceptance criterion 15: "Complete stage and amount histories are retained", and
+  // section 7: an amount must never be overwritten without preserving the former value,
+  // reason and author. Walk each opportunity from the first stage up to its current one so
+  // the timeline and the stage-ageing analytics have real transitions to read.
+  let stageHistCount = 0;
+  let amountHistCount = 0;
+  for (const o of opps) {
+    const oppId = `frs-opp-${String(o.n).padStart(3, "0")}`;
+    const key = AM_TYPES.has(
+      campaigns.find((c) => c.id === o.campaignId)!.campaignType,
+    ) ? "AM" : "PE_VC";
+    const ladder = templates
+      .filter((t) => t.pipelineKey === key)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    const targetIdx = ladder.findIndex((t) => t.stageCode === o.stageCode);
+
+    for (let i = 0; i <= targetIdx; i++) {
+      const to = ladder[i];
+      const from = i > 0 ? ladder[i - 1] : null;
+      const id = `${oppId}-sh-${String(i).padStart(2, "0")}`;
+      const data = {
+        opportunityId: oppId,
+        fromStageId: from ? stageIdByCampaignAndCode.get(`${o.campaignId}|${from.stageCode}`)! : null,
+        toStageId: stageIdByCampaignAndCode.get(`${o.campaignId}|${to.stageCode}`)!,
+        fromStageCode: from?.stageCode ?? null,
+        toStageCode: to.stageCode,
+        reason: from ? `Advanced from ${from.stageName} to ${to.stageName}` : "Opportunity created",
+        changedById: by,
+        // Space the transitions out so "days in stage" is a real interval, not zero.
+        changedAt: new Date(Date.UTC(2026, 4, 1) + (i * 9 + (o.n % 5)) * 864e5),
+      };
+      await prisma.opportunityStageHistory.upsert({
+        where: { id },
+        create: { id, ...data },
+        update: data,
+      });
+      stageHistCount++;
+    }
+
+    // One amount record per value the opportunity actually reached.
+    const amountSteps: Array<[string, number | undefined]> = [
+      ["INDICATIVE", o.indicative],
+      ["SIGNED", o.signed],
+      ["ADMITTED", o.admitted],
+      ["FUNDED", o.funded],
+    ];
+    let prev: number | null = null;
+    let step = 0;
+    for (const [amountType, value] of amountSteps) {
+      if (value == null) continue;
+      const id = `${oppId}-ah-${String(step).padStart(2, "0")}`;
+      const data = {
+        opportunityId: oppId,
+        amountType,
+        oldValue: prev == null ? null : dec(prev),
+        newValue: dec(value),
+        currency: "USD",
+        reason: prev == null ? "Initial indication captured" : `${amountType.toLowerCase()} amount confirmed`,
+        changedById: by,
+        changedAt: new Date(Date.UTC(2026, 5, 1) + (step * 14 + (o.n % 7)) * 864e5),
+      };
+      await prisma.opportunityAmountHistory.upsert({
+        where: { id },
+        create: { id, ...data },
+        update: data,
+      });
+      prev = value;
+      step++;
+      amountHistCount++;
+    }
+  }
+  console.log(`  stage history: ${stageHistCount}, amount history: ${amountHistCount}`);
+
   // ------------------------------------------------------------- commitments
   const commitSpecs = opps.filter((o) => o.signed);
   for (const o of commitSpecs) {
