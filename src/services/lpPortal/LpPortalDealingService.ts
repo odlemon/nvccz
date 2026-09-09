@@ -573,7 +573,12 @@ export class LpPortalDealingService {
   }
 
   private static async loadRules(fundId: string) {
-    const row = await db().lpDealingRules.findUnique({ where: { fundId } });
+    // `fundId` is optional upstream — an LP with no fund selected (or no holdings yet) reaches
+    // here with undefined, and Prisma rejects a findUnique whose unique key is undefined rather
+    // than returning null, which surfaced as a 500 on GET /lp-portal/dealing/{overview,rules}.
+    // Every field below already falls back to a default when there is no row, so skipping the
+    // lookup yields the same shape the "no rules configured" case has always produced.
+    const row = fundId ? await db().lpDealingRules.findUnique({ where: { fundId } }) : null;
     return {
       fundId,
       minBalanceAmount: Number(row?.minBalanceAmount ?? DEFAULT_MIN_BALANCE_AMOUNT),

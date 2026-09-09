@@ -948,7 +948,12 @@ export class LpPortalController {
     try {
       const data = await LpPortalAdminService.createMembership({
         clientId: req.body.clientId,
+        // Either identifies an existing account or, with `email`, onboards a new investor:
+        // creates the user and emails an activation link. See LpPortalInviteService.
         userId: req.body.userId,
+        email: req.body.email,
+        firstName: req.body.firstName,
+        lastName: req.body.lastName,
         lpRole: req.body.lpRole,
         fundIds: req.body.fundIds,
         invitedById: req.user!.id,
