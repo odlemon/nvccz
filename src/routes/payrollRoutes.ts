@@ -4,6 +4,7 @@ import multer from 'multer';
 import { PayrollController } from '../controllers/PayrollController';
 import { PayrollExtendedController } from '../controllers/PayrollExtendedController';
 import { PayrollAccessController } from '../controllers/PayrollAccessController';
+import { PayrollEmployeeProvisionController } from '../controllers/PayrollEmployeeProvisionController';
 import { authenticate } from '../middleware/authenticate';
 import { requireAnyPermission } from '../middleware/permissionAuth';
 import { PAYROLL_PERMISSIONS as P } from '../config/payrollPermissions';
@@ -81,6 +82,11 @@ router.post(
   employeeMultipart,
   PayrollController.createEmployee
 );
+// Employee.userId is required and unique -- an employee IS a user account with
+// payroll data attached -- and the module's "Add employee" form has no user id
+// to give, so POST /employees could never be driven from it. This provisions
+// both rows in one transaction.
+router.post('/employees/with-user', authenticate, canManageEmployees, PayrollEmployeeProvisionController.createWithUser);
 router.get('/employees', authenticate, canViewEmployees, PayrollController.getEmployees);
 router.get('/employees/:id/reimbursement-vendor', authenticate, canViewEmployees, PayrollController.getEmployeeReimbursementVendor);
 router.post('/employees/:id/reimbursement-vendor', authenticate, canManageEmployees, PayrollController.ensureEmployeeReimbursementVendor);
