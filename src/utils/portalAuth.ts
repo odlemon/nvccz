@@ -37,6 +37,36 @@ export async function resolveLpAccess(userId: string): Promise<boolean> {
   return isLpUser(user) || isGpStaff(user);
 }
 
+/**
+ * Account types that belong to an external portal and must never be admitted to
+ * the staff portal.
+ *
+ * This exists because the staff branch of assertPortalLoginAllowed ends in a
+ * default `return { ok: true }`. An INVESTEE account matched none of the earlier
+ * cases -- its role NAME is "INVESTEE" and its roleCode is null, so the
+ * applicant check missed it -- and fell through to that default. It could then
+ * sign in to the staff portal, read the entire staff directory through
+ * GET /api/users, and create an IT_MGR account.
+ *
+ * Narrowing the staff portal to isGpStaff() instead would lock out almost
+ * everyone: GP_ROLE_CODES is only {admin, fund_manager, cfo}, so HR, Payroll,
+ * Operations and Analyst roles are not "GP staff". Classifying the external
+ * types is the change that closes the hole without taking the platform down.
+ */
+const EXTERNAL_PORTAL_ROLE_TOKENS = new Set([
+  "investee",
+  "applicant",
+  "limited_partner",
+  "lp_viewer",
+  "lp_institutional_manager",
+]);
+
+export function isExternalPortalUser(user: any): boolean {
+  const name = String(user?.role?.name || "").trim().toLowerCase();
+  const code = String(user?.roleCode || "").trim().toLowerCase();
+  return EXTERNAL_PORTAL_ROLE_TOKENS.has(name) || EXTERNAL_PORTAL_ROLE_TOKENS.has(code);
+}
+
 export async function assertPortalLoginAllowed(
   portal: AuthPortal,
   user: any,
@@ -74,6 +104,11 @@ export async function assertPortalLoginAllowed(
   }
   if (hasLp && isLpUser(user)) {
     return { ok: false, message: "LP accounts must use the LP portal." };
+  }
+  // Any account belonging to an external portal is refused here regardless of
+  // whether the checks above happened to recognise it.
+  if (isExternalPortalUser(user)) {
+    return { ok: false, message: "This account is not authorized for the staff portal." };
   }
   return { ok: true };
 }

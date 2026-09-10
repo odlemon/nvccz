@@ -2,8 +2,36 @@
 import { Request, Response, NextFunction } from "express";
 import { userHasEffectivePermission } from "../config/cfoModulePermissions";
 import { AuthRequest, authorize } from "./authenticate";
+import { isExternalPortalUser } from "../utils/portalAuth";
 
 export { authorize };
+
+/**
+ * Refuses accounts that belong to an external portal (investee, applicant, LP).
+ *
+ * `authenticate` only proves a token is valid, not that its holder is one of
+ * our own staff. userRoutes applied nothing else, so an INVESTEE account that
+ * reached the staff portal could list every user and create new ones. Use this
+ * on any route whose data is internal but whose audience is "all staff", where
+ * a specific permission would be too narrow -- assignment pickers and directory
+ * lookups being the usual case.
+ */
+export function requireInternalStaffUser() {
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
+      return;
+    }
+    if (isExternalPortalUser(req.user)) {
+      res.status(403).json({
+        success: false,
+        message: "This account is not authorized for staff resources.",
+      });
+      return;
+    }
+    next();
+  };
+}
 
 export function requirePermission(permissionName: string) {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {

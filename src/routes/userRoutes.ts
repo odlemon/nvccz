@@ -1,6 +1,7 @@
 // @ts-nocheck
 import express from "express";
 import { authenticate } from "../middleware/authenticate";
+import { requireInternalStaffUser, requirePermission } from "../middleware/permissionAuth";
 import { UserController } from "../controllers/UserController";
 import { SavedFilterFavoriteController } from "../controllers/SavedFilterFavoriteController";
 
@@ -69,7 +70,10 @@ router.use(authenticate);
  *       401:
  *         description: Unauthorized
  */
-router.get("/", UserController.getAllUsers);
+// Directory listing: internal audience, but every staff role legitimately needs
+// it (assignment pickers, reviewer selection), so this is a staff check rather
+// than a specific permission.
+router.get("/", requireInternalStaffUser(), UserController.getAllUsers);
 
 /**
  * @swagger
@@ -368,7 +372,10 @@ router.get("/:id", UserController.getUserById);
  *       401:
  *         description: Unauthorized
  */
-router.post("/", UserController.createUser);
+// Account creation is privilege granting: it returns a temporary password and
+// assigns a role. Guarded strictly -- an INVESTEE account reached this and
+// created an IT_MGR user.
+router.post("/", requireInternalStaffUser(), requirePermission("manage_users"), UserController.createUser);
 
 /**
  * @swagger
