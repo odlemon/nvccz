@@ -43,11 +43,35 @@ async function main() {
 
   let changed = 0
   let missing = 0
+  let createdRoles = 0
+  const absent: string[] = []
 
   for (const [roleName, wanted] of Object.entries(PAYROLL_ROLE_GRANTS)) {
-    const role = byLowerName.get(roleName.toLowerCase())
+    let role = byLowerName.get(roleName.toLowerCase())
     if (!role) {
-      console.log(`  SKIP  role not present in this database: "${roleName}"`)
+      // A role named here but absent from the database is the failure this script
+      // exists to prevent, not something to skip past. PAYROLL_ROLE_GRANTS is the
+      // module's statement of which roles it needs; "Payroll Manager" is the maker
+      // in its segregation of duties and "Internal Auditor" its read-only reviewer,
+      // and neither was ever seeded — so the maker side of maker-checker could not
+      // be held by anyone, while this script reported success and exited 0.
+      absent.push(roleName)
+      if (CHECK_ONLY) {
+        console.log(`  ABSENT  role does not exist: "${roleName}" (${wanted.length} grants unassignable)`)
+        continue
+      }
+      const created = await prisma.role.create({
+        data: {
+          name: roleName,
+          description: `${roleName} — created by the payroll permissions migration to match PAYROLL_ROLE_GRANTS.`,
+          permissions: wanted.map((name) => ({ name, value: true })) as any,
+        },
+        select: { id: true, name: true, permissions: true },
+      })
+      console.log(`  CREATE  ${roleName} — role did not exist; created with ${wanted.length} grants`)
+      byLowerName.set(roleName.toLowerCase(), created)
+      role = created
+      createdRoles += 1
       continue
     }
 
@@ -90,14 +114,21 @@ async function main() {
 
   console.log("")
   if (CHECK_ONLY) {
-    console.log(
-      missing === 0
-        ? "All payroll grants are in place."
-        : `${missing} grant(s) missing. Re-run without --check to apply.`,
-    )
-    process.exitCode = missing === 0 ? 0 : 1
+    // An absent role is a failure, not a clean run. Reporting "all grants are in
+    // place" while the maker role does not exist is how this went unnoticed.
+    if (absent.length) {
+      console.log(
+        `${absent.length} role(s) named in PAYROLL_ROLE_GRANTS do not exist: ${absent.join(", ")}.`,
+      )
+      console.log("Re-run without --check to create them.")
+    }
+    if (missing) console.log(`${missing} grant(s) missing. Re-run without --check to apply.`)
+    if (!absent.length && !missing) console.log("All payroll grants are in place.")
+    process.exitCode = missing === 0 && absent.length === 0 ? 0 : 1
   } else {
-    console.log(`Done. ${changed} role(s) updated.`)
+    console.log(
+      `Done. ${changed} role(s) updated${createdRoles ? `, ${createdRoles} role(s) created` : ""}.`,
+    )
   }
 }
 

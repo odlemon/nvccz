@@ -208,6 +208,19 @@ export const HARDCODED_ROLES: HardcodedRole[] = [
     description: "Head of HR department, oversees all HR operations"
   },
   {
+    // The maker in payroll's segregation of duties: prepares and releases runs and
+    // is deliberately denied payroll.runs.approve. PAYROLL_ROLE_GRANTS in
+    // src/config/payrollPermissions.ts has always granted this role, but no code
+    // mapped to it here and no seeder created it, so the maker side of
+    // maker-checker was unassignable through the product — only System
+    // Administrator, which holds BOTH sides, could prepare a run.
+    code: "PAYROLL_MGR",
+    name: "Payroll Manager",
+    level: 5,
+    department: "Human Resources",
+    description: "Prepares and releases payroll runs; cannot approve its own work"
+  },
+  {
     code: "HR_OFF",
     name: "HR Officer",
     level: 4,
@@ -438,6 +451,16 @@ export const HARDCODED_ROLES: HardcodedRole[] = [
     level: 3,
     department: "Investments",
     description: "External auditor with access to investment records for audit purposes"
+  },
+  {
+    // Read-only reviewer across payroll. Granted ALL_VIEW by PAYROLL_ROLE_GRANTS
+    // in src/config/payrollPermissions.ts and, like Payroll Manager, never given
+    // a code here or a seeded role record — so it could not be assigned to anyone.
+    code: "INT_AUDITOR",
+    name: "Internal Auditor",
+    level: 4,
+    department: "Finance",
+    description: "Internal read-only review across payroll and finance records"
   }
 ];
 
