@@ -112,6 +112,9 @@ router.put(
   employeeMultipart,
   PayrollController.updateEmployee
 );
+// Employee update. `PayrollController.updateEmployee` has existed all along with no route in
+// front of it, so the module's Edit Employee control called PUT /employees/:id and got a 404.
+router.put('/employees/:id', authenticate, canManageEmployees, employeeMultipart, PayrollController.updateEmployee);
 router.post('/employees/:id/terminate', authenticate, canManageEmployees, PayrollController.terminateEmployee);
 router.post('/employees/:id/suspend', authenticate, canManageEmployees, PayrollExtendedController.suspendEmployee);
 router.post('/employees/:id/reinstate', authenticate, canManageEmployees, PayrollExtendedController.reinstateEmployee);
