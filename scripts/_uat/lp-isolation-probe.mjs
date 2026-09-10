@@ -204,6 +204,45 @@ function harvestIds(body) {
   }
 
   // ---- report -------------------------------------------------------------
+  // ---- phase 4: fund entitlement (X.3) ------------------------------------
+  // B and C carry fund_ids, so only those funds may appear anywhere in their
+  // responses. Checked by id AND by name: an id-scoped query that still leaks
+  // a fund name in a label is the same disclosure wearing different clothes.
+  console.log("\n--- phase 4: fund entitlement ---");
+  const { PrismaClient } = await import("@prisma/client");
+  const prisma = new PrismaClient();
+  const allFunds = await prisma.$queryRawUnsafe("SELECT id, name FROM funds");
+  const entitlements = await prisma.$queryRawUnsafe(
+    "SELECT u.email, r.fund_ids FROM lp_user_relations r JOIN users u ON u.id = r.user_id",
+  );
+  await prisma.$disconnect();
+
+  const FUND_BEARING = ["/performance/by-fund", "/performance", "/dashboard", "/capital-calls", "/distributions", "/organisation"];
+  for (const s2 of Object.values(sessions)) {
+    const row = entitlements.find((e) => e.email === s2.email);
+    const raw = row && row.fund_ids;
+    const scope = Array.isArray(raw) ? raw : raw ? JSON.parse(raw) : null;
+    if (!scope) {
+      console.log(`  ${s2.key}: entitled to ALL funds — nothing to withhold`);
+      continue;
+    }
+    const forbidden = allFunds.filter((f) => !scope.includes(f.id));
+    let hits = 0;
+    for (const path of FUND_BEARING) {
+      const { status, body } = await get(s2.token, path);
+      if (status !== 200) continue;
+      const text = JSON.stringify(body);
+      for (const f of forbidden) {
+        if (text.includes(f.id) || (f.name && text.includes(f.name))) {
+          hits += 1;
+          leaks.push({ attacker: s2.key, victim: "fund scope", sameOrg: true, path: `${path} exposed ${f.name}`, status });
+          console.log(`  LEAK  ${s2.key} ${path} exposed non-entitled fund ${f.name}`);
+        }
+      }
+    }
+    console.log(`  ${s2.key}: entitled to ${scope.length}/${allFunds.length} funds, ${forbidden.length} withheld, ${hits} exposure(s) across ${FUND_BEARING.length} endpoints`);
+  }
+
   console.log("\n=== RESULT ===");
   if (notes.length) {
     console.log("notes:");
