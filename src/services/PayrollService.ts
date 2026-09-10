@@ -856,13 +856,43 @@ export class PayrollService {
       let totalPension = new Decimal(0);
       let totalSDL = new Decimal(0);
 
+      // Legs are stored per currency. A ZiG leg's amounts are ZiG, and adding
+      // them to USD amounts produced a PAYE credit of 60,890 against a gross of
+      // 42,209 -- see FINDING-004. Everything is brought to the run's currency
+      // before it is summed.
+      const fxRateUsdZig = new Decimal(payrollRun.fxRateUsdZig?.toString() || '0');
+      const toRunCurrency = (amount: any, currencyCode: string): Decimal => {
+        const value = new Decimal(amount?.toString() || '0');
+        if (!currencyCode || currencyCode === 'USD') return value;
+        if (currencyCode === 'ZIG') {
+          if (fxRateUsdZig.lte(0)) {
+            throw new Error(
+              `Payroll run ${payrollRun.payPeriod} has ZiG legs but no usable fxRateUsdZig ` +
+                `(${payrollRun.fxRateUsdZig}); a single-currency journal cannot be posted from it.`
+            );
+          }
+          return value.div(fxRateUsdZig);
+        }
+        throw new Error(
+          `Unsupported payroll leg currency "${currencyCode}" on run ${payrollRun.payPeriod}.`
+        );
+      };
+
       for (const employeePayroll of payrollRun.employeePayrolls) {
         if (employeePayroll.legs?.length) {
           for (const leg of employeePayroll.legs) {
-            totalPAYE = totalPAYE.add(leg.payeAmount).add(leg.aidsLevyAmount);
-            totalNSSA = totalNSSA.add(leg.nssaAmount);
-            totalSDL = totalSDL.add(leg.sdlAmount);
+            const cc = String((leg as any).currencyCode || '');
+            totalPAYE = totalPAYE
+              .add(toRunCurrency(leg.payeAmount, cc))
+              .add(toRunCurrency(leg.aidsLevyAmount, cc));
+            totalNSSA = totalNSSA.add(toRunCurrency(leg.nssaAmount, cc));
+            totalSDL = totalSDL.add(toRunCurrency(leg.sdlAmount, cc));
           }
+          // The deduction rows mirror the legs for a split-currency employee, so
+          // reading both counted every statutory amount twice: NSSA was credited
+          // at exactly 2x the leg total. Legs are the authoritative record when
+          // present; the deduction loop below is the path for employees without.
+          continue;
         }
         for (const deduction of employeePayroll.deductions) {
           const dt = deduction.deductionType;
@@ -914,11 +944,44 @@ export class PayrollService {
       console.log(`   Verification: Gross Pay ($${totalGrossPay.toString()}) = PAYE + NSSA/Pension + SDL + Net Pay ($${calculatedTotal.toString()})`);
       console.log(`   Difference: $${difference.toString()}`);
       
-      if (difference.gt(0.01)) {
-        console.log(`⚠️  Warning: Liability breakdown doesn't match Gross Pay. Adjusting Net Wages Payable...`);
-        totalNetPay = totalGrossPay.sub(totalPAYE).sub(totalNSSAPension).sub(totalSDL);
-        console.log(`   Adjusted Net Wages Payable: $${totalNetPay.toString()}`);
+      // The credit side is derived from the liability components, not accepted
+      // from the caller, so the entry balances by construction of real numbers
+      // rather than by back-solving.
+      //
+      // This used to reassign totalNetPay to (gross - PAYE - NSSA - SDL)
+      // whenever the breakdown disagreed, which made the balance check below
+      // self-satisfying: it validated a total that had just been solved from
+      // gross, so it could never fail. With deductions double-counted the
+      // back-solved figure went negative, the Net Wages line was skipped for
+      // being <= 0, and an unbalanced entry was posted while the check passed.
+      const netWagesPayable = totalGrossPay
+        .sub(totalPAYE)
+        .sub(totalNSSAPension)
+        .sub(totalSDL);
+
+      if (netWagesPayable.lt(0)) {
+        throw new Error(
+          `Payroll liabilities exceed gross pay for ${payrollRun.payPeriod}: gross ` +
+            `${totalGrossPay.toString()}, PAYE ${totalPAYE.toString()}, NSSA/Pension ` +
+            `${totalNSSAPension.toString()}, SDL ${totalSDL.toString()} leaves ` +
+            `${netWagesPayable.toString()} for net wages. No journal was posted.`
+        );
       }
+
+      // A gap against the net pay the run itself calculated is worth surfacing:
+      // a cent or two is currency rounding, more than that means the liability
+      // breakdown and the payslips disagree and the journal should not be
+      // trusted to represent the run.
+      const netPayGap = netWagesPayable.sub(totalNetPay).abs();
+      if (netPayGap.gt(0.05)) {
+        throw new Error(
+          `Journal liability breakdown does not reconcile to the run's net pay for ` +
+            `${payrollRun.payPeriod}: components imply ${netWagesPayable.toString()}, ` +
+            `the run calculated ${totalNetPay.toString()} (difference ${netPayGap.toString()}). ` +
+            `No journal was posted.`
+        );
+      }
+      totalNetPay = netWagesPayable;
 
       // DR Payroll expense (5010 preferred, 5030 fallback) — never an arbitrary 5xxx expense
       const salariesExpenseAccount = await resolveSalariesAndWagesExpenseAccount();
@@ -970,6 +1033,71 @@ export class PayrollService {
       const timestamp = Date.now();
       const uniqueReferenceNumber = `PAYROLL-${payrollRun.payPeriod.replace(/\s+/g, '-').toUpperCase()}-${timestamp}`;
       
+      // Build every line first, prove the entry balances, and only then write
+      // anything. The previous order created the lines, then checked a total
+      // that had been back-solved from gross -- so an unbalanced entry was
+      // already in the ledger by the time the check ran, and the check could
+      // not fail anyway. Nothing is persisted now unless the debits and the
+      // credits agree.
+      console.log('Step 4: Building journal entry lines...');
+
+      const plannedLines: Array<{
+        chartOfAccountId: string;
+        debitAmount: Decimal;
+        creditAmount: Decimal;
+        description: string;
+      }> = [
+        {
+          chartOfAccountId: salariesExpenseAccount.id,
+          debitAmount: totalGrossPay,
+          creditAmount: new Decimal(0),
+          description: `Gross Pay Expense: ${payrollRun.payPeriod}`,
+        },
+      ];
+
+      const creditLine = (accountId: string, amount: Decimal, description: string) => {
+        if (amount.lte(0)) return;
+        plannedLines.push({
+          chartOfAccountId: accountId,
+          debitAmount: new Decimal(0),
+          creditAmount: amount,
+          description,
+        });
+      };
+
+      creditLine(payePayableAccount.id, totalPAYE, `PAYE Payable: ${payrollRun.payPeriod}`);
+      creditLine(
+        nssaPensionPayableAccount.id,
+        totalNSSAPension,
+        `NSSA/Pension Payable: ${payrollRun.payPeriod}`
+      );
+      creditLine(sdlPayableAccount.id, totalSDL, `SDL Payable: ${payrollRun.payPeriod}`);
+      creditLine(
+        netWagesPayableAccount.id,
+        totalNetPay,
+        `Net Wages Payable: ${payrollRun.payPeriod}`
+      );
+
+      // Checked against the lines themselves, not against the variables they
+      // were built from.
+      const plannedDebit = plannedLines.reduce((sum, l) => sum.add(l.debitAmount), new Decimal(0));
+      const plannedCredit = plannedLines.reduce((sum, l) => sum.add(l.creditAmount), new Decimal(0));
+      const plannedDifference = plannedDebit.sub(plannedCredit).abs();
+
+      console.log('   Journal Entry Balance Verification (pre-write):');
+      console.log(`     Lines:  ${plannedLines.length}`);
+      console.log(`     Debit:  ${plannedDebit.toString()}`);
+      console.log(`     Credit: ${plannedCredit.toString()}`);
+      console.log(`     Difference: ${plannedDifference.toString()}`);
+
+      if (plannedDifference.gt(0.01)) {
+        throw new Error(
+          `Payroll journal for ${payrollRun.payPeriod} does not balance: debit ` +
+            `${plannedDebit.toString()} against credit ${plannedCredit.toString()} ` +
+            `(difference ${plannedDifference.toString()}). No journal was posted.`
+        );
+      }
+
       const journalEntry = await createJournalEntryWithAuditSequence({
         transactionDate: accountingDate,
         referenceNumber: uniqueReferenceNumber,
@@ -980,94 +1108,17 @@ export class PayrollService {
         createdById,
       });
 
-      // Create journal entry lines
-      console.log('Step 4: Creating journal entry lines...');
-      
-      // DR Payroll expense (5010 / 5030) - Full Gross Pay amount (before deductions)
-      await prisma.journalEntryLine.create({
-        data: {
+      await prisma.journalEntryLine.createMany({
+        data: plannedLines.map((l) => ({
           journalEntryId: journalEntry.id,
-          chartOfAccountId: salariesExpenseAccount.id,
-          debitAmount: totalGrossPay,
-          creditAmount: new Decimal(0),
-          description: `Gross Pay Expense: ${payrollRun.payPeriod}`,
-          vatAmount: new Decimal(0)
-        }
+          chartOfAccountId: l.chartOfAccountId,
+          debitAmount: l.debitAmount,
+          creditAmount: l.creditAmount,
+          description: l.description,
+          vatAmount: new Decimal(0),
+        })),
       });
-      console.log(`   [OK] DR Salaries Expense (${salariesExpenseAccount.accountNo}): $${totalGrossPay.toString()}`);
-
-      // CR PAYE Payable (2150) - Total PAYE deductions
-      if (totalPAYE.gt(0)) {
-        await prisma.journalEntryLine.create({
-          data: {
-            journalEntryId: journalEntry.id,
-            chartOfAccountId: payePayableAccount.id,
-            debitAmount: new Decimal(0),
-            creditAmount: totalPAYE,
-            description: `PAYE Payable: ${payrollRun.payPeriod}`,
-            vatAmount: new Decimal(0)
-          }
-        });
-        console.log(`   [OK] CR PAYE Payable (${payePayableAccount.accountNo}): $${totalPAYE.toString()}`);
-      }
-
-      // CR NSSA/Pension Payable (2160) - Total NSSA and Pension deductions
-      if (totalNSSAPension.gt(0)) {
-        await prisma.journalEntryLine.create({
-          data: {
-            journalEntryId: journalEntry.id,
-            chartOfAccountId: nssaPensionPayableAccount.id,
-            debitAmount: new Decimal(0),
-            creditAmount: totalNSSAPension,
-            description: `NSSA/Pension Payable: ${payrollRun.payPeriod}`,
-            vatAmount: new Decimal(0)
-          }
-        });
-        console.log(`   [OK] CR NSSA/Pension Payable (${nssaPensionPayableAccount.accountNo}): $${totalNSSAPension.toString()}`);
-      }
-
-      if (totalSDL.gt(0)) {
-        await prisma.journalEntryLine.create({
-          data: {
-            journalEntryId: journalEntry.id,
-            chartOfAccountId: sdlPayableAccount.id,
-            debitAmount: new Decimal(0),
-            creditAmount: totalSDL,
-            description: `SDL Payable: ${payrollRun.payPeriod}`,
-            vatAmount: new Decimal(0)
-          }
-        });
-        console.log(`   [OK] CR SDL Payable (${sdlPayableAccount.accountNo}): $${totalSDL.toString()}`);
-      }
-
-      // CR Net Wages Payable (2250) - Net Pay amount
-      if (totalNetPay.gt(0)) {
-        await prisma.journalEntryLine.create({
-          data: {
-            journalEntryId: journalEntry.id,
-            chartOfAccountId: netWagesPayableAccount.id,
-            debitAmount: new Decimal(0),
-            creditAmount: totalNetPay,
-            description: `Net Wages Payable: ${payrollRun.payPeriod}`,
-            vatAmount: new Decimal(0)
-          }
-        });
-        console.log(`   [OK] CR Net Wages Payable (${netWagesPayableAccount.accountNo}): $${totalNetPay.toString()}`);
-      }
-
-      // Verify journal entry is balanced
-      const totalCredit = totalPAYE.add(totalNSSAPension).add(totalSDL).add(totalNetPay);
-      const balanceCheck = totalGrossPay.sub(totalCredit).abs();
-      
-      console.log('\n Journal Entry Balance Verification:');
-      console.log(`   Total Debit: $${totalGrossPay.toString()}`);
-      console.log(`   Total Credit: $${totalCredit.toString()}`);
-      console.log(`   Difference: $${balanceCheck.toString()}`);
-      console.log(`   Balanced: ${balanceCheck.lte(0.01) ? '[OK]' : '[FAIL]'}`);
-
-      if (balanceCheck.gt(0.01)) {
-        throw new Error(`Journal entry is not balanced! Debit: $${totalGrossPay.toString()}, Credit: $${totalCredit.toString()}`);
-      }
+      console.log(`   [OK] ${plannedLines.length} balanced line(s) written`);
 
       console.log(`\n[OK] Payroll Journal Entry created: ${journalEntry.referenceNumber}`);
       console.log(`   DR Salaries Expense (${salariesExpenseAccount.accountNo}): $${totalGrossPay.toString()}`);
