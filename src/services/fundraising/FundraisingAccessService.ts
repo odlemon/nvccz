@@ -16,12 +16,25 @@ export class FundraisingAccessService {
     );
   }
 
+  /**
+   * "ir" was in this list as a bare two-letter fragment, and hasAnySignal does
+   * substring matching over role name, role code, department role and
+   * department. So roleCode BOARD_CHAIR matched on "cha-ir", and the Board
+   * Chair silently held edit rights over all fundraising data. Any role or
+   * department containing those two letters -- Director, Chairman -- did too.
+   * The unambiguous fragments below match every role actually intended.
+   */
   static isInvestorRelations(user: any): boolean {
-    return hasAnySignal(user, ["investor relations", "ir", "fundraising", "investor_relations"]);
+    const code = FundraisingAccessService.roleCode(user);
+    if (code === "IR" || code === "INVESTOR_RELATIONS") return true;
+    return hasAnySignal(user, ["investor relations", "investor_relations", "fundraising"]);
   }
 
+  /** "cco" matched "A-cco-untant", handing Accountants view and close rights. */
   static isCompliance(user: any): boolean {
-    return hasAnySignal(user, ["compliance", "cco", "chief compliance", "kyc"]);
+    const code = FundraisingAccessService.roleCode(user);
+    if (code === "CCO") return true;
+    return hasAnySignal(user, ["compliance", "chief compliance", "kyc"]);
   }
 
   static async getCampaign(campaignId: string) {
