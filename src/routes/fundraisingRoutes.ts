@@ -6,6 +6,7 @@
 import { Router, Response, NextFunction } from "express";
 import multer from "multer";
 import { authenticate } from "../middleware/authenticate";
+import { requireInternalStaffUser } from "../middleware/permissionAuth";
 import {
   FundraisingRequest,
   requireFundraisingView,
@@ -24,6 +25,14 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 router.use(authenticate);
+// Fundraising is an internal module: its only consumer is the staff portal
+// (lib/api/fundraising-api.ts, imported solely by staff surfaces). 67 of the
+// 179 routes here carried nothing but `authenticate`, and a token is a token —
+// an LP signed in to the LP portal could read another investor's commitment,
+// its amount and side letter, plus KYC cases, DDQ evidence and data rooms.
+// External portal accounts are refused the whole module rather than route by
+// route, so a new unguarded route cannot reopen the hole.
+router.use(requireInternalStaffUser());
 
 async function requireIrOpportunityView(req: FundraisingRequest, res: Response, next: NextFunction) {
   try {
