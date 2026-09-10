@@ -2125,18 +2125,51 @@ export class FundraisingSrdService {
       throw FundraisingIrError.forbidden("No data room access", "ACCESS_DENIED");
     }
 
-    const buffer = await remoteUploadService.downloadFile(doc.storagePath || doc.fileUrl!);
+    // The log write used to sit AFTER the fetch, so a failed download left no
+    // trace at all -- and the table carries `success` and `failureReason`
+    // columns that nothing populated. An access log that records only the
+    // successful reads is not an access log. Every attempt is recorded now,
+    // and a logging failure never masks the download result.
+    const logAttempt = async (success: boolean, failureReason?: string) => {
+      try {
+        await prisma.fundraisingDataRoomAccessLog.create({
+          data: {
+            dataRoomId,
+            documentId,
+            userId,
+            action: "DOWNLOAD",
+            success,
+            failureReason: failureReason ? String(failureReason).slice(0, 255) : null,
+            ipAddress: reqMeta(req).ipAddress,
+            device: reqMeta(req).device,
+          },
+        });
+      } catch (logError: any) {
+        console.error("[data-room] failed to write access log:", logError?.message || logError);
+      }
+    };
 
-    await prisma.fundraisingDataRoomAccessLog.create({
-      data: {
-        dataRoomId,
-        documentId,
-        userId,
-        action: "DOWNLOAD",
-        ipAddress: reqMeta(req).ipAddress,
-        device: reqMeta(req).device,
-      },
-    });
+    // `doc.fileUrl!` asserted non-null on a nullable column. A document row with
+    // neither a storage path nor a URL reached RemoteUploadService and threw
+    // "Cannot read properties of null (reading 'split')" as an unhandled 500.
+    const storageRef = doc.storagePath || doc.fileUrl;
+    if (!storageRef) {
+      await logAttempt(false, "DOCUMENT_FILE_MISSING");
+      throw FundraisingIrError.notFound(
+        "This document has no stored file",
+        "DOCUMENT_FILE_MISSING"
+      );
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = await remoteUploadService.downloadFile(storageRef);
+    } catch (e: any) {
+      await logAttempt(false, e?.message || "DOWNLOAD_FAILED");
+      throw e;
+    }
+
+    await logAttempt(true);
 
     return {
       buffer,
