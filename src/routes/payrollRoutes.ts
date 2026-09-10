@@ -9,6 +9,12 @@ import { authenticate } from '../middleware/authenticate';
 import { requireAnyPermission } from '../middleware/permissionAuth';
 import { PAYROLL_PERMISSIONS as P } from '../config/payrollPermissions';
 import { PayrollVendorService } from '../services/payroll/PayrollVendorService';
+import {
+  PayrollInputService,
+  PayrollCalendarService,
+  PayrollOnboardingService,
+  PayrollRfqService,
+} from '../services/payroll/PayrollOperationsService';
 
 /**
  * Authorisation note.
@@ -40,6 +46,13 @@ const canViewLeave = requireAnyPermission([P.leaveView, P.leaveManage]);
 const canManageLeave = requireAnyPermission([P.leaveManage]);
 const canViewSettings = requireAnyPermission([P.settingsView, P.settingsManage]);
 const canViewVendors = requireAnyPermission([P.vendorsView]);
+const canManageVendors = requireAnyPermission([P.vendorsManage]);
+const canViewInputs = requireAnyPermission([P.inputsView, P.inputsManage]);
+const canManageInputs = requireAnyPermission([P.inputsManage]);
+const canViewCalendar = requireAnyPermission([P.calendarView, P.calendarManage]);
+const canManageCalendar = requireAnyPermission([P.calendarManage]);
+const canViewOnboarding = requireAnyPermission([P.onboardingView, P.onboardingManage]);
+const canManageOnboarding = requireAnyPermission([P.onboardingManage]);
 const canManageSettings = requireAnyPermission([P.settingsManage]);
 
 const employeePictureUpload = multer({
@@ -193,6 +206,41 @@ router.get('/vendors', authenticate, canViewVendors, async (req, res) => {
     res.status(e?.status || 500).json({ success: false, message: e?.message || 'Error' });
   }
 });
+
+// Four screens that had no backend at all and rendered the runtime's fixtures instead:
+// Inputs & Validation, Pay Groups & Calendar, Onboarding, and the RFQ half of Vendors.
+// See design-refs/payroll-v6-backend-asks.md sections 2.2, 2.4, 2.5 and 2.8.
+const handle = (fn: (req: any) => Promise<unknown>) => async (req: any, res: any) => {
+  try {
+    res.json({ success: true, data: await fn(req) });
+  } catch (e: any) {
+    res.status(e?.status || 400).json({ success: false, message: e?.message || 'Error' });
+  }
+};
+
+// Inputs & Validation
+router.get('/inputs/batches', authenticate, canViewInputs, handle((req) => PayrollInputService.listBatches(req.query)));
+router.get('/inputs/batches/:id', authenticate, canViewInputs, handle((req) => PayrollInputService.getBatch(req.params.id)));
+router.post('/inputs/batches', authenticate, canManageInputs, handle((req) => PayrollInputService.createBatch({ ...req.body, uploadedById: req.user?.id })));
+router.post('/inputs/batches/:id/commit', authenticate, canManageInputs, handle((req) => PayrollInputService.commitBatch(req.params.id)));
+router.patch('/inputs/rows/:rowId/resolve', authenticate, canManageInputs, handle((req) => PayrollInputService.resolveRow(req.params.rowId, { ...req.body, resolvedById: req.user?.id })));
+
+// Pay groups and calendar
+router.get('/pay-groups', authenticate, canViewCalendar, handle(() => PayrollCalendarService.listGroups()));
+router.post('/pay-groups', authenticate, canManageCalendar, handle((req) => PayrollCalendarService.createGroup(req.body)));
+router.patch('/pay-groups/:id', authenticate, canManageCalendar, handle((req) => PayrollCalendarService.updateGroup(req.params.id, req.body)));
+router.put('/pay-groups/:id/periods', authenticate, canManageCalendar, handle((req) => PayrollCalendarService.upsertPeriod(req.params.id, req.body)));
+
+// Onboarding
+router.get('/onboarding/candidates', authenticate, canViewOnboarding, handle((req) => PayrollOnboardingService.list(req.query)));
+router.post('/onboarding/candidates', authenticate, canManageOnboarding, handle((req) => PayrollOnboardingService.create({ ...req.body, createdById: req.user?.id })));
+router.patch('/onboarding/candidates/:id', authenticate, canManageOnboarding, handle((req) => PayrollOnboardingService.update(req.params.id, req.body)));
+
+// RFQs and quotations
+router.get('/rfqs', authenticate, canViewVendors, handle((req) => PayrollRfqService.list(req.query)));
+router.post('/rfqs', authenticate, canManageVendors, handle((req) => PayrollRfqService.create({ ...req.body, createdById: req.user?.id })));
+router.post('/rfqs/:id/bids', authenticate, canManageVendors, handle((req) => PayrollRfqService.recordBid(req.params.id, req.body)));
+router.post('/rfqs/:id/award/:bidId', authenticate, canManageVendors, handle((req) => PayrollRfqService.award(req.params.id, req.params.bidId)));
 
 router.get('/bank-templates', authenticate, canViewSettings, PayrollController.getBankFileTemplates);
 router.put('/bank-templates/:id', authenticate, canManageSettings, PayrollController.updateBankFileTemplate);

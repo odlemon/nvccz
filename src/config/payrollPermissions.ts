@@ -57,6 +57,15 @@ export const PAYROLL_PERMISSIONS = {
 
   exceptionsView: "payroll.exceptions.view",
   exceptionsManage: "payroll.exceptions.manage",
+
+  // Inputs & Validation and Onboarding had no backend at all, so no permission was ever minted
+  // for them. Added with the endpoints, and granted below in the same change — a guard shipped
+  // without its grant 403s every request, which has bitten this codebase twice.
+  inputsView: "payroll.inputs.view",
+  inputsManage: "payroll.inputs.manage",
+
+  onboardingView: "payroll.onboarding.view",
+  onboardingManage: "payroll.onboarding.manage",
 } as const
 
 export type PayrollPermission =
@@ -103,7 +112,13 @@ export const PAYROLL_ROLE_GRANTS: Record<string, string[]> = {
     P.reportsManage,
     P.auditView,
     P.calendarView,
+    P.inputsView,
+    P.onboardingView,
     P.calendarManage,
+    P.inputsView,
+    P.inputsManage,
+    P.onboardingView,
+    P.onboardingManage,
     P.exceptionsView,
     P.exceptionsManage,
     P.vendorsView,
@@ -127,6 +142,8 @@ export const PAYROLL_ROLE_GRANTS: Record<string, string[]> = {
     P.reportsView,
     P.auditView,
     P.calendarView,
+    P.inputsView,
+    P.onboardingView,
     P.exceptionsView,
   ],
 

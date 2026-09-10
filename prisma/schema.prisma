@@ -5059,6 +5059,159 @@ model Employee {
   @@map("employees")
 }
 
+/// A batch of payroll inputs uploaded for a period — hours, allowances, deductions, bonuses.
+///
+/// Added because no model existed: the Inputs & Validation screen was entirely fixture-rendered,
+/// and the Command Centre's "1,247 of 1,284 valid" had nothing behind it.
+model PayrollInputBatch {
+  id             String              @id @default(cuid())
+  reference      String              @unique @db.VarChar(64)
+  periodLabel    String              @map("period_label") @db.VarChar(64)
+  payrollRunId   String?             @map("payroll_run_id")
+  sourceFileName String?             @map("source_file_name") @db.VarChar(255)
+  /// DRAFT | VALIDATED | COMMITTED | REJECTED
+  status         String              @default("DRAFT") @db.VarChar(24)
+  totalRows      Int                 @default(0) @map("total_rows")
+  validRows      Int                 @default(0) @map("valid_rows")
+  errorRows      Int                 @default(0) @map("error_rows")
+  uploadedById   String?             @map("uploaded_by_id")
+  committedAt    DateTime?           @map("committed_at")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+  rows           PayrollInputRow[]
+
+  @@index([status])
+  @@map("payroll_input_batches")
+}
+
+/// One line of an input batch. `status` is what the validation screen filters on.
+model PayrollInputRow {
+  id             String            @id @default(cuid())
+  batchId        String            @map("batch_id")
+  rowNumber      Int               @map("row_number")
+  employeeNumber String?           @map("employee_number") @db.VarChar(64)
+  employeeName   String?           @map("employee_name") @db.VarChar(255)
+  /// HOURS | ALLOWANCE | DEDUCTION | BONUS | OTHER
+  inputType      String            @default("OTHER") @map("input_type") @db.VarChar(24)
+  amount         Decimal?          @db.Decimal(15, 2)
+  currencyCode   String            @default("USD") @map("currency_code") @db.VarChar(8)
+  /// VALID | ERROR | RESOLVED
+  status         String            @default("VALID") @db.VarChar(16)
+  errorMessage   String?           @map("error_message") @db.Text
+  resolvedById   String?           @map("resolved_by_id")
+  resolvedAt     DateTime?         @map("resolved_at")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  batch          PayrollInputBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, status])
+  @@map("payroll_input_rows")
+}
+
+/// A population of employees paid on the same cycle. Runs had no concept of one, which is why the
+/// runs list reported a single hardcoded "Monthly Staff" group.
+model PayrollPayGroup {
+  id           String                   @id @default(cuid())
+  name         String                   @db.VarChar(128)
+  code         String                   @unique @db.VarChar(32)
+  /// MONTHLY | FORTNIGHTLY | WEEKLY
+  frequency    String                   @default("MONTHLY") @db.VarChar(24)
+  payDayOfMonth Int?                    @map("pay_day_of_month")
+  currencyCode String                   @default("USD") @map("currency_code") @db.VarChar(8)
+  isActive     Boolean                  @default(true) @map("is_active")
+  createdAt    DateTime                 @default(now()) @map("created_at")
+  updatedAt    DateTime                 @updatedAt @map("updated_at")
+  periods      PayrollCalendarPeriod[]
+
+  @@map("payroll_pay_groups")
+}
+
+/// One dated period on a pay group's calendar: cut-off, pay date and where it has got to.
+model PayrollCalendarPeriod {
+  id          String          @id @default(cuid())
+  payGroupId  String          @map("pay_group_id")
+  periodLabel String          @map("period_label") @db.VarChar(64)
+  periodStart DateTime        @map("period_start") @db.Date
+  periodEnd   DateTime        @map("period_end") @db.Date
+  cutoffDate  DateTime?       @map("cutoff_date") @db.Date
+  payDate     DateTime?       @map("pay_date") @db.Date
+  /// PLANNED | OPEN | LOCKED | PAID
+  status      String          @default("PLANNED") @db.VarChar(16)
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  payGroup    PayrollPayGroup @relation(fields: [payGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([payGroupId, periodLabel])
+  @@index([status])
+  @@map("payroll_calendar_periods")
+}
+
+/// A joiner being taken through payroll onboarding. Separate from `Employee`: the record exists
+/// before there is an employee to create.
+model PayrollOnboardingCandidate {
+  id           String    @id @default(cuid())
+  firstName    String    @map("first_name") @db.VarChar(128)
+  lastName     String    @map("last_name") @db.VarChar(128)
+  email        String?   @db.VarChar(255)
+  position     String?   @db.VarChar(128)
+  department   String?   @db.VarChar(128)
+  startDate    DateTime? @map("start_date") @db.Date
+  payGroupId   String?   @map("pay_group_id")
+  /// INVITED | DOCUMENTS | CONTRACT | PAYROLL_SETUP | COMPLETE | WITHDRAWN
+  status       String    @default("INVITED") @db.VarChar(24)
+  /// Per-step completion, so the pipeline can show progress without a table per step.
+  checklist    Json?
+  employeeId   String?   @map("employee_id")
+  completedAt  DateTime? @map("completed_at")
+  createdById  String?   @map("created_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("payroll_onboarding_candidates")
+}
+
+/// A sourcing event issued to vendors from the payroll module.
+model PayrollRfq {
+  id          String          @id @default(cuid())
+  reference   String          @unique @db.VarChar(64)
+  title       String          @db.VarChar(255)
+  category    String?         @db.VarChar(128)
+  /// DRAFT | OPEN | EVALUATING | AWARDED | CANCELLED
+  status      String          @default("DRAFT") @db.VarChar(24)
+  issueDate   DateTime?       @map("issue_date") @db.Date
+  closingDate DateTime?       @map("closing_date") @db.Date
+  awardedBidId String?        @map("awarded_bid_id")
+  createdById String?         @map("created_by_id")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  bids        PayrollRfqBid[]
+
+  @@index([status])
+  @@map("payroll_rfqs")
+}
+
+/// A vendor's response to an RFQ, with the three evaluation scores the comparison matrix shows.
+model PayrollRfqBid {
+  id               String     @id @default(cuid())
+  rfqId            String     @map("rfq_id")
+  vendorId         String?    @map("vendor_id")
+  vendorName       String     @map("vendor_name") @db.VarChar(255)
+  amount           Decimal?   @db.Decimal(15, 2)
+  currencyCode     String     @default("USD") @map("currency_code") @db.VarChar(8)
+  technicalScore   Decimal?   @map("technical_score") @db.Decimal(5, 2)
+  commercialScore  Decimal?   @map("commercial_score") @db.Decimal(5, 2)
+  complianceScore  Decimal?   @map("compliance_score") @db.Decimal(5, 2)
+  /// INVITED | SUBMITTED | WITHDRAWN | AWARDED | REJECTED
+  status           String     @default("INVITED") @db.VarChar(24)
+  submittedAt      DateTime?  @map("submitted_at")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+  rfq              PayrollRfq @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+
+  @@index([rfqId, status])
+  @@map("payroll_rfq_bids")
+}
+
 model PayrollRun {
   id                     String            @id @default(cuid())
   name                   String
