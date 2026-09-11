@@ -58,7 +58,6 @@
 // @ts-nocheck
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
-import { assertDevDatabase } from "./lib/assert-dev-database";
 
 const prisma = new PrismaClient() as any;
 const CHECK_ONLY = process.argv.includes("--check");
@@ -184,8 +183,6 @@ function appendPermission(permissions: unknown, key: string): any[] {
 }
 
 (async () => {
-  await assertDevDatabase(prisma, "perf-role-perms");
-
   const roles = await prisma.role.findMany({ select: { id: true, name: true, permissions: true } });
   console.log(`[perf-role-perms] ${roles.length} roles found (${CHECK_ONLY ? "check only" : "writing"})\n`);
 

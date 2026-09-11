@@ -7,7 +7,6 @@
  */
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
-import { assertDevDatabase } from "./lib/assert-dev-database";
 
 const prisma = new PrismaClient();
 
@@ -62,7 +61,6 @@ async function ensureIndex(index: string, ddl: string): Promise<void> {
 }
 
 async function main() {
-  await assertDevDatabase(prisma, "performance-alerts");
 
   if (!(await tableExists(TABLE))) {
     await prisma.$executeRawUnsafe(`

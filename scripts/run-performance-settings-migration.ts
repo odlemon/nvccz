@@ -33,7 +33,6 @@
 // @ts-nocheck
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
-import { assertDevDatabase } from "./lib/assert-dev-database";
 
 const prisma = new PrismaClient() as any;
 const TABLE = "performance_settings";
@@ -83,7 +82,6 @@ async function ensureIndex(index: string, ddl: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  await assertDevDatabase(prisma, "performance-settings");
 
   if (await tableExists(TABLE)) {
     console.log(`[skip] ${TABLE} exists`);

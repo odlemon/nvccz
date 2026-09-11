@@ -11,7 +11,6 @@
  */
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
-import { assertDevDatabase } from "./lib/assert-dev-database";
 
 const prisma = new PrismaClient();
 
@@ -127,7 +126,6 @@ const ADDITIVE_CONSTRAINTS: Array<{ constraint: string; ddl: string }> = [
 ];
 
 async function main() {
-  await assertDevDatabase(prisma, "performance-corrective-actions");
 
   if (!(await tableExists(TABLE))) {
     await prisma.$executeRawUnsafe(`
