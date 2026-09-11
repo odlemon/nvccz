@@ -393,6 +393,10 @@ router.post("/:id/accept", requireAnyPermission([PROC_PERMS.rfqAward]), VendorQu
  */
 router.post("/:id/reject", requireAnyPermission([PROC_PERMS.quotationsManage]), VendorQuotationController.rejectQuotation);
 
+// The evaluation team's technical score for a bid. Scoring (quotations.manage) and awarding
+// (rfq.award) are separate grants, so the desk that scores is not the one that decides.
+router.put("/:id/evaluation", requireAnyPermission([PROC_PERMS.quotationsManage]), VendorQuotationController.scoreQuotation);
+
 /**
  * @swagger
  * /vendor-quotations/{id}:

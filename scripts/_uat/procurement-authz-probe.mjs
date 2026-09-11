@@ -102,6 +102,7 @@ const ENDPOINTS = [
   ["award RFQ (retired)", "POST", `/procurement/rfqs/${FAKE}/award`, {}, "staff"],
   ["accept quotation", "POST", `/vendor-quotations/${FAKE}/accept`, {}, G.rfqAward],
   ["reject quotation", "POST", `/vendor-quotations/${FAKE}/reject`, {}, G.quotationsManage],
+  ["score quotation", "PUT", `/vendor-quotations/${FAKE}/evaluation`, { score: 50 }, G.quotationsManage],
   ["create PO", "POST", "/procurement/purchase-orders", {}, G.ordersManage],
   ["send PO", "POST", `/procurement/purchase-orders/${FAKE}/send`, {}, G.ordersSend],
   ["PO to bill", "POST", `/procurement/purchase-orders/${FAKE}/convert-to-bill`, {}, any(G.ordersManage, G.invoicesPay)],

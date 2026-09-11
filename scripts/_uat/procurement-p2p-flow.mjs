@@ -16,7 +16,9 @@
  *   payment        Accountant records payment             (only with --pay)
  *   PR-B           raised and submitted, left pending approval    (Approval Centre)
  *   PR-C           raised, submitted and approved, not yet sourced (ready for RFQ)
- *   RFQ-B          sent with two quotations in, not yet awarded   (Bid Evaluation)
+ *   RFQ-B          sent with two quotations in, not yet awarded   (Approval Centre award)
+ *   RFQ-C          from PR-D, three quotations, unscored          (Bid Evaluation scoring and award)
+ *   PR-E           raised and approved, not sourced               (tender builder)
  *
  * Records are labelled "UAT P2P" so nobody mistakes them for business data. Emails are not
  * sent locally: MAIL_REDIRECT_ENFORCE=true with no MAIL_REDIRECT_TO blocks every message.
@@ -289,6 +291,25 @@ await quote(0, rfqB, [{ itemName: "65-inch meeting room display", quantity: 1, u
 await quote(1, rfqB, [{ itemName: "65-inch meeting room display", quantity: 1, unitPrice: 1390 }])
 log(true, "RFQ-B left in evaluation", `${rfqB.number}, 2 quotations, not awarded`)
 out.ids.rfqB = rfqB.id
+
+// ------------------------------------------------------------------ an RFQ left for scoring and award in the UI
+const prD = await raiseRequisition("filing cabinets", [{ itemName: "Four-drawer steel filing cabinet", quantity: 4, unit: "each" }])
+const apD = await call("deptHead", "PUT", `/procurement/requisitions/${prD.id}/approve`)
+if (apD.res.status !== 200) fail("PR-D approve", apD.res, apD.json)
+const rfqC = await sendRfq("filing cabinets", prD.id, vendorIds)
+await quote(0, rfqC, [{ itemName: "Four-drawer steel filing cabinet", quantity: 4, unitPrice: 310 }])
+await quote(1, rfqC, [{ itemName: "Four-drawer steel filing cabinet", quantity: 4, unitPrice: 295 }])
+await quote(2, rfqC, [{ itemName: "Four-drawer steel filing cabinet", quantity: 4, unitPrice: 340 }])
+log(true, "RFQ-C left for UI scoring and award", `${rfqC.number}, 3 quotations, unscored`)
+out.ids.rfqC = rfqC.id
+
+// ------------------------------------------------------------------ an approved requisition for the UI tender builder
+const prE = await raiseRequisition("projector lamps", [{ itemName: "Projector replacement lamp", quantity: 5, unit: "each" }])
+const apE = await call("deptHead", "PUT", `/procurement/requisitions/${prE.id}/approve`)
+if (apE.res.status !== 200) fail("PR-E approve", apE.res, apE.json)
+log(true, "PR-E approved, left for the tender builder", `${prE.number} -> ${apE.data?.status}`)
+out.ids.requisitions.D = prD.id
+out.ids.requisitions.E = prE.id
 
 console.log("\n=== RESULT === procure-to-pay completed through the API")
 if (jsonArg) fs.writeFileSync(jsonArg, JSON.stringify(out, null, 2))

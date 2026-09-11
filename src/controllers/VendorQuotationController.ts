@@ -17,7 +17,7 @@ function withClientStatus(error: any) {
   if (/^PrismaClient/.test(String(error.name || "")) || /prisma\./i.test(msg)) return error;
   if (/not found/i.test(msg)) error.status = 404;
   else if (/already been|already (accepted|rejected|submitted)/i.test(msg)) error.status = 409;
-  else if (/token|required|invalid|expired|closed|not invited|does not match|must /i.test(msg)) error.status = 400;
+  else if (/token|required|invalid|expired|closed|not invited|does not match|must |not accepting|deadline has passed/i.test(msg)) error.status = 400;
   return error;
 }
 
@@ -177,6 +177,32 @@ export class VendorQuotationController {
   /**
    * Reject a vendor quotation (AUTHENTICATED)
    */
+  /**
+   * Record the evaluation team's technical score for a bid (PUT /:id/evaluation), 0 to 100.
+   * Only while the bid is still open. A vendor's own declarations never count as this score.
+   */
+  static async scoreQuotation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+      const raw = req.body?.score;
+      if (raw === undefined || raw === null || raw === "" || !Number.isFinite(Number(raw))) {
+        return res.status(400).json({ success: false, message: "score is required, a number from 0 to 100" });
+      }
+      const updated = await VendorQuotationService.recordEvaluation({
+        quotationId: req.params.id,
+        score: Number(raw),
+        notes: typeof req.body?.notes === "string" ? req.body.notes : undefined,
+        scoredById: userId,
+      });
+      res.json({ success: true, message: "Technical score recorded", data: serializeDecimalsDeep(updated) });
+    } catch (error: any) {
+      next(withClientStatus(error));
+    }
+  }
+
   static async rejectQuotation(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;

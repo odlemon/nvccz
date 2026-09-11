@@ -113,14 +113,17 @@ export class ProcurementRfqService {
         }
       }
 
-      let technicalScore = 0;
-      if (q.technicalScoreJson && typeof q.technicalScoreJson === "object") {
-        const t = q.technicalScoreJson as { score?: number };
-        technicalScore = Number(t.score ?? 0);
-      }
-      const priceScore =
-        normalizedTotal != null && normalizedTotal > 0 ? 100 / (1 + normalizedTotal / 10000) : 50;
-      const compositeScore = priceScore * pw + technicalScore * tw;
+      // Only the evaluation team's score counts. What a vendor submits in technicalScoreJson is a
+      // declaration (warranty, ESG, local content), never its evaluation (PROC-FINDING-006).
+      const evaluation =
+        q.technicalScoreJson && typeof q.technicalScoreJson === "object"
+          ? (q.technicalScoreJson as { evaluation?: { score?: unknown } }).evaluation
+          : undefined;
+      const evaluationScore =
+        evaluation && evaluation.score !== null && evaluation.score !== undefined && Number.isFinite(Number(evaluation.score))
+          ? Number(evaluation.score)
+          : null;
+      const technicalScore = evaluationScore ?? 0;
 
       const { vendor: vendorRow, items, reviewedBy, ...quotationFields } = q;
 
@@ -138,14 +141,33 @@ export class ProcurementRfqService {
           fxRateUsed,
           vendorRating,
           technicalScore,
+          /** The evaluation team's score, or null while this bid is unscored. */
+          evaluationScore,
           technicalScoreJson: q.technicalScoreJson,
-          priceScore,
-          compositeScore,
+          // Set below, once every bid's total is known.
+          priceScore: 0,
+          compositeScore: 0,
           priceWeight: pw,
           technicalWeight: tw,
         },
       });
     }
+
+    // Price scores are relative to the lowest bid, which scores 100. The previous absolute curve,
+    // 100 / (1 + total / 10000), ignored the other bids and gave any large bid a near-zero score.
+    const comparableTotal = (r: any): number | null =>
+      r.comparison.normalizedTotalReporting ?? (Number.isFinite(r.comparison.rawTotal) ? r.comparison.rawTotal : null);
+    const lowestTotal = rows.reduce((min: number | null, r: any) => {
+      const t = comparableTotal(r);
+      return t != null && t > 0 && (min == null || t < min) ? t : min;
+    }, null as number | null);
+    for (const r of rows as any[]) {
+      const t = comparableTotal(r);
+      r.comparison.priceScore = lowestTotal != null && t != null && t > 0 ? (lowestTotal / t) * 100 : 0;
+      r.comparison.compositeScore = r.comparison.priceScore * pw + r.comparison.technicalScore * tw;
+    }
+    /** True once the evaluation team has scored every bid; until then a ranking is not a basis for award. */
+    const evaluationComplete = rows.length > 0 && (rows as any[]).every((r) => r.comparison.evaluationScore != null);
 
     const lowestCost = rows.reduce(
       (best, r) =>
@@ -215,6 +237,7 @@ export class ProcurementRfqService {
         itemsSnapshot: enrichRfqItemsSnapshotForApi(rfq.itemsSnapshot),
       },
       quotationCount: quotations.length,
+      evaluationComplete,
       reportingCurrencyId,
       rows,
       highlights: {
