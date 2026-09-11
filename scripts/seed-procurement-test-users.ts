@@ -100,6 +100,45 @@ const PERSONAS: Persona[] = [
   },
 ];
 
+/**
+ * The personas this seed normally reuses. A fresh dev database (Arcus dev) has none of them, and
+ * the procure-to-pay UAT cannot run without a department head to approve requisitions and a
+ * Finance Manager to approve invoices and plans. They are CREATED when missing and never modified
+ * when present, because locally they are shared with the payroll and performance test sets.
+ */
+const REUSED_PERSONAS: Persona[] = [
+  {
+    email: "perf.deptmgr@nts.local",
+    firstName: "Perf",
+    lastName: "DeptManager",
+    roleName: "Operations Manager",
+    roleCode: "OPS_MGR",
+    department: "Operations",
+    departmentRole: "HEAD",
+    acts: "Operations department head: approves Operations requisitions",
+  },
+  {
+    email: "payroll.finmgr@nts.local",
+    firstName: "Payroll",
+    lastName: "FinanceManager",
+    roleName: "Finance Manager",
+    roleCode: "FIN_MGR",
+    department: "Finance",
+    departmentRole: "HEAD",
+    acts: "Approves and rejects invoices and procurement plans",
+  },
+  {
+    email: "payroll.intaudit@nts.local",
+    firstName: "Payroll",
+    lastName: "InternalAuditor",
+    roleName: "Internal Auditor",
+    roleCode: "INT_AUDITOR",
+    department: "Finance",
+    departmentRole: "MEMBER",
+    acts: "Read-only access to every procurement register",
+  },
+];
+
 async function remove() {
   const emails = PERSONAS.map((p) => p.email);
   const found = await prisma.user.findMany({ where: { email: { in: emails } }, select: { email: true } });
@@ -115,7 +154,8 @@ async function seed() {
   const hash = await bcrypt.hash(PASSWORD, 10);
 
   // Resolve every dependency up-front so a missing role or department fails before any write.
-  const roleNames = [...new Set(PERSONAS.map((p) => p.roleName))];
+  const everyone = [...PERSONAS, ...REUSED_PERSONAS];
+  const roleNames = [...new Set(everyone.map((p) => p.roleName))];
   const roles = await prisma.role.findMany({ where: { name: { in: roleNames } }, select: { id: true, name: true } });
   const missingRoles = roleNames.filter((n) => !roles.some((r) => r.name === n));
   if (missingRoles.length) {
@@ -123,7 +163,7 @@ async function seed() {
     process.exit(1);
   }
 
-  const deptNames = [...new Set(PERSONAS.map((p) => p.department))];
+  const deptNames = [...new Set(everyone.map((p) => p.department))];
   const depts = await prisma.department.findMany({ where: { name: { in: deptNames } }, select: { id: true, name: true } });
   const missingDepts = deptNames.filter((n) => !depts.some((d) => d.name === n));
   if (missingDepts.length) {
@@ -153,6 +193,30 @@ async function seed() {
       await prisma.user.create({ data });
       console.log(`[proc-users] created  ${p.email.padEnd(26)} ${p.roleCode.padEnd(10)} ${p.department}/${p.departmentRole}`);
     }
+  }
+
+  for (const p of REUSED_PERSONAS) {
+    const existing = await prisma.user.findUnique({ where: { email: p.email }, select: { id: true } });
+    if (existing) {
+      console.log(`[proc-users] reused   ${p.email.padEnd(26)} (present, left unchanged)`);
+      continue;
+    }
+    const role = roles.find((r) => r.name === p.roleName);
+    const dept = depts.find((d) => d.name === p.department);
+    await prisma.user.create({
+      data: {
+        email: p.email,
+        password: hash,
+        firstName: p.firstName,
+        lastName: p.lastName,
+        roleId: role.id,
+        roleCode: p.roleCode,
+        departmentId: dept.id,
+        userDepartment: p.department,
+        departmentRole: p.departmentRole,
+      },
+    });
+    console.log(`[proc-users] created  ${p.email.padEnd(26)} ${p.roleCode.padEnd(10)} ${p.department}/${p.departmentRole} (was missing)`);
   }
 
   console.log(`\n[proc-users] password for all seeded users: ${PASSWORD}`);
