@@ -18,7 +18,9 @@ export function buildVendorPoInvoiceResponsePageUrl(vendorPortalToken: string): 
     trimBase(process.env.PUBLIC_APP_URL);
   if (!base) return null;
 
-  const pathRaw = (process.env.VENDOR_PO_INVOICE_RESPONSE_PATH || "/procurement/vendor-invoice").trim();
+  // The vendor invoice page lives at /vendor/invoice/submit on the staff and vendor portal builds.
+  // The old default, /procurement/vendor-invoice, has no page and sent vendors to a staff login.
+  const pathRaw = (process.env.VENDOR_PO_INVOICE_RESPONSE_PATH || "/vendor/invoice/submit").trim();
   const path = pathRaw.startsWith("/") ? pathRaw : `/${pathRaw}`;
 
   try {

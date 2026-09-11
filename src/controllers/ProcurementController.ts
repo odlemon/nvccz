@@ -1148,6 +1148,107 @@ export class ProcurementController {
   }
 
   /**
+   * PUBLIC, token-scoped. The purchase order behind a vendor's emailed invoice link
+   * (`PO_VENDOR_INVOICE` token), so the vendor invoice form can show the order, prefill its lines and
+   * say whether it still takes invoices. Only the PO named in the token, for the vendor in the token.
+   */
+  static async getVendorPortalPurchaseOrder(req: Request, res: Response) {
+    const raw = String(req.query.token || req.query.vendorPortalToken || "").trim();
+    if (!raw) {
+      return res.status(400).json({ success: false, message: "This invoice link is missing its token" });
+    }
+    try {
+      const { verifyVendorPortalToken, VENDOR_PORTAL_KIND_PO_VENDOR_INVOICE } = await import(
+        "../utils/vendorPortalToken"
+      );
+      let payload;
+      try {
+        payload = verifyVendorPortalToken(raw);
+      } catch (err: any) {
+        return res.status(400).json({ success: false, message: err?.message || "Invalid invoice link" });
+      }
+      if (payload.k !== VENDOR_PORTAL_KIND_PO_VENDOR_INVOICE) {
+        return res.status(400).json({ success: false, message: "This link is not a purchase order invoice link" });
+      }
+
+      const po = await prisma.purchaseOrder.findUnique({
+        where: { id: payload.p },
+        select: {
+          id: true,
+          poNumber: true,
+          vendorId: true,
+          status: true,
+          orderDate: true,
+          expectedDeliveryDate: true,
+          paymentTerms: true,
+          subtotal: true,
+          taxAmount: true,
+          totalAmount: true,
+          vendor: { select: { name: true, email: true } },
+          currency: { select: { id: true, code: true, symbol: true } },
+          items: {
+            where: { lineStatus: { not: "CANCELLED" } },
+            orderBy: { createdAt: "asc" },
+            select: {
+              id: true,
+              itemName: true,
+              description: true,
+              unit: true,
+              quantity: true,
+              quantityReceived: true,
+              unitPrice: true,
+              totalPrice: true,
+            },
+          },
+        },
+      });
+      if (!po || po.vendorId !== payload.v) {
+        return res.status(404).json({ success: false, message: "No purchase order matches this invoice link" });
+      }
+
+      const invoices = await prisma.procurementInvoice.findMany({
+        where: { purchaseOrderId: po.id, vendorId: payload.v },
+        orderBy: { createdAt: "desc" },
+        select: { invoiceNumber: true, status: true, totalAmount: true, invoiceDate: true, createdAt: true },
+      });
+      const { canVendorSubmitProcurementInvoice } = await import("../constants/purchaseOrderStatus");
+      const { default: VATService } = await import("../services/VATService");
+      const num = (v) => (v == null ? null : Number(v));
+
+      return res.json({
+        success: true,
+        data: {
+          poNumber: po.poNumber,
+          status: po.status,
+          openForInvoice: canVendorSubmitProcurementInvoice(po.status),
+          orderDate: po.orderDate,
+          expectedDeliveryDate: po.expectedDeliveryDate,
+          paymentTerms: po.paymentTerms,
+          subtotal: num(po.subtotal),
+          taxAmount: num(po.taxAmount),
+          totalAmount: num(po.totalAmount),
+          vendor: po.vendor,
+          currency: po.currency,
+          // createProcurementInvoice computes VAT itself with VATService; show the vendor that rate.
+          vatPercent: VATService.calculateVAT(100),
+          items: po.items.map((it) => ({
+            ...it,
+            quantity: num(it.quantity),
+            quantityReceived: num(it.quantityReceived),
+            unitPrice: num(it.unitPrice),
+            totalPrice: num(it.totalPrice),
+          })),
+          invoices: invoices.map((inv) => ({ ...inv, totalAmount: num(inv.totalAmount) })),
+          tokenExpiresAt: new Date(payload.exp * 1000).toISOString(),
+        },
+      });
+    } catch (error: any) {
+      console.error("Error loading vendor portal purchase order:", error);
+      return res.status(500).json({ success: false, message: "Could not load this purchase order" });
+    }
+  }
+
+  /**
    * Process OCR data for invoice
    */
   static async processOCRData(req: Request, res: Response) {

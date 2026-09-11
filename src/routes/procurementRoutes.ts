@@ -169,6 +169,10 @@ const staffCaptureWhenAuthenticated = (req, res, next) => {
 };
 router.post("/invoices", staffCaptureWhenAuthenticated, ProcurementController.createProcurementInvoice);
 
+// PUBLIC, token-scoped: the PO behind a vendor's emailed invoice link, so the vendor invoice form
+// can show the order and prefill its lines. `?token=` is the signed PO_VENDOR_INVOICE token.
+router.get("/vendor-portal/purchase-order", ProcurementController.getVendorPortalPurchaseOrder);
+
 // All routes below require authentication
 router.use(authenticate);
 // Internal staff only. Every route below is staff procurement data or a staff action;
