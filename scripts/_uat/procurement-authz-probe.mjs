@@ -109,6 +109,7 @@ const ENDPOINTS = [
   ["create GRN", "POST", "/procurement/goods-received-notes", {}, G.receivingManage],
   ["approve GRN", "PUT", `/procurement/goods-received-notes/${FAKE}/approve`, {}, G.receivingApprove],
   ["approve proc invoice", "PUT", `/procurement/invoices/${FAKE}/approve`, {}, G.invoicesApprove],
+  ["reject proc invoice", "PUT", `/procurement/invoices/${FAKE}/reject`, { rejectionReason: "probe" }, G.invoicesApprove],
   ["pay proc invoice", "POST", `/procurement/invoices/${FAKE}/payment`, {}, G.invoicesPay],
   // Shared with the vendor portal: no token is a vendor submission, which needs its signed
   // vendorPortalToken (400), not a login (401).

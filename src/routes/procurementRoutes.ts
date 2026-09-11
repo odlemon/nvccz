@@ -862,6 +862,9 @@ router.post("/grn-return-to-vendor", requireAnyPermission([PROC_PERMS.receivingM
  */
 router.put("/invoices/:id/approve", requireAnyPermission([PROC_PERMS.invoicesApprove]), ProcurementController.approveProcurementInvoice);
 
+// Reject an invoice awaiting approval, with a reason; the approver's grant decides both outcomes.
+router.put("/invoices/:id/reject", requireAnyPermission([PROC_PERMS.invoicesApprove]), ProcurementController.rejectProcurementInvoice);
+
 /**
  * @swagger
  * /procurement/invoices/{id}/payment:

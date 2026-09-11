@@ -1334,6 +1334,39 @@ export class ProcurementController {
   }
 
   /**
+   * Reject a procurement invoice awaiting approval.
+   * PUT /api/procurement/invoices/:id/reject  { rejectionReason }
+   */
+  static async rejectProcurementInvoice(req: Request, res: Response) {
+    try {
+      const rejectedById = req.user?.id;
+      if (!rejectedById) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+
+      const { id } = req.params;
+      const { rejectionReason } = req.body ?? {};
+      const reason = typeof rejectionReason === "string" ? rejectionReason.trim() : "";
+      if (!reason) {
+        return res.status(400).json({ success: false, message: "rejectionReason is required" });
+      }
+
+      const invoice = await ProcurementService.rejectProcurementInvoice(id, rejectedById, reason);
+
+      const { serializeDecimalsDeep } = await import("../utils/prismaDecimalJson");
+      res.status(200).json({
+        success: true,
+        message: "Procurement invoice rejected",
+        data: serializeDecimalsDeep(invoice),
+      });
+    } catch (error: any) {
+      console.error("Error rejecting procurement invoice:", error);
+      const message = error?.message || "Failed to reject procurement invoice";
+      res.status(/not found/i.test(message) ? 404 : 400).json({ success: false, message });
+    }
+  }
+
+  /**
    * PO → Vendor Bill (Accounts Payable): creates a Purchase Invoice from an approved/sent PO.
    * Body: { supplierInvoiceNumber, dueDate? } — line items, qty, and unit prices copy from the PO.
    * POST /api/procurement/purchase-orders/:id/convert-to-bill

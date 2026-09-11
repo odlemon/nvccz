@@ -2690,6 +2690,69 @@ export class ProcurementService {
   }
 
   /**
+   * Reject a procurement invoice that is still awaiting approval. Stores the reason and a content
+   * fingerprint, clears any approval stamp and writes a REJECT audit event. Nothing is posted: an
+   * invoice creates accounting entries only when it is paid, and a rejected one never is.
+   */
+  static async rejectProcurementInvoice(invoiceId: string, rejectedById: string, rejectionReason: string) {
+    const reason = String(rejectionReason || "").trim();
+    if (!reason) {
+      throw new Error("Rejection reason is required");
+    }
+
+    const existing = await prisma.procurementInvoice.findUnique({
+      where: { id: invoiceId },
+      include: { items: true },
+    });
+    if (!existing) {
+      throw new Error("Invoice not found");
+    }
+    const status = String(existing.status || "").toUpperCase();
+    if (status === "REJECTED") {
+      throw new Error("Invoice is already rejected");
+    }
+    if (!["DRAFT", "PENDING", "PENDING_APPROVAL", "MATCHED", "DISCREPANCY"].includes(status)) {
+      throw new Error(`Only an invoice awaiting approval can be rejected (status: ${existing.status})`);
+    }
+
+    const { computeProcurementInvoiceRejectionFingerprint } = await import(
+      "../utils/procurementEntityRejectionFingerprint"
+    );
+    const rejectionContentFingerprint = computeProcurementInvoiceRejectionFingerprint({
+      ...existing,
+      status: "REJECTED",
+    });
+
+    const updated = await prisma.procurementInvoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: "REJECTED",
+        rejectionReason: reason,
+        rejectionContentFingerprint,
+        approvedById: null,
+        approvedAt: null,
+      },
+      include: {
+        vendor: { select: { id: true, name: true, email: true } },
+        purchaseOrder: { select: { id: true, poNumber: true, status: true } },
+        currency: { select: { id: true, code: true, symbol: true } },
+        items: true,
+      },
+    });
+
+    await AuditService.log({
+      userId: rejectedById,
+      action: "REJECT",
+      entityType: "ProcurementInvoice",
+      entityId: invoiceId,
+      oldValues: { status: existing.status },
+      newValues: { status: "REJECTED", rejectionReason: reason },
+    });
+
+    return updated;
+  }
+
+  /**
    * Approve a procurement invoice and create journal entry
    * @param invoiceId - ID of the invoice to approve
    * @param approvedById - ID of the user approving the invoice
