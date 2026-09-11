@@ -480,6 +480,8 @@
     "db:migrate:accounting-documents": "ts-node --transpile-only scripts/run-accounting-documents-migration.ts",
     "db:migrate:timesheets-projects": "ts-node scripts/run-timesheets-projects-migration.ts",
     "db:migrate:payroll-v6-permissions": "ts-node --transpile-only -r dotenv/config scripts/run-payroll-v6-permissions-migration.ts",
+    "db:migrate:payroll-documents": "ts-node --transpile-only -r dotenv/config scripts/run-payroll-documents-migration.ts",
+    "db:migrate:payroll-v6-missing-tables": "ts-node --transpile-only -r dotenv/config scripts/create-payroll-v6-missing-tables.ts",
     "db:seed:fundraising-demo": "ts-node --transpile-only -r dotenv/config scripts/seed-fundraising-demo-dataset.ts",
     "db:seed:payroll-v6-baseline": "ts-node --transpile-only -r dotenv/config scripts/seed-payroll-v6-baseline.ts",
     "e2e:payroll-v6-lifecycle": "ts-node --transpile-only -r dotenv/config scripts/e2e-payroll-v6-lifecycle.ts",
