@@ -10,6 +10,7 @@ import { parseDate } from "../utils/dateHelper";
 import { hasUsableRfqItemLines } from "../utils/rfqItemInput";
 import { isModulePrivilegedUser, userHasEffectivePermission } from "../config/cfoModulePermissions";
 import { PROCUREMENT_PERMISSIONS } from "../config/procurementPermissions";
+import { publicErrorMessage } from "../utils/publicErrorMessage";
 
 export class ProcurementController {
   /**
@@ -78,7 +79,7 @@ export class ProcurementController {
       console.error("Error creating purchase requisition:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to create purchase requisition"
+        message: publicErrorMessage(error, "Failed to create purchase requisition")
       });
     }
   }
@@ -109,7 +110,7 @@ export class ProcurementController {
       console.error("Error fetching my purchase requisitions:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to fetch my purchase requisitions"
+        message: publicErrorMessage(error, "Failed to fetch my purchase requisitions")
       });
     }
   }
@@ -179,7 +180,7 @@ export class ProcurementController {
       console.error("Error fetching pending requisitions for department head:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to fetch pending requisitions"
+        message: publicErrorMessage(error, "Failed to fetch pending requisitions")
       });
     }
   }
@@ -327,7 +328,7 @@ export class ProcurementController {
       console.error("Error getting purchase requisitions:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get purchase requisitions"
+        message: publicErrorMessage(error, "Failed to get purchase requisitions")
       });
     }
   }
@@ -421,7 +422,7 @@ export class ProcurementController {
       console.error("Error getting purchase requisition:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get purchase requisition"
+        message: publicErrorMessage(error, "Failed to get purchase requisition")
       });
     }
   }
@@ -445,7 +446,7 @@ export class ProcurementController {
       const code = error?.message?.includes("Not authorized") ? 403 : 400;
       return res.status(code).json({
         success: false,
-        message: error.message || "Failed to list investee requisitions",
+        message: publicErrorMessage(error, "Failed to list investee requisitions"),
       });
     }
   }
@@ -469,7 +470,7 @@ export class ProcurementController {
       const code = error?.message?.includes("Not authorized") ? 403 : 400;
       return res.status(code).json({
         success: false,
-        message: error.message || "Failed to list SLA breaches",
+        message: publicErrorMessage(error, "Failed to list SLA breaches"),
       });
     }
   }
@@ -500,7 +501,7 @@ export class ProcurementController {
       console.error("Error submitting purchase requisition:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to submit purchase requisition"
+        message: publicErrorMessage(error, "Failed to submit purchase requisition")
       });
     }
   }
@@ -531,7 +532,7 @@ export class ProcurementController {
       console.error("Error approving purchase requisition:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to approve purchase requisition"
+        message: publicErrorMessage(error, "Failed to approve purchase requisition")
       });
     }
   }
@@ -570,7 +571,7 @@ export class ProcurementController {
       console.error("Error rejecting purchase requisition:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to reject purchase requisition"
+        message: publicErrorMessage(error, "Failed to reject purchase requisition")
       });
     }
   }
@@ -601,7 +602,7 @@ export class ProcurementController {
       console.error("Error updating purchase requisition:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to update purchase requisition"
+        message: publicErrorMessage(error, "Failed to update purchase requisition")
       });
     }
   }
@@ -682,7 +683,7 @@ export class ProcurementController {
       console.error("Error creating purchase order:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to create purchase order"
+        message: publicErrorMessage(error, "Failed to create purchase order")
       });
     }
   }
@@ -772,7 +773,7 @@ export class ProcurementController {
       console.error("Error creating/sending RFQ:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to create/send RFQ"
+        message: publicErrorMessage(error, "Failed to create/send RFQ")
       });
     }
   }
@@ -803,7 +804,7 @@ export class ProcurementController {
       console.error("Error getting RFQs:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get RFQs"
+        message: publicErrorMessage(error, "Failed to get RFQs")
       });
     }
   }
@@ -834,7 +835,7 @@ export class ProcurementController {
       console.error("Error sending purchase order:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to send purchase order"
+        message: publicErrorMessage(error, "Failed to send purchase order")
       });
     }
   }
@@ -928,7 +929,7 @@ export class ProcurementController {
       console.error("Error getting purchase orders:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get purchase orders"
+        message: publicErrorMessage(error, "Failed to get purchase orders")
       });
     }
   }
@@ -1022,7 +1023,7 @@ export class ProcurementController {
       console.error("Error getting purchase order:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get purchase order",
+        message: publicErrorMessage(error, "Failed to get purchase order"),
       });
     }
   }
@@ -1066,7 +1067,7 @@ export class ProcurementController {
       console.error("Error uploading vendor invoice document:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to upload document",
+        message: publicErrorMessage(error, "Failed to upload document"),
       });
     }
   }
@@ -1161,7 +1162,7 @@ export class ProcurementController {
       console.error("Error creating procurement invoice:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to create procurement invoice"
+        message: publicErrorMessage(error, "Failed to create procurement invoice")
       });
     }
   }
@@ -1286,7 +1287,7 @@ export class ProcurementController {
       console.error("Error processing OCR data:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to process OCR data"
+        message: publicErrorMessage(error, "Failed to process OCR data")
       });
     }
   }
@@ -1310,7 +1311,7 @@ export class ProcurementController {
       console.error("Error performing AI matching:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to perform AI matching"
+        message: publicErrorMessage(error, "Failed to perform AI matching")
       });
     }
   }
@@ -1347,7 +1348,7 @@ export class ProcurementController {
       console.error("Error approving procurement invoice:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to approve procurement invoice"
+        message: publicErrorMessage(error, "Failed to approve procurement invoice")
       });
     }
   }
@@ -1450,7 +1451,7 @@ export class ProcurementController {
       console.error("Error converting PO to bill:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to convert purchase order to vendor bill"
+        message: publicErrorMessage(error, "Failed to convert purchase order to vendor bill")
       });
     }
   }
@@ -1565,7 +1566,7 @@ export class ProcurementController {
       console.error("Error processing procurement invoice payment:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to process payment"
+        message: publicErrorMessage(error, "Failed to process payment")
       });
     }
   }
@@ -1658,7 +1659,7 @@ export class ProcurementController {
       console.error("Error getting procurement invoices:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get procurement invoices"
+        message: publicErrorMessage(error, "Failed to get procurement invoices")
       });
     }
   }
@@ -1715,7 +1716,7 @@ export class ProcurementController {
       console.error("Error creating goods received note:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to create goods received note"
+        message: publicErrorMessage(error, "Failed to create goods received note")
       });
     }
   }
@@ -1820,7 +1821,7 @@ export class ProcurementController {
       console.error("Error listing goods received notes:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to list goods received notes",
+        message: publicErrorMessage(error, "Failed to list goods received notes"),
       });
     }
   }
@@ -1850,7 +1851,7 @@ export class ProcurementController {
       console.error("Error getting goods received note:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get goods received note",
+        message: publicErrorMessage(error, "Failed to get goods received note"),
       });
     }
   }
@@ -1882,7 +1883,7 @@ export class ProcurementController {
       console.error("Error approving goods received note:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to approve goods received note",
+        message: publicErrorMessage(error, "Failed to approve goods received note"),
       });
     }
   }
@@ -1925,7 +1926,7 @@ export class ProcurementController {
       console.error("Error rejecting goods received note:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to reject goods received note",
+        message: publicErrorMessage(error, "Failed to reject goods received note"),
       });
     }
   }
@@ -1952,7 +1953,7 @@ export class ProcurementController {
       console.error("Error getting procurement dashboard:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get procurement dashboard"
+        message: publicErrorMessage(error, "Failed to get procurement dashboard")
       });
     }
   }
@@ -2107,7 +2108,7 @@ export class ProcurementController {
       console.error("Error getting payments:", error);
       res.status(500).json({
         success: false,
-        message: error.message || "Failed to get payments"
+        message: publicErrorMessage(error, "Failed to get payments")
       });
     }
   }

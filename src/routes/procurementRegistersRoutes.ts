@@ -9,6 +9,7 @@ import {
   ProcurementPlans,
   RegisterError,
 } from "../services/ProcurementRegistersService";
+import { publicErrorMessage } from "../utils/publicErrorMessage";
 
 /**
  * Procurement V23 registers: document vault, contracts, annual plans.
@@ -45,7 +46,7 @@ const run = (fn: (req, res) => Promise<any>, status = 200) => async (req, res) =
   } catch (err: any) {
     const code = err instanceof RegisterError ? err.status : 500;
     if (code >= 500) console.error("procurement registers:", err);
-    res.status(code).json({ success: false, message: err?.message || "Request failed" });
+    res.status(code).json({ success: false, message: code >= 500 ? publicErrorMessage(err, "Request failed") : err?.message || "Request failed" });
   }
 };
 

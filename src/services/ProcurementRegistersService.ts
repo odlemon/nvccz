@@ -50,8 +50,8 @@ async function audit(userId: string | undefined, action: string, entityType: str
 }
 
 /** Next "<PREFIX>-<year>-<seq>" number, retried by the caller on a unique collision. */
-async function nextNumber(model: "procurementContract" | "procurementPlan", field: string, prefix: string, width: number) {
-  const year = new Date().getFullYear();
+async function nextNumber(model: "procurementContract" | "procurementPlan", field: string, prefix: string, width: number, forYear?: number) {
+  const year = forYear || new Date().getFullYear();
   const stem = `${prefix}-${year}-`;
   const last = await prisma[model].findFirst({
     where: { [field]: { startsWith: stem } },
@@ -62,9 +62,9 @@ async function nextNumber(model: "procurementContract" | "procurementPlan", fiel
   return `${stem}${String(Number.isFinite(seq) ? seq : 1).padStart(width, "0")}`;
 }
 
-async function createWithNumber<T>(make: (n: string) => Promise<T>, model, field, prefix, width): Promise<T> {
+async function createWithNumber<T>(make: (n: string) => Promise<T>, model, field, prefix, width, forYear?: number): Promise<T> {
   for (let attempt = 0; attempt < 6; attempt++) {
-    const n = await nextNumber(model, field, prefix, width);
+    const n = await nextNumber(model, field, prefix, width, forYear);
     try {
       return await make(n);
     } catch (err: any) {
@@ -370,7 +370,9 @@ export const ProcurementPlans = {
       "procurementPlan",
       "planNumber",
       "APP",
-      3
+      3,
+      // A plan is numbered by the year it plans for, not the year it was drafted in.
+      Number(fiscalYear.match(/(\d{4})/)?.[1]) || undefined
     );
     await audit(userId, "CREATE", "ProcurementPlan", plan.id, { planNumber: plan.planNumber, name: plan.name });
     return planOut(plan);
