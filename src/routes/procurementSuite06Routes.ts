@@ -2,10 +2,16 @@
 import express from "express";
 import multer from "multer";
 import { authenticate } from "../middleware/authenticate";
+import { requireInternalStaffUser } from "../middleware/permissionAuth";
 import { ProcurementSuite06Controller } from "../controllers/ProcurementSuite06Controller";
 
 const router = express.Router();
 router.use(authenticate);
+// Internal staff only. Every route below is staff procurement data or a staff action;
+// `authenticate` alone let LP and investee portal accounts read vendor master data and
+// create internal requisitions. Vendors never reach these: their flows use signed
+// vendorPortalToken links on the public routes declared above this line.
+router.use(requireInternalStaffUser());
 
 const uploadVendorInvoicePdf = multer({
   storage: multer.memoryStorage(),

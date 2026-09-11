@@ -128,6 +128,7 @@
     "db:seed:lp-portal-srd": "ts-node --transpile-only -r dotenv/config scripts/seed-lp-portal-srd-demo.ts",
     "db:seed:portal-test-users": "ts-node --transpile-only -r dotenv/config scripts/seed-portal-test-users.ts",
     "db:seed:performance-test-users": "ts-node --transpile-only -r dotenv/config scripts/seed-performance-test-users.ts",
+    "db:seed:procurement-test-users": "ts-node --transpile-only -r dotenv/config scripts/seed-procurement-test-users.ts",
     "db:migrate:performance-role-permissions": "ts-node --transpile-only -r dotenv/config scripts/run-performance-role-permissions-migration.ts",
     "db:migrate:performance-corrective-actions": "ts-node --transpile-only -r dotenv/config scripts/run-performance-corrective-actions-migration.ts",
     "db:migrate:performance-alerts": "ts-node --transpile-only -r dotenv/config scripts/run-performance-alerts-migration.ts",
