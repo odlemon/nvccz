@@ -2,7 +2,8 @@
 import express from "express";
 import { ProcurementController } from "../controllers/ProcurementController";
 import { authenticate } from "../middleware/authenticate";
-import { requireInternalStaffUser } from "../middleware/permissionAuth";
+import { requireAnyPermission, requireInternalStaffUser } from "../middleware/permissionAuth";
+import { PROCUREMENT_PERMISSIONS as PROC_PERMS } from "../config/procurementPermissions";
 import multer from "multer";
 
 const router = express.Router();
@@ -506,13 +507,13 @@ router.put("/requisitions/:id/reject", ProcurementController.rejectPurchaseRequi
  */
 router.put("/requisitions/:id", ProcurementController.updatePurchaseRequisition);
 
-router.post("/purchase-orders", ProcurementController.createPurchaseOrder);
-router.get("/purchase-orders", ProcurementController.getAllPurchaseOrders);
+router.post("/purchase-orders", requireAnyPermission([PROC_PERMS.ordersManage]), ProcurementController.createPurchaseOrder);
+router.get("/purchase-orders", requireAnyPermission([PROC_PERMS.ordersView]), ProcurementController.getAllPurchaseOrders);
 /** Must be before /purchase-orders/:id or "verify" is captured as an id (Suite 04 PDF verification). */
 router.get("/purchase-orders/verify", ProcurementController.verifyPurchaseOrderToken);
-router.get("/purchase-orders/:id", ProcurementController.getPurchaseOrderById);
-router.post("/purchase-orders/:id/send", ProcurementController.sendPurchaseOrder);
-router.post("/purchase-orders/:id/convert-to-bill", ProcurementController.convertPOToBill);
+router.get("/purchase-orders/:id", requireAnyPermission([PROC_PERMS.ordersView]), ProcurementController.getPurchaseOrderById);
+router.post("/purchase-orders/:id/send", requireAnyPermission([PROC_PERMS.ordersSend]), ProcurementController.sendPurchaseOrder);
+router.post("/purchase-orders/:id/convert-to-bill", requireAnyPermission([PROC_PERMS.ordersManage, PROC_PERMS.invoicesPay]), ProcurementController.convertPOToBill);
 
 /**
  * @swagger
@@ -587,7 +588,7 @@ router.post("/purchase-orders/:id/convert-to-bill", ProcurementController.conver
  *       401:
  *         description: Unauthorized
  */
-router.post("/rfq", ProcurementController.createAndSendRFQ);
+router.post("/rfq", requireAnyPermission([PROC_PERMS.rfqManage]), ProcurementController.createAndSendRFQ);
 
 /**
  * @swagger
@@ -627,7 +628,7 @@ router.post("/rfq", ProcurementController.createAndSendRFQ);
  *       401:
  *         description: Unauthorized
  */
-router.get("/rfq", ProcurementController.getAllRFQs);
+router.get("/rfq", requireAnyPermission([PROC_PERMS.rfqView]), ProcurementController.getAllRFQs);
 
 /**
  * @swagger
@@ -657,7 +658,7 @@ router.get("/rfq", ProcurementController.getAllRFQs);
  *       401:
  *         description: Unauthorized
  */
-router.get("/rfqs/:id/comparison-matrix", ProcurementController.getRfqComparisonMatrix);
+router.get("/rfqs/:id/comparison-matrix", requireAnyPermission([PROC_PERMS.rfqView]), ProcurementController.getRfqComparisonMatrix);
 
 /**
  * @swagger
@@ -676,7 +677,7 @@ router.get("/rfqs/:id/comparison-matrix", ProcurementController.getRfqComparison
  *         description: Use vendor-quotations accept/reject instead
  */
 router.post("/rfqs/:id/award", ProcurementController.awardRfq);
-router.patch("/rfqs/:id/closing", ProcurementController.patchRfqExtend);
+router.patch("/rfqs/:id/closing", requireAnyPermission([PROC_PERMS.rfqManage]), ProcurementController.patchRfqExtend);
 /**
  * @swagger
  * /procurement/rfqs/{id}/clarifications:
@@ -732,12 +733,12 @@ router.patch("/rfqs/:id/closing", ProcurementController.patchRfqExtend);
  *       200:
  *         description: Clarifications list
  */
-router.post("/rfqs/:id/clarifications", ProcurementController.postRfqClarification);
-router.get("/rfqs/:id/clarifications", ProcurementController.getRfqClarifications);
+router.post("/rfqs/:id/clarifications", requireAnyPermission([PROC_PERMS.rfqManage]), ProcurementController.postRfqClarification);
+router.get("/rfqs/:id/clarifications", requireAnyPermission([PROC_PERMS.rfqView]), ProcurementController.getRfqClarifications);
 
-router.get("/purchase-orders/:id/pdf", ProcurementController.getPurchaseOrderPdf);
+router.get("/purchase-orders/:id/pdf", requireAnyPermission([PROC_PERMS.ordersView]), ProcurementController.getPurchaseOrderPdf);
 router.patch(
-  "/purchase-orders/:poId/lines/:lineId/cancel",
+  "/purchase-orders/:poId/lines/:lineId/cancel", requireAnyPermission([PROC_PERMS.ordersManage]),
   ProcurementController.cancelPurchaseOrderLine
 );
 
@@ -788,7 +789,7 @@ router.patch(
  *       401:
  *         description: Unauthorized
  */
-router.post("/grn-return-to-vendor", ProcurementController.createGrnReturnToVendor);
+router.post("/grn-return-to-vendor", requireAnyPermission([PROC_PERMS.receivingManage]), ProcurementController.createGrnReturnToVendor);
 
 /**
  * @swagger
@@ -834,7 +835,7 @@ router.post("/grn-return-to-vendor", ProcurementController.createGrnReturnToVend
  *       401:
  *         description: Unauthorized
  */
-router.put("/invoices/:id/approve", ProcurementController.approveProcurementInvoice);
+router.put("/invoices/:id/approve", requireAnyPermission([PROC_PERMS.invoicesApprove]), ProcurementController.approveProcurementInvoice);
 
 /**
  * @swagger
@@ -965,7 +966,7 @@ router.put("/invoices/:id/approve", ProcurementController.approveProcurementInvo
  *       404:
  *         description: Invoice not found
  */
-router.post("/invoices/:id/payment", uploadProofOfPayment.single('proofOfPayment'), ProcurementController.payProcurementInvoice);
+router.post("/invoices/:id/payment", requireAnyPermission([PROC_PERMS.invoicesPay]), uploadProofOfPayment.single('proofOfPayment'), ProcurementController.payProcurementInvoice);
 
 /**
  * @swagger
@@ -1012,7 +1013,7 @@ router.post("/invoices/:id/payment", uploadProofOfPayment.single('proofOfPayment
  *       401:
  *         description: Unauthorized
  */
-router.get("/invoices", ProcurementController.getAllProcurementInvoices);
+router.get("/invoices", requireAnyPermission([PROC_PERMS.invoicesView]), ProcurementController.getAllProcurementInvoices);
 
 /**
  * @swagger
@@ -1136,7 +1137,7 @@ router.get("/invoices", ProcurementController.getAllProcurementInvoices);
  *       401:
  *         description: Unauthorized
  */
-router.get("/goods-received-notes", ProcurementController.getGoodsReceivedNotes);
+router.get("/goods-received-notes", requireAnyPermission([PROC_PERMS.receivingView]), ProcurementController.getGoodsReceivedNotes);
 /**
  * @swagger
  * /procurement/goods-received-notes/{id}:
@@ -1160,8 +1161,8 @@ router.get("/goods-received-notes", ProcurementController.getGoodsReceivedNotes)
  *       404:
  *         description: Not found
  */
-router.get("/goods-received-notes/:id", ProcurementController.getGoodsReceivedNoteById);
-router.post("/goods-received-notes", ProcurementController.createGoodsReceivedNote);
+router.get("/goods-received-notes/:id", requireAnyPermission([PROC_PERMS.receivingView]), ProcurementController.getGoodsReceivedNoteById);
+router.post("/goods-received-notes", requireAnyPermission([PROC_PERMS.receivingManage]), ProcurementController.createGoodsReceivedNote);
 
 /**
  * @swagger
@@ -1207,7 +1208,7 @@ router.post("/goods-received-notes", ProcurementController.createGoodsReceivedNo
  *       404:
  *         description: GRN not found
  */
-router.put("/goods-received-notes/:id/approve", ProcurementController.approveGoodsReceivedNote);
+router.put("/goods-received-notes/:id/approve", requireAnyPermission([PROC_PERMS.receivingApprove]), ProcurementController.approveGoodsReceivedNote);
 
 /**
  * @swagger
@@ -1259,7 +1260,7 @@ router.put("/goods-received-notes/:id/approve", ProcurementController.approveGoo
  *       404:
  *         description: GRN not found
  */
-router.put("/goods-received-notes/:id/reject", ProcurementController.rejectGoodsReceivedNote);
+router.put("/goods-received-notes/:id/reject", requireAnyPermission([PROC_PERMS.receivingApprove]), ProcurementController.rejectGoodsReceivedNote);
 
 /**
  * @swagger
@@ -1379,7 +1380,7 @@ router.put("/goods-received-notes/:id/reject", ProcurementController.rejectGoods
  *       401:
  *         description: Unauthorized
  */
-router.get("/dashboard", ProcurementController.getProcurementDashboard);
+router.get("/dashboard", requireAnyPermission([PROC_PERMS.dashboardView]), ProcurementController.getProcurementDashboard);
 
 /**
  * @swagger
@@ -1487,6 +1488,6 @@ router.get("/dashboard", ProcurementController.getProcurementDashboard);
  *       500:
  *         description: Internal server error
  */
-router.get("/payments", ProcurementController.getAllPayments);
+router.get("/payments", requireAnyPermission([PROC_PERMS.invoicesView]), ProcurementController.getAllPayments);
 
 export default router;

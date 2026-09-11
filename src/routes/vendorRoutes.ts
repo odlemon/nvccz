@@ -4,7 +4,8 @@ import multer from "multer";
 import { VendorController } from "../controllers/VendorController";
 import { authenticate } from "../middleware/authenticate";
 
-import { requireInternalStaffUser } from "../middleware/permissionAuth";
+import { requireAnyPermission, requireInternalStaffUser } from "../middleware/permissionAuth";
+import { PROCUREMENT_PERMISSIONS as PROC_PERMS } from "../config/procurementPermissions";
 const router = express.Router();
 
 const uploadKyc = multer({
@@ -73,7 +74,7 @@ router.get("/pending-review", VendorController.listPendingReviewVendors);
  *       200:
  *         description: File stream
  */
-router.get("/kyc-documents/:documentId/download", VendorController.downloadVendorKyc);
+router.get("/kyc-documents/:documentId/download", requireAnyPermission([PROC_PERMS.vendorsView]), VendorController.downloadVendorKyc);
 
 /**
  * @swagger
@@ -93,7 +94,7 @@ router.get("/kyc-documents/:documentId/download", VendorController.downloadVendo
  *       200:
  *         description: OK
  */
-router.put("/:id/approve-registration", VendorController.approveVendorRegistration);
+router.put("/:id/approve-registration", requireAnyPermission([PROC_PERMS.vendorsApprove]), VendorController.approveVendorRegistration);
 
 /**
  * @swagger
@@ -123,7 +124,7 @@ router.put("/:id/approve-registration", VendorController.approveVendorRegistrati
  *       200:
  *         description: OK
  */
-router.post("/:id/blacklist", VendorController.blacklistVendor);
+router.post("/:id/blacklist", requireAnyPermission([PROC_PERMS.vendorsApprove]), VendorController.blacklistVendor);
 
 /**
  * @swagger
@@ -143,7 +144,7 @@ router.post("/:id/blacklist", VendorController.blacklistVendor);
  *       200:
  *         description: OK
  */
-router.post("/:id/unblacklist", VendorController.unblacklistVendor);
+router.post("/:id/unblacklist", requireAnyPermission([PROC_PERMS.vendorsApprove]), VendorController.unblacklistVendor);
 
 /**
  * @swagger
@@ -183,8 +184,8 @@ router.post("/:id/unblacklist", VendorController.unblacklistVendor);
  *       200:
  *         description: OK
  */
-router.post("/:id/banks", VendorController.createVendorBank);
-router.get("/:id/banks", VendorController.listVendorBanks);
+router.post("/:id/banks", requireAnyPermission([PROC_PERMS.vendorBanksManage]), VendorController.createVendorBank);
+router.get("/:id/banks", requireAnyPermission([PROC_PERMS.vendorBanksView]), VendorController.listVendorBanks);
 
 /**
  * @swagger
@@ -215,7 +216,7 @@ router.get("/:id/banks", VendorController.listVendorBanks);
  *       200:
  *         description: OK
  */
-router.put("/:id/banks/:bankId", VendorController.updateVendorBank);
+router.put("/:id/banks/:bankId", requireAnyPermission([PROC_PERMS.vendorBanksManage]), VendorController.updateVendorBank);
 
 /**
  * @swagger
@@ -272,8 +273,8 @@ router.put("/:id/banks/:bankId", VendorController.updateVendorBank);
  *       200:
  *         description: OK
  */
-router.post("/:id/kyc-documents", uploadKyc.single("file"), VendorController.uploadVendorKyc);
-router.get("/:id/kyc-documents", VendorController.listVendorKyc);
+router.post("/:id/kyc-documents", requireAnyPermission([PROC_PERMS.vendorsManage]), uploadKyc.single("file"), VendorController.uploadVendorKyc);
+router.get("/:id/kyc-documents", requireAnyPermission([PROC_PERMS.vendorsView]), VendorController.listVendorKyc);
 
 /**
  * @swagger

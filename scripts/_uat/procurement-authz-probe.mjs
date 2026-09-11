@@ -1,22 +1,27 @@
 /**
- * Who can do what on the procurement API — measured, not read from the code.
+ * Who can do what on the procurement API — measured against the intended policy.
  *
- * Every procurement router is mounted with `authenticate` only; any role logic lives inside
- * controller methods. So this calls each endpoint as each persona and records the status.
+ * Every endpoint is called as every persona. Writes carry an empty body and :id routes an
+ * id that does not exist, so nothing should be created; the status shows how far the
+ * request got:
  *
- * Writes are sent with an empty body, and :id routes with an id that does not exist, so
- * nothing valid should be created. The status says how far a request got:
+ *   401   no token accepted
+ *   403   refused on role or portal       <- the only answer that proves a gate
+ *   other reached the handler (200, or its own 400/404/410)
  *
- *   401            no token accepted
- *   403            refused on role or portal       <- the only answer that proves a gate
- *   400/404/409/422  reached the handler's own validation or lookup, i.e. NOT gated first
- *   2xx            allowed
+ * Each row names the personas the policy ALLOWS (src/config/procurementPermissions.ts and
+ * the controller's own rules). A cell passes when an allowed persona gets past the gate
+ * and a disallowed one gets 403. The external LP account must get 403 and no token 401
+ * everywhere. Rows marked `null` are recorded but not asserted.
  *
- * Anything a write creates regardless is deleted at the end.
+ * A second section proves the gate with a VALID body: a purchase order raised by a role
+ * that may not (expect 403) and by one that may (expect 201, then deleted).
  *
- * Personas: seeded by scripts/seed-procurement-test-users.ts and the performance/payroll seeds.
+ * Personas: scripts/seed-procurement-test-users.ts plus the performance/payroll seeds, and
+ * the procurement grants from `npm run db:migrate:procurement-permissions`.
  *
  * Run:  node scripts/_uat/procurement-authz-probe.mjs [--json=<file>]
+ * Exit: 0 = every asserted cell matched the policy, 1 = at least one did not
  */
 import fs from "node:fs"
 import { PrismaClient } from "@prisma/client"
@@ -39,37 +44,72 @@ const PERSONAS = [
   ["lp-extern", "lp.test@arcus.co.zw", "lp"],
   ["no-token", null, null],
 ]
+const STAFF = PERSONAS.filter(([, e, p]) => p === "staff").map(([k]) => k)
 
-// [label, method, path, body]  — body undefined for GET
+// Allowed personas per grant, from the default grants.
+const G = {
+  dashboardView: ["sysadmin", "proc-mgr", "proc-off", "buyer", "ap", "fin-mgr", "auditor"],
+  reqViewAll: ["sysadmin", "proc-mgr", "proc-off", "buyer", "fin-mgr", "auditor"],
+  rfqView: ["sysadmin", "proc-mgr", "proc-off", "buyer", "fin-mgr", "auditor"],
+  rfqManage: ["sysadmin", "proc-mgr", "proc-off", "buyer"],
+  rfqAward: ["sysadmin", "proc-mgr"],
+  quotationsView: ["sysadmin", "proc-mgr", "proc-off", "buyer", "fin-mgr", "auditor"],
+  quotationsManage: ["sysadmin", "proc-mgr", "proc-off", "buyer"],
+  ordersView: ["sysadmin", "proc-mgr", "proc-off", "buyer", "ap", "fin-mgr", "auditor"],
+  ordersManage: ["sysadmin", "proc-mgr", "proc-off"],
+  ordersSend: ["sysadmin", "proc-mgr", "proc-off"],
+  receivingView: ["sysadmin", "proc-mgr", "proc-off", "buyer", "ap", "fin-mgr", "auditor"],
+  receivingManage: ["sysadmin", "proc-mgr", "proc-off", "buyer"],
+  receivingApprove: ["sysadmin", "proc-mgr"],
+  invoicesView: ["sysadmin", "proc-mgr", "proc-off", "buyer", "ap", "fin-mgr", "auditor"],
+  invoicesApprove: ["sysadmin", "fin-mgr"],
+  invoicesPay: ["sysadmin", "ap"],
+  vendorsView: ["sysadmin", "proc-mgr", "proc-off", "buyer", "ap", "fin-mgr", "auditor"],
+  vendorsManage: ["sysadmin", "proc-mgr", "proc-off"],
+  vendorsApprove: ["sysadmin", "proc-mgr", "fin-mgr"],
+  vendorBanksView: ["sysadmin", "proc-mgr", "ap", "fin-mgr", "auditor"],
+  vendorBanksManage: ["sysadmin", "fin-mgr"],
+  intakeView: ["sysadmin", "proc-mgr", "proc-off", "ap", "fin-mgr", "auditor"],
+  intakeManage: ["sysadmin", "ap"],
+}
+const any = (...lists) => [...new Set(lists.flat())]
+
+// [label, method, path, body, allowed]   allowed: persona keys | "staff" | null (not asserted)
 const ENDPOINTS = [
-  ["list requisitions", "GET", "/procurement/requisitions"],
-  ["my requisitions", "GET", "/procurement/requisitions/my"],
-  ["dept approval queue", "GET", "/procurement/requisitions/pending-approval"],
-  ["list POs", "GET", "/procurement/purchase-orders"],
-  ["list RFQs", "GET", "/procurement/rfq"],
-  ["list GRNs", "GET", "/procurement/goods-received-notes"],
-  ["list proc invoices", "GET", "/procurement/invoices"],
-  ["list payments", "GET", "/procurement/payments"],
-  ["dashboard", "GET", "/procurement/dashboard"],
-  ["list vendors", "GET", "/accounting/vendors"],
-  ["list quotations", "GET", "/vendor-quotations"],
-  ["approval configs", "GET", "/procurement-approval-configs"],
-  ["suite06 intakes", "GET", "/procurement/suite06/intakes"],
-  ["suite06 CFO dashboard", "GET", "/procurement/suite06/cfo-dashboard"],
-  ["create requisition", "POST", "/procurement/requisitions", {}],
-  ["approve requisition", "PUT", `/procurement/requisitions/${FAKE}/approve`, {}],
-  ["reject requisition", "PUT", `/procurement/requisitions/${FAKE}/reject`, {}],
-  ["create RFQ", "POST", "/procurement/rfq", {}],
-  ["award RFQ", "POST", `/procurement/rfqs/${FAKE}/award`, {}],
-  ["create PO", "POST", "/procurement/purchase-orders", {}],
-  ["send PO", "POST", `/procurement/purchase-orders/${FAKE}/send`, {}],
-  ["PO to bill", "POST", `/procurement/purchase-orders/${FAKE}/convert-to-bill`, {}],
-  ["create GRN", "POST", "/procurement/goods-received-notes", {}],
-  ["approve GRN", "PUT", `/procurement/goods-received-notes/${FAKE}/approve`, {}],
-  ["approve proc invoice", "PUT", `/procurement/invoices/${FAKE}/approve`, {}],
-  ["pay proc invoice", "POST", `/procurement/invoices/${FAKE}/payment`, {}],
-  ["create vendor", "POST", "/accounting/vendors", {}],
-  ["create approval config", "POST", "/procurement-approval-configs", {}],
+  ["list requisitions", "GET", "/procurement/requisitions", undefined, any(G.reqViewAll, ["dept-head"])],
+  ["my requisitions", "GET", "/procurement/requisitions/my", undefined, "staff"],
+  ["dept approval queue", "GET", "/procurement/requisitions/pending-approval", undefined, null],
+  ["list POs", "GET", "/procurement/purchase-orders", undefined, G.ordersView],
+  ["list RFQs", "GET", "/procurement/rfq", undefined, G.rfqView],
+  ["list GRNs", "GET", "/procurement/goods-received-notes", undefined, G.receivingView],
+  ["list proc invoices", "GET", "/procurement/invoices", undefined, G.invoicesView],
+  ["list payments", "GET", "/procurement/payments", undefined, G.invoicesView],
+  ["dashboard", "GET", "/procurement/dashboard", undefined, G.dashboardView],
+  ["list vendors", "GET", "/accounting/vendors", undefined, "staff"],
+  ["vendor banks", "GET", `/accounting/vendors/${FAKE}/banks`, undefined, G.vendorBanksView],
+  ["vendor KYC docs", "GET", `/accounting/vendors/${FAKE}/kyc-documents`, undefined, G.vendorsView],
+  ["list quotations", "GET", "/vendor-quotations", undefined, G.quotationsView],
+  ["approval configs", "GET", "/procurement-approval-configs", undefined, "staff"],
+  ["suite06 intakes", "GET", "/procurement/suite06/intakes", undefined, G.intakeView],
+  ["suite06 CFO dashboard", "GET", "/procurement/suite06/cfo-dashboard", undefined, any(G.intakeView, G.invoicesApprove)],
+  ["create requisition", "POST", "/procurement/requisitions", {}, "staff"],
+  ["approve requisition", "PUT", `/procurement/requisitions/${FAKE}/approve`, {}, "staff"],
+  ["reject requisition", "PUT", `/procurement/requisitions/${FAKE}/reject`, {}, "staff"],
+  ["create RFQ", "POST", "/procurement/rfq", {}, G.rfqManage],
+  ["award RFQ (retired)", "POST", `/procurement/rfqs/${FAKE}/award`, {}, "staff"],
+  ["accept quotation", "POST", `/vendor-quotations/${FAKE}/accept`, {}, G.rfqAward],
+  ["reject quotation", "POST", `/vendor-quotations/${FAKE}/reject`, {}, G.quotationsManage],
+  ["create PO", "POST", "/procurement/purchase-orders", {}, G.ordersManage],
+  ["send PO", "POST", `/procurement/purchase-orders/${FAKE}/send`, {}, G.ordersSend],
+  ["PO to bill", "POST", `/procurement/purchase-orders/${FAKE}/convert-to-bill`, {}, any(G.ordersManage, G.invoicesPay)],
+  ["create GRN", "POST", "/procurement/goods-received-notes", {}, G.receivingManage],
+  ["approve GRN", "PUT", `/procurement/goods-received-notes/${FAKE}/approve`, {}, G.receivingApprove],
+  ["approve proc invoice", "PUT", `/procurement/invoices/${FAKE}/approve`, {}, G.invoicesApprove],
+  ["pay proc invoice", "POST", `/procurement/invoices/${FAKE}/payment`, {}, G.invoicesPay],
+  ["create vendor", "POST", "/accounting/vendors", {}, "staff"],
+  ["blacklist vendor", "POST", `/accounting/vendors/${FAKE}/blacklist`, {}, G.vendorsApprove],
+  ["add vendor bank", "POST", `/accounting/vendors/${FAKE}/banks`, {}, G.vendorBanksManage],
+  ["create approval config", "POST", "/procurement-approval-configs", {}, ["sysadmin"]],
 ]
 
 async function login(email, portal) {
@@ -85,13 +125,22 @@ async function login(email, portal) {
 const tokens = {}
 for (const [key, email, portal] of PERSONAS) {
   tokens[key] = email ? await login(email, portal) : null
-  if (email && !tokens[key]) console.log(`  (login failed for ${key} ${email} — column will read 401)`)
+  if (email && !tokens[key]) console.log(`  (login failed for ${key} ${email} — its column will read 401)`)
 }
 
-const created = [] // [path, id]
+const expected = (allowed, key, status) => {
+  if (key === "lp-extern") return status === 403
+  if (key === "no-token") return status === 401
+  if (allowed === null) return true
+  const ok = allowed === "staff" ? STAFF.includes(key) : allowed.includes(key)
+  return ok ? status !== 401 && status !== 403 && status > 0 : status === 403
+}
+
+const created = []
 const matrix = []
-for (const [label, method, path, body] of ENDPOINTS) {
-  const row = { label, method, path, cells: {} }
+const failures = []
+for (const [label, method, path, body, allowed] of ENDPOINTS) {
+  const row = { label, method, path, allowed, cells: {} }
   for (const [key] of PERSONAS) {
     const headers = { "Content-Type": "application/json" }
     if (tokens[key]) headers.Authorization = `Bearer ${tokens[key]}`
@@ -107,49 +156,65 @@ for (const [label, method, path, body] of ENDPOINTS) {
     } catch {
       status = -1
     }
-    row.cells[key] = status
+    const pass = expected(allowed, key, status)
+    row.cells[key] = { status, pass }
+    if (!pass) failures.push(`${label.padEnd(24)} ${key.padEnd(10)} got ${status}`)
   }
   matrix.push(row)
 }
 
 const keys = PERSONAS.map(([k]) => k)
 const pad = (s, n) => String(s).padEnd(n)
-console.log(`\n${pad("endpoint", 26)}${keys.map((k) => pad(k, 10)).join("")}`)
-for (const r of matrix) console.log(`${pad(r.label, 26)}${keys.map((k) => pad(r.cells[k], 10)).join("")}`)
-
-// What a gate should have refused, and did not.
-const notDenied = (code) => code !== 401 && code !== 403 && code !== -1
-const extern = matrix.filter((r) => notDenied(r.cells["lp-extern"]))
-const auditorWrites = matrix.filter((r) => r.method !== "GET" && notDenied(r.cells.auditor))
-const requesterWrites = matrix.filter((r) => r.method !== "GET" && !/create requisition/.test(r.label) && notDenied(r.cells.requester))
-console.log(`\nexternal LP account not refused: ${extern.length}/${matrix.length}`)
-for (const r of extern) console.log(`  ${r.cells["lp-extern"]}  ${r.method} ${r.path}`)
-console.log(`internal auditor write not refused: ${auditorWrites.length}`)
-for (const r of auditorWrites) console.log(`  ${r.cells.auditor}  ${r.method} ${r.path}`)
-console.log(`requester (Operations member) non-PR write not refused: ${requesterWrites.length}`)
-for (const r of requesterWrites) console.log(`  ${r.cells.requester}  ${r.method} ${r.path}`)
-
-if (created.length) {
-  const prisma = new PrismaClient()
-  const model = (p) =>
-    p.startsWith("/procurement/requisitions") ? prisma.purchaseRequisition
-    : p.startsWith("/procurement/rfq") ? prisma.procurementRfq
-    : p.startsWith("/procurement/purchase-orders") ? prisma.purchaseOrder
-    : p.startsWith("/procurement/goods-received-notes") ? prisma.goodsReceivedNote
-    : p.startsWith("/accounting/vendors") ? prisma.vendor
-    : p.startsWith("/procurement-approval-configs") ? prisma.procurementApprovalConfig
-    : null
-  for (const [p, id] of created) {
-    try {
-      await model(p)?.delete({ where: { id } })
-      console.log(`cleanup: deleted ${id} created by ${p}`)
-    } catch (e) {
-      console.log(`cleanup: FAILED to delete ${id} from ${p} — ${e.message.split("\n")[0]}`)
-    }
-  }
-  await prisma.$disconnect()
-} else {
-  console.log("cleanup: nothing was created")
+console.log(`\n${pad("endpoint", 24)}${keys.map((k) => pad(k, 10)).join("")}`)
+for (const r of matrix) {
+  console.log(`${pad(r.label, 24)}${keys.map((k) => pad(r.cells[k].status + (r.cells[k].pass ? "" : "!"), 10)).join("")}`)
 }
 
-if (jsonArg) fs.writeFileSync(jsonArg, JSON.stringify({ at: new Date().toISOString(), personas: PERSONAS.map(([k, e]) => [k, e]), matrix }, null, 2))
+// Valid-body proof: a real PO, by a role the policy refuses and by one it allows.
+const prisma = new PrismaClient()
+const vendor = await prisma.vendor.findFirst({ where: { isBlacklisted: false }, select: { id: true } })
+if (!vendor) console.log("  (no usable vendor in this database — the allowed persona will read 400, not 201)")
+const validPo = { vendorId: vendor?.id, items: [{ itemName: "UAT SYNTHETIC authz probe line", quantity: 1, unitPrice: 1 }] }
+console.log("\nvalid-body purchase order:")
+for (const [key, want] of [["requester", 403], ["ap", 403], ["proc-off", 201]]) {
+  const res = await fetch(`${API}/procurement/purchase-orders`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${tokens[key]}` },
+    body: JSON.stringify(validPo),
+  })
+  const j = await res.json().catch(() => ({}))
+  if (j?.data?.id) created.push(["/procurement/purchase-orders", j.data.id])
+  const pass = res.status === want
+  if (!pass) failures.push(`valid PO create         ${key.padEnd(10)} got ${res.status}, wanted ${want}`)
+  console.log(`  ${pass ? "PASS" : "FAIL"}  ${key.padEnd(10)} -> ${res.status} (wanted ${want}) ${j?.data?.poNumber ?? j?.message ?? ""}`)
+}
+
+for (const [p, id] of created) {
+  try {
+    if (p.startsWith("/procurement/purchase-orders")) {
+      await prisma.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: id } })
+      await prisma.purchaseOrder.delete({ where: { id } })
+    } else if (p.startsWith("/procurement/requisitions")) {
+      await prisma.purchaseRequisitionItem.deleteMany({ where: { requisitionId: id } })
+      await prisma.purchaseRequisition.delete({ where: { id } })
+    } else if (p.startsWith("/procurement/rfq")) {
+      await prisma.procurementRfq.delete({ where: { id } })
+    } else if (p.startsWith("/procurement/goods-received-notes")) {
+      await prisma.goodsReceivedNote.delete({ where: { id } })
+    } else if (p.startsWith("/accounting/vendors")) {
+      await prisma.vendor.delete({ where: { id } })
+    } else if (p.startsWith("/procurement-approval-configs")) {
+      await prisma.procurementApprovalConfig.delete({ where: { id } })
+    }
+    console.log(`cleanup: deleted ${id} (${p})`)
+  } catch (e) {
+    console.log(`cleanup: FAILED ${id} (${p}) — ${String(e.message).split("\n")[0]}`)
+  }
+}
+await prisma.$disconnect()
+
+console.log(`\n${failures.length === 0 ? "=== RESULT === every asserted cell matched the policy" : `=== RESULT === ${failures.length} cell(s) did not match the policy`}`)
+for (const f of failures) console.log(`  FAIL  ${f}`)
+
+if (jsonArg) fs.writeFileSync(jsonArg, JSON.stringify({ at: new Date().toISOString(), matrix, failures }, null, 2))
+process.exit(failures.length ? 1 : 0)

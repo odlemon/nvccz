@@ -8,7 +8,8 @@ import {
 import { prisma } from "../utils/database";
 import { parseDate } from "../utils/dateHelper";
 import { hasUsableRfqItemLines } from "../utils/rfqItemInput";
-import { isModulePrivilegedUser } from "../config/cfoModulePermissions";
+import { isModulePrivilegedUser, userHasEffectivePermission } from "../config/cfoModulePermissions";
+import { PROCUREMENT_PERMISSIONS } from "../config/procurementPermissions";
 
 export class ProcurementController {
   /**
@@ -210,8 +211,13 @@ export class ProcurementController {
       });
 
       const isAdmin = user ? isModulePrivilegedUser(user) : false;
+      // The procurement desk works from every department's requisitions, not only its own.
+      const canViewAll = userHasEffectivePermission(
+        (req as any).user,
+        PROCUREMENT_PERMISSIONS.requisitionsViewAll,
+      );
 
-      if (!user || (!isAdmin && !user.userDepartment)) {
+      if (!user || (!isAdmin && !canViewAll && !user.userDepartment)) {
         return res.status(403).json({
           success: false,
           message: "User is not assigned to any department"
@@ -219,8 +225,9 @@ export class ProcurementController {
       }
 
       // Check if user can view requisitions (HEAD, DEPUTY, or PROC_MGR)
-      const canView = 
+      const canView =
         isAdmin ||
+        canViewAll ||
         user.departmentRole === 'HEAD' || 
         user.departmentRole === 'DEPUTY' || 
         user.roleCode === 'PROC_MGR';
@@ -241,7 +248,7 @@ export class ProcurementController {
       } = req.query;
 
       // Filter by user's department - requisitions target the department
-      const where: any = isAdmin
+      const where: any = isAdmin || canViewAll
         ? {}
         : { department: user.userDepartment }; // Non-admins are filtered by department name
 
