@@ -5,6 +5,8 @@ import { PayrollController } from '../controllers/PayrollController';
 import { PayrollExtendedController } from '../controllers/PayrollExtendedController';
 import { PayrollAccessController } from '../controllers/PayrollAccessController';
 import { PayrollEmployeeProvisionController } from '../controllers/PayrollEmployeeProvisionController';
+import { PayrollDocumentController } from '../controllers/PayrollDocumentController';
+import { PayrollAccessRosterService } from '../services/payroll/PayrollAccessRosterService';
 import { authenticate } from '../middleware/authenticate';
 import { requireAnyPermission } from '../middleware/permissionAuth';
 import { PAYROLL_PERMISSIONS as P } from '../config/payrollPermissions';
@@ -248,5 +250,35 @@ router.post('/rfqs/:id/award/:bidId', authenticate, canManageVendors, handle((re
 router.get('/bank-templates', authenticate, canViewSettings, PayrollController.getBankFileTemplates);
 router.put('/bank-templates/:id', authenticate, canManageSettings, PayrollController.updateBankFileTemplate);
 router.delete('/bank-templates/:id', authenticate, canManageSettings, PayrollController.deleteBankFileTemplate);
+
+// ===== ACCESS REGISTER & DOCUMENT VAULT =====
+// FINDING-017: both screens rendered the vendored runtime's demo roster and document
+// register, because nothing existed behind them to read. authenticate and the grant run
+// before multer, so an unauthorised upload is refused without its body being parsed.
+const canViewAccess = requireAnyPermission([P.accessView, P.accessManage]);
+const canViewVault = requireAnyPermission([P.vaultView, P.vaultManage]);
+const canManageVault = requireAnyPermission([P.vaultManage]);
+
+const payrollDocumentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }
+});
+
+function payrollDocumentMultipart(req: any, res: any, next: any) {
+  return payrollDocumentUpload.single('file')(req, res, (err: any) => {
+    if (err) {
+      return res.status(400).json({
+        success: false,
+        message: err.code === 'LIMIT_FILE_SIZE' ? 'Documents must be 20MB or less' : err.message
+      });
+    }
+    next();
+  });
+}
+
+router.get('/access/roster', authenticate, canViewAccess, handle(() => PayrollAccessRosterService.roster()));
+router.get('/documents', authenticate, canViewVault, PayrollDocumentController.list);
+router.post('/documents', authenticate, canManageVault, payrollDocumentMultipart, PayrollDocumentController.upload);
+router.get('/documents/:id/download', authenticate, canViewVault, PayrollDocumentController.download);
 
 export default router;

@@ -95,6 +95,7 @@ model User {
   lpPortalDocumentsPublished            LpPortalDocument[]              @relation("LpPortalDocumentPublisher")
   fundDocuments                         FundDocument[]
   accountingDocuments                   AccountingDocument[]
+  payrollDocuments                      PayrollDocument[]
   correctiveActionsOwned                PerformanceCorrectiveAction[]   @relation("PerformanceCorrectiveActionOwner")
   correctiveActionsCreated              PerformanceCorrectiveAction[]   @relation("PerformanceCorrectiveActionCreatedBy")
   performanceAlertsOwned                PerformanceAlert[]              @relation("PerformanceAlertOwner")
@@ -5242,6 +5243,7 @@ model PayrollRun {
   journalEntry           JournalEntry?     @relation(fields: [journalEntryId], references: [id])
   employeePayrolls       EmployeePayroll[]
   payslips               Payslip[]
+  documents              PayrollDocument[]
 
   @@map("payroll_runs")
 }
@@ -5575,6 +5577,38 @@ model BankFileTemplate {
   createdBy   User     @relation(fields: [createdById], references: [id])
 
   @@map("bank_file_templates")
+}
+
+/// Payroll Document Vault. The Vault screen rendered a hardcoded register of control
+/// packs from the vendored runtime because there was no store behind it; this is that
+/// store. Company-wide rather than run-scoped, with an optional link to the run or
+/// period a document belongs to so a control pack can be traced to what it evidences.
+model PayrollDocument {
+  id             String    @id @default(cuid())
+  name           String    @db.VarChar(255)
+  /// Free string, matching the accounting vault's approach: "Payroll control packs",
+  /// "Statutory returns", "Bank files", "Payslip archives", ...
+  category       String    @default("General") @db.VarChar(64)
+  /// INTERNAL | CONFIDENTIAL | RESTRICTED | HIGHLY_RESTRICTED. A label only: access to every
+  /// document is governed by payroll.vault.view / payroll.vault.manage, not by this field.
+  classification String    @default("INTERNAL") @db.VarChar(24)
+  reference      String?   @db.VarChar(64)
+  periodLabel    String?   @map("period_label") @db.VarChar(64)
+  payrollRunId   String?   @map("payroll_run_id")
+  fileUrl        String    @map("file_url") @db.Text
+  storagePath    String?   @map("storage_path") @db.VarChar(512)
+  mimeType       String?   @map("mime_type") @db.VarChar(128)
+  fileSizeBytes  Int?      @map("file_size_bytes")
+  uploadedById   String?   @map("uploaded_by_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  uploadedBy User?       @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  payrollRun PayrollRun? @relation(fields: [payrollRunId], references: [id], onDelete: SetNull)
+
+  @@index([category], map: "payroll_documents_category_idx")
+  @@index([payrollRunId], map: "payroll_documents_payroll_run_id_idx")
+  @@map("payroll_documents")
 }
 
 model ProcurementApprovalConfig {
