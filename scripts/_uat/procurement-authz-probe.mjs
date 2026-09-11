@@ -71,6 +71,7 @@ const G = {
   vendorBanksManage: ["sysadmin", "fin-mgr"],
   intakeView: ["sysadmin", "proc-mgr", "proc-off", "ap", "fin-mgr", "auditor"],
   intakeManage: ["sysadmin", "ap"],
+  auditView: ["sysadmin", "proc-mgr", "fin-mgr", "auditor"],
 }
 const any = (...lists) => [...new Set(lists.flat())]
 
@@ -93,6 +94,7 @@ const ENDPOINTS = [
   ["suite06 intakes", "GET", "/procurement/suite06/intakes", undefined, G.intakeView],
   ["suite06 CFO dashboard", "GET", "/procurement/suite06/cfo-dashboard", undefined, any(G.intakeView, G.invoicesApprove)],
   ["my procurement access", "GET", "/procurement/me/access", undefined, "staff"],
+  ["procurement audit events", "GET", "/procurement/audit-events", undefined, G.auditView],
   ["create requisition", "POST", "/procurement/requisitions", {}, "staff"],
   ["approve requisition", "PUT", `/procurement/requisitions/${FAKE}/approve`, {}, "staff"],
   ["reject requisition", "PUT", `/procurement/requisitions/${FAKE}/reject`, {}, "staff"],

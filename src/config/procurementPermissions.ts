@@ -62,6 +62,9 @@ export const PROCUREMENT_PERMISSIONS = {
 
   intakeView: "procurement.intake.view",
   intakeManage: "procurement.intake.manage",
+
+  /** The procurement audit trail: who did what to which requisition, RFQ, order, receipt or invoice. */
+  auditView: "procurement.audit.view",
 } as const
 
 export type ProcurementPermission =
@@ -96,6 +99,7 @@ export const PROCUREMENT_ROLE_GRANTS: Record<string, string[]> = {
     P.invoicesView,
     P.vendorsView, P.vendorsManage, P.vendorsApprove, P.vendorBanksView,
     P.intakeView,
+    P.auditView,
   ],
 
   // Runs RFQs and raises and sends POs; cannot award or approve receipts.

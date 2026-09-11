@@ -2,6 +2,7 @@
 import express from "express";
 import { ProcurementController } from "../controllers/ProcurementController";
 import { ProcurementAccessController } from "../controllers/ProcurementAccessController";
+import { ProcurementAuditController } from "../controllers/ProcurementAuditController";
 import { authenticate } from "../middleware/authenticate";
 import { requireAnyPermission, requireInternalStaffUser } from "../middleware/permissionAuth";
 import { PROCUREMENT_PERMISSIONS as PROC_PERMS } from "../config/procurementPermissions";
@@ -178,6 +179,9 @@ router.use(requireInternalStaffUser());
 
 // The caller's effective procurement grants, which the V23 workspace gates its controls on.
 router.get("/me/access", ProcurementAccessController.getMyAccess);
+
+// The procurement audit trail, newest first, from the audit_logs rows the services write.
+router.get("/audit-events", requireAnyPermission([PROC_PERMS.auditView]), ProcurementAuditController.listEvents);
 
 /**
  * @swagger
