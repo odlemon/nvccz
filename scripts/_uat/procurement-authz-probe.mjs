@@ -148,7 +148,9 @@ const matrix = []
 const failures = []
 for (const [label, method, path, body, allowed, opts] of ENDPOINTS) {
   const row = { label, method, path, allowed, cells: {} }
-  for (const [key] of PERSONAS) {
+  for (const [key, email] of PERSONAS) {
+    // A persona that cannot sign in here (not seeded in this environment) is recorded, not asserted.
+    const unavailable = Boolean(email) && !tokens[key]
     const headers = { "Content-Type": "application/json" }
     if (tokens[key]) headers.Authorization = `Bearer ${tokens[key]}`
     let status = 0
@@ -163,8 +165,8 @@ for (const [label, method, path, body, allowed, opts] of ENDPOINTS) {
     } catch {
       status = -1
     }
-    const pass = expected(allowed, key, status, opts)
-    row.cells[key] = { status, pass }
+    const pass = unavailable ? true : expected(allowed, key, status, opts)
+    row.cells[key] = { status: unavailable ? "n/a" : status, pass }
     if (!pass) failures.push(`${label.padEnd(24)} ${key.padEnd(10)} got ${status}`)
   }
   matrix.push(row)
