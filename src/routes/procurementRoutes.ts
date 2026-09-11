@@ -1,6 +1,7 @@
 // @ts-nocheck
 import express from "express";
 import { ProcurementController } from "../controllers/ProcurementController";
+import { ProcurementAccessController } from "../controllers/ProcurementAccessController";
 import { authenticate } from "../middleware/authenticate";
 import { requireAnyPermission, requireInternalStaffUser } from "../middleware/permissionAuth";
 import { PROCUREMENT_PERMISSIONS as PROC_PERMS } from "../config/procurementPermissions";
@@ -151,8 +152,21 @@ router.post(
  *       400:
  *         description: Bad request
  */
-// PUBLIC: Vendors submit invoices without authentication
-router.post("/invoices", ProcurementController.createProcurementInvoice);
+// PUBLIC for vendors, and the capture path for accounts payable. With no Authorization header
+// this is a vendor's submission and the controller requires its signed vendorPortalToken. With
+// one, it is staff capturing a supplier invoice: authenticate the token and hold it to internal
+// staff with the capture grant, and the controller's staff branch applies. Before this,
+// `authenticate` never ran here, req.user was never set, and every staff capture was refused
+// for want of a vendor token (PROC-FINDING-004).
+const staffCaptureWhenAuthenticated = (req, res, next) => {
+  if (!req.headers.authorization) return next();
+  return authenticate(req, res, () =>
+    requireInternalStaffUser()(req, res, () =>
+      requireAnyPermission([PROC_PERMS.intakeManage])(req, res, next),
+    ),
+  );
+};
+router.post("/invoices", staffCaptureWhenAuthenticated, ProcurementController.createProcurementInvoice);
 
 // All routes below require authentication
 router.use(authenticate);
@@ -161,6 +175,9 @@ router.use(authenticate);
 // create internal requisitions. Vendors never reach these: their flows use signed
 // vendorPortalToken links on the public routes declared above this line.
 router.use(requireInternalStaffUser());
+
+// The caller's effective procurement grants, which the V23 workspace gates its controls on.
+router.get("/me/access", ProcurementAccessController.getMyAccess);
 
 /**
  * @swagger

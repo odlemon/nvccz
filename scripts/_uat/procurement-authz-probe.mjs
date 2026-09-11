@@ -92,6 +92,7 @@ const ENDPOINTS = [
   ["approval configs", "GET", "/procurement-approval-configs", undefined, "staff"],
   ["suite06 intakes", "GET", "/procurement/suite06/intakes", undefined, G.intakeView],
   ["suite06 CFO dashboard", "GET", "/procurement/suite06/cfo-dashboard", undefined, any(G.intakeView, G.invoicesApprove)],
+  ["my procurement access", "GET", "/procurement/me/access", undefined, "staff"],
   ["create requisition", "POST", "/procurement/requisitions", {}, "staff"],
   ["approve requisition", "PUT", `/procurement/requisitions/${FAKE}/approve`, {}, "staff"],
   ["reject requisition", "PUT", `/procurement/requisitions/${FAKE}/reject`, {}, "staff"],
@@ -106,6 +107,9 @@ const ENDPOINTS = [
   ["approve GRN", "PUT", `/procurement/goods-received-notes/${FAKE}/approve`, {}, G.receivingApprove],
   ["approve proc invoice", "PUT", `/procurement/invoices/${FAKE}/approve`, {}, G.invoicesApprove],
   ["pay proc invoice", "POST", `/procurement/invoices/${FAKE}/payment`, {}, G.invoicesPay],
+  // Shared with the vendor portal: no token is a vendor submission, which needs its signed
+  // vendorPortalToken (400), not a login (401).
+  ["capture invoice (staff)", "POST", "/procurement/invoices", {}, G.intakeManage, { noToken: 400 }],
   ["create vendor", "POST", "/accounting/vendors", {}, "staff"],
   ["blacklist vendor", "POST", `/accounting/vendors/${FAKE}/blacklist`, {}, G.vendorsApprove],
   ["add vendor bank", "POST", `/accounting/vendors/${FAKE}/banks`, {}, G.vendorBanksManage],
@@ -128,9 +132,9 @@ for (const [key, email, portal] of PERSONAS) {
   if (email && !tokens[key]) console.log(`  (login failed for ${key} ${email} — its column will read 401)`)
 }
 
-const expected = (allowed, key, status) => {
+const expected = (allowed, key, status, opts = {}) => {
   if (key === "lp-extern") return status === 403
-  if (key === "no-token") return status === 401
+  if (key === "no-token") return status === (opts.noToken ?? 401)
   if (allowed === null) return true
   const ok = allowed === "staff" ? STAFF.includes(key) : allowed.includes(key)
   return ok ? status !== 401 && status !== 403 && status > 0 : status === 403
@@ -139,7 +143,7 @@ const expected = (allowed, key, status) => {
 const created = []
 const matrix = []
 const failures = []
-for (const [label, method, path, body, allowed] of ENDPOINTS) {
+for (const [label, method, path, body, allowed, opts] of ENDPOINTS) {
   const row = { label, method, path, allowed, cells: {} }
   for (const [key] of PERSONAS) {
     const headers = { "Content-Type": "application/json" }
@@ -156,7 +160,7 @@ for (const [label, method, path, body, allowed] of ENDPOINTS) {
     } catch {
       status = -1
     }
-    const pass = expected(allowed, key, status)
+    const pass = expected(allowed, key, status, opts)
     row.cells[key] = { status, pass }
     if (!pass) failures.push(`${label.padEnd(24)} ${key.padEnd(10)} got ${status}`)
   }
