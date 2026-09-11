@@ -3,6 +3,7 @@ import express from "express";
 import { ProcurementController } from "../controllers/ProcurementController";
 import { ProcurementAccessController } from "../controllers/ProcurementAccessController";
 import { ProcurementAuditController } from "../controllers/ProcurementAuditController";
+import procurementRegistersRoutes from "./procurementRegistersRoutes";
 import { authenticate } from "../middleware/authenticate";
 import { requireAnyPermission, requireInternalStaffUser } from "../middleware/permissionAuth";
 import { PROCUREMENT_PERMISSIONS as PROC_PERMS } from "../config/procurementPermissions";
@@ -186,6 +187,9 @@ router.get("/me/access", ProcurementAccessController.getMyAccess);
 
 // The procurement audit trail, newest first, from the audit_logs rows the services write.
 router.get("/audit-events", requireAnyPermission([PROC_PERMS.auditView]), ProcurementAuditController.listEvents);
+
+// Plans, contracts and the document vault (staff-only by the guards above; each route has its own grant).
+router.use(procurementRegistersRoutes);
 
 /**
  * @swagger

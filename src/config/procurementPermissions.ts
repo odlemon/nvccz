@@ -65,6 +65,19 @@ export const PROCUREMENT_PERMISSIONS = {
 
   /** The procurement audit trail: who did what to which requisition, RFQ, order, receipt or invoice. */
   auditView: "procurement.audit.view",
+
+  /** Annual procurement plans and their lines; approving a plan is separate from drafting one. */
+  plansView: "procurement.plans.view",
+  plansManage: "procurement.plans.manage",
+  plansApprove: "procurement.plans.approve",
+
+  /** Contracts register: agreements that follow an award. */
+  contractsView: "procurement.contracts.view",
+  contractsManage: "procurement.contracts.manage",
+
+  /** Procurement document vault: tender packs, contracts, vendor submissions, evidence. */
+  documentsView: "procurement.documents.view",
+  documentsManage: "procurement.documents.manage",
 } as const
 
 export type ProcurementPermission =
@@ -88,7 +101,7 @@ export const PROCUREMENT_ROLE_GRANTS: Record<string, string[]> = {
   "System Administrator": ALL_PROCUREMENT_PERMISSIONS,
   admin: ALL_PROCUREMENT_PERMISSIONS,
 
-  // Owns sourcing end to end, including award; does not pay invoices.
+  // Owns sourcing end to end, including award; drafts the plan but does not approve it; does not pay invoices.
   "Procurement Manager": [
     P.dashboardView,
     P.requisitionsViewAll,
@@ -100,6 +113,9 @@ export const PROCUREMENT_ROLE_GRANTS: Record<string, string[]> = {
     P.vendorsView, P.vendorsManage, P.vendorsApprove, P.vendorBanksView,
     P.intakeView,
     P.auditView,
+    P.plansView, P.plansManage,
+    P.contractsView, P.contractsManage,
+    P.documentsView, P.documentsManage,
   ],
 
   // Runs RFQs and raises and sends POs; cannot award or approve receipts.
@@ -113,6 +129,9 @@ export const PROCUREMENT_ROLE_GRANTS: Record<string, string[]> = {
     P.invoicesView,
     P.vendorsView, P.vendorsManage,
     P.intakeView,
+    P.plansView, P.plansManage,
+    P.contractsView, P.contractsManage,
+    P.documentsView, P.documentsManage,
   ],
 
   Buyer: [
@@ -124,6 +143,9 @@ export const PROCUREMENT_ROLE_GRANTS: Record<string, string[]> = {
     P.receivingView, P.receivingManage,
     P.invoicesView,
     P.vendorsView,
+    P.plansView,
+    P.contractsView,
+    P.documentsView, P.documentsManage,
   ],
 
   "Procurement Coordinator": [
@@ -135,9 +157,12 @@ export const PROCUREMENT_ROLE_GRANTS: Record<string, string[]> = {
     P.receivingView, P.receivingManage,
     P.invoicesView,
     P.vendorsView,
+    P.plansView,
+    P.contractsView,
+    P.documentsView, P.documentsManage,
   ],
 
-  "Procurement Member": [P.dashboardView, P.rfqView, P.ordersView, P.receivingView, P.vendorsView],
+  "Procurement Member": [P.dashboardView, P.rfqView, P.ordersView, P.receivingView, P.vendorsView, P.plansView, P.documentsView],
 
   // Accounts payable: capture and pay; cannot approve what it pays.
   Accountant: [
@@ -146,6 +171,8 @@ export const PROCUREMENT_ROLE_GRANTS: Record<string, string[]> = {
     P.invoicesView, P.invoicesPay,
     P.vendorsView, P.vendorBanksView,
     P.intakeView, P.intakeManage,
+    P.contractsView,
+    P.documentsView,
   ],
   "Finance Officer": [
     P.dashboardView,
@@ -153,12 +180,14 @@ export const PROCUREMENT_ROLE_GRANTS: Record<string, string[]> = {
     P.invoicesView, P.invoicesPay,
     P.vendorsView, P.vendorBanksView,
     P.intakeView, P.intakeManage,
+    P.contractsView,
+    P.documentsView,
   ],
 
-  // Approves invoices and owns vendor bank details; does not pay.
-  "Finance Manager": [...ALL_VIEW, P.invoicesApprove, P.vendorsApprove, P.vendorBanksView, P.vendorBanksManage],
-  "Chief Financial Officer": [...ALL_VIEW, P.invoicesApprove, P.rfqAward, P.vendorsApprove, P.vendorBanksView],
-  CEO: [...ALL_VIEW, P.rfqAward],
+  // Approves invoices and the procurement plan's budget, and owns vendor bank details; does not pay.
+  "Finance Manager": [...ALL_VIEW, P.invoicesApprove, P.vendorsApprove, P.vendorBanksView, P.vendorBanksManage, P.plansApprove],
+  "Chief Financial Officer": [...ALL_VIEW, P.invoicesApprove, P.rfqAward, P.vendorsApprove, P.vendorBanksView, P.plansApprove],
+  CEO: [...ALL_VIEW, P.rfqAward, P.plansApprove],
 
   "Internal Auditor": [...ALL_VIEW, P.vendorBanksView],
 }

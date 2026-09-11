@@ -3220,6 +3220,109 @@ model ProcurementInvoiceItem {
   @@map("procurement_invoice_items")
 }
 
+/// Procurement V23 document vault. Tables created by scripts/run-procurement-registers-migration.ts.
+/// Record links are plain ids and references (no Prisma relations), so the vault never blocks a
+/// delete elsewhere.
+model ProcurementDocument {
+  id             String   @id @default(cuid())
+  name           String   @db.VarChar(255)
+  folder         String   @default("General") @db.VarChar(64)
+  documentType   String?  @map("document_type") @db.VarChar(64)
+  /// Free reference to the record it belongs to: a PO, RFQ, contract or plan number, or a vendor.
+  relatedRecord  String?  @map("related_record") @db.VarChar(128)
+  classification String   @default("Internal") @db.VarChar(32)
+  source         String   @default("Internal upload") @db.VarChar(32)
+  version        String   @default("v1.0") @db.VarChar(16)
+  /// under_review | approved | archived
+  status         String   @default("under_review") @db.VarChar(24)
+  description    String?  @db.Text
+  fileUrl        String   @map("file_url") @db.Text
+  storagePath    String?  @map("storage_path") @db.VarChar(512)
+  mimeType       String?  @map("mime_type") @db.VarChar(128)
+  fileSizeBytes  Int?     @map("file_size_bytes")
+  uploadedById   String?  @map("uploaded_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([folder], map: "procurement_documents_folder_idx")
+  @@index([status], map: "procurement_documents_status_idx")
+  @@map("procurement_documents")
+}
+
+/// Contracts register: the agreement that follows an award (an accepted quotation) or stands alone.
+model ProcurementContract {
+  id              String    @id @default(cuid())
+  contractNumber  String    @unique @map("contract_number") @db.VarChar(32)
+  title           String    @db.VarChar(255)
+  vendorId        String    @map("vendor_id")
+  quotationId     String?   @map("quotation_id")
+  purchaseOrderId String?   @map("purchase_order_id")
+  rfqNumber       String?   @map("rfq_number") @db.VarChar(64)
+  value           Decimal   @default(0.00) @db.Decimal(15, 2)
+  currencyCode    String?   @map("currency_code") @db.VarChar(8)
+  startDate       DateTime? @map("start_date")
+  endDate         DateTime? @map("end_date")
+  /// DRAFT | ACTIVE | EXPIRED | TERMINATED
+  status          String    @default("DRAFT") @db.VarChar(24)
+  paymentTerms    String?   @map("payment_terms") @db.Text
+  scope           String?   @db.Text
+  createdById     String    @map("created_by_id")
+  activatedAt     DateTime? @map("activated_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([vendorId], map: "procurement_contracts_vendor_idx")
+  @@index([status], map: "procurement_contracts_status_idx")
+  @@index([quotationId], map: "procurement_contracts_quotation_idx")
+  @@map("procurement_contracts")
+}
+
+/// Annual procurement plan: a budgeted list of what a department intends to buy in a fiscal year.
+model ProcurementPlan {
+  id              String                @id @default(cuid())
+  planNumber      String                @unique @map("plan_number") @db.VarChar(32)
+  name            String                @db.VarChar(255)
+  department      String?               @db.VarChar(191)
+  fiscalYear      String                @map("fiscal_year") @db.VarChar(16)
+  version         Int                   @default(1)
+  /// DRAFT | SUBMITTED | APPROVED | REJECTED
+  status          String                @default("DRAFT") @db.VarChar(24)
+  budget          Decimal               @default(0.00) @db.Decimal(15, 2)
+  currencyCode    String?               @map("currency_code") @db.VarChar(8)
+  notes           String?               @db.Text
+  createdById     String                @map("created_by_id")
+  submittedAt     DateTime?             @map("submitted_at")
+  approvedById    String?               @map("approved_by_id")
+  approvedAt      DateTime?             @map("approved_at")
+  rejectionReason String?               @map("rejection_reason") @db.Text
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  items           ProcurementPlanItem[]
+
+  @@index([fiscalYear], map: "procurement_plans_fiscal_year_idx")
+  @@index([status], map: "procurement_plans_status_idx")
+  @@map("procurement_plans")
+}
+
+model ProcurementPlanItem {
+  id             String          @id @default(cuid())
+  planId         String          @map("plan_id")
+  description    String          @db.VarChar(255)
+  category       String?         @db.VarChar(64)
+  quarter        String?         @db.VarChar(8)
+  method         String?         @db.VarChar(64)
+  estimatedValue Decimal         @default(0.00) @map("estimated_value") @db.Decimal(15, 2)
+  department     String?         @db.VarChar(191)
+  /// PLANNED | IN_PROGRESS | COMPLETED | CANCELLED
+  status         String          @default("PLANNED") @db.VarChar(24)
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  plan           ProcurementPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId], map: "procurement_plan_items_plan_idx")
+  @@map("procurement_plan_items")
+}
+
 model PurchaseInvoice {
   id                        String                   @id @default(cuid())
   invoiceNumber             String                   @unique @map("invoice_number")
