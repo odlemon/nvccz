@@ -640,6 +640,25 @@ export class ProcurementController {
         });
       }
 
+      // A direct order (no accepted quotation) is raised from an approved requisition, and only once:
+      // the requisition is marked converted below so it cannot be ordered, or sent to RFQ, again.
+      const directFromRequisition = Boolean(requisitionId) && !quotationId;
+      if (directFromRequisition) {
+        const reqRow = await prisma.purchaseRequisition.findUnique({
+          where: { id: String(requisitionId) },
+          select: { status: true, requisitionNumber: true },
+        });
+        if (!reqRow) {
+          return res.status(404).json({ success: false, message: "Purchase requisition not found" });
+        }
+        if (String(reqRow.status).toUpperCase() !== "APPROVED") {
+          return res.status(400).json({
+            success: false,
+            message: `Only an approved requisition can be ordered directly (${reqRow.requisitionNumber} is ${reqRow.status}).`,
+          });
+        }
+      }
+
       const purchaseOrder = await ProcurementService.createPurchaseOrder({
         requisitionId,
         quotationId: quotationId ? String(quotationId).trim() : undefined,
@@ -1363,6 +1382,24 @@ export class ProcurementController {
       console.error("Error rejecting procurement invoice:", error);
       const message = error?.message || "Failed to reject procurement invoice";
       res.status(/not found/i.test(message) ? 404 : 400).json({ success: false, message });
+    }
+  }
+
+  /**
+   * Re-run the three-way match (invoice vs PO vs accepted receipts) for one invoice.
+   * POST /api/procurement/invoices/:id/match
+   */
+  static async matchProcurementInvoice(req: Request, res: Response) {
+    try {
+      const { ProcurementInvoiceMatchService } = await import("../services/ProcurementInvoiceMatchService");
+      const result = await ProcurementInvoiceMatchService.evaluate(req.params.id);
+      if (!result) {
+        return res.status(404).json({ success: false, message: "Invoice not found" });
+      }
+      res.status(200).json({ success: true, message: `Match result: ${result.status}`, data: result });
+    } catch (error: any) {
+      console.error("Error matching procurement invoice:", error);
+      res.status(400).json({ success: false, message: error?.message || "Failed to run the three-way match" });
     }
   }
 

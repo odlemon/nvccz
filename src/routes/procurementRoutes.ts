@@ -865,6 +865,10 @@ router.put("/invoices/:id/approve", requireAnyPermission([PROC_PERMS.invoicesApp
 // Reject an invoice awaiting approval, with a reason; the approver's grant decides both outcomes.
 router.put("/invoices/:id/reject", requireAnyPermission([PROC_PERMS.invoicesApprove]), ProcurementController.rejectProcurementInvoice);
 
+// Re-run the three-way match. It also runs on its own when an invoice is created and when a GRN
+// on the same PO is recorded, approved or rejected; this is for an approver who wants it now.
+router.post("/invoices/:id/match", requireAnyPermission([PROC_PERMS.invoicesApprove, PROC_PERMS.intakeManage]), ProcurementController.matchProcurementInvoice);
+
 /**
  * @swagger
  * /procurement/invoices/{id}/payment:
