@@ -205,10 +205,26 @@ export class ProcurementSuite06Controller {
       });
     } catch (e: any) {
       const msg = e?.message || "Failed to extract the invoice";
+      const code = String(e?.code || e?.cause?.code || "");
       const isTimeout = /timed out/i.test(msg);
+      // The model could not be reached at all (no egress, DNS, refused). That is an outage of the
+      // reading service, not a bad invoice, and the operator can still capture the invoice by hand.
+      const isUnreachable =
+        /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|CERT_/i.test(code) ||
+        /getaddrinfo|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ENETUNREACH|socket hang up|network error/i.test(msg);
       // A scanned-image PDF carries no text layer: the operator needs to know that, not a 500.
-      const isUnreadable = !isTimeout && /no (readable )?text|empty|could not (be )?(read|parsed)|unsupported/i.test(msg);
-      res.status(isTimeout ? 504 : isUnreadable ? 400 : 500).json({ success: false, message: msg });
+      const isUnreadable =
+        !isTimeout && !isUnreachable && /no (readable )?text|empty|could not (be )?(read|parsed)|unsupported/i.test(msg);
+
+      if (isUnreachable || isTimeout) {
+        console.error("[Suite06] invoice extraction unavailable", { code, msg });
+        return res.status(503).json({
+          success: false,
+          message:
+            "The invoice reading service could not be reached, so nothing was read and nothing was saved. Capture this invoice by hand, or ask an administrator to check the extraction settings.",
+        });
+      }
+      res.status(isUnreadable ? 400 : 500).json({ success: false, message: msg });
     }
   }
 
