@@ -9,8 +9,24 @@ const bcrypt = require('bcrypt');
 
 const prisma = new PrismaClient();
 
-// Procurement test users to create
+// Procurement and Finance test users to create
 const procurementUsers = [
+  {
+    firstName: 'Finance',
+    lastName: 'Manager',
+    email: 'finance.manager@testnvccz.com',
+    department: 'Finance',
+    roleCode: 'FIN_MGR',
+    departmentRole: 'HEAD'
+  },
+  {
+    firstName: 'Finance',
+    lastName: 'Accountant',
+    email: 'finance.accountant@testnvccz.com',
+    department: 'Finance',
+    roleCode: 'ACCOUNTANT',
+    departmentRole: 'MEMBER'
+  },
   {
     firstName: 'Procurement',
     lastName: 'Manager',

@@ -5,6 +5,7 @@
 import { Request, Response } from "express";
 import { ResponseHelper } from "../utils/responseHelper";
 import PeriodLockoutService from "../services/PeriodLockoutService";
+import { parseDate } from "../utils/dateHelper";
 
 interface AuthRequest extends Request {
   user?: {
@@ -19,6 +20,7 @@ export default class PeriodLockoutController {
   /**
    * Lock/unlock accounting period
    * POST /api/cashbook/periods/lock
+   * `lockedBy` is always the authenticated user (`req.user.id`); any `lockedBy` in the body is ignored.
    */
   static async lockPeriod(req: AuthRequest, res: Response) {
     try {
@@ -52,7 +54,7 @@ export default class PeriodLockoutController {
       if (result.success) {
         return ResponseHelper.success(res, result.message, result.data);
       } else {
-        return ResponseHelper.badRequest(res, result.message);
+        return ResponseHelper.badRequest(res, result.message, result.error);
       }
     } catch (error) {
       console.error('Error in lockPeriod:', error);
@@ -97,11 +99,12 @@ export default class PeriodLockoutController {
    */
   static async getAllPeriods(req: AuthRequest, res: Response) {
     try {
-      const { year, isLocked } = req.query;
+      const { year, isLocked, currencyId } = req.query;
 
       const filters: any = {};
       if (year) filters.year = parseInt(year as string);
       if (isLocked !== undefined) filters.isLocked = isLocked === 'true';
+      if (currencyId) filters.currencyId = currencyId as string;
 
       const result = await PeriodLockoutService.getAllPeriods(filters);
 
@@ -132,7 +135,7 @@ export default class PeriodLockoutController {
         return ResponseHelper.unauthorized(res, 'User authentication required');
       }
 
-      const date = new Date(transactionDate);
+      const date = parseDate(transactionDate);
       if (isNaN(date.getTime())) {
         return ResponseHelper.badRequest(res, 'Invalid date format');
       }

@@ -3,14 +3,16 @@ import { PrismaClient, TermSheet, Application } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
 import { prisma } from '../utils/database';
+import { FirebaseStorageService } from './FirebaseStorageService';
+import { EmailNotificationService } from './EmailNotificationService';
 
 export interface CreateTermSheetRequest {
   applicationId: string;
   createdById: string;
   title: string;
   investmentAmount: number;
-  equityPercentage?: number;
-  valuation?: number;
+  equityPercentage: number;
+  valuation: number;
   keyTerms?: string;
   conditions?: string;
   timeline?: string;
@@ -67,8 +69,8 @@ export class TermSheetService {
         throw new Error("Application not found");
       }
 
-      if (application.currentStage !== "BOARD_APPROVED" && application.currentStage !== "TERM_SHEET") {
-        throw new Error("Application must be in BOARD_APPROVED stage to create term sheet. Current stage: " + application.currentStage);
+      if (application.currentStage !== "TERM_SHEET" && application.currentStage !== "TERM_SHEET_NEGOTIATION") {
+        throw new Error("Application must be in TERM_SHEET or TERM_SHEET_NEGOTIATION stage to create term sheet. Current stage: " + application.currentStage);
       }
 
       // Check if term sheet already exists - prevent multiple term sheets
@@ -87,8 +89,8 @@ export class TermSheetService {
           createdById: params.createdById,
           title: params.title,
           investmentAmount: new Decimal(params.investmentAmount),
-          equityPercentage: params.equityPercentage ? new Decimal(params.equityPercentage) : null,
-          valuation: params.valuation ? new Decimal(params.valuation) : null,
+          equityPercentage: new Decimal(params.equityPercentage),
+          valuation: new Decimal(params.valuation),
           keyTerms: params.keyTerms,
           conditions: params.conditions,
           timeline: params.timeline,
@@ -117,21 +119,28 @@ export class TermSheetService {
               lastName: true,
               email: true
             }
+          },
+          applicantSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          investorSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
           }
         }
       });
 
-      // Update application stage to TERM_SHEET if it's currently BOARD_APPROVED
-      if (application.currentStage === "BOARD_APPROVED") {
-        await prisma.application.update({
-          where: { id: params.applicationId },
-          data: {
-            currentStage: "TERM_SHEET",
-            updatedAt: new Date()
-          }
-        });
-        console.log(`Application ${params.applicationId} stage updated from BOARD_APPROVED to TERM_SHEET`);
-      }
+      // Application should already be in TERM_SHEET or TERM_SHEET_NEGOTIATION stage
+      // No need to update stage here
 
       // Create notification for applicant
       await prisma.applicationNotification.create({
@@ -144,6 +153,17 @@ export class TermSheetService {
           message: `A term sheet has been created for your application (${application.businessName}). You can now review the investment terms and conditions.`
         }
       });
+
+      // Ensure investee portal account + portfolio company exist (idempotent)
+      try {
+        const { BoardReviewService } = await import('./BoardReviewService');
+        await BoardReviewService.createUserAndPortfolioCompany(application);
+      } catch (portalError: any) {
+        console.error('Failed to ensure portfolio company after term sheet creation', {
+          applicationId: params.applicationId,
+          error: portalError?.message,
+        });
+      }
 
       return termSheet;
     } catch (error: any) {
@@ -170,6 +190,22 @@ export class TermSheetService {
             }
           },
           createdBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          applicantSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          investorSignedBy: {
             select: {
               id: true,
               firstName: true,
@@ -214,6 +250,11 @@ export class TermSheetService {
 
       if (termSheet.isSigned) {
         throw new Error("Cannot update signed term sheet. Term sheet has already been signed and cannot be modified.");
+      }
+
+      // Prevent signature field updates (signatures are immutable once uploaded)
+      if (termSheet.applicantSignatureUrl || termSheet.investorSignatureUrl) {
+        throw new Error("Cannot update term sheet that has signatures. Signatures cannot be modified once uploaded.");
       }
 
       // Build update data object - only include fields that are actually provided
@@ -283,6 +324,22 @@ export class TermSheetService {
               lastName: true,
               email: true
             }
+          },
+          applicantSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          investorSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
           }
         }
       });
@@ -340,6 +397,22 @@ export class TermSheetService {
               lastName: true,
               email: true
             }
+          },
+          applicantSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          investorSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
           }
         }
       });
@@ -363,9 +436,14 @@ export class TermSheetService {
   }
 
   /**
-   * Sign term sheet
+   * Sign term sheet with signature
    */
-  static async signTermSheet(applicationId: string): Promise<TermSheetWithRelations> {
+  static async signTermSheet(
+    applicationId: string,
+    signedById: string,
+    signatureType: 'applicant' | 'investor',
+    signatureFile?: { buffer: Buffer; fileName: string; mimetype: string }
+  ): Promise<TermSheetWithRelations> {
     try {
       const termSheet = await prisma.termSheet.findUnique({
         where: { applicationId },
@@ -386,15 +464,69 @@ export class TermSheetService {
         throw new Error("Cannot sign draft term sheet. Term sheet must be finalized before signing.");
       }
 
-      // Update term sheet to signed
+      // Check if signature already exists for this type (cannot update signature)
+      if (signatureType === 'applicant' && termSheet.applicantSignatureUrl) {
+        throw new Error("Applicant signature already exists. Signatures cannot be updated once uploaded.");
+      }
+      if (signatureType === 'investor' && termSheet.investorSignatureUrl) {
+        throw new Error("Investor signature already exists. Signatures cannot be updated once uploaded.");
+      }
+
+      // Validate signature file is provided
+      if (!signatureFile) {
+        throw new Error("Signature file is required to sign term sheet");
+      }
+
+      // Validate file type (should be image)
+      const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+      if (!allowedMimeTypes.includes(signatureFile.mimetype.toLowerCase())) {
+        throw new Error("Signature must be an image file (PNG, JPEG, JPG, GIF, or WEBP)");
+      }
+
+      // Upload signature to Firebase Storage
+      const { downloadURL, filePath } = await FirebaseStorageService.uploadTermSheetSignature(
+        signatureFile.buffer,
+        applicationId,
+        termSheet.id,
+        signatureType,
+        signatureFile.fileName
+      );
+
+      // Prepare update data based on signature type
+      const updateData: any = {
+        updatedAt: new Date()
+      };
+
+      if (signatureType === 'applicant') {
+        updateData.applicantSignatureUrl = downloadURL;
+        updateData.applicantSignatureFileName = signatureFile.fileName;
+        updateData.applicantSignedById = signedById;
+        updateData.applicantSignedAt = new Date();
+        
+        // Check if investor has also signed - if so, mark as fully signed
+        if (termSheet.investorSignatureUrl) {
+          updateData.status = "SIGNED";
+          updateData.isSigned = true;
+          updateData.signedAt = new Date();
+        }
+      } else if (signatureType === 'investor') {
+        updateData.investorSignatureUrl = downloadURL;
+        updateData.investorSignatureFileName = signatureFile.fileName;
+        updateData.investorSignedById = signedById;
+        updateData.investorSignedAt = new Date();
+        
+        // Check if applicant has also signed - if so, mark as fully signed
+        if (termSheet.applicantSignatureUrl) {
+          updateData.status = "SIGNED";
+          updateData.isSigned = true;
+          updateData.signedAt = new Date();
+        }
+      }
+
+      // Update term sheet with signature
       const updatedTermSheet = await prisma.termSheet.update({
         where: { applicationId },
-        data: {
-          status: "SIGNED",
-          isSigned: true,
-          signedAt: new Date(),
-          updatedAt: new Date()
-        },
+        data: updateData,
         include: {
           application: {
             select: {
@@ -413,30 +545,127 @@ export class TermSheetService {
               lastName: true,
               email: true
             }
+          },
+          applicantSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          investorSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
           }
         }
       });
 
-      // Update application stage to INVESTMENT_IMPLEMENTATION
-      await prisma.application.update({
-        where: { id: applicationId },
-        data: {
-          currentStage: "INVESTMENT_IMPLEMENTATION",
-          updatedAt: new Date()
-        }
-      });
+      // Only update application stage if both signatures are present (fully signed), and only when
+      // the application hasn't already progressed past term sheet (e.g. board review already
+      // completed while the applicant signature was still pending) — otherwise this would
+      // incorrectly regress the stage backwards.
+      const stageBeforeSign = String(termSheet.application.currentStage || "");
+      const stillAtTermSheet =
+        stageBeforeSign === "TERM_SHEET" || stageBeforeSign === "TERM_SHEET_NEGOTIATION";
+      if (
+        stillAtTermSheet &&
+        updatedTermSheet.isSigned &&
+        updatedTermSheet.applicantSignatureUrl &&
+        updatedTermSheet.investorSignatureUrl
+      ) {
+        // Update application stage to UNDER_BOARD_REVIEW (new workflow: term sheet → board review → investment implementation)
+        await prisma.application.update({
+          where: { id: applicationId },
+          data: {
+            currentStage: "UNDER_BOARD_REVIEW",
+            updatedAt: new Date()
+          }
+        });
 
-      // Create notification for applicant
-      await prisma.applicationNotification.create({
-        data: {
-          applicationId,
-          recipientEmail: termSheet.application.applicantEmail,
-          recipientPhone: termSheet.application.applicantPhone,
-          notificationType: "TERM_SHEET_SIGNED",
-          title: "Term Sheet Signed",
-          message: `The term sheet for your application (${termSheet.application.businessName}) has been signed. Your application will now proceed to investment implementation.`
+        // Send email notification to applicant that application is going to board review
+        try {
+          await EmailNotificationService.sendBoardReviewStartedEmail({
+            applicantName: termSheet.application.applicantName,
+            applicantEmail: termSheet.application.applicantEmail,
+            businessName: termSheet.application.businessName,
+            applicationId: applicationId,
+            currentStage: 'UNDER_BOARD_REVIEW'
+          });
+          console.log("Board review started email sent successfully", {
+            applicationId: applicationId,
+            applicantEmail: termSheet.application.applicantEmail
+          });
+        } catch (emailError: any) {
+          console.error("Failed to send board review started email", {
+            applicationId,
+            error: emailError.message
+          });
+          // Don't fail the term sheet signing if email fails
         }
-      });
+
+        try {
+          const { InvestmentMemoProvisionService } = await import("./investmentMemo/InvestmentMemoProvisionService");
+          const actorId =
+            updatedTermSheet.investorSignedById ||
+            updatedTermSheet.createdById ||
+            termSheet.createdById;
+          await InvestmentMemoProvisionService.ensureMemoForApplication(applicationId, actorId);
+        } catch (memoErr: any) {
+          console.error("Failed to provision investment memo on board review entry", {
+            applicationId,
+            error: memoErr?.message || memoErr,
+          });
+        }
+      }
+
+      // Create notification based on signature status
+      if (updatedTermSheet.isSigned) {
+        // Both signatures present - fully signed
+        await prisma.applicationNotification.create({
+          data: {
+            applicationId,
+            recipientEmail: termSheet.application.applicantEmail,
+            recipientPhone: termSheet.application.applicantPhone,
+            notificationType: "TERM_SHEET_SIGNED",
+            title: "Term Sheet Fully Signed",
+            message: `The term sheet for your application (${termSheet.application.businessName}) has been fully signed by both parties. Your application will now proceed to board review.`
+          }
+        });
+
+        try {
+          const actorId =
+            updatedTermSheet.investorSignedById ||
+            updatedTermSheet.createdById ||
+            termSheet.createdById;
+          const { DealExecutionPackAutoProvisionHook } = await import(
+            "./dealExecutionPack/DealExecutionPackAutoProvisionHook"
+          );
+          await DealExecutionPackAutoProvisionHook.tryProvisionForApplication(applicationId, actorId);
+        } catch (depErr: any) {
+          console.error("Deal execution pack auto-provision failed (term sheet signed)", {
+            applicationId,
+            error: depErr?.message || depErr,
+          });
+        }
+      } else {
+        // Partial signature - notify about pending signature
+        const pendingParty = signatureType === 'applicant' ? 'investor' : 'applicant';
+        await prisma.applicationNotification.create({
+          data: {
+            applicationId,
+            recipientEmail: termSheet.application.applicantEmail,
+            recipientPhone: termSheet.application.applicantPhone,
+            notificationType: "TERM_SHEET_PARTIALLY_SIGNED",
+            title: "Term Sheet Partially Signed",
+            message: `The ${signatureType} has signed the term sheet for your application (${termSheet.application.businessName}). Waiting for ${pendingParty} signature to complete.`
+          }
+        });
+      }
 
       return updatedTermSheet;
     } catch (error: any) {
@@ -476,6 +705,22 @@ export class TermSheetService {
               }
             },
             createdBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            },
+            applicantSignedBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            },
+            investorSignedBy: {
               select: {
                 id: true,
                 firstName: true,
@@ -552,6 +797,22 @@ export class TermSheetService {
               }
             },
             createdBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            },
+            applicantSignedBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            },
+            investorSignedBy: {
               select: {
                 id: true,
                 firstName: true,

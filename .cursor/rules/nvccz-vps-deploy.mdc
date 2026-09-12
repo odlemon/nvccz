@@ -1,0 +1,52 @@
+---
+description: VPS deploy after push — SSH, pull/build nts + client1, pm2 restart all
+alwaysApply: false
+---
+
+# Push and deploy (NVCCZ VPS)
+
+When the user says **"push and deploy the changes"** (or similar), follow this sequence end-to-end.
+
+## 1. Git (local)
+
+1. Commit any uncommitted work if the user expects it included.
+2. `git push origin master` (or current branch they specify).
+
+## 2. VPS deploy
+
+Credentials and host: read `.cursor/deploy-vps.credentials.local` (gitignored).
+
+| Setting | Value |
+|---------|--------|
+| SSH | `root@31.220.82.129` |
+| Projects root | `/var/www/projects` |
+
+Run on the VPS (single SSH session or chained remote commands):
+
+```bash
+cd /var/www/projects/nts
+git pull
+npm i
+npm run build
+
+cd /var/www/projects/client1
+git pull
+npm i
+npm run build
+
+pm2 restart all
+```
+
+**Order matters:** `nts` (dev) first, then `client1` (prod), then `pm2 restart all`.
+
+## 3. Verify
+
+- Confirm each `git pull` and `npm run build` succeeded (exit code 0).
+- Confirm `pm2 restart all` completed.
+- Optionally curl dev API health if user cares (`https://dev-api.arcus.co.zw/health`).
+
+## Notes
+
+- Do **not** commit `.cursor/deploy-vps.credentials.local`.
+- On Windows, use `ssh` with password via `sshpass` if available, or `plink`/interactive SSH; prefer one remote heredoc/script to avoid multiple password prompts.
+- Helper script (optional): `bash scripts/deploy-vps-remote.sh` documents the remote commands.

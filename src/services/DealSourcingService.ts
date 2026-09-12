@@ -114,7 +114,6 @@ export class DealSourcingService {
               id: true,
               title: true,
               type: true,
-              category: true
             }
           },
           subGoals: {
@@ -122,7 +121,6 @@ export class DealSourcingService {
               id: true,
               title: true,
               type: true,
-              category: true,
               targetDeals: true,
               dealsSourced: true,
               status: true
@@ -296,7 +294,6 @@ export class DealSourcingService {
               id: true,
               title: true,
               type: true,
-              category: true
             }
           },
           subGoals: {
@@ -304,7 +301,6 @@ export class DealSourcingService {
               id: true,
               title: true,
               type: true,
-              category: true,
               targetDeals: true,
               dealsSourced: true,
               status: true
@@ -367,7 +363,6 @@ export class DealSourcingService {
               id: true,
               title: true,
               type: true,
-              category: true
             }
           },
           subGoals: {
@@ -375,7 +370,6 @@ export class DealSourcingService {
               id: true,
               title: true,
               type: true,
-              category: true,
               targetDeals: true,
               dealsSourced: true,
               status: true
@@ -486,7 +480,6 @@ export class DealSourcingService {
               id: true,
               title: true,
               type: true,
-              category: true
             }
           },
           subGoals: {
@@ -494,7 +487,6 @@ export class DealSourcingService {
               id: true,
               title: true,
               type: true,
-              category: true,
               targetDeals: true,
               dealsSourced: true,
               status: true
@@ -607,7 +599,6 @@ export class DealSourcingService {
               id: true,
               title: true,
               type: true,
-              category: true
             }
           },
           assignedTo: {
@@ -667,7 +658,6 @@ export class DealSourcingService {
               id: true,
               title: true,
               type: true,
-              category: true
             }
           },
           assignedTo: {
@@ -781,7 +771,6 @@ export class DealSourcingService {
               id: true,
               title: true,
               type: true,
-              category: true
             }
           },
           assignedTo: {
@@ -865,7 +854,6 @@ export class DealSourcingService {
               id: true,
               title: true,
               type: true,
-              category: true
             }
           },
           assignedTo: {

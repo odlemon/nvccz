@@ -1,7 +1,35 @@
 // @ts-nocheck
 import { Request, Response } from "express";
-import JournalEntryService from "../services/JournalEntryService";
+import { getEffectiveRolePermissions } from "../config/cfoModulePermissions";
+import JournalEntryService, { JournalEntryImmutableError } from "../services/JournalEntryService";
+import { getLastAuditTrailEntries, verifySequentialIntegrity } from "../services/AuditTrailSequenceService";
 import { ResponseHelper } from "../utils/responseHelper";
+import { parseDate, parseDateOnlyUtcEnd, parseDateOnlyUtcStart } from "../utils/dateHelper";
+
+function queryCurrencyId(req: Request): string | undefined {
+  const raw = req.query.currencyId;
+  if (typeof raw === "string" && raw.trim()) {
+    return raw.trim();
+  }
+  if (Array.isArray(raw) && typeof raw[0] === "string" && raw[0].trim()) {
+    return raw[0].trim();
+  }
+  return undefined;
+}
+
+/** Optional `?limit=&offset=` for GET list — max 500 per page. Omits pagination when `limit` absent. */
+function parseJePagination(req: Request): { limit: number; offset: number } | undefined {
+  const rawLimit = req.query.limit;
+  if (rawLimit == null || String(rawLimit).trim() === "") return undefined;
+  const limit = parseInt(String(rawLimit), 10);
+  if (Number.isNaN(limit) || limit < 1) return undefined;
+  const rawOff = req.query.offset;
+  const offset =
+    rawOff != null && String(rawOff).trim() !== ""
+      ? Math.max(0, parseInt(String(rawOff), 10) || 0)
+      : 0;
+  return { limit: Math.min(limit, 500), offset };
+}
 
 export class JournalEntryController {
   /**
@@ -9,12 +37,13 @@ export class JournalEntryController {
    */
   static async createJournalEntry(req: Request, res: Response) {
     try {
-      const { 
-        transactionDate, 
-        referenceNumber, 
-        description, 
-        currencyId, 
-        journalEntryLines 
+      const {
+        transactionDate,
+        referenceNumber,
+        description,
+        currencyId,
+        journalEntryLines,
+        isEliminationEntry,
       } = req.body;
 
       const userId = (req as any).user?.id;
@@ -27,22 +56,32 @@ export class JournalEntryController {
         return ResponseHelper.badRequest(res, "Journal entry must have at least 2 lines");
       }
 
-      // Validate that debits equal credits
-      const totalDebits = journalEntryLines.reduce((sum, line) => sum + (parseFloat(line.debitAmount) || 0), 0);
-      const totalCredits = journalEntryLines.reduce((sum, line) => sum + (parseFloat(line.creditAmount) || 0), 0);
-
-      if (Math.abs(totalDebits - totalCredits) > 0.01) {
-        return ResponseHelper.badRequest(res, "Total debits must equal total credits");
-      }
-
+      const ipAddress = (req as any).ip || (req as any).headers?.["x-forwarded-for"] || (req as any).socket?.remoteAddress || null;
+      const userAgent = ((req as any).headers?.["user-agent"] as string) || null;
       const journalEntry = await JournalEntryService.createManualJournalEntry({
-        transactionDate: new Date(transactionDate),
+        transactionDate: parseDate(transactionDate),
         referenceNumber,
         description,
         currencyId,
-        journalEntryLines,
-        createdById: userId
+        journalEntryLines: journalEntryLines.map((line: any) => ({
+          chartOfAccountId: line.chartOfAccountId,
+          debitAmount: parseFloat(line.debitAmount) || 0,
+          creditAmount: parseFloat(line.creditAmount) || 0,
+          description: line.description,
+          ...(line.currencyId ? { currencyId: line.currencyId } : {}),
+        })),
+        createdById: userId,
+        isEliminationEntry: !!isEliminationEntry,
+        ipAddress: typeof ipAddress === "string" ? ipAddress : (Array.isArray(ipAddress) ? ipAddress[0] : String(ipAddress ?? "")),
+        userAgent,
       });
+
+      if (journalEntry && journalEntry.success === false) {
+        return ResponseHelper.badRequest(
+          res,
+          journalEntry.error || "Failed to create manual journal entry"
+        );
+      }
 
       return ResponseHelper.success(res, "Manual journal entry created successfully", journalEntry);
     } catch (error) {
@@ -61,15 +100,65 @@ export class JournalEntryController {
   static async getJournalEntries(req: Request, res: Response) {
     try {
       const status = req.query.status as 'POSTED' | 'PENDING' | 'VOID' | 'ALL' | undefined;
-      
-      // Default to POSTED and PENDING only if no status specified
+      const currencyId = queryCurrencyId(req);
       const filterStatus = status || 'POSTED_AND_PENDING';
-      
+
+      const qStart = req.query.startDate != null ? String(req.query.startDate).trim() : "";
+      const qEnd = req.query.endDate != null ? String(req.query.endDate).trim() : "";
+
+      let rangeStart = new Date("2020-01-01");
+      let rangeEnd = new Date();
+
+      if (qStart || qEnd) {
+        if (!qStart || !qEnd) {
+          return ResponseHelper.badRequest(
+            res,
+            "Provide both startDate and endDate as YYYY-MM-DD, or omit both for all-time up to now"
+          );
+        }
+        const gte = parseDateOnlyUtcStart(qStart);
+        const lte = parseDateOnlyUtcEnd(qEnd);
+        if (!gte || !lte || gte > lte) {
+          return ResponseHelper.badRequest(
+            res,
+            "Invalid startDate/endDate — use YYYY-MM-DD; start must be on or before end"
+          );
+        }
+        rangeStart = gte;
+        rangeEnd = lte;
+      }
+
+      const pagination = parseJePagination(req);
       const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(
-        new Date('2020-01-01'), // Default start date
-        new Date(), // Current date
-        filterStatus // Pass status filter (defaults to POSTED_AND_PENDING)
+        rangeStart,
+        rangeEnd,
+        filterStatus,
+        currencyId,
+        pagination
       );
+
+      if (
+        journalEntries &&
+        typeof journalEntries === "object" &&
+        !Array.isArray(journalEntries) &&
+        "total" in journalEntries
+      ) {
+        const totalPages = Math.ceil(journalEntries.total / journalEntries.limit) || 1;
+        const page = Math.floor(journalEntries.offset / journalEntries.limit) + 1;
+        return ResponseHelper.paginated(
+          res,
+          "Journal entries retrieved successfully",
+          journalEntries.entries,
+          {
+            page,
+            limit: journalEntries.limit,
+            total: journalEntries.total,
+            totalPages,
+            hasNextPage: journalEntries.offset + journalEntries.limit < journalEntries.total,
+            hasPrevPage: journalEntries.offset > 0,
+          }
+        );
+      }
 
       return ResponseHelper.success(res, "Journal entries retrieved successfully", journalEntries);
     } catch (error) {
@@ -98,13 +187,91 @@ export class JournalEntryController {
   }
 
   /**
+   * Update a journal entry (PENDING only). Posted/voided entries return 409 — use a reversing journal.
+   */
+  static async updateJournalEntry(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const {
+        transactionDate,
+        referenceNumber,
+        description,
+        currencyId,
+        journalEntryLines,
+      } = req.body;
+
+      if (!transactionDate || !referenceNumber || !description || !currencyId || !journalEntryLines) {
+        return ResponseHelper.badRequest(
+          res,
+          "Missing required fields: transactionDate, referenceNumber, description, currencyId, journalEntryLines"
+        );
+      }
+
+      if (!Array.isArray(journalEntryLines) || journalEntryLines.length < 2) {
+        return ResponseHelper.badRequest(res, "Journal entry must have at least 2 lines");
+      }
+
+      const userId = (req as any).user?.id;
+      const ipAddress =
+        (req as any).ip ||
+        (req as any).headers?.["x-forwarded-for"] ||
+        (req as any).socket?.remoteAddress ||
+        null;
+      const userAgent = ((req as any).headers?.["user-agent"] as string) || null;
+
+      const updated = await JournalEntryService.updatePendingJournalEntry(
+        id,
+        {
+          transactionDate: parseDate(transactionDate),
+          referenceNumber,
+          description,
+          currencyId,
+          journalEntryLines: journalEntryLines.map((line: any) => ({
+            chartOfAccountId: line.chartOfAccountId,
+            debitAmount: parseFloat(line.debitAmount) || 0,
+            creditAmount: parseFloat(line.creditAmount) || 0,
+            description: line.description,
+            ...(line.currencyId ? { currencyId: line.currencyId } : {}),
+          })),
+          createdById: userId,
+        },
+        userId,
+        typeof ipAddress === "string"
+          ? ipAddress
+          : Array.isArray(ipAddress)
+            ? ipAddress[0]
+            : String(ipAddress ?? ""),
+        userAgent
+      );
+
+      return ResponseHelper.success(res, "Journal entry updated successfully", updated);
+    } catch (error) {
+      console.error("Error updating journal entry:", error);
+      if (error instanceof JournalEntryImmutableError) {
+        return ResponseHelper.conflict(res, error.message);
+      }
+      if (error instanceof Error) {
+        if (error.message === "Journal entry not found") {
+          return ResponseHelper.notFound(res, error.message);
+        }
+        return ResponseHelper.badRequest(res, error.message);
+      }
+      return ResponseHelper.error(res, "Failed to update journal entry", undefined, 500);
+    }
+  }
+
+  /**
    * Post a journal entry (change status from PENDING to POSTED)
    */
   static async postJournalEntry(req: Request, res: Response) {
     try {
       const { id } = req.params;
       const userId = (req as any).user?.id;
-      const journalEntry = await JournalEntryService.postJournalEntry(id, userId);
+      const user = (req as any).user;
+      const journalEntry = await JournalEntryService.postJournalEntry(id, userId, {
+        userPermissions: getEffectiveRolePermissions(user),
+        user,
+      });
 
       return ResponseHelper.success(res, "Journal entry posted successfully", journalEntry);
     } catch (error) {
@@ -148,16 +315,90 @@ export class JournalEntryController {
         return ResponseHelper.badRequest(res, "Start date and end date are required");
       }
 
+      const currencyId = queryCurrencyId(req);
+      const sd = String(startDate).trim();
+      const ed = String(endDate).trim();
+      const gte =
+        /^\d{4}-\d{2}-\d{2}$/.test(sd) ? parseDateOnlyUtcStart(sd) : parseDate(sd);
+      const lte =
+        /^\d{4}-\d{2}-\d{2}$/.test(ed) ? parseDateOnlyUtcEnd(ed) : parseDate(ed);
+      if (
+        !gte ||
+        !lte ||
+        Number.isNaN(gte.getTime()) ||
+        Number.isNaN(lte.getTime()) ||
+        gte > lte
+      ) {
+        return ResponseHelper.badRequest(
+          res,
+          "Invalid startDate/endDate — use YYYY-MM-DD or ISO datetime; start must be on or before end"
+        );
+      }
+
+      const pagination = parseJePagination(req);
       const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(
-        new Date(startDate as string),
-        new Date(endDate as string),
-        status // Pass status filter (defaults to POSTED)
+        gte,
+        lte,
+        status,
+        currencyId,
+        pagination
       );
+
+      if (
+        journalEntries &&
+        typeof journalEntries === "object" &&
+        !Array.isArray(journalEntries) &&
+        "total" in journalEntries
+      ) {
+        const totalPages = Math.ceil(journalEntries.total / journalEntries.limit) || 1;
+        const page = Math.floor(journalEntries.offset / journalEntries.limit) + 1;
+        return ResponseHelper.paginated(
+          res,
+          "Journal entries retrieved successfully",
+          journalEntries.entries,
+          {
+            page,
+            limit: journalEntries.limit,
+            total: journalEntries.total,
+            totalPages,
+            hasNextPage: journalEntries.offset + journalEntries.limit < journalEntries.total,
+            hasPrevPage: journalEntries.offset > 0,
+          }
+        );
+      }
 
       return ResponseHelper.success(res, "Journal entries retrieved successfully", journalEntries);
     } catch (error) {
       console.error("Error getting journal entries by date range:", error);
       return ResponseHelper.error(res, "Failed to retrieve journal entries", undefined, 500);
+    }
+  }
+
+  /**
+   * Get last 10 audit trail entries (journal entries with sequential audit trail IDs).
+   */
+  static async getLastAuditTrailEntries(req: Request, res: Response) {
+    try {
+      const limit = Math.min(parseInt(String(req.query.limit || "10"), 10) || 10, 100);
+      const entries = await getLastAuditTrailEntries(limit);
+      return ResponseHelper.success(res, "Last audit trail entries retrieved", { entries, count: entries.length });
+    } catch (error) {
+      console.error("Error getting last audit trail entries:", error);
+      return ResponseHelper.error(res, "Failed to retrieve audit trail entries", undefined, 500);
+    }
+  }
+
+  /**
+   * Verify sequential integrity of the last 10 audit trail IDs (no gaps).
+   */
+  static async verifySequentialIntegrity(req: Request, res: Response) {
+    try {
+      const limit = Math.min(parseInt(String(req.query.limit || "10"), 10) || 10, 100);
+      const result = await verifySequentialIntegrity(limit);
+      return ResponseHelper.success(res, result.message, result);
+    } catch (error) {
+      console.error("Error verifying audit trail sequential integrity:", error);
+      return ResponseHelper.error(res, "Failed to verify sequential integrity", undefined, 500);
     }
   }
 }

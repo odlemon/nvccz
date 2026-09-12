@@ -5,7 +5,7 @@ export const procurementEndpoints = {
     post: {
       summary: 'Create a new purchase requisition',
       description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
-      tags: ['Procurement - Requisitions'],
+      tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,
@@ -20,6 +20,11 @@ export const procurementEndpoints = {
                 department: { type: 'string', enum: ['Finance', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
                 priority: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'], example: 'MEDIUM' },
                 justification: { type: 'string', example: 'Essential operational expenses' },
+                portfolioCompanyId: { type: 'string', description: 'Suite 02: links PR to portfolio company for drawdown cap' },
+                fundId: { type: 'string', description: 'Suite 02: optional fund scope' },
+                useOfFundsDocumentUrl: { type: 'string', description: 'Suite 02: use of funds / business case URL' },
+                sourcingCategory: { type: 'string', description: 'Aligns with vendor.category for RFQ (e.g. IT_SERVICES)' },
+                drawdownRequestAmount: { type: 'number', description: 'Suite 02: required with portfolioCompanyId' },
                 items: {
                   type: 'array',
                   items: {
@@ -63,8 +68,8 @@ export const procurementEndpoints = {
     },
     get: {
       summary: 'Get all purchase requisitions (filtered by user\'s department)',
-      description: '**Required Role:** Department HEAD, DEPUTY, or PROC_MGR. Returns requisitions for the user\'s department only. Requisitions are filtered by the department they target.',
-      tags: ['Procurement - Requisitions'],
+      description: '**Required Role:** Department HEAD, DEPUTY, or PROC_MGR. Returns requisitions for the user\'s department only. Requisitions are filtered by the department they target. **Suite 02:** investee-linked rows are further scoped by fund for FundManagers (unrestricted roles — admin viewer, CFO, SYSADMIN, PROC_MGR, CEO, FIN_MGR, etc. — see all).',
+      tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'query', name: 'status', schema: { type: 'string', enum: ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'CONVERTED_TO_PO'] }, description: 'Filter by status' },
@@ -107,8 +112,8 @@ export const procurementEndpoints = {
   '/procurement/requisitions/{id}': {
     get: {
       summary: 'Get purchase requisition by ID',
-      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
-      tags: ['Procurement - Requisitions'],
+      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). **Suite 02:** investee-linked PRs require portfolio owner, requester, unrestricted role (admin viewer, CFO, SYSADMIN, PROC_MGR, CEO, FIN_MGR, etc.), or FundManager for that fund.',
+      tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Requisition ID' }
@@ -123,8 +128,8 @@ export const procurementEndpoints = {
   '/procurement/requisitions/{id}/submit': {
     put: {
       summary: 'Submit a purchase requisition for approval',
-      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). ⚠️ Once submitted, status becomes PENDING_APPROVAL and cannot be modified',
-      tags: ['Procurement - Requisitions'],
+      description: '**Standard:** status becomes PENDING_APPROVAL. **Suite 02 (investee PR):** portfolio owner only; requires useOfFundsDocumentUrl; status PENDING_VC_EXECUTIVE_REVIEW; notifies procurement desk.',
+      tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Requisition ID' }
@@ -139,8 +144,8 @@ export const procurementEndpoints = {
   '/procurement/requisitions/{id}/approve': {
     put: {
       summary: 'Approve a purchase requisition',
-      description: '**Required Role:** User\'s roleCode must match approval config roleCode (e.g., PROC_MGR, FIN_MGR) OR user must be department HEAD/DEPUTY for their department\'s requisitions. ⚠️ Once approved, status becomes APPROVED and cannot be modified',
-      tags: ['Procurement - Requisitions'],
+      description: '**Department PR:** HEAD/DEPUTY or configured role. **Suite 02 (PENDING_VC_EXECUTIVE_REVIEW):** only **CFO** or **SYSADMIN**; triggers auto-RFQ to eligible vendors.',
+      tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Requisition ID' }
@@ -152,13 +157,51 @@ export const procurementEndpoints = {
       }
     }
   },
+  '/procurement/requisitions/{id}/reject': {
+    put: {
+      summary: 'Reject a purchase requisition',
+      description: '**Department PR:** HEAD/DEPUTY. **Suite 02 (PENDING_VC_EXECUTIVE_REVIEW):** only **CFO** or **SYSADMIN**; body requires rejectionReason.',
+      tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Requisition ID' }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['rejectionReason'],
+              properties: {
+                rejectionReason: {
+                  type: 'string',
+                  description: 'Reason for rejecting the requisition',
+                  example: 'Budget reallocated'
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: {
+          description:
+            'Requisition rejected successfully. Response `data` includes `rejectionReason`, `rejectionContentFingerprint`, and full requisition scalars for resubmit/edit flows.',
+        },
+        400: { description: 'Bad request (missing reason or invalid state)' },
+        401: { description: 'Unauthorized' },
+        403: { description: 'Forbidden - only department HEAD or DEPUTY can reject' },
+      },
+    }
+  },
 
   // ========== PROCUREMENT - RFQ ==========
   '/procurement/rfq': {
     get: {
       summary: 'Get all RFQs',
       description: '**Required Role:** PROC_MGR, PROC_OFF, or BUYER. Retrieve all RFQs from the system',
-      tags: ['Procurement - RFQ'],
+      tags: ['Procurement - RFQ', 'Procurement — RFQ & Bidding (Suite 03)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'query', name: 'rfqNumber', schema: { type: 'string' }, description: 'Filter by RFQ number' },
@@ -174,7 +217,7 @@ export const procurementEndpoints = {
     post: {
       summary: 'Create and send RFQ to multiple vendors',
       description: '**Required Role:** PROC_MGR, PROC_OFF, or BUYER. Sends RFQ emails to all specified vendors with public quotation submission link',
-      tags: ['Procurement - RFQ'],
+      tags: ['Procurement - RFQ', 'Procurement — RFQ & Bidding (Suite 03)'],
       security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,
@@ -182,9 +225,12 @@ export const procurementEndpoints = {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['title', 'vendorIds', 'items'],
+              required: ['title', 'vendorIds'],
               properties: {
-                requisitionId: { type: 'string', description: 'Link to approved requisition' },
+                requisitionId: {
+                  type: 'string',
+                  description: 'Link to approved requisition; when set, items may be omitted (PR lines copied)',
+                },
                 title: { type: 'string', example: 'Office Supplies RFQ' },
                 description: { type: 'string', description: 'Detailed description' },
                 vendorIds: { type: 'array', items: { type: 'string' }, description: 'Array of vendor IDs to send RFQ to' },
@@ -195,6 +241,7 @@ export const procurementEndpoints = {
                 specialRequirements: { type: 'string' },
                 items: {
                   type: 'array',
+                  description: 'Optional when requisitionId is set — defaults to PR line items',
                   items: {
                     type: 'object',
                     properties: {
@@ -219,6 +266,96 @@ export const procurementEndpoints = {
     }
   },
 
+  '/procurement/rfqs/{id}/comparison-matrix': {
+    get: {
+      summary: 'RFQ comparison matrix',
+      description:
+        '**Required Role:** PROC_MGR, PROC_OFF, or BUYER. Compare all vendor quotations for a procurement RFQ (`procurement_rfqs.id`). Returns full quotation detail (header, line items, vendor master, review info), FX-normalized totals for cross-currency comparison, weighted scores, and UI-friendly **highlights** (vendor names and amounts — not internal ids). Available whenever quotations exist; not gated on RFQ closing time.',
+      tags: ['Procurement - RFQ', 'Procurement — RFQ & Bidding (Suite 03)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'path',
+          name: 'id',
+          required: true,
+          schema: { type: 'string' },
+          description: 'Procurement RFQ id (`procurement_rfqs.id`)',
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Comparison matrix retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      rfq: { type: 'object', description: 'RFQ header and items snapshot' },
+                      quotationCount: { type: 'integer', example: 2 },
+                      reportingCurrencyId: { type: 'string', nullable: true },
+                      rows: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            quotation: { type: 'object', description: 'Full vendor quotation + items + vendor + reviewedBy' },
+                            comparison: {
+                              type: 'object',
+                              description: 'Derived scores and FX-normalized totals for ranking',
+                            },
+                          },
+                        },
+                      },
+                      highlights: {
+                        type: 'object',
+                        description: 'Best bids for UI badges (display labels, not cuid ids)',
+                        properties: {
+                          lowestNormalizedCost: { type: 'object', nullable: true },
+                          highestVendorRating: { type: 'object', nullable: true },
+                          highestCompositeScore: { type: 'object', nullable: true },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              example: {
+                success: true,
+                data: {
+                  rfq: {
+                    rfqNumber: 'RFQ_20260513_0001',
+                    title: 'Office supplies',
+                    status: 'OPEN',
+                  },
+                  quotationCount: 2,
+                  rows: [],
+                  highlights: {
+                    lowestNormalizedCost: {
+                      quotationNumber: 'QUO_20260514_0001',
+                      vendorName: 'Kays',
+                      totalAmount: 1238.74,
+                      currencyCode: 'USD',
+                      normalizedTotalReporting: 1238.74,
+                      reportingCurrencyCode: 'USD',
+                    },
+                    highestVendorRating: null,
+                    highestCompositeScore: null,
+                  },
+                },
+              },
+            },
+          },
+        },
+        400: { description: 'RFQ not found or bad request' },
+        401: { description: 'Unauthorized' },
+      },
+    },
+  },
+
   // ========== PROCUREMENT - VENDOR QUOTATIONS ==========
   '/vendor-quotations/submit': {
     post: {
@@ -231,8 +368,13 @@ export const procurementEndpoints = {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['vendorName', 'vendorEmail', 'items'],
+              required: ['vendorPortalToken', 'vendorName', 'vendorEmail', 'items'],
               properties: {
+                vendorPortalToken: {
+                  type: 'string',
+                  description: 'Signed token from RFQ email (query `token`). Same as optional `token` field.',
+                },
+                token: { type: 'string', description: 'Alias of vendorPortalToken' },
                 rfqNumber: { type: 'string', example: 'RFQ-1729012345-123' },
                 requisitionId: { type: 'string' },
                 vendorName: { type: 'string', example: 'John Doe' },
@@ -307,7 +449,10 @@ export const procurementEndpoints = {
         { in: 'path', name: 'rfqNumber', required: true, schema: { type: 'string' }, description: 'RFQ number', example: 'RFQ-1729012345-123' }
       ],
       responses: {
-        200: { description: 'List of quotations for the RFQ' },
+        200: {
+          description:
+            'Quotations in `data` (may be empty). `rfq` is the procurement_rfqs row with itemsSnapshot when the RFQ exists.',
+        },
         401: { description: 'Unauthorized' }
       }
     }
@@ -320,6 +465,7 @@ export const procurementEndpoints = {
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Quotation ID' }
+      , { in: 'query', name: 'reviewNotes', schema: { type: 'string' }, description: 'Optional internal notes about acceptance', example: 'Best price and delivery time' }
       ],
       responses: {
         200: { description: 'Quotation details' },
@@ -346,39 +492,37 @@ export const procurementEndpoints = {
   '/vendor-quotations/{id}/accept': {
     post: {
       summary: 'Accept a vendor quotation',
-      description: '**Required Role:** PROC_MGR or PROC_OFF. Accepts a quotation and automatically creates a Purchase Order. Once accepted, status becomes ACCEPTED and cannot be modified.',
+      description:
+        '**Required Role:** PROC_MGR or PROC_OFF. Accepts the quotation, auto-rejects other bids on the same RFQ, builds PO lines from RFQ items (unit prices from the quote), creates the PO, and emails it to the vendor with PDF.',
       tags: ['Procurement - Vendor Quotations'],
       security: [{ bearerAuth: [] }],
       parameters: [
-        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Quotation ID' }
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Quotation ID' },
+        { in: 'query', name: 'reviewNotes', schema: { type: 'string' }, description: 'Optional acceptance notes' },
       ],
-      requestBody: {
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                reviewNotes: { type: 'string', example: 'Best price and delivery time' },
-                createPO: { type: 'boolean', default: true, description: 'Whether to automatically create a Purchase Order' },
-                createInvoice: { type: 'boolean', default: false, description: 'Whether to automatically create an invoice' }
-              }
-            }
-          }
-        }
-      },
       responses: {
-        200: { description: 'Quotation accepted successfully' },
+        200: { description: 'Quotation accepted; PO may be in response data' },
         400: { description: 'Bad request' },
         401: { description: 'Unauthorized' },
-        404: { description: 'Quotation not found' }
-      }
-    }
+        404: { description: 'Quotation not found' },
+      },
+    },
+  },
+  '/procurement/rfqs/{id}/award': {
+    post: {
+      summary: '[Deprecated] Award RFQ',
+      description: '**410 Gone** — use `POST /vendor-quotations/{id}/accept` and `/reject` instead.',
+      deprecated: true,
+      tags: ['Procurement - RFQ', 'Procurement — RFQ & Bidding (Suite 03)'],
+      security: [{ bearerAuth: [] }],
+      responses: { 410: { description: 'Use vendor-quotations accept/reject' } },
+    },
   },
   '/vendor-quotations/{id}/reject': {
     post: {
       summary: 'Reject a vendor quotation',
-      description: '**Required Role:** PROC_MGR or PROC_OFF. ⚠️ Once rejected, status becomes REJECTED and cannot be modified',
-      tags: ['Procurement - Vendor Quotations'],
+      description: '**Required Role:** PROC_MGR or PROC_OFF',
+      tags: ['Procurement - Vendor Quotations'],  
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Quotation ID' }
@@ -407,190 +551,11 @@ export const procurementEndpoints = {
     }
   },
 
-  // ========== PROCUREMENT - PURCHASE ORDERS ==========
-  '/procurement/purchase-orders': {
-    post: {
-      summary: 'Create a new purchase order',
-      description: '**Required Role:** PROC_MGR or PROC_OFF. Creates a PO from a quotation or requisition. Automatically created when quotation is accepted.',
-      tags: ['Procurement - Purchase Orders'],
-      security: [{ bearerAuth: [] }],
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              required: ['vendorId', 'items'],
-              properties: {
-                requisitionId: { type: 'string', description: 'Source requisition ID' },
-                quotationId: { type: 'string', description: 'Source quotation ID' },
-                vendorId: { type: 'string', description: 'Vendor ID' },
-                priority: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] },
-                currencyId: { type: 'string', description: 'Currency ID' },
-                expectedDeliveryDate: { type: 'string', format: 'date-time' },
-                shippingAddress: { type: 'string' },
-                paymentTerms: { type: 'string' },
-                deliveryTerms: { type: 'string' },
-                items: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    required: ['itemName', 'quantity', 'unitPrice'],
-                    properties: {
-                      itemName: { type: 'string' },
-                      description: { type: 'string' },
-                      quantity: { type: 'number' },
-                      unitPrice: { type: 'number' },
-                      unit: { type: 'string' },
-                      specifications: { type: 'object' }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      responses: {
-        201: { description: 'Purchase order created successfully' },
-        400: { description: 'Bad request' },
-        401: { description: 'Unauthorized' }
-      }
-    },
-    get: {
-      summary: 'Get all purchase orders',
-      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
-      tags: ['Procurement - Purchase Orders'],
-      security: [{ bearerAuth: [] }],
-      parameters: [
-        { in: 'query', name: 'status', schema: { type: 'string', enum: ['DRAFT', 'SENT', 'ACKNOWLEDGED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'CANCELLED'] } },
-        { in: 'query', name: 'vendorId', schema: { type: 'string' } },
-        { in: 'query', name: 'priority', schema: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] } },
-        { in: 'query', name: 'limit', schema: { type: 'integer', default: 50 } },
-        { in: 'query', name: 'offset', schema: { type: 'integer', default: 0 } }
-      ],
-      responses: {
-        200: { description: 'List of purchase orders' },
-        401: { description: 'Unauthorized' }
-      }
-    }
-  },
-  '/procurement/purchase-orders/{id}': {
-    get: {
-      summary: 'Get purchase order by ID',
-      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
-      tags: ['Procurement - Purchase Orders'],
-      security: [{ bearerAuth: [] }],
-      parameters: [
-        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Purchase Order ID' }
-      ],
-      responses: {
-        200: { description: 'Purchase order details' },
-        404: { description: 'Purchase order not found' },
-        401: { description: 'Unauthorized' }
-      }
-    }
-  },
-  '/procurement/purchase-orders/{id}/send': {
-    post: {
-      summary: 'Send purchase order to vendor via email',
-      description: '**Required Role:** PROC_MGR or PROC_OFF. ⚠️ Once sent, status becomes SENT and cannot be modified',
-      tags: ['Procurement - Purchase Orders'],
-      security: [{ bearerAuth: [] }],
-      parameters: [
-        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Purchase Order ID' }
-      ],
-      responses: {
-        200: { description: 'Purchase order sent successfully' },
-        400: { description: 'Bad request (PO already sent, vendor email missing, etc.)' },
-        401: { description: 'Unauthorized' },
-        404: { description: 'Purchase order not found' }
-      }
-    }
-  },
-  '/procurement/purchase-orders/{id}/convert-to-bill': {
-    post: {
-      summary: 'Convert a Purchase Order to a Creditor Bill (Invoice) in the Accounting module',
-      description: '**Required Role:** PROC_MGR, PROC_OFF, or ACCOUNTANT',
-      tags: ['Procurement - Purchase Orders'],
-      security: [{ bearerAuth: [] }],
-      parameters: [
-        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Purchase Order ID' }
-      ],
-      responses: {
-        200: { description: 'Purchase Order converted to Creditor Bill successfully' },
-        400: { description: 'Bad request (PO not found, conversion failed, etc.)' },
-        401: { description: 'Unauthorized' },
-        404: { description: 'Purchase order not found' }
-      }
-    }
-  },
-
-  // ========== PROCUREMENT - GRN ==========
-  '/procurement/goods-received-notes': {
-    post: {
-      summary: 'Create a goods received note',
-      description: '**Required Role:** PROC_MGR, PROC_OFF, BUYER, or WAREHOUSE_MANAGER. Records received quantities, accepted quantities, and rejected quantities. Updates PO item quantities.',
-      tags: ['Procurement - GRN'],
-      security: [{ bearerAuth: [] }],
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              required: ['purchaseOrderId', 'items'],
-              properties: {
-                purchaseOrderId: { type: 'string', description: 'Purchase order ID' },
-                items: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    required: ['purchaseOrderItemId', 'quantityReceived', 'quantityAccepted', 'quantityRejected', 'qualityStatus'],
-                    properties: {
-                      purchaseOrderItemId: { type: 'string' },
-                      quantityReceived: { type: 'number' },
-                      quantityAccepted: { type: 'number' },
-                      quantityRejected: { type: 'number' },
-                      qualityStatus: { type: 'string', enum: ['PENDING', 'PASSED', 'FAILED', 'CONDITIONAL'] },
-                      qualityNotes: { type: 'string' }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      responses: {
-        201: { description: 'Goods received note created successfully' },
-        400: { description: 'Bad request' },
-        401: { description: 'Unauthorized' }
-      }
-    }
-  },
-  '/procurement/goods-received-notes/{id}': {
-    get: {
-      summary: 'Get goods received note by ID',
-      description: '**Required Role:** PROC_MGR, PROC_OFF, BUYER, or WAREHOUSE_MANAGER',
-      tags: ['Procurement - GRN'],
-      security: [{ bearerAuth: [] }],
-      parameters: [
-        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'GRN ID' }
-      ],
-      responses: {
-        200: { description: 'GRN details' },
-        404: { description: 'GRN not found' },
-        401: { description: 'Unauthorized' }
-      }
-    }
-  },
-
   // ========== PROCUREMENT - INVOICES ==========
   '/procurement/invoices': {
     post: {
-      summary: 'Create a new procurement invoice (PUBLIC - vendors submit invoices)',
-      description: '**PUBLIC ENDPOINT** - Vendors submit invoices without authentication. This is the vendor\'s way to submit invoices.',
+      summary: 'Create a new procurement invoice (PUBLIC)',
+      description: '**PUBLIC ENDPOINT** - Vendors submit invoices without authentication.',
       tags: ['Procurement - Invoices'],
       requestBody: {
         required: true,
@@ -628,8 +593,7 @@ export const procurementEndpoints = {
       },
       responses: {
         201: { description: 'Procurement invoice created successfully' },
-        400: { description: 'Bad request' },
-        401: { description: 'Unauthorized' }
+        400: { description: 'Bad request' }
       }
     },
     get: {
@@ -650,34 +614,49 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/procurement/invoices/{id}': {
-    get: {
-      summary: 'Get procurement invoice by ID',
-      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
-      tags: ['Procurement - Invoices'],
-      security: [{ bearerAuth: [] }],
-      parameters: [
-        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Invoice ID' }
-      ],
-      responses: {
-        200: { description: 'Invoice details' },
-        404: { description: 'Invoice not found' },
-        401: { description: 'Unauthorized' }
-      }
-    }
-  },
   '/procurement/invoices/{id}/approve': {
     put: {
       summary: 'Approve a procurement invoice',
-      description: '**Required Role:** User\'s roleCode must match approval config roleCode (e.g., FIN_MGR, PROC_MGR). ⚠️ Once approved, status becomes APPROVED and cannot be modified. Accounting entries created on payment, not approval.',
+      description: '**Required Role:** User\'s roleCode must match approval config roleCode (e.g., FIN_MGR, PROC_MGR). ⚠️ Once approved, status becomes APPROVED and cannot be modified. Accounting entries created on payment, not approval. **Use this endpoint to set taxable status and tax rate/amount.**',
       tags: ['Procurement - Invoices'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Invoice ID' }
       ],
+      requestBody: {
+        required: false,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                isTaxable: {
+                  type: 'boolean',
+                  description: 'Whether the invoice is taxable. If true, VAT will be calculated automatically using the standard VAT rate (15.5%). If false, tax amount will be set to 0. If not provided, existing invoice tax amounts will be kept.',
+                  example: true
+                }
+              }
+            },
+            examples: {
+              taxable: {
+                summary: 'Taxable invoice (VAT calculated automatically at 15.5%)',
+                value: {
+                  isTaxable: true
+                }
+              },
+              nonTaxable: {
+                summary: 'Non-taxable invoice',
+                value: {
+                  isTaxable: false
+                }
+              }
+            }
+          }
+        }
+      },
       responses: {
         200: { description: 'Invoice approved successfully' },
-        400: { description: 'Bad request' },
+        400: { description: 'Bad request (invalid tax rate/amount, missing required fields, etc.)' },
         401: { description: 'Unauthorized' }
       }
     }
@@ -687,7 +666,7 @@ export const procurementEndpoints = {
   '/procurement/invoices/{id}/payment': {
     post: {
       summary: 'Process payment for an approved procurement invoice',
-      description: '**Required Role:** FIN_MGR, PROC_MGR, or ACCOUNTANT. Creates accounting entries: Expense Recognition (Dr. Expense, Dr. VAT, Cr. AP) and Payment Processing (Dr. AP, Cr. Bank/Cash)',
+      description: '**Required Role:** FIN_MGR, PROC_MGR, or ACCOUNTANT. Creates accounting entries: Expense Recognition (Dr. Expense, Dr. VAT if taxable, Cr. AP) and Payment Processing (Dr. AP, Cr. Bank/Cash). Supports full and partial payments. Taxable status is automatically determined from invoice tax amount. **Proof of payment file is required** (PDF or image).',
       tags: ['Procurement - Payments'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -696,16 +675,17 @@ export const procurementEndpoints = {
       requestBody: {
         required: true,
         content: {
-          'application/json': {
+          'multipart/form-data': {
             schema: {
               type: 'object',
-              required: ['paymentAmount', 'paymentMethod'],
+              required: ['paymentAmount', 'paymentMethod', 'proofOfPayment'],
               properties: {
-                paymentAmount: { type: 'number', description: 'Amount to pay (can be partial or full)', example: 5725.00 },
+                paymentAmount: { type: 'number', description: 'Amount to pay (can be partial or full). For partial payments, remaining balance will be tracked.', example: 5725.00 },
                 paymentDate: { type: 'string', format: 'date-time', description: 'Date of payment (defaults to current date)', example: '2025-10-14T10:00:00Z' },
                 paymentMethod: { type: 'string', enum: ['CASH', 'BANK'], description: 'Payment method', example: 'BANK' },
                 bankAccountId: { type: 'string', description: 'Specific bank account ID (e.g., ZIG account). If not provided, uses default.', example: 'cmg97iy320003ung8aau6zqbv' },
                 paymentReference: { type: 'string', description: 'Bank transaction reference number', example: 'TXN-12345-2025' },
+                proofOfPayment: { type: 'string', format: 'binary', description: 'Proof of payment document (PDF or image: JPG, PNG, GIF, WEBP). Required. Max size: 10MB.', example: 'Receipt or bank statement file' },
                 notes: { type: 'string', description: 'Additional payment notes', example: 'Paid via CBZ Bank' }
               }
             }
@@ -722,14 +702,166 @@ export const procurementEndpoints = {
   },
 
   // ========== PROCUREMENT - DASHBOARD ==========
+  '/procurement/payments': {
+    get: {
+      summary: 'Get all procurement invoice payments',
+      description: '**Required Role:** ANY user in Procurement or Finance department. Returns all paid and partially paid invoices with payment details including journal entries.',
+      tags: ['Procurement - Invoices'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'query', name: 'paymentStatus', schema: { type: 'string', enum: ['PAID', 'PARTIALLY_PAID'] }, description: 'Filter by payment status' },
+        { in: 'query', name: 'vendorId', schema: { type: 'string' }, description: 'Filter by vendor ID' },
+        { in: 'query', name: 'paymentMethod', schema: { type: 'string', enum: ['BANK', 'CASH'] }, description: 'Filter by payment method (BANK or CASH)' },
+        { in: 'query', name: 'startDate', schema: { type: 'string', format: 'date' }, description: 'Filter payments from this date (YYYY-MM-DD)' },
+        { in: 'query', name: 'endDate', schema: { type: 'string', format: 'date' }, description: 'Filter payments until this date (YYYY-MM-DD)' },
+        { in: 'query', name: 'limit', schema: { type: 'integer', default: 50 }, description: 'Number of items to return' },
+        { in: 'query', name: 'offset', schema: { type: 'integer', default: 0 }, description: 'Number of items to skip' }
+      ],
+      responses: {
+        200: { description: 'Payments retrieved successfully' },
+        401: { description: 'Unauthorized' },
+        500: { description: 'Internal server error' }
+      }
+    }
+  },
   '/procurement/dashboard': {
     get: {
-      summary: 'Get procurement dashboard data',
-      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
-      tags: ['Procurement - Dashboard'],
+      summary: 'Get procurement dashboard data with detailed information',
+      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). Includes **suite02InvesteeDrawdown** (SLA list) when authenticated. Recent requisitions respect Suite 02 fund visibility for FundManagers.',
+      tags: ['Procurement - Dashboard', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       responses: {
-        200: { description: 'Dashboard data retrieved successfully' },
+        200: { description: 'Dashboard data retrieved successfully. Returns detailed statistics, recent items, and analytics for requisitions, invoices, RFQs, quotations, payments, and top vendors.' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+
+  '/procurement/requisitions/investee': {
+    get: {
+      summary: 'List investee (portfolio-linked) purchase requisitions (Suite 02)',
+      description:
+        '**Scope:** CFO, SYSADMIN, PROC_MGR, ADMIN, CEO, FIN_MGR, CIO, COO, application admin (`isAdminViewer`), or active **FundManager**; FundManagers only see PRs for their fund(s). Others receive 403.',
+      tags: ['Investee Portal — Investment Drawdown'],
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: { description: 'List of investee PRs' },
+        401: { description: 'Unauthorized' },
+        403: { description: 'Not authorized for investee drawdown list' }
+      }
+    }
+  },
+  '/procurement/requisitions/investee/sla-breached': {
+    get: {
+      summary: 'Investee PRs pending VC executive review longer than 48 hours (Suite 02 SLA)',
+      description: 'Same fund scope as `/procurement/requisitions/investee`.',
+      tags: ['Investee Portal — Investment Drawdown'],
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: { description: 'SLA breach list' },
+        401: { description: 'Unauthorized' },
+        403: { description: 'Forbidden' }
+      }
+    }
+  },
+
+  '/applicant/procurement/drawdown': {
+    get: {
+      summary: 'Investee drawdown summary and PR ledger (Suite 02)',
+      description:
+        'Committed / reserved / available tranche amounts plus PR rows. **Auth:** applicant with portfolio company.',
+      tags: ['Investee Portal — Investment Drawdown', 'Applicant Portal'],
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: { description: 'Drawdown caps + requisitions + ledger fields' },
+        401: { description: 'Unauthorized' },
+        403: { description: 'Not an applicant' },
+        404: { description: 'No portfolio company' }
+      }
+    }
+  },
+  '/applicant/procurement/requisitions': {
+    post: {
+      summary: 'Create investee purchase requisition (draft) (Suite 02)',
+      description:
+        'Requires `drawdownRequestAmount`, `useOfFundsDocumentUrl`, and line items. Links to caller’s portfolio company.',
+      tags: ['Investee Portal — Investment Drawdown', 'Applicant Portal'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['title', 'items', 'drawdownRequestAmount', 'useOfFundsDocumentUrl'],
+              properties: {
+                title: { type: 'string' },
+                description: { type: 'string' },
+                priority: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] },
+                justification: { type: 'string' },
+                sourcingCategory: { type: 'string', example: 'IT_SERVICES' },
+                drawdownRequestAmount: { type: 'number', example: 5000 },
+                useOfFundsDocumentUrl: { type: 'string', format: 'uri' },
+                department: {
+                  type: 'string',
+                  enum: ['Finance', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT']
+                },
+                items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['itemName', 'quantity'],
+                    properties: {
+                      itemName: { type: 'string' },
+                      description: { type: 'string' },
+                      quantity: { type: 'number' },
+                      unit: { type: 'string' },
+                      specifications: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        201: { description: 'Draft PR created' },
+        400: { description: 'Validation error' },
+        401: { description: 'Unauthorized' },
+        403: { description: 'Not an applicant' },
+        404: { description: 'No portfolio company' }
+      }
+    }
+  },
+  '/applicant/procurement/requisitions/{id}/submit': {
+    put: {
+      summary: 'Submit investee PR for VC executive review (Suite 02)',
+      description: 'Investee portal user for the portfolio company only. Sets PENDING_VC_EXECUTIVE_REVIEW.',
+      tags: ['Investee Portal — Investment Drawdown', 'Applicant Portal'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Requisition ID' }
+      ],
+      responses: {
+        200: { description: 'Submitted' },
+        400: { description: 'Validation / tranche exceeded' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/applicant/procurement/requisitions/{id}/cancel': {
+    post: {
+      summary: 'Cancel investee PR before RFQ award — returns to DRAFT (Suite 02)',
+      description: 'Allowed for DRAFT or PENDING_VC_EXECUTIVE_REVIEW only.',
+      tags: ['Investee Portal — Investment Drawdown', 'Applicant Portal'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Requisition ID' }
+      ],
+      responses: {
+        200: { description: 'Returned to DRAFT' },
+        400: { description: 'Invalid state' },
         401: { description: 'Unauthorized' }
       }
     }
@@ -744,6 +876,58 @@ export const procurementEndpoints = {
       security: [{ bearerAuth: [] }],
       responses: {
         200: { description: 'Procurement approval configuration retrieved successfully' },
+        401: { description: 'Unauthorized' }
+      }
+    },
+    post: {
+      summary: 'Create the procurement approval configuration',
+      description: '**Required Role:** ADMIN. System only allows one config—use this once to seed it. Setting `department` ties the workflow to that department.',
+      tags: ['Procurement - Approval Configuration'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['name', 'stages'],
+              properties: {
+                name: { type: 'string', description: 'Configuration name' },
+                description: { type: 'string', description: 'Configuration description' },
+                department: { type: 'string', enum: ['Finance', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'], description: 'Department-specific config (null for shared/default)' },
+                stages: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['stageType', 'steps'],
+                    properties: {
+                      stageType: { type: 'string', enum: ['PURCHASE_REQUISITION', 'PURCHASE_ORDER', 'INVOICE', 'GRN'] },
+                      steps: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          required: ['stepNumber', 'stepName', 'stepType'],
+                          properties: {
+                            stepNumber: { type: 'integer', description: 'Step number (must be sequential)' },
+                            stepName: { type: 'string', description: 'Step name' },
+                            stepType: { type: 'string', enum: ['USER', 'ROLE', 'DEPARTMENT', 'AMOUNT_THRESHOLD'] },
+                            roleCode: { type: 'string', description: 'Hardcoded role code (PROC_MGR, FIN_MGR, etc.) when stepType is ROLE' },
+                            isRequired: { type: 'boolean', default: true },
+                            approvalOrder: { type: 'string', enum: ['SEQUENTIAL', 'PARALLEL'], default: 'SEQUENTIAL' }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        201: { description: 'Procurement approval configuration created successfully' },
+        400: { description: 'Bad request / config already exists' },
         401: { description: 'Unauthorized' }
       }
     }
@@ -807,4 +991,6 @@ export const procurementEndpoints = {
     }
   }
 };
+
+
 

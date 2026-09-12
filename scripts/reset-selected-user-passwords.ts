@@ -7,8 +7,8 @@ interface PasswordResetTarget {
 }
 
 const targets: PasswordResetTarget[] = [
-  { email: "blessingmwalein+10@gmail.com", newPassword: "bless123" },
-  { email: "logixvine@gmail.com", newPassword: "log123" }
+  { email: "proc.officer@testnvccz.com", newPassword: "123pass" },
+  { email: "blessingmwalein+50@gmail.com", newPassword: "123pass" }
 ];
 
 async function resetPassword({ email, newPassword }: PasswordResetTarget) {
@@ -54,6 +54,11 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
+
+
+
+
+
 
 
 

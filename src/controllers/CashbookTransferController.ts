@@ -2,6 +2,7 @@
 import { Request, Response } from 'express';
 import { CashbookTransferService } from '../services/CashbookTransferService';
 import { ResponseHelper } from '../utils/responseHelper';
+import { parseDate } from "../utils/dateHelper";
 
 interface AuthRequest extends Request {
   user?: {
@@ -100,8 +101,9 @@ export class CashbookTransferController {
       const limit = parseInt(req.query.limit as string) || 50;
       const fromBankId = req.query.fromBankId as string;
       const toBankId = req.query.toBankId as string;
-      const dateFrom = req.query.dateFrom ? new Date(req.query.dateFrom as string) : undefined;
-      const dateTo = req.query.dateTo ? new Date(req.query.dateTo as string) : undefined;
+      const dateFrom = req.query.dateFrom ? parseDate(req.query.dateFrom as string) : undefined;
+      const dateTo = req.query.dateTo ? parseDate(req.query.dateTo as string) : undefined;
+      const currencyId = req.query.currencyId as string | undefined;
       
       if (!userId) {
         return ResponseHelper.unauthorized(res, 'User not authenticated');
@@ -114,7 +116,8 @@ export class CashbookTransferController {
         fromBankId, 
         toBankId, 
         dateFrom, 
-        dateTo
+        dateTo,
+        currencyId
       );
       
       if (result.success) {
@@ -135,8 +138,8 @@ export class CashbookTransferController {
   static async getTransferSummary(req: Request, res: Response): Promise<void> {
     try {
       const userId = (req as AuthRequest).user?.id;
-      const dateFrom = req.query.dateFrom ? new Date(req.query.dateFrom as string) : undefined;
-      const dateTo = req.query.dateTo ? new Date(req.query.dateTo as string) : undefined;
+      const dateFrom = req.query.dateFrom ? parseDate(req.query.dateFrom as string) : undefined;
+      const dateTo = req.query.dateTo ? parseDate(req.query.dateTo as string) : undefined;
       
       if (!userId) {
         return ResponseHelper.unauthorized(res, 'User not authenticated');

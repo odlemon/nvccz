@@ -1,9 +1,27 @@
 // @ts-nocheck
-import { PrismaClient, JournalEntry, JournalEntryLine, ChartOfAccounts } from "@prisma/client";
+import { PrismaClient, Prisma, JournalEntry, JournalEntryLine, ChartOfAccounts } from "@prisma/client";
 import { prisma } from "../utils/database";
+import {
+  prismaCashbookEntrySnapshotSelect,
+  prismaExpenseSnapshotSelect,
+  prismaInvoiceSnapshotSelect,
+  prismaPurchaseInvoiceSnapshotSelect,
+  prismaRevenueSnapshotSelect
+} from "../config/accountingSnapshotResponseSelect";
 import VATService from "./VATService";
 import { Decimal } from "@prisma/client/runtime/library";
 import AuditService from "./AuditService";
+import {
+  assignNextAuditIdAndCreateJournal,
+  createJournalEntryWithAuditSequence,
+} from "./AuditTrailSequenceService";
+import {
+  computeManualJournalZigEquivalence,
+  hasMixedRecordedCurrencies,
+  zigTotalsBalanced,
+  type ZigLineBreakdown,
+} from "../utils/manualJournalZigEquivalence";
+import PeriodLockService from "./PeriodLockService";
 
 export interface CreateExpenseJournalEntryParams {
   vendorId: string;
@@ -30,8 +48,15 @@ export interface CreateManualJournalEntryParams {
     debitAmount: number;
     creditAmount: number;
     description: string;
+    /** When set, amounts on this line are in this currency (multi-currency manual journals). */
+    currencyId?: string;
   }>;
   createdById: string;
+  /** Marks this journal as a Group Consolidation elimination entry (see ConsolidatedReportService.getConsolidationSummary). Manual tagging only — no automated matching engine exists. */
+  isEliminationEntry?: boolean;
+  /** Optional: for system audit log (user and IP) */
+  ipAddress?: string | null;
+  userAgent?: string | null;
 }
 
 export interface CreateInvoiceJournalEntryParams {
@@ -45,6 +70,8 @@ export interface CreateInvoiceJournalEntryParams {
   invoiceNumber?: string;
   isTaxable: boolean;
   createdById: string;
+  /** When set, skips Zimrate in Prisma middleware for this journal entry create. */
+  usdZwgRateSnapshot?: number;
 }
 
 export interface CreateInvoicePaymentJournalEntryParams {
@@ -57,6 +84,8 @@ export interface CreateInvoicePaymentJournalEntryParams {
   description: string;
   paymentMethod: string;
   createdById: string;
+  /** When set, Dr this bank’s GL (must match currencyId). Otherwise first active bank in that currency. */
+  paymentBankId?: string;
 }
 
 export interface CreateRevenueJournalEntryParams {
@@ -71,6 +100,8 @@ export interface CreateRevenueJournalEntryParams {
   isTaxable: boolean;
   paymentMethod?: "CASH" | "BANK" | "CREDIT";
   createdById: string;
+  /** Dr this bank’s GL for cash/bank sales (must match currencyId). */
+  paymentBankId?: string;
 }
 
 export interface CreateVendorPaymentJournalEntryParams {
@@ -93,6 +124,25 @@ export interface JournalEntryResult {
   journalEntryLines: JournalEntryLine[];
 }
 
+/** Balanced JE line summary for APIs (same currency on all lines — no implicit USD/ZWL 1:1). */
+export type DoubleEntryLineSummary = {
+  accountNo: string;
+  accountName: string;
+  side: "DR" | "CR";
+  amount: number;
+  currencyCode: string;
+};
+
+/** Thrown when the API refuses to change amounts or lines on a posted (or voided) journal — use a reversing entry instead. */
+export class JournalEntryImmutableError extends Error {
+  constructor() {
+    super(
+      "Posted and voided journal entries cannot be modified. Create a new reversing journal entry to correct amounts; the audit trail is preserved."
+    );
+    this.name = "JournalEntryImmutableError";
+  }
+}
+
 export class JournalEntryService {
   /**
    * Generate a unique reference number for journal entries
@@ -101,6 +151,219 @@ export class JournalEntryService {
     const timestamp = Date.now();
     const random = Math.floor(Math.random() * 1000);
     return `JE-${timestamp}-${random}`;
+  }
+
+  private static async validateManualJournalEconomics(
+    currencyId: string,
+    journalEntryLines: CreateManualJournalEntryParams["journalEntryLines"]
+  ): Promise<{
+    totalAmountForHeader: Decimal;
+    zigEquivalence?: { zigDebitTotal: string; zigCreditTotal: string; lines: ZigLineBreakdown[] };
+  }> {
+    const totalDebits = journalEntryLines.reduce((sum, line) => sum + line.debitAmount, 0);
+    const totalCredits = journalEntryLines.reduce((sum, line) => sum + line.creditAmount, 0);
+
+    const currencyIds = [
+      ...new Set(
+        [currencyId, ...journalEntryLines.map((l) => l.currencyId).filter(Boolean) as string[]]
+      ),
+    ];
+    const currencies = await prisma.currency.findMany({
+      where: { id: { in: currencyIds } },
+      select: { id: true, code: true },
+    });
+    const idToCode = new Map(currencies.map((c) => [c.id, c.code]));
+
+    if (!idToCode.has(currencyId)) {
+      throw new Error("Invalid journal currencyId");
+    }
+    for (const line of journalEntryLines) {
+      if (line.currencyId && !idToCode.has(line.currencyId)) {
+        throw new Error(`Invalid journal line currencyId: ${line.currencyId}`);
+      }
+    }
+
+    const mixed = hasMixedRecordedCurrencies(currencyId, journalEntryLines, idToCode);
+    let zigEquivalence:
+      | { zigDebitTotal: string; zigCreditTotal: string; lines: ZigLineBreakdown[] }
+      | undefined;
+
+    if (mixed) {
+      const zig = await computeManualJournalZigEquivalence(
+        prisma,
+        currencyId,
+        journalEntryLines,
+        idToCode
+      );
+      if (!zigTotalsBalanced(zig.zigDebitTotal, zig.zigCreditTotal)) {
+        throw new Error(
+          `ZiG debits and credits must balance (tolerance 0.05). ZiG DR ${zig.zigDebitTotal.toFixed(3)} vs CR ${zig.zigCreditTotal.toFixed(3)}`
+        );
+      }
+      zigEquivalence = {
+        zigDebitTotal: zig.zigDebitTotal.toFixed(3),
+        zigCreditTotal: zig.zigCreditTotal.toFixed(3),
+        lines: zig.lines,
+      };
+    } else if (Math.abs(totalDebits - totalCredits) > 0.01) {
+      throw new Error("Total debits must equal total credits");
+    }
+
+    const totalAmountForHeader = mixed
+      ? (zigEquivalence ? new Decimal(zigEquivalence.zigDebitTotal) : new Decimal(0))
+      : new Decimal(totalDebits);
+
+    return { totalAmountForHeader, zigEquivalence };
+  }
+
+  private static async assertNoPostingToReportingBuckets(
+    chartOfAccountIds: string[],
+    context: string
+  ): Promise<void> {
+    const ids = [...new Set(chartOfAccountIds.filter(Boolean))];
+    if (ids.length === 0) return;
+    const accounts = await prisma.chartOfAccounts.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, accountNo: true, accountName: true },
+    });
+    const bad = accounts.filter((a) => a.accountNo === "1000");
+    if (bad.length > 0) {
+      const a = bad[0];
+      throw new Error(
+        `${context}: ${a.accountNo} ${a.accountName} is a reporting bucket and cannot be used as a posting account. Select a specific bank/cash GL instead.`
+      );
+    }
+  }
+
+  /**
+   * Replace header and lines of a **PENDING** manual journal only.
+   * Posted/voided journals throw {@link JournalEntryImmutableError} (ledger immutability).
+   */
+  static async updatePendingJournalEntry(
+    journalEntryId: string,
+    params: CreateManualJournalEntryParams,
+    performedById?: string,
+    ipAddress?: string | null,
+    userAgent?: string | null
+  ): Promise<{
+    success: true;
+    journalEntry: JournalEntry;
+    journalEntryLines: JournalEntryLine[];
+    zigEquivalence?: { zigDebitTotal: string; zigCreditTotal: string; lines: ZigLineBreakdown[] };
+  }> {
+    const existing = await prisma.journalEntry.findUnique({
+      where: { id: journalEntryId },
+      include: { journalEntryLines: true },
+    });
+
+    if (!existing) {
+      throw new Error("Journal entry not found");
+    }
+    if (existing.status === "POSTED" || existing.status === "VOID") {
+      throw new JournalEntryImmutableError();
+    }
+    if (existing.status !== "PENDING") {
+      throw new Error(`Cannot update journal entry with status ${existing.status}`);
+    }
+
+    const {
+      transactionDate,
+      referenceNumber,
+      description,
+      currencyId,
+      journalEntryLines,
+      createdById,
+    } = params;
+
+    await this.assertNoPostingToReportingBuckets(
+      journalEntryLines.map((l) => l.chartOfAccountId),
+      "Manual journal update rejected"
+    );
+
+    if (referenceNumber !== existing.referenceNumber) {
+      const clash = await prisma.journalEntry.findUnique({ where: { referenceNumber } });
+      if (clash && clash.id !== journalEntryId) {
+        throw new Error("Reference number already in use");
+      }
+    }
+
+    const { totalAmountForHeader, zigEquivalence } = await this.validateManualJournalEconomics(
+      currencyId,
+      journalEntryLines
+    );
+
+    const beforeSnapshot = {
+      journalEntry: existing,
+      journalEntryLines: existing.journalEntryLines,
+    };
+
+    const result = await prisma.$transaction(
+      async (tx) => {
+        await tx.journalEntryLine.deleteMany({ where: { journalEntryId } });
+        const journalEntry = await tx.journalEntry.update({
+          where: { id: journalEntryId },
+          data: {
+            transactionDate,
+            referenceNumber,
+            description,
+            totalAmount: totalAmountForHeader,
+            currencyId,
+            updatedAt: new Date(),
+          },
+        });
+        const createdLines: JournalEntryLine[] = [];
+        for (const line of journalEntryLines) {
+          const journalEntryLine = await tx.journalEntryLine.create({
+            data: {
+              journalEntryId,
+              chartOfAccountId: line.chartOfAccountId,
+              debitAmount: new Decimal(line.debitAmount),
+              creditAmount: new Decimal(line.creditAmount),
+              description: line.description,
+              createdAt: new Date(),
+            },
+          });
+          createdLines.push(journalEntryLine);
+        }
+        return { journalEntry, journalEntryLines: createdLines };
+      },
+      { maxWait: 60_000, timeout: 60_000 }
+    );
+
+    for (let i = 0; i < journalEntryLines.length; i++) {
+      const line = journalEntryLines[i];
+      const row = result.journalEntryLines[i];
+      if (line.currencyId && row?.id) {
+        await prisma.$executeRaw`
+          UPDATE journal_entry_lines
+          SET recorded_currency_id = ${line.currencyId}
+          WHERE id = ${row.id}
+        `;
+      }
+    }
+
+    const finalLines = result.journalEntryLines.map((row, i) => ({
+      ...row,
+      recordedCurrencyId: journalEntryLines[i].currencyId ?? null,
+    })) as JournalEntryLine[];
+
+    await AuditService.log({
+      userId: performedById ?? createdById,
+      action: "UPDATE",
+      entityType: "JournalEntry",
+      entityId: journalEntryId,
+      oldValues: beforeSnapshot,
+      newValues: { journalEntry: result.journalEntry, journalEntryLines: finalLines },
+      ipAddress: ipAddress ?? undefined,
+      userAgent: userAgent ?? undefined,
+    });
+
+    return {
+      success: true,
+      journalEntry: result.journalEntry,
+      journalEntryLines: finalLines,
+      ...(zigEquivalence ? { zigEquivalence } : {}),
+    };
   }
 
   /**
@@ -114,51 +377,94 @@ export class JournalEntryService {
         description,
         currencyId,
         journalEntryLines,
-        createdById
+        createdById,
+        isEliminationEntry,
+        ipAddress,
+        userAgent,
       } = params;
 
-      // Validate that debits equal credits
-      const totalDebits = journalEntryLines.reduce((sum, line) => sum + line.debitAmount, 0);
-      const totalCredits = journalEntryLines.reduce((sum, line) => sum + line.creditAmount, 0);
+      await this.assertNoPostingToReportingBuckets(
+        journalEntryLines.map((l) => l.chartOfAccountId),
+        "Manual journal rejected"
+      );
 
-      if (Math.abs(totalDebits - totalCredits) > 0.01) {
-        throw new Error("Total debits must equal total credits");
-      }
+      const { totalAmountForHeader, zigEquivalence } = await this.validateManualJournalEconomics(
+        currencyId,
+        journalEntryLines
+      );
 
-      // Create the journal entry
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
+      const result = await prisma.$transaction(
+        async (tx) => {
+        const journalEntry = await assignNextAuditIdAndCreateJournal(tx as Prisma.TransactionClient, {
           transactionDate,
           referenceNumber,
           description,
-          totalAmount: new Decimal(totalDebits),
+          totalAmount: totalAmountForHeader,
           currencyId,
           status: "PENDING",
-          createdById
-        }
-      });
-
-      // Create journal entry lines
-      const createdLines = [];
-      for (const line of journalEntryLines) {
-        const journalEntryLine = await prisma.journalEntryLine.create({
-          data: {
-            journalEntryId: journalEntry.id,
-            chartOfAccountId: line.chartOfAccountId,
-            debitAmount: new Decimal(line.debitAmount),
-            creditAmount: new Decimal(line.creditAmount),
-            description: line.description,
-            createdAt: new Date()
-          }
+          createdById,
+          ...(isEliminationEntry ? { isEliminationEntry: true } : {}),
         });
-        createdLines.push(journalEntryLine);
+
+        const createdLines = [];
+        for (const line of journalEntryLines) {
+          const journalEntryLine = await tx.journalEntryLine.create({
+            data: {
+              journalEntryId: journalEntry.id,
+              chartOfAccountId: line.chartOfAccountId,
+              debitAmount: new Decimal(line.debitAmount),
+              creditAmount: new Decimal(line.creditAmount),
+              description: line.description,
+              createdAt: new Date()
+            }
+          });
+          createdLines.push(journalEntryLine);
+        }
+        return { journalEntry, journalEntryLines: createdLines };
+      },
+        { maxWait: 60_000, timeout: 60_000 }
+      );
+
+      for (let i = 0; i < journalEntryLines.length; i++) {
+        const line = journalEntryLines[i];
+        const row = result.journalEntryLines[i];
+        if (line.currencyId && row?.id) {
+          await prisma.$executeRaw`
+            UPDATE journal_entry_lines
+            SET recorded_currency_id = ${line.currencyId}
+            WHERE id = ${row.id}
+          `;
+        }
       }
+      const createdLines = result.journalEntryLines.map((row, i) => ({
+        ...row,
+        recordedCurrencyId: journalEntryLines[i].currencyId ?? null,
+      })) as any[];
+
+      const { journalEntry } = result;
+
+      // System audit log: CREATE with user and IP when provided
+      await AuditService.log({
+        userId: createdById,
+        action: "CREATE",
+        entityType: "JournalEntry",
+        entityId: journalEntry.id,
+        newValues: {
+          id: journalEntry.id,
+          referenceNumber: journalEntry.referenceNumber,
+          description: journalEntry.description,
+          createdById: journalEntry.createdById
+        },
+        ipAddress: ipAddress ?? undefined,
+        userAgent: userAgent ?? undefined,
+      });
 
       return {
         success: true,
         journalEntry,
         journalEntryLines: createdLines,
-        message: "Manual journal entry created successfully"
+        message: "Manual journal entry created successfully",
+        ...(zigEquivalence ? { zigEquivalence } : {}),
       };
     } catch (error: any) {
       console.error("Error creating manual journal entry:", error);
@@ -193,17 +499,19 @@ export class JournalEntryService {
       const vatInputAccount = await this.getVATInputAccount();
       const creditAccount = await this.getCreditAccount(paymentMethod);
 
-      // Create the journal entry
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate,
-          referenceNumber: JournalEntryService.generateReferenceNumber(),
-          description: `Expense: ${description}`,
-          totalAmount: new Decimal(totalAmount),
-          currencyId,
-          status: "PENDING", // Default to PENDING, must be posted manually
-          createdById
-        }
+      // Generate unique reference number with timestamp and receipt number
+      const timestamp = Date.now();
+      const receiptSuffix = receiptNumber ? `-${receiptNumber.substring(0, 20)}` : '';
+      const referenceNumber = `EXP-${timestamp}${receiptSuffix}`;
+      
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate,
+        referenceNumber: referenceNumber,
+        description: `Expense: ${description}`,
+        totalAmount: new Decimal(totalAmount),
+        currencyId,
+        status: "PENDING",
+        createdById
       });
 
       // Audit: CREATE JournalEntry (Expense)
@@ -346,21 +654,21 @@ export class JournalEntryService {
       }
 
       console.log("\n📋 Step 3: Creating Journal Entry Header...");
-      const referenceNumber = `VENDOR-PAY-${invoiceNumber}`;
+      // Generate unique reference number with timestamp to avoid conflicts
+      const timestamp = Date.now();
+      const invoiceSuffix = invoiceNumber ? `-${invoiceNumber.substring(0, 20)}` : '';
+      const referenceNumber = `VENDOR-PAY-${timestamp}${invoiceSuffix}`;
       console.log(`   Reference: ${referenceNumber}`);
       console.log(`   Status: POSTED (immediately posted)`);
       
-      // Create the journal entry
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate,
-          referenceNumber,
-          description: description || `Payment to vendor for invoice ${invoiceNumber}`,
-          totalAmount: new Decimal(paymentAmount),
-          currencyId,
-          status: "POSTED", // Payment entries are immediately posted
-          createdById
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate,
+        referenceNumber,
+        description: description || `Payment to vendor for invoice ${invoiceNumber}`,
+        totalAmount: new Decimal(paymentAmount),
+        currencyId,
+        status: "POSTED",
+        createdById
       });
       console.log(`✅ Journal Entry Created: ID = ${journalEntry.id}`);
 
@@ -489,17 +797,14 @@ export class JournalEntryService {
       const vatInputAccount = await this.getVATInputAccount();
       const creditAccount = await this.getCreditAccount(paymentMethod);
 
-      // Create the reversal journal entry
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate,
-          referenceNumber: JournalEntryService.generateReferenceNumber(),
-          description: `REVERSAL: ${description}`,
-          totalAmount: new Decimal(totalAmount),
-          currencyId,
-          status: "PENDING", // Default to PENDING, must be posted manually
-          createdById
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate,
+        referenceNumber: JournalEntryService.generateReferenceNumber(),
+        description: `REVERSAL: ${description}`,
+        totalAmount: new Decimal(totalAmount),
+        currencyId,
+        status: "PENDING",
+        createdById
       });
 
       // Create reversal journal entry lines (opposite of original)
@@ -577,24 +882,26 @@ export class JournalEntryService {
         description,
         isTaxable,
         paymentMethod = "BANK",
-        createdById
+        createdById,
+        paymentBankId,
       } = params;
 
       const revenueAccount = await this.getRevenueAccount(categoryId);
       const vatOutputAccount = await this.getVATOutputAccount();
-      const debitAccount = await this.getDebitAccount(paymentMethod);
+      const debitAccount = await this.resolveProceedsDebitAccount(
+        paymentMethod,
+        currencyId,
+        paymentBankId
+      );
 
-      // Create the reversal journal entry
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate,
-          referenceNumber: JournalEntryService.generateReferenceNumber(),
-          description: `REVERSAL: ${description}`,
-          totalAmount: new Decimal(totalAmount),
-          currencyId,
-          status: "PENDING", // Default to PENDING, must be posted manually
-          createdById
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate,
+        referenceNumber: JournalEntryService.generateReferenceNumber(),
+        description: `REVERSAL: ${description}`,
+        totalAmount: new Decimal(totalAmount),
+        currencyId,
+        status: "PENDING",
+        createdById
       });
 
       // Create reversal journal entry lines (opposite of original)
@@ -609,7 +916,8 @@ export class JournalEntryService {
             debitAmount: new Decimal(amount),
             creditAmount: new Decimal(0),
             description: `REVERSAL - Revenue: ${description}`,
-            vatAmount: new Decimal(0)
+            vatAmount: new Decimal(0),
+            recordedCurrencyId: currencyId,
           }
         })
       );
@@ -624,7 +932,8 @@ export class JournalEntryService {
               debitAmount: new Decimal(vatAmount),
               creditAmount: new Decimal(0),
               description: `REVERSAL - VAT Output: ${description}`,
-              vatAmount: new Decimal(vatAmount)
+              vatAmount: new Decimal(vatAmount),
+              recordedCurrencyId: currencyId,
             }
           })
         );
@@ -639,7 +948,8 @@ export class JournalEntryService {
             debitAmount: new Decimal(0),
             creditAmount: new Decimal(totalAmount),
             description: `REVERSAL - ${debitAccount.accountName}: ${description}`,
-            vatAmount: new Decimal(0)
+            vatAmount: new Decimal(0),
+            recordedCurrencyId: currencyId,
           }
         })
       );
@@ -667,6 +977,7 @@ export class JournalEntryService {
       "Travel and Accommodation": "5070",  // Account 5070: Travel Expense
       "Operations": "5090",                 // Account 5090: Other Operating Expenses
       "Branding and Marketing": "5060",     // Account 5060: Marketing Expense
+      "Marketing": "5060",                  // Account 5060: Marketing Expense (alias)
       "Office Equipment": "1100"            // Account 1100: Office Equipment (Fixed Asset)
     };
 
@@ -746,14 +1057,20 @@ export class JournalEntryService {
    * Get the Cash Account
    */
   private static async getCashAccount(): Promise<ChartOfAccounts> {
-    const cashAccount = await prisma.chartOfAccounts.findFirst({
-      where: {
-        accountName: {
-          contains: "Cash"
+    // Prefer explicit petty cash / cash-on-hand accounts and NEVER auto-select 1000 (reporting bucket).
+    const cashAccount =
+      (await prisma.chartOfAccounts.findFirst({
+        where: { accountNo: { in: ["1010", "1030", "CASH-001"] }, isActive: true },
+        orderBy: { accountNo: "asc" },
+      })) ??
+      (await prisma.chartOfAccounts.findFirst({
+        where: {
+          isActive: true,
+          accountNo: { not: "1000" },
+          OR: [{ accountName: { contains: "Petty" } }, { accountName: { contains: "Cash" } }],
         },
-        isActive: true
-      }
-    });
+        orderBy: { accountNo: "asc" },
+      }));
 
     if (!cashAccount) {
       throw new Error("No Cash Account found in chart of accounts");
@@ -783,23 +1100,35 @@ export class JournalEntryService {
   }
 
   /**
-   * Get the Bank Account (use Cash and Cash Equivalents since it includes bank balances)
+   * Get a Bank posting account (bank-linked GL if available; never use 1000 reporting bucket).
    */
   private static async getBankAccount(): Promise<ChartOfAccounts> {
-    const bankAccount = await prisma.chartOfAccounts.findFirst({
-      where: {
-        accountName: {
-          contains: "Cash and Cash Equivalents"
-        },
-        isActive: true
-      }
+    const bank = await prisma.bank.findFirst({
+      where: { isActive: true, glAccountId: { not: null } },
+      orderBy: { createdAt: "asc" },
+      select: { glAccountId: true },
     });
-
-    if (!bankAccount) {
-      throw new Error("No Cash and Cash Equivalents account found in chart of accounts");
+    if (bank?.glAccountId) {
+      const coa = await prisma.chartOfAccounts.findUnique({ where: { id: bank.glAccountId } });
+      if (coa) return coa;
     }
 
-    return bankAccount;
+    const fallback = await prisma.chartOfAccounts.findFirst({
+      where: {
+        accountNo: { not: "1000" },
+        OR: [
+          { accountNo: "1100" },
+          { accountName: { contains: "Bank" } },
+          { accountName: { contains: "Cash" } }
+        ],
+        isActive: true,
+      },
+      orderBy: { accountNo: "asc" },
+    });
+    if (!fallback) {
+      throw new Error("No bank/cash account found in chart of accounts (and no active bank.glAccountId set).");
+    }
+    return fallback;
   }
 
   /**
@@ -828,8 +1157,103 @@ export class JournalEntryService {
   static validateJournalEntryBalance(journalEntryLines: JournalEntryLine[]): boolean {
     const totalDebits = journalEntryLines.reduce((sum, line) => sum + parseFloat(line.debitAmount.toString()), 0);
     const totalCredits = journalEntryLines.reduce((sum, line) => sum + parseFloat(line.creditAmount.toString()), 0);
-    
-    return Math.abs(totalDebits - totalCredits) < 0.01; // Allow for small rounding differences
+
+    return Math.abs(totalDebits - totalCredits) < 0.0001; // Sub-cent OK when lines use DECIMAL(15,3)
+  }
+
+  /** API-friendly balanced lines (one currency code for the whole entry). */
+  static async summarizeDoubleEntryLines(
+    result: JournalEntryResult,
+    currencyCode: string
+  ): Promise<DoubleEntryLineSummary[]> {
+    const ids = [...new Set(result.journalEntryLines.map((l) => l.chartOfAccountId))];
+    if (ids.length === 0) return [];
+    const accounts = await prisma.chartOfAccounts.findMany({ where: { id: { in: ids } } });
+    const byId = new Map(accounts.map((a) => [a.id, a]));
+    return result.journalEntryLines.map((l) => {
+      const coa = byId.get(l.chartOfAccountId);
+      const dr = Number(l.debitAmount);
+      const cr = Number(l.creditAmount);
+      return {
+        accountNo: coa?.accountNo ?? "",
+        accountName: coa?.accountName ?? "",
+        side: dr > 0.0001 ? "DR" : "CR",
+        amount: dr > 0.0001 ? dr : cr,
+        currencyCode,
+      };
+    });
+  }
+
+  /**
+   * Cash/bank receipt GL in the same currency as the sale (avoids debiting a USD GL for a ZWL/ZWG amount).
+   */
+  private static async resolveProceedsDebitAccount(
+    paymentMethod: string,
+    currencyId: string,
+    paymentBankId?: string
+  ): Promise<ChartOfAccounts> {
+    if (paymentMethod === "CREDIT") {
+      return await this.getAccountsReceivableAccount();
+    }
+
+    if (paymentBankId) {
+      const bank = await prisma.bank.findUnique({
+        where: { id: paymentBankId },
+        include: { glAccount: true },
+      });
+      if (!bank?.glAccount) {
+        throw new Error("paymentBankId: bank not found or has no GL account linked.");
+      }
+      if (bank.currencyId !== currencyId) {
+        const exp = await prisma.currency.findUnique({
+          where: { id: currencyId },
+          select: { code: true },
+        });
+        throw new Error(
+          `paymentBankId: bank currency must match transaction currency (${exp?.code ?? currencyId}).`
+        );
+      }
+      return bank.glAccount;
+    }
+
+    const baseWhere = {
+      isActive: true,
+      currencyId,
+      glAccountId: { not: null },
+    };
+
+    if (paymentMethod === "CASH") {
+      const petty = await prisma.bank.findFirst({
+        where: {
+          ...baseWhere,
+          OR: [
+            { name: { contains: "Petty" } },
+            { name: { contains: "petty" } },
+            { name: { contains: "Cash" } },
+            { name: { contains: "cash" } },
+          ],
+        },
+        include: { glAccount: true },
+        orderBy: { name: "asc" },
+      });
+      if (petty?.glAccount) return petty.glAccount;
+    }
+
+    const anyBank = await prisma.bank.findFirst({
+      where: baseWhere,
+      include: { glAccount: true },
+      orderBy: { name: "asc" },
+    });
+    if (anyBank?.glAccount) return anyBank.glAccount;
+
+    const cur = await prisma.currency.findUnique({
+      where: { id: currencyId },
+      select: { code: true },
+    });
+    throw new Error(
+      `No bank with GL in currency ${cur?.code ?? currencyId}. ` +
+        `Configure a bank in this currency (or pass paymentBankId) so the cash/bank debit matches the sale — not a default chart account in another currency.`
+    );
   }
 
   /**
@@ -840,6 +1264,9 @@ export class JournalEntryService {
     const journalEntry = await prisma.journalEntry.findUnique({
       where: { id: journalEntryId },
       include: {
+        createdBy: {
+          select: { id: true, email: true, firstName: true, lastName: true }
+        },
         journalEntryLines: {
           include: {
             chartOfAccount: {
@@ -865,6 +1292,7 @@ export class JournalEntryService {
             status: true,
             paymentMethod: true,
             isTaxable: true,
+            ...prismaExpenseSnapshotSelect,
             vendor: {
               select: {
                 id: true,
@@ -891,6 +1319,7 @@ export class JournalEntryService {
             status: true,
             paymentMethod: true,
             isTaxable: true,
+            ...prismaRevenueSnapshotSelect,
             source: {
               select: {
                 id: true,
@@ -917,6 +1346,7 @@ export class JournalEntryService {
             status: true,
             isTaxable: true,
             paymentMethod: true,
+            ...prismaInvoiceSnapshotSelect,
             customer: {
               select: {
                 id: true,
@@ -936,6 +1366,7 @@ export class JournalEntryService {
             transactionDate: true,
             status: true,
             reversedAt: true,
+            ...prismaCashbookEntrySnapshotSelect,
             bank: {
               select: {
                 id: true,
@@ -975,8 +1406,19 @@ export class JournalEntryService {
       paymentMethod
     }));
 
+    // Security / audit UAT: explicit full user id + ISO created time; CreatedBy mirrors createdById
+    const je = journalEntry as any;
+    const createdAtIso =
+      je.createdAt instanceof Date ? je.createdAt.toISOString() : new Date(je.createdAt).toISOString();
+
     return {
-      journalEntry: { ...journalEntry, paymentMethod },
+      journalEntry: {
+        ...je,
+        paymentMethod,
+        CreatedBy: je.createdById,
+        createdAtIso,
+        createdByUserId: je.createdById
+      },
       journalEntryLines
     } as any;
   }
@@ -988,12 +1430,39 @@ export class JournalEntryService {
    * @param endDate - End date for filtering
    * @param status - Optional status filter (defaults to 'POSTED' only)
    */
-  static async getJournalEntriesByDateRange(startDate: Date, endDate: Date, status?: 'POSTED' | 'PENDING' | 'VOID' | 'ALL' | 'POSTED_AND_PENDING'): Promise<any[]> {
+  static async getJournalEntriesByDateRange(
+    startDate: Date,
+    endDate: Date,
+    status?: 'POSTED' | 'PENDING' | 'VOID' | 'ALL' | 'POSTED_AND_PENDING',
+    currencyId?: string,
+    pagination?: { limit: number; offset: number }
+  ): Promise<any[] | { entries: any[]; total: number; limit: number; offset: number }> {
+    const andConditions: any[] = [
+      {
+        referenceNumber: {
+          not: {
+            startsWith: 'VR-'
+          }
+        }
+      },
+      {
+        referenceNumber: {
+          not: {
+            startsWith: 'REV-'
+          }
+        }
+      }
+    ];
+    if (currencyId) {
+      andConditions.unshift({ currencyId });
+    }
+
     const whereClause: any = {
       transactionDate: {
         gte: startDate,
         lte: endDate
-      }
+      },
+      AND: andConditions
     };
 
     // Handle different status filters
@@ -1017,28 +1486,17 @@ export class JournalEntryService {
         ]
       }
     };
-    
-    // Exclude reversal journal entries (those with VR- or REV- prefix)
-    // Use AND condition to exclude both prefixes
-    whereClause.AND = [
-      {
-        referenceNumber: {
-          not: {
-            startsWith: 'VR-'
-          }
-        }
-      },
-      {
-        referenceNumber: {
-          not: {
-            startsWith: 'REV-'
-          }
-        }
-      }
-    ];
+
+    let totalForPagination: number | undefined;
+    if (pagination) {
+      totalForPagination = await prisma.journalEntry.count({ where: whereClause });
+    }
 
     const entries = await prisma.journalEntry.findMany({
       where: whereClause,
+      ...(pagination
+        ? { skip: pagination.offset, take: Math.min(Math.max(1, pagination.limit), 500) }
+        : {}),
       include: {
         journalEntryLines: {
           include: {
@@ -1073,6 +1531,7 @@ export class JournalEntryService {
             status: true,
             paymentMethod: true,
             isTaxable: true,
+            ...prismaExpenseSnapshotSelect,
             vendor: {
               select: {
                 id: true,
@@ -1099,6 +1558,7 @@ export class JournalEntryService {
             status: true,
             paymentMethod: true,
             isTaxable: true,
+            ...prismaRevenueSnapshotSelect,
             source: {
               select: {
                 id: true,
@@ -1125,7 +1585,27 @@ export class JournalEntryService {
             status: true,
             isTaxable: true,
             paymentMethod: true,
+            ...prismaInvoiceSnapshotSelect,
             customer: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          }
+        },
+        // Vendor bills (accounts payable): surfaced separately from sales `invoices`
+        purchaseInvoices: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            status: true,
+            paymentStatus: true,
+            paymentMethod: true,
+            paymentDate: true,
+            ...prismaPurchaseInvoiceSnapshotSelect,
+            vendor: {
               select: {
                 id: true,
                 name: true,
@@ -1145,6 +1625,7 @@ export class JournalEntryService {
             transactionDate: true,
             status: true,
             reversedAt: true,
+            ...prismaCashbookEntrySnapshotSelect,
             bank: {
               select: {
                 id: true,
@@ -1169,13 +1650,15 @@ export class JournalEntryService {
           }
         }
       },
-      orderBy: {
-        transactionDate: 'desc'
-      }
+      /** Newest business dates first; `createdAt` breaks ties so order is not insertion/ID-dependent. */
+      orderBy: [{ transactionDate: "desc" }, { createdAt: "desc" }],
     });
-    
+
     // Additional client-side filter to ensure no voided/reversed entries slip through
     const filteredEntries = entries.filter(entry => {
+      if (currencyId && (entry as any).currencyId !== currencyId) {
+        return false;
+      }
       // If journal entry is linked to cashbook entries, check their status
       if (entry.cashbookEntries && entry.cashbookEntries.length > 0) {
         const hasVoidedOrReversed = entry.cashbookEntries.some(
@@ -1193,11 +1676,21 @@ export class JournalEntryService {
     });
 
     // Attach paymentMethod to each line for each entry
-    return filteredEntries.map((entry: any) => {
+    const mapped = filteredEntries.map((entry: any) => {
+      const cashbookPaymentMethod = (() => {
+        const cb = entry.cashbookEntries?.[0];
+        if (!cb) return null;
+        const bankName = String(cb.bank?.name ?? '').toLowerCase();
+        // Heuristic: most deployments model petty cash as a "bank" row with name containing Cash/Petty.
+        if (bankName.includes('petty') || bankName.includes('cash')) return 'CASH';
+        return 'BANK';
+      })();
+
       const paymentMethod =
         (entry.expenses?.[0]?.paymentMethod) ||
         (entry.revenues?.[0]?.paymentMethod) ||
         (entry.invoices?.[0]?.paymentMethod) ||
+        cashbookPaymentMethod ||
         null;
 
       return {
@@ -1209,12 +1702,38 @@ export class JournalEntryService {
         }))
       };
     });
+
+    // Defensive sort: always list by accounting date (newest first), not creation order.
+    mapped.sort((a: any, b: any) => {
+      const tb = new Date(b.transactionDate).getTime();
+      const ta = new Date(a.transactionDate).getTime();
+      if (tb !== ta) return tb - ta;
+      const cb = new Date(b.createdAt).getTime();
+      const ca = new Date(a.createdAt).getTime();
+      return cb - ca;
+    });
+
+    if (pagination && totalForPagination !== undefined) {
+      const take = Math.min(Math.max(1, pagination.limit), 500);
+      return {
+        entries: mapped,
+        total: totalForPagination,
+        limit: take,
+        offset: pagination.offset,
+      };
+    }
+
+    return mapped;
   }
 
   /**
    * Post a journal entry (change status from PENDING to POSTED)
    */
-  static async postJournalEntry(journalEntryId: string, performedById?: string): Promise<JournalEntry> {
+  static async postJournalEntry(
+    journalEntryId: string,
+    performedById?: string,
+    options?: { userPermissions?: Array<{ name: string; value: boolean }>; user?: unknown }
+  ): Promise<JournalEntry> {
     try {
       // Get the journal entry with its lines
       const journalEntry = await prisma.journalEntry.findUnique({
@@ -1240,6 +1759,16 @@ export class JournalEntryService {
       if (!this.validateJournalEntryBalance(journalEntry.journalEntryLines)) {
         throw new Error("Journal entry is not balanced. Debits must equal credits.");
       }
+
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: "GL",
+        accountingDate: journalEntry.transactionDate,
+        userId: performedById ?? journalEntry.createdById,
+        source: "API",
+        actionType: "POST_JOURNAL",
+        userPermissions: options?.userPermissions,
+        user: options?.user,
+      });
 
       // Update the status to POSTED
       const updatedJournalEntry = await prisma.journalEntry.update({
@@ -1304,17 +1833,14 @@ export class JournalEntryService {
       let reversalJournalEntry = null;
       if (originalStatus === "POSTED" && journalEntry.journalEntryLines && journalEntry.journalEntryLines.length > 0) {
         try {
-          // Create reversal journal entry with opposite CR/DR balance
-          reversalJournalEntry = await prisma.journalEntry.create({
-            data: {
-              transactionDate: voidTimestamp,
-              referenceNumber: `VR-${journalEntry.referenceNumber}`,
-              description: `REVERSAL of Journal Entry ${journalEntry.referenceNumber}: ${journalEntry.description}`,
-              totalAmount: journalEntry.totalAmount,
-              currencyId: journalEntry.currencyId,
-              status: "POSTED", // Auto-post the reversal
-              createdById: userId
-            }
+          reversalJournalEntry = await createJournalEntryWithAuditSequence({
+            transactionDate: voidTimestamp,
+            referenceNumber: `VR-${journalEntry.referenceNumber}`,
+            description: `REVERSAL of Journal Entry ${journalEntry.referenceNumber}: ${journalEntry.description}`,
+            totalAmount: journalEntry.totalAmount,
+            currencyId: journalEntry.currencyId,
+            status: "POSTED",
+            createdById: userId
           });
 
           // Create reversal journal entry lines (opposite debits/credits)
@@ -1412,9 +1938,13 @@ export class JournalEntryService {
   }
 
   /**
-   * Create a journal entry for an invoice transaction
+   * Create a journal entry for an invoice transaction.
+   * @param tx When provided, all writes use the transaction client (no audit log here — caller commits then audits).
    */
-  static async createInvoiceJournalEntry(params: CreateInvoiceJournalEntryParams): Promise<JournalEntryResult> {
+  static async createInvoiceJournalEntry(
+    params: CreateInvoiceJournalEntryParams,
+    tx?: Prisma.TransactionClient
+  ): Promise<JournalEntryResult> {
     try {
       const {
         customerId,
@@ -1426,41 +1956,54 @@ export class JournalEntryService {
         description,
         invoiceNumber,
         isTaxable,
-        createdById
+        createdById,
+        usdZwgRateSnapshot
       } = params;
 
-      const incomeAccount = await JournalEntryService.getIncomeAccount();
-      const vatOutputAccount = await JournalEntryService.getVATOutputAccount();
-      const debitAccount = await JournalEntryService.getAccountsReceivableAccount();
+      const db = tx ?? prisma;
+      const skipAudit = !!tx;
 
-      // Create the journal entry
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate,
-          referenceNumber: JournalEntryService.generateReferenceNumber(),
-          description: `Invoice: ${description}`,
-          totalAmount: new Decimal(totalAmount),
-          currencyId,
-          status: "PENDING", // Default to PENDING, must be posted manually
-          createdById
-        }
-      });
+      const [incomeAccount, vatOutputAccount, debitAccount] = await Promise.all([
+        JournalEntryService.getIncomeAccount(),
+        JournalEntryService.getVATOutputAccount(),
+        JournalEntryService.getAccountsReceivableAccount()
+      ]);
 
-      // Audit: CREATE JournalEntry (Invoice)
-      await AuditService.log({
-        userId: createdById,
-        action: "CREATE",
-        entityType: "JournalEntry",
-        entityId: journalEntry.id,
-        newValues: journalEntry,
-      });
+      const manualJeSnap =
+        usdZwgRateSnapshot != null && Number.isFinite(Number(usdZwgRateSnapshot))
+          ? new Decimal(usdZwgRateSnapshot)
+          : undefined;
+
+      const invoiceJeData = {
+        transactionDate,
+        referenceNumber: JournalEntryService.generateReferenceNumber(),
+        description: `Invoice: ${description}`,
+        totalAmount: new Decimal(totalAmount),
+        currencyId,
+        status: "PENDING" as const,
+        createdById,
+        ...(manualJeSnap != null ? { usdZwgRateSnapshot: manualJeSnap } : {})
+      };
+      const journalEntry = skipAudit
+        ? await assignNextAuditIdAndCreateJournal(db as Prisma.TransactionClient, invoiceJeData)
+        : await createJournalEntryWithAuditSequence(invoiceJeData);
+
+      if (!skipAudit) {
+        await AuditService.log({
+          userId: createdById,
+          action: "CREATE",
+          entityType: "JournalEntry",
+          entityId: journalEntry.id,
+          newValues: journalEntry
+        });
+      }
 
       // Create journal entry lines for double-entry bookkeeping
       const journalEntryLines: JournalEntryLine[] = [];
 
       // 1. Debit Accounts Receivable
       journalEntryLines.push(
-        await prisma.journalEntryLine.create({
+        await db.journalEntryLine.create({
           data: {
             journalEntryId: journalEntry.id,
             chartOfAccountId: debitAccount.id,
@@ -1474,7 +2017,7 @@ export class JournalEntryService {
 
       // 2. Credit the income account
       journalEntryLines.push(
-        await prisma.journalEntryLine.create({
+        await db.journalEntryLine.create({
           data: {
             journalEntryId: journalEntry.id,
             chartOfAccountId: incomeAccount.id,
@@ -1489,7 +2032,7 @@ export class JournalEntryService {
       // 3. If taxable, credit VAT Output account
       if (isTaxable && vatAmount > 0) {
         journalEntryLines.push(
-          await prisma.journalEntryLine.create({
+          await db.journalEntryLine.create({
             data: {
               journalEntryId: journalEntry.id,
               chartOfAccountId: vatOutputAccount.id,
@@ -1530,21 +2073,20 @@ export class JournalEntryService {
         createdById
       } = params;
 
-      const incomeAccount = await JournalEntryService.getIncomeAccount();
-      const vatOutputAccount = await JournalEntryService.getVATOutputAccount();
-      const debitAccount = await JournalEntryService.getAccountsReceivableAccount();
+      const [incomeAccount, vatOutputAccount, debitAccount] = await Promise.all([
+        JournalEntryService.getIncomeAccount(),
+        JournalEntryService.getVATOutputAccount(),
+        JournalEntryService.getAccountsReceivableAccount()
+      ]);
 
-      // Create the reversal journal entry
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate,
-          referenceNumber: JournalEntryService.generateReferenceNumber(),
-          description: `REVERSAL: Invoice ${invoiceNumber || description}`,
-          totalAmount: new Decimal(totalAmount),
-          currencyId,
-          status: "PENDING",
-          createdById
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate,
+        referenceNumber: JournalEntryService.generateReferenceNumber(),
+        description: `REVERSAL: Invoice ${invoiceNumber || description}`,
+        totalAmount: new Decimal(totalAmount),
+        currencyId,
+        status: "PENDING",
+        createdById
       });
 
       // Create reversal journal entry lines (opposite of original)
@@ -1619,38 +2161,31 @@ export class JournalEntryService {
         transactionDate,
         description,
         paymentMethod,
-        createdById
+        createdById,
+        paymentBankId,
       } = params;
 
-      // Get the appropriate debit account based on payment method
       let debitAccount: ChartOfAccounts;
-      switch (paymentMethod) {
-        case "CASH":
-          debitAccount = await this.getCashAccount();
-          break;
-        case "BANK":
-          debitAccount = await this.getBankAccount();
-          break;
-        case "CREDIT":
-          debitAccount = await this.getCreditCardReceivableAccount();
-          break;
-        default:
-          throw new Error(`Invalid payment method: ${paymentMethod}`);
+      if (paymentMethod === "CREDIT") {
+        debitAccount = await this.getCreditCardReceivableAccount();
+      } else {
+        debitAccount = await this.resolveProceedsDebitAccount(
+          paymentMethod,
+          currencyId,
+          paymentBankId
+        );
       }
 
       const creditAccount = await JournalEntryService.getAccountsReceivableAccount();
 
-      // Create the journal entry
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate,
-          referenceNumber: JournalEntryService.generateReferenceNumber(),
-          description: `Payment: ${description}`,
-          totalAmount: new Decimal(totalAmount),
-          currencyId,
-          status: "PENDING", // Default to PENDING, must be posted manually
-          createdById
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate,
+        referenceNumber: JournalEntryService.generateReferenceNumber(),
+        description: `Payment: ${description}`,
+        totalAmount: new Decimal(totalAmount),
+        currencyId,
+        status: "PENDING",
+        createdById
       });
 
       // Create journal entry lines for double-entry bookkeeping
@@ -1665,7 +2200,8 @@ export class JournalEntryService {
             debitAmount: new Decimal(totalAmount),
             creditAmount: new Decimal(0),
             description: `Payment: ${description}`,
-            vatAmount: new Decimal(0)
+            vatAmount: new Decimal(0),
+            recordedCurrencyId: currencyId,
           }
         })
       );
@@ -1679,7 +2215,8 @@ export class JournalEntryService {
             debitAmount: new Decimal(0),
             creditAmount: new Decimal(totalAmount),
             description: `Payment: ${description}`,
-            vatAmount: new Decimal(0)
+            vatAmount: new Decimal(0),
+            recordedCurrencyId: currencyId,
           }
         })
       );
@@ -1758,22 +2295,43 @@ export class JournalEntryService {
   }
 
   /**
-   * Get Accounts Receivable account
+   * Get Accounts Receivable / Debtors Control (prefer GL 1200 — same as cashbook and control-account sync).
    */
   private static async getAccountsReceivableAccount(): Promise<ChartOfAccounts> {
     try {
+      const by1200 = await prisma.chartOfAccounts.findFirst({
+        where: { accountNo: "1200", isActive: true },
+      });
+      if (by1200) {
+        return by1200;
+      }
+
+      const debtorsControl = await prisma.chartOfAccounts.findFirst({
+        where: {
+          accountType: "Current Asset",
+          OR: [
+            { accountName: { contains: "Debtors Control" } },
+            { accountName: { contains: "Trade Debtors" } },
+          ],
+          isActive: true,
+        },
+      });
+      if (debtorsControl) {
+        return debtorsControl;
+      }
+
       const accountsReceivableAccount = await prisma.chartOfAccounts.findFirst({
         where: {
           accountType: "Current Asset",
-          accountName: {
-            contains: "Accounts Receivable"
-          },
-          isActive: true
-        }
+          accountName: { contains: "Accounts Receivable" },
+          isActive: true,
+        },
       });
 
       if (!accountsReceivableAccount) {
-        throw new Error("Accounts Receivable account not found in chart of accounts");
+        throw new Error(
+          "Debtors Control / Accounts Receivable not found (configure GL 1200 or a Current Asset named Accounts Receivable)."
+        );
       }
 
       return accountsReceivableAccount;
@@ -1800,24 +2358,26 @@ export class JournalEntryService {
         description,
         isTaxable,
         paymentMethod = "BANK",
-        createdById
+        createdById,
+        paymentBankId,
       } = params;
 
       const revenueAccount = await this.getRevenueAccount(categoryId || "");
       const vatOutputAccount = await this.getVATOutputAccount();
-      const debitAccount = await this.getDebitAccount(paymentMethod);
+      const debitAccount = await this.resolveProceedsDebitAccount(
+        paymentMethod,
+        currencyId,
+        paymentBankId
+      );
 
-      // Create the journal entry
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate,
-          referenceNumber: JournalEntryService.generateReferenceNumber(),
-          description: `Revenue: ${description}`,
-          totalAmount: new Decimal(totalAmount),
-          currencyId,
-          status: "PENDING", // Default to PENDING, must be posted manually
-          createdById
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate,
+        referenceNumber: JournalEntryService.generateReferenceNumber(),
+        description: `Revenue: ${description}`,
+        totalAmount: new Decimal(totalAmount),
+        currencyId,
+        status: "PENDING",
+        createdById
       });
 
       // Audit: CREATE JournalEntry (Revenue)
@@ -1841,7 +2401,8 @@ export class JournalEntryService {
             debitAmount: new Decimal(totalAmount),
             creditAmount: new Decimal(0),
             description: `Revenue payment: ${description}`,
-            vatAmount: new Decimal(0)
+            vatAmount: new Decimal(0),
+            recordedCurrencyId: currencyId,
           }
         })
       );
@@ -1855,7 +2416,8 @@ export class JournalEntryService {
             debitAmount: new Decimal(0),
             creditAmount: new Decimal(amount),
             description: `Revenue: ${description}`,
-            vatAmount: new Decimal(0)
+            vatAmount: new Decimal(0),
+            recordedCurrencyId: currencyId,
           }
         })
       );
@@ -1870,7 +2432,8 @@ export class JournalEntryService {
               debitAmount: new Decimal(0),
               creditAmount: new Decimal(vatAmount),
               description: `VAT Output: ${description}`,
-              vatAmount: new Decimal(vatAmount)
+              vatAmount: new Decimal(vatAmount),
+              recordedCurrencyId: currencyId,
             }
           })
         );
@@ -1929,21 +2492,6 @@ export class JournalEntryService {
     }
   }
 
-  /**
-   * Get the appropriate debit account based on payment method
-   */
-  private static async getDebitAccount(paymentMethod: string): Promise<ChartOfAccounts> {
-    switch (paymentMethod) {
-      case "CASH":
-        return await this.getCashAccount();
-      case "BANK":
-        return await this.getBankAccount();
-      case "CREDIT":
-        return await this.getAccountsReceivableAccount();
-      default:
-        throw new Error(`Invalid payment method: ${paymentMethod}`);
-    }
-  }
 }
 
 export default JournalEntryService; 

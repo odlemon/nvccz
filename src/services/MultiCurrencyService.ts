@@ -2,8 +2,19 @@
 import { PrismaClient, ExchangeRate, ForexGainLoss } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../utils/database';
+import { prismaInvoiceSnapshotSelect } from '../config/accountingSnapshotResponseSelect';
+import {
+  extractZwgPerZar,
+  fetchZimrateRates,
+  pickUsdZwg,
+  parseZimrateDateLabel,
+  type ZimrateRatesPayload
+} from './ZimrateRateService';
+import { fetchZimrateRatesOrUatFallback, getLastStoredUsdZwgFromDb } from './UsdZwgRateResolver';
+import { randomUUID } from 'crypto';
 import { JournalEntryService } from './JournalEntryService';
 import AuditService from './AuditService';
+import { createJournalEntryWithAuditSequence } from './AuditTrailSequenceService';
 
 export interface CreateExchangeRateParams {
   date: Date;
@@ -83,6 +94,11 @@ export class MultiCurrencyService {
     try {
       const { date, fromCurrencyId, toCurrencyId, rate, createdById } = params;
 
+      // Store/compare exchange rates at UTC start-of-day so lookups are stable across timezones.
+      // (Some callers parse YYYY-MM-DD as noon-UTC to avoid off-by-one display issues.)
+      const normalizedDate = new Date(date);
+      normalizedDate.setUTCHours(0, 0, 0, 0);
+
       // Validate currencies exist
       const [fromCurrency, toCurrency] = await Promise.all([
         prisma.currency.findUnique({ where: { id: fromCurrencyId } }),
@@ -101,7 +117,7 @@ export class MultiCurrencyService {
       const existingRate = await prisma.exchangeRate.findUnique({
         where: {
           date_fromCurrencyId_toCurrencyId: {
-            date,
+            date: normalizedDate,
             fromCurrencyId,
             toCurrencyId
           }
@@ -115,7 +131,7 @@ export class MultiCurrencyService {
       // Create exchange rate
       const exchangeRate = await prisma.exchangeRate.create({
         data: {
-          date,
+          date: normalizedDate,
           rate: new Decimal(rate),
           fromCurrency: {
             connect: { id: fromCurrencyId }
@@ -226,9 +242,11 @@ export class MultiCurrencyService {
    * Get exchange rate for currency pair and date
    */
   private static async getExchangeRate(fromCurrencyId: string, toCurrencyId: string, date: Date): Promise<ExchangeRate | null> {
-    // Normalize date to start of day for exact matching
+    // Normalize to UTC calendar-day start for exact matching.
+    // Important: many endpoints store date-only inputs using a noon-UTC anchor (see `parseDate`)
+    // then persist as a DATE; using local `setHours` can shift the day on non-UTC hosts.
     const normalizedDate = new Date(date);
-    normalizedDate.setHours(0, 0, 0, 0);
+    normalizedDate.setUTCHours(0, 0, 0, 0);
     
     // First try to get exact date match
     let exchangeRate = await prisma.exchangeRate.findUnique({
@@ -356,7 +374,8 @@ export class MultiCurrencyService {
             select: {
               id: true,
               invoiceNumber: true,
-              totalAmount: true
+              totalAmount: true,
+              ...prismaInvoiceSnapshotSelect
             }
           },
           fromCurrency: {
@@ -424,6 +443,363 @@ export class MultiCurrencyService {
       console.error('Error processing multi-currency payment:', error);
       throw error;
     }
+  }
+
+  /**
+   * USD sales invoice settled in ZAR from a ZAR bank.
+   * (1) Value ZWL (ZiG) obligation at invoice creation: totalUsd × exchangeRateAtCreation.
+   * (2) At payment, Zimrate ZAR/ZWL cross → ZAR obligation vs ZAR received → realized FX in ZAR journal + ForexGainLoss (ZWL legs).
+   */
+  static async processUsdInvoicePaidWithZarBank(params: {
+    invoiceId: string;
+    paymentAmountZar: number;
+    bankId: string;
+    createdById: string;
+  }): Promise<{
+    forexGainLoss: ForexGainLossWithDetails;
+    journalEntryId: string;
+    breakdown: Record<string, number | string>;
+  }> {
+    const { invoiceId, paymentAmountZar, bankId, createdById } = params;
+
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: { currency: true }
+    });
+    if (!invoice) {
+      throw new Error('Invoice not found');
+    }
+    if (invoice.currency.code.toUpperCase() !== 'USD') {
+      throw new Error('ZAR settlement path only supports USD-denominated invoices');
+    }
+    if (!invoice.exchangeRateAtCreation) {
+      throw new Error('Invoice missing exchangeRateAtCreation (USD→ZWL at creation)');
+    }
+
+    const bank = await prisma.bank.findUnique({
+      where: { id: bankId },
+      include: { glAccount: true, currency: true }
+    });
+    if (!bank?.glAccountId) {
+      throw new Error('Bank not found or has no GL account linked');
+    }
+    if (bank.currency.code.toUpperCase() !== 'ZAR') {
+      throw new Error(`Bank must be ZAR-denominated for this flow; got ${bank.currency.code}`);
+    }
+
+    const usdZwlAtCreation = Number(invoice.exchangeRateAtCreation);
+    const totalUsd = Number(invoice.totalAmount);
+    const originalZwl = totalUsd * usdZwlAtCreation;
+
+    let zimrateFull: ZimrateRatesPayload;
+    try {
+      zimrateFull = await fetchZimrateRatesOrUatFallback(prisma);
+    } catch (e: any) {
+      throw new Error(`Zimrate unavailable (needed for ZAR/ZWL payment leg): ${e?.message || e}`);
+    }
+
+    const zwgPerZarInfo = extractZwgPerZar(zimrateFull);
+    if (!zwgPerZarInfo) {
+      throw new Error(
+        'No ZAR/ZWL (or ZWG/ZAR) rate in Zimrate; cannot complete USD→ZWL→ZAR conversion'
+      );
+    }
+
+    const zwlPerZar = zwgPerZarInfo.zwgPerZar;
+    const paymentZar = new Decimal(paymentAmountZar);
+    const zarObligation = new Decimal(originalZwl)
+      .div(zwlPerZar)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    const paymentZwlEq = paymentZar.mul(zwlPerZar).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+    const originalZwlDec = new Decimal(originalZwl).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+
+    const gainLossZwl = paymentZwlEq.minus(originalZwlDec);
+    const gainLossType = gainLossZwl.gte(0) ? 'GAIN' : 'LOSS';
+    const gainLossZwlAbs = gainLossZwl.abs().toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+
+    const fxDiffZar = paymentZar.minus(zarObligation).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    const fxDiffAbsZar = fxDiffZar.abs();
+
+    const forexAccount = await MultiCurrencyService.ensureForexGainLossAccount();
+    const arAccount = await prisma.chartOfAccounts.findFirst({
+      where: {
+        OR: [{ accountNo: '1200' }, { accountName: { contains: 'Accounts Receivable' } }],
+        isActive: true
+      }
+    });
+    if (!arAccount) {
+      throw new Error('Accounts Receivable account (1200) not found');
+    }
+
+    const forexLossAccount =
+      (await prisma.chartOfAccounts.findFirst({
+        where: {
+          OR: [
+            { accountName: { contains: 'Foreign Exchange Loss' } },
+            { accountName: { contains: 'Forex Loss' } },
+            { accountNo: '6050' }
+          ],
+          isActive: true
+        }
+      })) || forexAccount;
+
+    const forexGainLoss = await prisma.forexGainLoss.create({
+      data: {
+        invoice: { connect: { id: invoiceId } },
+        transactionDate: new Date(),
+        fromCurrency: { connect: { id: invoice.currencyId } },
+        toCurrency: { connect: { id: bank.currencyId } },
+        originalAmount: originalZwlDec.toDecimalPlaces(2),
+        convertedAmount: paymentZwlEq.toDecimalPlaces(2),
+        exchangeRate: new Decimal(zwlPerZar),
+        gainLossAmount: gainLossZwlAbs,
+        gainLossType,
+        description: `USD invoice ${invoice.invoiceNumber || invoiceId} paid in ZAR; pair ${zwgPerZarInfo.matchedPair}, ZWL/ZAR=${zwlPerZar}`,
+        createdBy: { connect: { id: createdById } }
+      },
+      include: {
+        invoice: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            totalAmount: true,
+            ...prismaInvoiceSnapshotSelect
+          }
+        },
+        fromCurrency: { select: { id: true, code: true, name: true, symbol: true } },
+        toCurrency: { select: { id: true, code: true, name: true, symbol: true } },
+        createdBy: { select: { id: true, firstName: true, lastName: true, email: true } }
+      }
+    });
+
+    const journalEntry = await createJournalEntryWithAuditSequence({
+      transactionDate: new Date(),
+      referenceNumber: `PAY-ZAR-${forexGainLoss.id.slice(-8)}`,
+      description: `ZAR payment for USD invoice ${invoice.invoiceNumber || invoiceId}`,
+      totalAmount: paymentZar,
+      currencyId: bank.currencyId,
+      status: 'POSTED',
+      createdById,
+    });
+
+    await prisma.journalEntryLine.create({
+      data: {
+        journalEntryId: journalEntry.id,
+        chartOfAccountId: bank.glAccountId,
+        debitAmount: paymentZar,
+        creditAmount: new Decimal(0),
+        description: 'Customer receipt — ZAR bank',
+        vatAmount: new Decimal(0)
+      }
+    });
+
+    await prisma.journalEntryLine.create({
+      data: {
+        journalEntryId: journalEntry.id,
+        chartOfAccountId: arAccount.id,
+        debitAmount: new Decimal(0),
+        creditAmount: zarObligation,
+        description: 'Clear AR (ZAR equivalent of USD invoice at payment ZWL/ZAR)',
+        vatAmount: new Decimal(0)
+      }
+    });
+
+    if (fxDiffAbsZar.gt(0)) {
+      if (paymentZar.gt(zarObligation)) {
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: forexAccount.id,
+            debitAmount: new Decimal(0),
+            creditAmount: fxDiffAbsZar,
+            description: 'Foreign exchange gain (ZAR)',
+            vatAmount: new Decimal(0)
+          }
+        });
+      } else {
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: forexLossAccount.id,
+            debitAmount: fxDiffAbsZar,
+            creditAmount: new Decimal(0),
+            description: 'Foreign exchange loss (ZAR)',
+            vatAmount: new Decimal(0)
+          }
+        });
+      }
+    }
+
+    const roundingRv = await MultiCurrencyService.applyRoundingVarianceToJournalEntry(
+      journalEntry.id,
+      createdById
+    );
+
+    await prisma.forexGainLoss.update({
+      where: { id: forexGainLoss.id },
+      data: { journalEntryId: journalEntry.id }
+    });
+
+    await AuditService.log({
+      userId: createdById,
+      action: 'CREATE',
+      entityType: 'ForexGainLoss',
+      entityId: forexGainLoss.id,
+      newValues: forexGainLoss
+    });
+
+    return {
+      forexGainLoss,
+      journalEntryId: journalEntry.id,
+      breakdown: {
+        invoiceTotalUsd: totalUsd,
+        usdZwlAtCreation,
+        originalZwlAtCreation: Number(originalZwlDec),
+        zwlPerZarAtPayment: zwlPerZar,
+        zarObligationAtPayment: Number(zarObligation),
+        paymentZar: Number(paymentZar),
+        paymentZwlEquivalent: Number(paymentZwlEq),
+        gainLossZwl: Number(gainLossZwl),
+        gainLossType,
+        zimratePairUsed: zwgPerZarInfo.matchedPair,
+        ...(roundingRv.posted
+          ? {
+              roundingVariancePosted: true,
+              roundingVarianceAmount: roundingRv.roundingAmount,
+              roundingVarianceImbalanceBefore: roundingRv.imbalanceBefore
+            }
+          : {})
+      }
+    };
+  }
+
+  private static async ensureForexGainLossAccount() {
+    const existing = await prisma.chartOfAccounts.findFirst({
+      where: {
+        OR: [
+          { accountName: { contains: 'Foreign Exchange' } },
+          { accountName: { contains: 'Forex' } },
+          { accountName: { contains: 'FX' } }
+        ],
+        isActive: true
+      }
+    });
+    if (existing) {
+      return existing;
+    }
+    return prisma.chartOfAccounts.create({
+      data: {
+        accountNo: '6000',
+        accountName: 'Foreign Exchange Gain/Loss',
+        accountType: 'Revenue',
+        financialStatement: 'Income Statement',
+        isActive: true
+      }
+    });
+  }
+
+  /** GL account for sub-cent conversion remainders (e.g. 0.001 ZiG) so journals stay balanced. */
+  static async ensureRoundingVarianceAccount() {
+    const existing = await prisma.chartOfAccounts.findFirst({
+      where: {
+        OR: [{ accountNo: '6095' }, { accountName: { contains: 'Rounding Variance' } }],
+        isActive: true
+      }
+    });
+    if (existing) {
+      return existing;
+    }
+    return prisma.chartOfAccounts.create({
+      data: {
+        accountNo: '6095',
+        accountName: 'Rounding Variance',
+        accountType: 'Expense',
+        financialStatement: 'Income Statement',
+        isActive: true
+      }
+    });
+  }
+
+  /**
+   * If debits ≠ credits by a tiny amount (within 0.01), post the remainder to Rounding Variance.
+   * Requires journal line DECIMAL(15,3) for true 0.001 postings (run db:migrate:journal-line-amount-precision).
+   */
+  static async applyRoundingVarianceToJournalEntry(
+    journalEntryId: string,
+    createdById: string
+  ): Promise<{ posted: boolean; roundingAmount?: string; imbalanceBefore?: string }> {
+    const lines = await prisma.journalEntryLine.findMany({
+      where: { journalEntryId }
+    });
+    if (!lines.length) {
+      return { posted: false };
+    }
+
+    let dr = new Decimal(0);
+    let cr = new Decimal(0);
+    for (const l of lines) {
+      dr = dr.plus(l.debitAmount ?? 0);
+      cr = cr.plus(l.creditAmount ?? 0);
+    }
+
+    const imb = dr.minus(cr);
+    const EPS = new Decimal('0.0000001');
+    const MAX = new Decimal('0.01');
+
+    if (imb.abs().lte(EPS)) {
+      return { posted: false, imbalanceBefore: imb.toFixed() };
+    }
+
+    if (imb.abs().gt(MAX)) {
+      throw new Error(
+        `Journal ${journalEntryId} is out of balance by ${imb.toFixed()} (exceeds ${MAX.toFixed()} rounding cap)`
+      );
+    }
+
+    const postAmt = imb.abs().toDecimalPlaces(3, Decimal.ROUND_HALF_UP);
+    if (postAmt.lte(EPS)) {
+      return { posted: false, imbalanceBefore: imb.toFixed() };
+    }
+
+    const rv = await MultiCurrencyService.ensureRoundingVarianceAccount();
+
+    if (imb.gt(0)) {
+      await prisma.journalEntryLine.create({
+        data: {
+          journalEntryId,
+          chartOfAccountId: rv.id,
+          debitAmount: new Decimal(0),
+          creditAmount: postAmt,
+          description: 'Rounding variance (conversion / ZiG remainder)',
+          vatAmount: new Decimal(0)
+        }
+      });
+    } else {
+      await prisma.journalEntryLine.create({
+        data: {
+          journalEntryId,
+          chartOfAccountId: rv.id,
+          debitAmount: postAmt,
+          creditAmount: new Decimal(0),
+          description: 'Rounding variance (conversion / ZiG remainder)',
+          vatAmount: new Decimal(0)
+        }
+      });
+    }
+
+    await AuditService.log({
+      userId: createdById,
+      action: 'CREATE',
+      entityType: 'JournalEntry',
+      entityId: journalEntryId,
+      newValues: {
+        note: 'Rounding variance line',
+        roundingAmount: postAmt.toFixed(),
+        imbalanceBefore: imb.toFixed()
+      }
+    });
+
+    return { posted: true, roundingAmount: postAmt.toFixed(), imbalanceBefore: imb.toFixed() };
   }
 
   /**
@@ -496,35 +872,42 @@ export class MultiCurrencyService {
         throw new Error('Accounts Receivable account (1200) not found');
       }
 
-      // Get Bank/Cash account (use default bank account for ZWL)
-      const bankAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: '1100' },
-            { accountNo: '1000' },
-            { accountName: { contains: 'Bank' } },
-            { accountName: { contains: 'Cash' } }
-          ],
-          isActive: true
-        },
-        orderBy: { accountNo: 'asc' }
+      // Get Bank/Cash account:
+      // Prefer an active bank-linked GL account; fall back to accountNo 1100 or a cash-named account if needed.
+      const firstBank = await prisma.bank.findFirst({
+        where: { isActive: true, glAccountId: { not: null } },
+        orderBy: { createdAt: 'asc' },
+        select: { glAccountId: true },
       });
+      const bankAccount =
+        (firstBank?.glAccountId
+          ? await prisma.chartOfAccounts.findUnique({ where: { id: firstBank.glAccountId } })
+          : null) ||
+        (await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountNo: '1100' },
+              { accountName: { contains: 'Bank' } },
+              { accountName: { contains: 'Cash' } }
+            ],
+            isActive: true
+          },
+          orderBy: { accountNo: 'asc' }
+        }));
 
       if (!bankAccount) {
         throw new Error('Bank/Cash account not found');
       }
 
       // Create journal entry
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: new Date(),
-          referenceNumber: `PAY-FX-${forexGainLossId.slice(-8)}`,
-          description: `Payment for invoice ${invoice.invoiceNumber || invoice.id} with forex ${gainLossType.toLowerCase()}`,
-          totalAmount: new Decimal(paymentZWLAmount),
-          currencyId: paymentCurrencyId,
-          status: 'POSTED',
-          createdById
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate: new Date(),
+        referenceNumber: `PAY-FX-${forexGainLossId.slice(-8)}`,
+        description: `Payment for invoice ${invoice.invoiceNumber || invoice.id} with forex ${gainLossType.toLowerCase()}`,
+        totalAmount: new Decimal(paymentZWLAmount),
+        currencyId: paymentCurrencyId,
+        status: 'POSTED',
+        createdById,
       });
 
       // Create journal entry lines according to UAT requirement
@@ -593,6 +976,8 @@ export class MultiCurrencyService {
         });
       }
 
+      await MultiCurrencyService.applyRoundingVarianceToJournalEntry(journalEntry.id, createdById);
+
       return journalEntry.id;
     } catch (error) {
       console.error('Error creating payment with forex journal entry:', error);
@@ -605,16 +990,14 @@ export class MultiCurrencyService {
    */
   private static async createForexGainLossJournalEntry(forexGainLoss: ForexGainLoss, createdById: string): Promise<void> {
     try {
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: forexGainLoss.transactionDate,
-          referenceNumber: `FOREX-${forexGainLoss.id}`,
-          description: `Forex ${forexGainLoss.gainLossType}: ${forexGainLoss.description}`,
-          totalAmount: forexGainLoss.gainLossAmount,
-          currencyId: forexGainLoss.fromCurrencyId,
-          status: 'POSTED',
-          createdById
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate: forexGainLoss.transactionDate,
+        referenceNumber: `FOREX-${forexGainLoss.id}`,
+        description: `Forex ${forexGainLoss.gainLossType}: ${forexGainLoss.description}`,
+        totalAmount: forexGainLoss.gainLossAmount,
+        currencyId: forexGainLoss.fromCurrencyId,
+        status: 'POSTED',
+        createdById,
       });
 
       // Get forex gain/loss account
@@ -702,7 +1085,7 @@ export class MultiCurrencyService {
   }
 
   /**
-   * Get exchange rates with filtering
+   * Live USD/ZWG from Zimrate shaped like legacy DB exchange-rate rows (frontend-compatible).
    */
   static async getExchangeRates(filters: {
     fromCurrencyId?: string;
@@ -711,79 +1094,206 @@ export class MultiCurrencyService {
     dateTo?: Date;
     page?: number;
     limit?: number;
+    userId?: string;
   } = {}): Promise<{
-    exchangeRates: ExchangeRateWithDetails[];
+    exchangeRates: Array<{
+      id: string;
+      date: string;
+      fromCurrencyId: string;
+      toCurrencyId: string;
+      rate: string;
+      isActive: boolean;
+      createdById: string;
+      createdAt: string;
+      fromCurrency: { id: string; code: string; name: string; symbol: string };
+      toCurrency: { id: string; code: string; name: string; symbol: string };
+      createdBy: { id: string; firstName: string; lastName: string; email: string };
+      /** Present when rate is derived, not a direct Zimrate row (e.g. USD/ZAR cross). */
+      rateDerivation?: string;
+    }>;
     total: number;
     page: number;
     totalPages: number;
   }> {
     try {
-      const {
-        fromCurrencyId,
-        toCurrencyId,
-        dateFrom,
-        dateTo,
-        page = 1,
-        limit = 10
-      } = filters;
+      const pageNum = typeof filters.page === 'number' && Number.isFinite(filters.page) ? filters.page : 1;
+      const limitNum =
+        typeof filters.limit === 'number' && Number.isFinite(filters.limit) ? filters.limit : 10;
+      const page = Math.max(1, pageNum);
+      const limit = Math.max(1, Math.min(100, limitNum));
 
-      const where: any = {};
-
-      if (fromCurrencyId) {
-        where.fromCurrencyId = fromCurrencyId;
+      let zimrateFull: ZimrateRatesPayload | null = null;
+      try {
+        zimrateFull = await fetchZimrateRates();
+      } catch (e) {
+        console.warn('[MultiCurrencyService] Zimrate fetch failed for exchange-rates list:', e);
       }
 
-      if (toCurrencyId) {
-        where.toCurrencyId = toCurrencyId;
+      const usdRow = zimrateFull ? pickUsdZwg(zimrateFull) : null;
+      let usdZwg: number;
+      let effectiveDate: Date;
+      let createdAtIso: string;
+
+      if (usdRow && typeof usdRow.avg === 'number' && !Number.isNaN(usdRow.avg) && usdRow.avg > 0) {
+        usdZwg = usdRow.avg;
+        const labelDate = parseZimrateDateLabel(usdRow.date_label);
+        effectiveDate =
+          labelDate ??
+          (zimrateFull?.meta?.last_updated ? new Date(zimrateFull.meta.last_updated) : new Date());
+        createdAtIso = zimrateFull?.meta?.timestamp
+          ? new Date(zimrateFull.meta.timestamp).toISOString()
+          : new Date().toISOString();
+      } else {
+        const stored = await getLastStoredUsdZwgFromDb(prisma);
+        if (!stored) {
+          throw new Error(
+            'USD/ZWG rate unavailable: Zimrate is down and no prior transaction snapshot exists in the database'
+          );
+        }
+        usdZwg = stored.rate;
+        effectiveDate = stored.usedAt;
+        createdAtIso = stored.usedAt.toISOString();
       }
 
-      if (dateFrom || dateTo) {
-        where.date = {};
-        if (dateFrom) where.date.gte = dateFrom;
-        if (dateTo) where.date.lte = dateTo;
+      const currencies = await prisma.currency.findMany({
+        select: { id: true, code: true, name: true, symbol: true }
+      });
+      const usdCur = currencies.find((c) => c.code.toUpperCase() === 'USD');
+      const zwgCur =
+        currencies.find((c) => c.code.toUpperCase() === 'ZWL') ??
+        currencies.find((c) => c.code.toUpperCase() === 'ZWG');
+      const zarCur = currencies.find((c) => c.code.toUpperCase() === 'ZAR');
+      if (!usdCur || !zwgCur) {
+        throw new Error(
+          'Currencies table must include USD and ZWL (or ZWG) for live exchange rate display'
+        );
       }
 
-      const [exchangeRates, total] = await Promise.all([
-        prisma.exchangeRate.findMany({
-          where,
-          include: {
+      let createdByUser = filters.userId
+        ? await prisma.user.findUnique({
+            where: { id: filters.userId },
+            select: { id: true, firstName: true, lastName: true, email: true }
+          })
+        : null;
+      if (!createdByUser) {
+        createdByUser = await prisma.user.findFirst({
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, firstName: true, lastName: true, email: true }
+        });
+      }
+      if (!createdByUser) {
+        throw new Error('No user found to attach to live exchange rate response');
+      }
+
+      const createdBy = {
+        id: createdByUser.id,
+        firstName: createdByUser.firstName,
+        lastName: createdByUser.lastName,
+        email: createdByUser.email
+      };
+
+      const baseRow = (partial: {
+        fromCurrencyId: string;
+        toCurrencyId: string;
+        rate: string;
+        fromCurrency: { id: string; code: string; name: string; symbol: string };
+        toCurrency: { id: string; code: string; name: string; symbol: string };
+        rateDerivation?: string;
+      }) => ({
+        id: randomUUID(),
+        date: effectiveDate.toISOString(),
+        rate: partial.rate,
+        isActive: true,
+        createdById: createdByUser.id,
+        createdAt: createdAtIso,
+        fromCurrencyId: partial.fromCurrencyId,
+        toCurrencyId: partial.toCurrencyId,
+        fromCurrency: partial.fromCurrency,
+        toCurrency: partial.toCurrency,
+        createdBy,
+        ...(partial.rateDerivation ? { rateDerivation: partial.rateDerivation } : {})
+      });
+
+      const allRates: Array<ReturnType<typeof baseRow>> = [];
+
+      allRates.push(
+        baseRow({
+          fromCurrencyId: usdCur.id,
+          toCurrencyId: zwgCur.id,
+          rate: String(usdZwg),
+          fromCurrency: { id: usdCur.id, code: usdCur.code, name: usdCur.name, symbol: usdCur.symbol },
+          toCurrency: { id: zwgCur.id, code: zwgCur.code, name: zwgCur.name, symbol: zwgCur.symbol }
+        })
+      );
+
+      const zwgPerZarInfo = zimrateFull ? extractZwgPerZar(zimrateFull) : null;
+      if (zwgPerZarInfo && zarCur) {
+        const { zwgPerZar } = zwgPerZarInfo;
+        const zarPerZwg = 1 / zwgPerZar;
+        allRates.push(
+          baseRow({
+            fromCurrencyId: zwgCur.id,
+            toCurrencyId: zarCur.id,
+            rate: String(zarPerZwg),
             fromCurrency: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                symbol: true
-              }
+              id: zwgCur.id,
+              code: zwgCur.code,
+              name: zwgCur.name,
+              symbol: zwgCur.symbol
             },
             toCurrency: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                symbol: true
-              }
-            },
-            createdBy: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true
-              }
+              id: zarCur.id,
+              code: zarCur.code,
+              name: zarCur.name,
+              symbol: zarCur.symbol
             }
-          },
-          orderBy: { date: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit
-        }),
-        prisma.exchangeRate.count({ where })
-      ]);
+          })
+        );
+
+        const zarPerUsd = usdZwg / zwgPerZar;
+        allRates.push(
+          baseRow({
+            fromCurrencyId: usdCur.id,
+            toCurrencyId: zarCur.id,
+            rate: String(zarPerUsd),
+            fromCurrency: { id: usdCur.id, code: usdCur.code, name: usdCur.name, symbol: usdCur.symbol },
+            toCurrency: {
+              id: zarCur.id,
+              code: zarCur.code,
+              name: zarCur.name,
+              symbol: zarCur.symbol
+            },
+            rateDerivation: 'USD/ZAR = (USD/ZWG) / (ZWG per ZAR) using Zimrate ZAR/ZWG (or inverse ZWG/ZAR)'
+          })
+        );
+      } else if (zwgPerZarInfo && !zarCur) {
+        console.warn(
+          '[MultiCurrencyService] Zimrate includes ZAR/ZWG but currencies table has no ZAR — skipping ZWG/ZAR and USD/ZAR rows'
+        );
+      } else if (!zwgPerZarInfo && zimrateFull) {
+        console.warn(
+          '[MultiCurrencyService] No ZAR/ZWG (or ZWG/ZAR) pair in Zimrate response — only USD/ZWG returned'
+        );
+      }
+
+      let filtered = allRates;
+      if (filters.fromCurrencyId) {
+        filtered = filtered.filter((r) => r.fromCurrencyId === filters.fromCurrencyId);
+      }
+      if (filters.toCurrencyId) {
+        filtered = filtered.filter((r) => r.toCurrencyId === filters.toCurrencyId);
+      }
+
+      const total = filtered.length;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
+      const start = (page - 1) * limit;
+      const exchangeRates = filtered.slice(start, start + limit);
 
       return {
         exchangeRates,
         total,
         page,
-        totalPages: Math.ceil(total / limit)
+        totalPages
       };
     } catch (error) {
       console.error('Error getting exchange rates:', error);
@@ -841,7 +1351,8 @@ export class MultiCurrencyService {
               select: {
                 id: true,
                 invoiceNumber: true,
-                totalAmount: true
+                totalAmount: true,
+                ...prismaInvoiceSnapshotSelect
               }
             },
             fromCurrency: {
@@ -1449,16 +1960,14 @@ export class MultiCurrencyService {
       // Create revaluation journal entry
       // DR: USD Bank (unrealized gain/loss amount)
       // CR: Unrealized FX Gain (if gain) OR DR: Unrealized FX Loss, CR: USD Bank (if loss)
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: revaluationDate,
-          referenceNumber: `REV-FX-${bank.id.slice(-8)}-${Date.now()}`,
-          description: `Foreign currency revaluation for ${bank.name} (${bank.currency.code})`,
-          totalAmount: new Decimal(Math.abs(unrealizedGainLoss)),
-          currencyId: baseCurrencyId, // Journal entry in base currency
-          status: 'POSTED',
-          createdById
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate: revaluationDate,
+        referenceNumber: `REV-FX-${bank.id.slice(-8)}-${Date.now()}`,
+        description: `Foreign currency revaluation for ${bank.name} (${bank.currency.code})`,
+        totalAmount: new Decimal(Math.abs(unrealizedGainLoss)),
+        currencyId: baseCurrencyId,
+        status: 'POSTED',
+        createdById,
       });
 
       if (gainLossType === 'GAIN') {

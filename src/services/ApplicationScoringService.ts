@@ -3,6 +3,7 @@ import { prisma } from '../utils/database';
 import { ChatGPTService } from './ChatGPTService';
 import { EmailNotificationService } from './EmailNotificationService';
 import { logger } from '../utils/logger';
+import { AI_SHORTLIST_THRESHOLD } from '../config/dealWorkflowStages';
 import { DocumentTextExtractionService } from './DocumentTextExtractionService';
 
 /**
@@ -47,8 +48,8 @@ export class ApplicationScoringService {
         return;
       }
 
-      if (application.currentStage !== 'PENDING_SHORTLISTING') {
-        logger.info('Application already processed or not in pending shortlisting stage', {
+      if (application.currentStage !== 'SCREENING_PENDING') {
+        logger.info('Application already processed or not in screening pending stage', {
           applicationId,
           currentStage: application.currentStage
         });
@@ -65,7 +66,9 @@ export class ApplicationScoringService {
       if (documentUrls.length === 0) {
         logger.warn('No documents found for application', { applicationId });
         // Reject if no documents
-        await this.rejectApplication(application, 'No documents provided');
+        await this.rejectApplication(application, 'No documents provided', undefined, {
+          kind: 'AUTO'
+        });
         return;
       }
 
@@ -180,9 +183,8 @@ export class ApplicationScoringService {
       const reasoning = scoringResult.reasoning || '';
       const applicantDetails = scoringResult.applicantDetails;
 
-      // Less strict threshold: 40% instead of 50%
-      const SHORTLIST_THRESHOLD = 40;
-      const decision = score >= SHORTLIST_THRESHOLD ? 'SHORTLISTED' : 'REJECTED';
+      const SHORTLIST_THRESHOLD = AI_SHORTLIST_THRESHOLD;
+      const decision = score >= SHORTLIST_THRESHOLD ? 'SCREENING' : 'REJECTED_SCREENING';
 
       logger.info('🧮 Shortlisting decision computed', {
         applicationId,
@@ -230,7 +232,7 @@ export class ApplicationScoringService {
           where: { id: applicationId },
           data: {
             initialScreeningScore: score,
-            screeningOutcome: score >= SHORTLIST_THRESHOLD ? 'SHORTLISTED' : 'REJECTED',
+            screeningOutcome: score >= SHORTLIST_THRESHOLD ? 'SCREENING' : 'REJECTED_SCREENING',
             // Store applicant details in metadata if needed
           }
         });
@@ -238,18 +240,18 @@ export class ApplicationScoringService {
         logger.info('📝 Application record updated with AI score', {
           applicationId,
           score,
-          screeningOutcome: score >= SHORTLIST_THRESHOLD ? 'SHORTLISTED' : 'REJECTED'
+          screeningOutcome: score >= SHORTLIST_THRESHOLD ? 'SCREENING' : 'REJECTED_SCREENING'
         });
 
         logger.info('💾 Application score saved to database', {
           applicationId,
           score,
-          screeningOutcome: score >= SHORTLIST_THRESHOLD ? 'SHORTLISTED' : 'REJECTED'
+          screeningOutcome: score >= SHORTLIST_THRESHOLD ? 'SCREENING' : 'REJECTED_SCREENING'
         });
 
         // Determine if shortlisted or rejected
         if (score >= SHORTLIST_THRESHOLD) {
-          logger.info('✅ DECISION: Application will be SHORTLISTED', {
+          logger.info('✅ DECISION: Application will move to SCREENING', {
             applicationId,
             score,
             threshold: SHORTLIST_THRESHOLD,
@@ -258,7 +260,7 @@ export class ApplicationScoringService {
           // Shortlist the application
           await this.shortlistApplication(application, score, reasoning, applicantDetails);
         } else {
-          logger.info('❌ DECISION: Application will be REJECTED', {
+          logger.info('❌ DECISION: Application will be REJECTED_SCREENING', {
             applicationId,
             score,
             threshold: SHORTLIST_THRESHOLD,
@@ -271,7 +273,7 @@ export class ApplicationScoringService {
         logger.info('🎉 ========== SHORTLISTING PROCESS COMPLETED ==========', {
           applicationId,
           timestamp: new Date().toISOString(),
-          finalDecision: score >= SHORTLIST_THRESHOLD ? 'SHORTLISTED' : 'REJECTED',
+          finalDecision: score >= SHORTLIST_THRESHOLD ? 'SCREENING' : 'REJECTED_SCREENING',
           score,
           threshold: SHORTLIST_THRESHOLD
         });
@@ -319,7 +321,7 @@ export class ApplicationScoringService {
             )
           ]) as any;
           
-          if (application && application.currentStage === 'PENDING_SHORTLISTING') {
+          if (application && application.currentStage === 'SCREENING_PENDING') {
             await this.rejectApplication(application, 'Technical error during evaluation', 0);
           }
         } catch (rejectError: any) {
@@ -345,18 +347,18 @@ export class ApplicationScoringService {
     applicantDetails: any
   ): Promise<void> {
     try {
-      // Update application status to SHORTLISTED
+      // Update application status to SCREENING (UAT: in screening / qualified for analyst DD kick-off)
       await prisma.application.update({
         where: { id: application.id },
         data: {
-          currentStage: 'SHORTLISTED',
+          currentStage: 'SCREENING',
           initialScreeningScore: score,
-          screeningOutcome: 'SHORTLISTED',
+          screeningOutcome: 'SCREENING',
           updatedAt: new Date()
         }
       });
 
-      logger.info('✅ ========== APPLICATION SHORTLISTED ==========', {
+      logger.info('✅ ========== APPLICATION IN SCREENING ==========', {
         applicationId: application.id,
         score,
         businessName: application.businessName,
@@ -370,8 +372,8 @@ export class ApplicationScoringService {
         businessName: application.businessName,
         applicantEmail: application.applicantEmail,
         score,
-        screeningOutcome: 'SHORTLISTED',
-        currentStage: 'SHORTLISTED',
+        screeningOutcome: 'SCREENING',
+        currentStage: 'SCREENING',
         applicantDetails
       });
 
@@ -392,7 +394,7 @@ export class ApplicationScoringService {
           applicantEmail: application.applicantEmail,
           businessName: application.businessName,
           applicationId: application.id,
-          currentStage: 'SHORTLISTED',
+          currentStage: 'SCREENING',
           additionalInfo: {
             score,
             reasoning,
@@ -430,15 +432,20 @@ export class ApplicationScoringService {
   private static async rejectApplication(
     application: any,
     rejectionReason: string,
-    score?: number
+    score?: number,
+    options?: { kind?: 'AUTO' | 'SCREENING' }
   ): Promise<void> {
     try {
-      // Update application status to REJECTED
+      const auto = options?.kind === 'AUTO';
+      const stage = auto ? 'AUTO_REJECTED' : 'REJECTED_SCREENING';
+      const outcome = auto ? 'AUTO_REJECTED' : 'REJECTED_SCREENING';
+
       await prisma.application.update({
         where: { id: application.id },
         data: {
-          currentStage: 'REJECTED',
-          screeningOutcome: 'REJECTED',
+          currentStage: stage,
+          screeningOutcome: outcome,
+          screeningRejectionReason: rejectionReason,
           updatedAt: new Date()
         }
       });
@@ -456,12 +463,11 @@ export class ApplicationScoringService {
         businessName: application.businessName,
         applicantEmail: application.applicantEmail,
         score: score || 0,
-        screeningOutcome: 'REJECTED',
-        currentStage: 'REJECTED',
+        screeningOutcome: outcome,
+        currentStage: stage,
         rejectionReason: rejectionReason.substring(0, 500)
       });
 
-      // Fetch application data with updated score for detailed rejection email
       const updatedApplication = await prisma.application.findUnique({
         where: { id: application.id },
         select: {
@@ -473,7 +479,6 @@ export class ApplicationScoringService {
         }
       });
 
-      // Use the score from parameter or from updated application
       const finalScore = score || updatedApplication?.initialScreeningScore || 0;
 
       logger.info('📧 Preparing to send rejection email', {
@@ -483,33 +488,14 @@ export class ApplicationScoringService {
         hasReasoning: !!rejectionReason
       });
 
-      const documentUrls = await prisma.applicationDocument.findMany({
-        where: { applicationId: application.id },
-        select: {
-          documentType: true,
-          fileName: true,
-          fileUrl: true
-        }
-      });
-
-      // Send rejection email with AI reasoning
+      // Generic rejection notice only — no detailed reasons, scores, or documents in email
       try {
         await EmailNotificationService.sendApplicationRejectedEmail({
           applicantName: application.applicantName,
           applicantEmail: application.applicantEmail,
           businessName: application.businessName,
           applicationId: application.id,
-          currentStage: 'REJECTED',
-          additionalInfo: {
-            rejectionReason: rejectionReason,
-            score: finalScore,
-            aiReasoning: rejectionReason, // AI-generated reasoning
-            documents: documentUrls.map(doc => ({
-              type: doc.documentType,
-              fileName: doc.fileName,
-              url: doc.fileUrl
-            }))
-          }
+          currentStage: stage
         });
 
         logger.info('✅ Rejection email sent successfully', {

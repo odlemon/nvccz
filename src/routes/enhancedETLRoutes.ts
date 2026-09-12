@@ -2,8 +2,12 @@
 import express from "express";
 import { EnhancedETLController } from "../controllers/EnhancedETLController";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 
 const router = express.Router();
+const READ_KEYS = ["performance.etl.view", "performance.etl.manage"]
+const WRITE_KEYS = ["performance.etl.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 /**
  * @swagger
@@ -97,7 +101,7 @@ const router = express.Router();
  *       401:
  *         description: Unauthorized
  */
-router.post("/run", authenticate, EnhancedETLController.runETLPipeline);
+router.post("/run", authenticate, guard, EnhancedETLController.runETLPipeline);
 
 /**
  * @swagger
@@ -126,7 +130,7 @@ router.post("/run", authenticate, EnhancedETLController.runETLPipeline);
  *       401:
  *         description: Unauthorized
  */
-router.get("/extract", authenticate, EnhancedETLController.extractFromAllModules);
+router.get("/extract", authenticate, guard, EnhancedETLController.extractFromAllModules);
 
 /**
  * @swagger
@@ -158,7 +162,7 @@ router.get("/extract", authenticate, EnhancedETLController.extractFromAllModules
  *       401:
  *         description: Unauthorized
  */
-router.get("/metrics", authenticate, EnhancedETLController.getCurrentMetrics);
+router.get("/metrics", authenticate, guard, EnhancedETLController.getCurrentMetrics);
 
 /**
  * @swagger
@@ -185,7 +189,7 @@ router.get("/metrics", authenticate, EnhancedETLController.getCurrentMetrics);
  *       401:
  *         description: Unauthorized
  */
-router.post("/schedule", authenticate, EnhancedETLController.scheduleETLJob);
+router.post("/schedule", authenticate, guard, EnhancedETLController.scheduleETLJob);
 
 /**
  * @swagger
@@ -250,6 +254,6 @@ router.post("/schedule", authenticate, EnhancedETLController.scheduleETLJob);
  *       401:
  *         description: Unauthorized
  */
-router.get("/stats", authenticate, EnhancedETLController.getETLStats);
+router.get("/stats", authenticate, guard, EnhancedETLController.getETLStats);
 
 export default router;

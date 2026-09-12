@@ -2,6 +2,11 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
+import {
+  prismaCashbookEntrySnapshotSelect,
+  prismaJournalEntryRateSelect,
+  prismaProcurementInvoiceSnapshotSelect
+} from "../config/accountingSnapshotResponseSelect";
 import { ResponseHelper } from "../utils/responseHelper";
 import { logger } from "../utils/logger";
 
@@ -28,6 +33,7 @@ const vendorTransactionsInclude = {
       status: true,
       paymentStatus: true,
       dueDate: true,
+      ...prismaProcurementInvoiceSnapshotSelect,
       currency: {
         select: {
           code: true
@@ -37,7 +43,8 @@ const vendorTransactionsInclude = {
         select: {
           id: true,
           referenceNumber: true,
-          status: true
+          status: true,
+          ...prismaJournalEntryRateSelect
         }
       }
     },
@@ -72,6 +79,7 @@ const vendorTransactionsInclude = {
       type: true,
       status: true,
       counterpartyType: true,
+      ...prismaCashbookEntrySnapshotSelect,
       bank: {
         select: {
           id: true,
@@ -83,7 +91,8 @@ const vendorTransactionsInclude = {
         select: {
           id: true,
           referenceNumber: true,
-          status: true
+          status: true,
+          ...prismaJournalEntryRateSelect
         }
       }
     },
@@ -116,13 +125,10 @@ const formatVendorWithTransactions = (vendor: any) => {
     paymentStatus: invoice.paymentStatus,
     dueDate: invoice.dueDate,
     currency: invoice.currency?.code || null,
-    journalEntry: invoice.journalEntry
-      ? {
-          id: invoice.journalEntry.id,
-          referenceNumber: invoice.journalEntry.referenceNumber,
-          status: invoice.journalEntry.status
-        }
-      : null
+    currencyId: invoice.currencyId,
+    usdZwgRateSnapshot: invoice.usdZwgRateSnapshot,
+    exchangeRateAtCreation: invoice.exchangeRateAtCreation,
+    journalEntry: invoice.journalEntry ?? null
   }));
 
   const purchaseOrderTransactions = purchaseOrders.map((po: any) => ({
@@ -158,13 +164,14 @@ const formatVendorWithTransactions = (vendor: any) => {
             accountNumber: entry.bank.accountNumber
           }
         : null,
-      journalEntry: entry.journalEntry
-        ? {
-            id: entry.journalEntry.id,
-            referenceNumber: entry.journalEntry.referenceNumber,
-            status: entry.journalEntry.status
-          }
-        : null
+      recordedCurrencyId: entry.recordedCurrencyId,
+      recordedCurrency: entry.recordedCurrency ?? null,
+      usdZwgRateSnapshot: entry.usdZwgRateSnapshot,
+      journalEntry: entry.journalEntry ?? null,
+      receiptAttachmentUrl: entry.receiptAttachmentUrl,
+      receiptAttachmentPath: entry.receiptAttachmentPath,
+      receiptAttachmentFileName: entry.receiptAttachmentFileName,
+      receiptAttachmentMimeType: entry.receiptAttachmentMimeType
     };
   });
 

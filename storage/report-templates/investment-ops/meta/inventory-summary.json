@@ -1,0 +1,82 @@
+[
+  {
+    "destName": "performance-report.docx",
+    "placeholders": 312,
+    "naPatched": 13
+  },
+  {
+    "destName": "holdings-report.docx",
+    "placeholders": 263,
+    "naPatched": 0
+  },
+  {
+    "destName": "transaction-report.docx",
+    "placeholders": 304,
+    "naPatched": 0
+  },
+  {
+    "destName": "asset-allocation-report.docx",
+    "placeholders": 240,
+    "naPatched": 0
+  },
+  {
+    "destName": "income-report.docx",
+    "placeholders": 281,
+    "naPatched": 0
+  },
+  {
+    "destName": "fee-report.docx",
+    "placeholders": 284,
+    "naPatched": 0
+  },
+  {
+    "destName": "client-portfolio-valuation.docx",
+    "placeholders": 219,
+    "naPatched": 0
+  },
+  {
+    "destName": "reconciliation-exception-report.docx",
+    "placeholders": 170,
+    "naPatched": 0
+  },
+  {
+    "destName": "custodian-trustee-reconciliation.docx",
+    "placeholders": 288,
+    "naPatched": 0
+  },
+  {
+    "destName": "subscriptions-redemptions-report.docx",
+    "placeholders": 233,
+    "naPatched": 0
+  },
+  {
+    "destName": "aum-fum-movement-report.docx",
+    "placeholders": 486,
+    "naPatched": 0
+  },
+  {
+    "destName": "trustee-quarterly-pack.docx",
+    "placeholders": 178,
+    "naPatched": 0
+  },
+  {
+    "destName": "cis-monthly-return-pack.docx",
+    "placeholders": 414,
+    "naPatched": 0
+  },
+  {
+    "destName": "aml-cft-cpf-return-pack.docx",
+    "placeholders": 362,
+    "naPatched": 0
+  },
+  {
+    "destName": "seczim-capital-adequacy-pack.docx",
+    "placeholders": 303,
+    "naPatched": 2
+  },
+  {
+    "destName": "seczim-prudential-return-pack.docx",
+    "placeholders": 173,
+    "naPatched": 0
+  }
+]

@@ -1,58 +1,24 @@
 //@ts-nocheck
-import express from 'express';
-import { FundController } from '../controllers/FundController';
-import { authenticate } from '../middleware/authenticate';
-import { authorize } from '../middleware/permissionAuth';
+import express from "express";
+import { FundController } from "../controllers/FundController";
+import { CapitalCallController } from "../controllers/CapitalCallController";
+import { authenticate } from "../middleware/authenticate";
+import { authorize } from "../middleware/permissionAuth";
+import multer from "multer";
 
 const router = express.Router();
 
-/**
- * @swagger
- * components:
- *   schemas:
- *     Fund:
- *       type: object
- *       properties:
- *         id:
- *           type: string
- *         name:
- *           type: string
- *         description:
- *           type: string
- *         totalAmount:
- *           type: number
- *         remainingAmount:
- *           type: number
- *         minInvestment:
- *           type: number
- *         maxInvestment:
- *           type: number
- *         focusIndustries:
- *           type: array
- *           items:
- *             type: string
- *         applicationStart:
- *           type: string
- *           format: date-time
- *         applicationEnd:
- *           type: string
- *           format: date-time
- *         status:
- *           type: string
- *           enum: [OPEN, CLOSED, COMING_SOON]
- *         createdAt:
- *           type: string
- *           format: date-time
- *         updatedAt:
- *           type: string
- *           format: date-time
- */
+const fundDocumentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+});
 
 /**
  * @swagger
- * /api/funds:
+ * /funds:
  *   post:
  *     summary: Create a new fund
+ *     description: Admin only. `createdById` is set from the authenticated user. Initial `remainingAmount` equals `totalAmount`.
  *     tags: [Fund Management]
  *     security:
  *       - bearerAuth: []
@@ -61,41 +27,20 @@ const router = express.Router();
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required:
- *               - name
- *               - description
- *               - totalAmount
- *               - minInvestment
- *               - maxInvestment
- *               - focusIndustries
- *               - applicationStart
- *               - applicationEnd
- *             note: createdById is automatically extracted from the authenticated user
- *             properties:
- *               name:
- *                 type: string
- *               description:
- *                 type: string
- *               totalAmount:
- *                 type: number
- *               minInvestment:
- *                 type: number
- *               maxInvestment:
- *                 type: number
- *               focusIndustries:
- *                 type: array
- *                 items:
- *                   type: string
- *               applicationStart:
- *                 type: string
- *                 format: date-time
- *               applicationEnd:
- *                 type: string
- *                 format: date-time
- *               status:
- *                 type: string
- *                 enum: [OPEN, CLOSED, COMING_SOON]
+ *             $ref: '#/components/schemas/CreateFundRequest'
+ *           examples:
+ *             sportsFund:
+ *               summary: Large fund with wide LP ticket range
+ *               value:
+ *                 name: Sports Growth Fund I
+ *                 description: Early-stage sports and media investments.
+ *                 totalAmount: 50000000
+ *                 minInvestment: 10000
+ *                 maxInvestment: 10000000
+ *                 focusIndustries: ['Sports', 'Media', 'Technology']
+ *                 applicationStart: '2025-01-01T00:00:00.000Z'
+ *                 applicationEnd: '2027-12-31T23:59:59.999Z'
+ *                 status: OPEN
  *     responses:
  *       201:
  *         description: Fund created successfully
@@ -104,61 +49,42 @@ const router = express.Router();
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
+ *                 success: { type: boolean, example: true }
  *                 data:
  *                   $ref: '#/components/schemas/Fund'
- *                 message:
- *                   type: string
+ *                 message: { type: string, example: 'Fund created successfully' }
+ *       400:
+ *         description: Validation or create error
  */
-router.post('/', 
-  authenticate, 
-  authorize(['admin']), 
-  FundController.createFund
-);
+router.post("/", authenticate, authorize(["admin"]), FundController.createFund);
 
 /**
  * @swagger
- * /api/funds:
+ * /funds:
  *   get:
- *     summary: Get all funds with filtering
+ *     summary: List funds (paginated, filters)
  *     tags: [Fund Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *         description: Page number
+ *         schema: { type: integer, default: 1 }
  *       - in: query
  *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *         description: Number of items per page
+ *         schema: { type: integer, default: 10 }
  *       - in: query
  *         name: status
- *         schema:
- *           type: string
- *           enum: [OPEN, CLOSED, COMING_SOON]
- *         description: Filter by status
+ *         schema: { type: string, enum: [OPEN, CLOSED, COMING_SOON] }
  *       - in: query
  *         name: industry
- *         schema:
- *           type: string
- *         description: Filter by industry focus
+ *         schema: { type: string }
  *       - in: query
  *         name: minAvailableBalance
- *         schema:
- *           type: number
- *         description: Minimum available balance
+ *         schema: { type: number }
  *       - in: query
  *         name: maxAvailableBalance
- *         schema:
- *           type: number
- *         description: Maximum available balance
+ *         schema: { type: number }
  *     responses:
  *       200:
  *         description: Funds retrieved successfully
@@ -167,73 +93,76 @@ router.post('/',
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
+ *                 success: { type: boolean, example: true }
  *                 data:
  *                   type: object
  *                   properties:
  *                     funds:
  *                       type: array
- *                       items:
- *                         $ref: '#/components/schemas/Fund'
- *                     total:
- *                       type: integer
- *                     page:
- *                       type: integer
- *                     totalPages:
- *                       type: integer
+ *                       items: { $ref: '#/components/schemas/Fund' }
+ *                     total: { type: integer, example: 3 }
+ *                     page: { type: integer, example: 1 }
+ *                     totalPages: { type: integer, example: 1 }
  */
-router.get('/', 
-  authenticate, 
-  authorize(['admin', 'fund_manager']), 
-  FundController.getAllFunds
-);
+router.get("/", authenticate, authorize(["admin", "fund_manager"]), FundController.getAllFunds);
 
 /**
  * @swagger
- * /api/funds/statistics:
+ * /funds/statistics:
  *   get:
- *     summary: Get fund statistics
+ *     summary: Aggregate fund statistics
  *     tags: [Fund Management]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Fund statistics retrieved successfully
+ *         description: Statistics
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
+ *                 success: { type: boolean, example: true }
  *                 data:
  *                   type: object
  *                   properties:
- *                     totalFunds:
- *                       type: integer
- *                     openFunds:
- *                       type: integer
- *                     closedFunds:
- *                       type: integer
- *                     comingSoonFunds:
- *                       type: integer
- *                     totalAmount:
- *                       type: number
- *                     totalRemainingAmount:
- *                       type: number
- *                     totalDisbursedAmount:
- *                       type: number
+ *                     totalFunds: { type: integer, example: 5 }
+ *                     openFunds: { type: integer, example: 3 }
+ *                     closedFunds: { type: integer, example: 1 }
+ *                     comingSoonFunds: { type: integer, example: 1 }
+ *                     totalAmount: { type: number, example: 120000000 }
+ *                     totalRemainingAmount: { type: number, example: 45000000 }
+ *                     totalDisbursedAmount: { type: number, example: 75000000 }
  */
-router.get('/statistics', 
-  authenticate, 
-  authorize(['admin', 'fund_manager']), 
-  FundController.getFundStatistics
+router.get("/statistics", authenticate, authorize(["admin", "fund_manager"]), FundController.getFundStatistics);
+
+/**
+ * Capital calls (LP drawdowns) — see Swagger tag **Capital Calls (LP drawdowns)** for schemas.
+ */
+router.post("/:fundId/capital-calls", authenticate, CapitalCallController.initiate);
+router.get("/:fundId/capital-calls", authenticate, CapitalCallController.list);
+router.get("/:fundId/capital-calls/lp-summary", authenticate, CapitalCallController.lpSummary);
+router.get(
+  "/:fundId/capital-calls/:capitalCallId/allocations/:allocationId/notice",
+  authenticate,
+  CapitalCallController.getNoticeData
+);
+router.get("/:fundId/capital-calls/:capitalCallId", authenticate, CapitalCallController.getOne);
+router.post("/:fundId/capital-calls/:capitalCallId/send-notices", authenticate, CapitalCallController.sendNotices);
+router.get(
+  "/:fundId/capital-calls/:capitalCallId/allocations/:allocationId/payments",
+  authenticate,
+  CapitalCallController.listAllocationPayments
+);
+router.post(
+  "/:fundId/capital-calls/:capitalCallId/allocations/:allocationId/payments",
+  authenticate,
+  CapitalCallController.recordPayment
 );
 
 /**
  * @swagger
- * /api/funds/{fundId}:
+ * /funds/{fundId}:
  *   get:
  *     summary: Get fund by ID
  *     tags: [Fund Management]
@@ -243,9 +172,7 @@ router.get('/statistics',
  *       - in: path
  *         name: fundId
  *         required: true
- *         schema:
- *           type: string
- *         description: Fund ID
+ *         schema: { type: string }
  *     responses:
  *       200:
  *         description: Fund retrieved successfully
@@ -254,24 +181,19 @@ router.get('/statistics',
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   $ref: '#/components/schemas/Fund'
+ *                 success: { type: boolean, example: true }
+ *                 data: { $ref: '#/components/schemas/Fund' }
  *       404:
  *         description: Fund not found
  */
-router.get('/:fundId', 
-  authenticate, 
-  authorize(['admin', 'fund_manager']), 
-  FundController.getFundById
-);
+router.get("/:fundId", authenticate, authorize(["admin", "fund_manager"]), FundController.getFundById);
 
 /**
  * @swagger
- * /api/funds/{fundId}:
+ * /funds/{fundId}:
  *   put:
  *     summary: Update fund details
+ *     description: Admin only. Optional fields. If `totalAmount` is increased, `remainingAmount` is scaled proportionally from prior total/remaining.
  *     tags: [Fund Management]
  *     security:
  *       - bearerAuth: []
@@ -279,38 +201,26 @@ router.get('/:fundId',
  *       - in: path
  *         name: fundId
  *         required: true
- *         schema:
- *           type: string
- *         description: Fund ID
+ *         schema: { type: string }
  *     requestBody:
+ *       required: true
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               name:
- *                 type: string
- *               description:
- *                 type: string
- *               totalAmount:
- *                 type: number
- *               minInvestment:
- *                 type: number
- *               maxInvestment:
- *                 type: number
- *               focusIndustries:
- *                 type: array
- *                 items:
- *                   type: string
- *               applicationStart:
- *                 type: string
- *                 format: date-time
- *               applicationEnd:
- *                 type: string
- *                 format: date-time
- *               status:
- *                 type: string
- *                 enum: [OPEN, CLOSED, COMING_SOON]
+ *             $ref: '#/components/schemas/UpdateFundRequest'
+ *           examples:
+ *             raiseMaxAndSize:
+ *               summary: Raise max LP ticket and fund size
+ *               value:
+ *                 maxInvestment: 15000000
+ *                 totalAmount: 75000000
+ *             fullPatch:
+ *               summary: Update several fields
+ *               value:
+ *                 name: Sports Growth Fund I (Updated)
+ *                 minInvestment: 25000
+ *                 maxInvestment: 12000000
+ *                 status: OPEN
  *     responses:
  *       200:
  *         description: Fund updated successfully
@@ -319,22 +229,55 @@ router.get('/:fundId',
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   $ref: '#/components/schemas/Fund'
- *                 message:
- *                   type: string
+ *                 success: { type: boolean, example: true }
+ *                 data: { $ref: '#/components/schemas/Fund' }
+ *                 message: { type: string, example: 'Fund updated successfully' }
+ *       400:
+ *         description: Update error
  */
-router.put('/:fundId', 
-  authenticate, 
-  authorize(['admin']), 
-  FundController.updateFund
+router.put("/:fundId", authenticate, authorize(["admin"]), FundController.updateFund);
+
+/**
+ * @swagger
+ * /funds/{fundId}/performance-snapshots:
+ *   get:
+ *     summary: List a fund's recorded performance snapshots (NAV/called/distributed over time)
+ *     tags: [Fund Management]
+ */
+router.get(
+  "/:fundId/performance-snapshots",
+  authenticate,
+  authorize(["admin", "fund_manager"]),
+  FundController.getPerformanceSnapshots
 );
 
 /**
  * @swagger
- * /api/funds/{fundId}/close:
+ * /funds/{fundId}/documents:
+ *   get:
+ *     summary: List a fund's documents
+ *     tags: [Fund Management]
+ *   post:
+ *     summary: Upload a document to a fund
+ *     tags: [Fund Management]
+ */
+router.get(
+  "/:fundId/documents",
+  authenticate,
+  authorize(["admin", "fund_manager"]),
+  FundController.listDocuments
+);
+router.post(
+  "/:fundId/documents",
+  authenticate,
+  authorize(["admin", "fund_manager"]),
+  fundDocumentUpload.single("file"),
+  FundController.uploadDocument
+);
+
+/**
+ * @swagger
+ * /funds/{fundId}/close:
  *   post:
  *     summary: Close a fund
  *     tags: [Fund Management]
@@ -344,9 +287,7 @@ router.put('/:fundId',
  *       - in: path
  *         name: fundId
  *         required: true
- *         schema:
- *           type: string
- *         description: Fund ID
+ *         schema: { type: string }
  *     responses:
  *       200:
  *         description: Fund closed successfully
@@ -355,22 +296,15 @@ router.put('/:fundId',
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   $ref: '#/components/schemas/Fund'
- *                 message:
- *                   type: string
+ *                 success: { type: boolean, example: true }
+ *                 data: { $ref: '#/components/schemas/Fund' }
+ *                 message: { type: string, example: 'Fund closed successfully' }
  */
-router.post('/:fundId/close', 
-  authenticate, 
-  authorize(['admin']), 
-  FundController.closeFund
-);
+router.post("/:fundId/close", authenticate, authorize(["admin"]), FundController.closeFund);
 
 /**
  * @swagger
- * /api/funds/industry/{industry}:
+ * /funds/industry/{industry}:
  *   get:
  *     summary: Get funds by industry focus
  *     tags: [Fund Management]
@@ -380,9 +314,8 @@ router.post('/:fundId/close',
  *       - in: path
  *         name: industry
  *         required: true
- *         schema:
- *           type: string
- *         description: Industry name
+ *         schema: { type: string }
+ *         example: Technology
  *     responses:
  *       200:
  *         description: Funds retrieved successfully
@@ -391,22 +324,16 @@ router.post('/:fundId/close',
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
+ *                 success: { type: boolean, example: true }
  *                 data:
  *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/Fund'
+ *                   items: { $ref: '#/components/schemas/Fund' }
  */
-router.get('/industry/:industry', 
-  authenticate, 
-  authorize(['admin', 'fund_manager']), 
-  FundController.getFundsByIndustry
-);
+router.get("/industry/:industry", authenticate, authorize(["admin", "fund_manager"]), FundController.getFundsByIndustry);
 
 /**
  * @swagger
- * /api/funds/status/{status}:
+ * /funds/status/{status}:
  *   get:
  *     summary: Get funds by status
  *     tags: [Fund Management]
@@ -416,10 +343,7 @@ router.get('/industry/:industry',
  *       - in: path
  *         name: status
  *         required: true
- *         schema:
- *           type: string
- *           enum: [OPEN, CLOSED, COMING_SOON]
- *         description: Fund status
+ *         schema: { type: string, enum: [OPEN, CLOSED, COMING_SOON] }
  *     responses:
  *       200:
  *         description: Funds retrieved successfully
@@ -428,24 +352,18 @@ router.get('/industry/:industry',
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
+ *                 success: { type: boolean, example: true }
  *                 data:
  *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/Fund'
+ *                   items: { $ref: '#/components/schemas/Fund' }
  */
-router.get('/status/:status', 
-  authenticate, 
-  authorize(['admin', 'fund_manager']), 
-  FundController.getFundsByStatus
-);
+router.get("/status/:status", authenticate, authorize(["admin", "fund_manager"]), FundController.getFundsByStatus);
 
 /**
  * @swagger
- * /api/funds/balance/{minBalance}/{maxBalance}:
+ * /funds/balance/{minBalance}/{maxBalance}:
  *   get:
- *     summary: Get funds by available balance range
+ *     summary: Get funds by available balance (remaining) range
  *     tags: [Fund Management]
  *     security:
  *       - bearerAuth: []
@@ -453,15 +371,13 @@ router.get('/status/:status',
  *       - in: path
  *         name: minBalance
  *         required: true
- *         schema:
- *           type: number
- *         description: Minimum available balance
+ *         schema: { type: number }
+ *         example: 1000000
  *       - in: path
  *         name: maxBalance
  *         required: true
- *         schema:
- *           type: number
- *         description: Maximum available balance
+ *         schema: { type: number }
+ *         example: 50000000
  *     responses:
  *       200:
  *         description: Funds retrieved successfully
@@ -470,16 +386,15 @@ router.get('/status/:status',
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
+ *                 success: { type: boolean, example: true }
  *                 data:
  *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/Fund'
+ *                   items: { $ref: '#/components/schemas/Fund' }
  */
-router.get('/balance/:minBalance/:maxBalance', 
-  authenticate, 
-  authorize(['admin', 'fund_manager']), 
+router.get(
+  "/balance/:minBalance/:maxBalance",
+  authenticate,
+  authorize(["admin", "fund_manager"]),
   FundController.getFundsByAvailableBalance
 );
 

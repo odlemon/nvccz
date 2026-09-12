@@ -9,7 +9,7 @@ export const performanceEndpoints = {
   // STAGE 1: GOAL SETTING (Cascade)
   // ==========================================
   
-  '/api/performance/goals': {
+  '/performance/goals': {
     post: {
       tags: ['🎯 Stage 1: Goal Setting'],
       summary: 'Create Organizational Goal',
@@ -21,11 +21,14 @@ export const performanceEndpoints = {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['title', 'type', 'category', 'targetValue', 'targetUnit'],
+              required: ['title', 'type', 'targetValue', 'targetUnit'],
               properties: {
                 title: { type: 'string', example: 'Achieve $5M Fund I AUM by Q4' },
                 type: { type: 'string', enum: ['company'], example: 'company' },
-                category: { type: 'string', enum: ['financial', 'operational', 'strategic'], example: 'financial' },
+                scorecardPillar: {
+                  type: 'string',
+                  description: 'Required for company goals (BSC pillar). Optional for other types; can be inherited from backing KPI.'
+                },
                 targetValue: { type: 'number', example: 5000000 },
                 targetUnit: { type: 'string', example: 'USD' },
                 kpiName: { 
@@ -103,7 +106,45 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/breakdown/departments/available': {
+  '/performance/goals/by-kpi/{kpiId}': {
+    get: {
+      tags: ['Performance Goals'],
+      summary: 'Get performance goals for a KPI',
+      description:
+        'Returns all goals where `performance_goals.kpiId = kpiId` (same shape as GET /performance/goals).',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'kpiId',
+          in: 'path',
+          required: true,
+          schema: { type: 'string' },
+          description: 'KPI id (kpis.id)'
+        }
+      ],
+      responses: {
+        200: {
+          description: 'Goals retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  count: { type: 'number', example: 2 },
+                  goals: { type: 'array', items: { type: 'object' } }
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+
+  '/performance/breakdown/departments/available': {
     get: {
       tags: ['🏢 Hardcoded Departments'],
       summary: 'Get All Hardcoded Departments',
@@ -144,7 +185,7 @@ export const performanceEndpoints = {
   },
 
 
-  '/api/performance/breakdown/departments': {
+  '/performance/breakdown/departments': {
     post: {
       tags: ['🎯 Stage 1: Goal Setting'],
       summary: 'Manual Department Breakdown',
@@ -204,7 +245,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/breakdown/users/{department}': {
+  '/performance/breakdown/users/{department}': {
     get: {
       tags: ['🎯 Stage 1: Goal Setting'],
       summary: 'Get Users by Department',
@@ -239,7 +280,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/breakdown/individuals': {
+  '/performance/breakdown/individuals': {
     post: {
       tags: ['🎯 Stage 1: Goal Setting'],
       summary: 'Manual Individual Breakdown',
@@ -303,7 +344,7 @@ export const performanceEndpoints = {
   // STAGE 2: PROGRESS TRACKING
   // ==========================================
 
-  '/api/performance/goal-tracking/check-all-due-goals': {
+  '/performance/goal-tracking/check-all-due-goals': {
     post: {
       tags: ['📊 Stage 2: Progress Tracking'],
       summary: 'Check All Due Goals',
@@ -329,7 +370,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/goal-tracking/stats': {
+  '/performance/goal-tracking/stats': {
     get: {
       tags: ['📊 Stage 2: Progress Tracking'],
       summary: 'Get Goal Tracking Statistics',
@@ -359,7 +400,7 @@ export const performanceEndpoints = {
   // STAGE 3: ROLL-UP CALCULATION
   // ==========================================
 
-  '/api/performance/goals/{goalId}': {
+  '/performance/goals/{goalId}': {
     get: {
       tags: ['📈 Stage 3: Roll-up Calculation'],
       summary: 'Get Goal with Roll-up Data',
@@ -398,38 +439,18 @@ export const performanceEndpoints = {
   // ==========================================
   // STAGE 4: PERFORMANCE REVIEW
   // ==========================================
-
-  '/api/performance/review-cycles': {
-    get: {
-      tags: ['🔄 Stage 4: Performance Review'],
-      summary: 'Get Performance Review Cycles',
-      description: 'Get all performance review cycles and their status',
-      security: [{ bearerAuth: [] }],
-      responses: {
-        200: {
-          description: 'Performance review cycles retrieved successfully',
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  success: { type: 'boolean' },
-                  message: { type: 'string' },
-                  data: { type: 'array', items: { type: 'object' } }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  },
+  //
+  // NOTE: Review cycles + independent evaluation endpoints are documented under
+  // `Reviews UAT (Review cycles & independent evaluation)` (see
+  // `reviews-uat-review-cycles-independent-eval-endpoints.ts`).
+  // We intentionally do not duplicate them here to avoid Swagger showing
+  // multiple “review cycle” endpoint groups.
 
   // ==========================================
   // STAGE 5: DATA SYNCHRONIZATION (ETL)
   // ==========================================
 
-  '/api/performance/enhanced-etl/run-pipeline': {
+  '/performance/enhanced-etl/run-pipeline': {
     post: {
       tags: ['🔄 Stage 5: Data Synchronization'],
       summary: 'Run ETL Pipeline',
@@ -455,7 +476,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/enhanced-etl/metrics': {
+  '/performance/enhanced-etl/metrics': {
     get: {
       tags: ['🔄 Stage 5: Data Synchronization'],
       summary: 'Get ETL Metrics',
@@ -486,7 +507,7 @@ export const performanceEndpoints = {
   // ==========================================
 
 
-  '/api/performance/individual-goals/users/{userId}/performance-tasks': {
+  '/performance/individual-goals/users/{userId}/performance-tasks': {
     get: {
       tags: ['📋 Task Management Integration'],
       summary: 'Get User Performance Tasks',
@@ -521,7 +542,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/individual-goals/departments/{department}/performance-tasks': {
+  '/performance/individual-goals/departments/{department}/performance-tasks': {
     get: {
       tags: ['📋 Task Management Integration'],
       summary: 'Get Department Performance Tasks',
@@ -556,7 +577,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/tasks/my': {
+  '/tasks/my': {
     get: {
       tags: ['📋 Task Management Integration'],
       summary: 'Get My Tasks',
@@ -643,7 +664,7 @@ export const performanceEndpoints = {
                             id: { type: 'string' },
                             title: { type: 'string' },
                             type: { type: 'string' },
-                            category: { type: 'string' },
+                            scorecardPillar: { type: 'string' },
                             parentGoal: {
                               type: 'object',
                               properties: {
@@ -682,7 +703,7 @@ export const performanceEndpoints = {
   // ACTIVITY MANAGEMENT (Task & Goal Progress Tracking)
   // ==========================================
 
-  '/api/activities': {
+  '/activities': {
     post: {
       tags: ['📋 Task Management Integration'],
       summary: 'Create Activity - Track Progress on Task or Goal',
@@ -797,7 +818,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/activities/task/{taskId}': {
+  '/activities/task/{taskId}': {
     get: {
       tags: ['📋 Task Management Integration'],
       summary: 'Get Task Activities - View Progress History',
@@ -863,7 +884,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/activities/goal/{goalId}': {
+  '/activities/goal/{goalId}': {
     get: {
       tags: ['📋 Task Management Integration'],
       summary: 'Get Goal Activities - View Progress History',
@@ -929,7 +950,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/activities/department/{department}/goals': {
+  '/activities/department/{department}/goals': {
     get: {
       tags: ['📋 Task Management Integration'],
       summary: 'Get Department Goals - For Managers and Officers',
@@ -966,7 +987,7 @@ export const performanceEndpoints = {
                         title: { type: 'string' },
                         description: { type: 'string' },
                         type: { type: 'string', example: 'department' },
-                        category: { type: 'string' },
+                        scorecardPillar: { type: 'string' },
                         targetValue: { type: 'string' },
                         currentValue: { type: 'string' },
                         stage: { type: 'string' },
@@ -1004,7 +1025,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/activities/manager/tasks': {
+  '/activities/manager/tasks': {
     get: {
       tags: ['📋 Task Management Integration'],
       summary: 'Get Manager Created Tasks - View Tasks You Created',
@@ -1040,7 +1061,7 @@ export const performanceEndpoints = {
                             id: { type: 'string' },
                             title: { type: 'string' },
                             type: { type: 'string' },
-                            category: { type: 'string' }
+                            scorecardPillar: { type: 'string' }
                           }
                         }
                       }
@@ -1068,7 +1089,7 @@ export const performanceEndpoints = {
   // HARDCODED KPIs (via existing KPI routes)
   // ==========================================
 
-  '/api/performance/kpis': {
+  '/performance/kpis': {
     get: {
       tags: ['📊 Hardcoded KPIs'],
       summary: 'Get All Hardcoded KPIs',
@@ -1095,7 +1116,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/kpis/department/{department}': {
+  '/performance/kpis/department/{department}': {
     get: {
       tags: ['📊 Hardcoded KPIs'],
       summary: 'Get KPIs by Department',
@@ -1132,7 +1153,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/kpis/code/{code}': {
+  '/performance/kpis/code/{code}': {
     get: {
       tags: ['📊 Hardcoded KPIs'],
       summary: 'Get KPI by Code',
@@ -1167,7 +1188,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/kpis/financial': {
+  '/performance/kpis/financial': {
     get: {
       tags: ['📊 Hardcoded KPIs'],
       summary: 'Get Financial KPIs',
@@ -1194,7 +1215,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/kpis/account-type/{accountType}': {
+  '/performance/kpis/account-type/{accountType}': {
     get: {
       tags: ['📊 Hardcoded KPIs'],
       summary: 'Get KPIs by Account Type',
@@ -1231,7 +1252,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/kpis/statistics': {
+  '/performance/kpis/statistics': {
     get: {
       tags: ['📊 Hardcoded KPIs'],
       summary: 'Get KPI Statistics',
@@ -1270,7 +1291,7 @@ export const performanceEndpoints = {
   // ACCOUNTING INTEGRATION
   // ==========================================
 
-  '/api/accounting/journal-entries': {
+  '/accounting/journal-entries': {
     get: {
       tags: ['💰 Accounting Integration'],
       summary: 'Get Journal Entries from Performance KPIs',
@@ -1320,7 +1341,7 @@ export const performanceEndpoints = {
   // 📈 ROLL-UP CALCULATIONS
   // ==========================================
 
-  '/api/performance/rollup/{goalId}': {
+  '/performance/rollup/{goalId}': {
     get: {
       tags: ['📈 Roll-up Calculations'],
       summary: 'Get Goal with Roll-up Data',
@@ -1354,7 +1375,8 @@ export const performanceEndpoints = {
                           id: { type: 'string' },
                           title: { type: 'string' },
                           type: { type: 'string' },
-                          category: { type: 'string' },
+                          scorecardPillar: { type: 'string' },
+                          targetUnit: { type: 'string', nullable: true },
                           targetValue: { type: 'string' },
                           currentValue: { type: 'string' },
                           progressPercentage: { type: 'string' },
@@ -1390,7 +1412,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/rollup/{goalId}/recalculate': {
+  '/performance/rollup/{goalId}/recalculate': {
     post: {
       tags: ['📈 Roll-up Calculations'],
       summary: 'Recalculate All Roll-up Data',
@@ -1432,7 +1454,7 @@ export const performanceEndpoints = {
   // 📊 PERFORMANCE SCORECARDS
   // ==========================================
 
-  '/api/performance/scorecards/user': {
+  '/performance/scorecards/user': {
     get: {
       tags: ['📊 Performance Scorecards'],
       summary: 'Get User Performance Scorecard',
@@ -1509,7 +1531,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/scorecards/department/{department}': {
+  '/performance/scorecards/department/{department}': {
     get: {
       tags: ['📊 Performance Scorecards'],
       summary: 'Get Department Performance Scorecard',
@@ -1597,7 +1619,7 @@ export const performanceEndpoints = {
   // 📊 PERFORMANCE ANALYTICS
   // ==========================================
 
-  '/api/performance/analytics/kpi': {
+  '/performance/analytics/kpi': {
     get: {
       tags: ['📊 Performance Analytics'],
       summary: 'Get KPI Performance Analysis',
@@ -1627,6 +1649,12 @@ export const performanceEndpoints = {
           in: 'query',
           schema: { type: 'string', format: 'date' },
           description: 'End date for analysis period'
+        },
+        {
+          name: 'currencyId',
+          in: 'query',
+          schema: { type: 'string' },
+          description: 'Currency ID for filtering accounting data (required for accurate KPI values matching accounting module)'
         }
       ],
       responses: {
@@ -1664,7 +1692,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/analytics/dashboard': {
+  '/performance/analytics/dashboard': {
     get: {
       tags: ['📊 Performance Analytics'],
       summary: 'Get Performance Dashboard Data',
@@ -1711,7 +1739,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/analytics/reports': {
+  '/performance/analytics/reports': {
     get: {
       tags: ['📊 Performance Analytics'],
       summary: 'Get Goal Progress Reports',
@@ -1786,7 +1814,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/analytics/departments/comparison': {
+  '/performance/analytics/departments/comparison': {
     get: {
       tags: ['📊 Performance Analytics'],
       summary: 'Get Department Performance Comparison',
@@ -1833,7 +1861,7 @@ export const performanceEndpoints = {
 
   '/applications': {
     post: {
-      tags: ['🏢 Portfolio Management'],
+      tags: ['🏢 Portfolio Management', 'Updated investment flow'],
       summary: 'Create a new investment application (PUBLIC)',
       description: 'Create a new investment application with document uploads. Files are automatically uploaded to Firebase Storage. No authentication required.',
       requestBody: {
@@ -2004,6 +2032,11 @@ export const performanceEndpoints = {
                       requestedAmount: { type: 'number', example: 500000 },
                       industry: { type: 'string', example: 'Technology' },
                       businessStage: { type: 'string', example: 'Early Stage' },
+                      hasReceivedInvestment: {
+                        type: 'boolean',
+                        description: 'True when fund_disbursements (via investment implementation) has a DISBURSED payout for this application',
+                        example: false
+                      },
                       fund: {
                         type: 'object',
                         properties: {
@@ -2223,6 +2256,11 @@ export const performanceEndpoints = {
                   data: {
                     type: 'object',
                     properties: {
+                      hasReceivedInvestment: {
+                        type: 'boolean',
+                        description: 'True when fund_disbursements has a DISBURSED payout for this applicant',
+                        example: false
+                      },
                       application: {
                         type: 'object',
                         properties: {
@@ -2232,7 +2270,8 @@ export const performanceEndpoints = {
                           businessName: { type: 'string' },
                           requestedAmount: { type: 'number' },
                           industry: { type: 'string' },
-                          businessStage: { type: 'string' }
+                          businessStage: { type: 'string' },
+                          hasReceivedInvestment: { type: 'boolean', example: false }
                         }
                       },
                       portfolioCompany: {
@@ -2263,6 +2302,7 @@ export const performanceEndpoints = {
                         properties: {
                           hasApplication: { type: 'boolean' },
                           hasPortfolioCompany: { type: 'boolean' },
+                          hasReceivedInvestment: { type: 'boolean', example: false },
                           applicationStage: { type: 'string' },
                           companyStatus: { type: 'string' }
                         }
@@ -2600,3 +2640,5 @@ export const performanceEndpoints = {
     }
   }
 };
+
+

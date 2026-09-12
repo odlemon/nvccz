@@ -1,11 +1,20 @@
 // @ts-nocheck
 import { DataIntegrationService, FundPerformanceMetrics, AssetsUnderManagement, PipelineMetrics, PortfolioValuation, OperationalMetrics, AdvancedDealMetrics } from "./DataIntegrationService";
+import { PortfolioDashboardService } from "./PortfolioDashboardService";
 import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
 
 export interface CEODashboardData {
   financialPerformance: {
+    /**
+     * Sum of fund `totalAmount` (committed fund size / LP view). **Not** mark-to-market holdings NAV.
+     * Use `holdingsAUM` for portfolio market value.
+     */
     totalAUM: Decimal;
+    /** Mark-to-market holdings value (FMV + realized); excludes pipeline / application requests. */
+    holdingsAUM: number;
+    /** Portfolio companies with deployed capital or positive holdings value (same breadth as portfolio dashboard). */
+    holdingsCompanyCount: number;
     totalFunds: number;
     activeFunds: number;
     fundPerformance: FundPerformanceMetrics[];
@@ -63,7 +72,8 @@ export class CEODashboardService {
         portfolioData,
         operationalData,
         fundPerformanceData,
-        taskData
+        taskData,
+        holdingsSnapshot,
       ] = await Promise.all([
         DataIntegrationService.calculateAUM(),
         DataIntegrationService.calculatePipelineMetrics(),
@@ -71,7 +81,8 @@ export class CEODashboardService {
         DataIntegrationService.calculatePortfolioValuation(),
         DataIntegrationService.calculateOperationalMetrics(),
         this.getAllFundPerformance(),
-        this.getHierarchicalTaskView()
+        this.getHierarchicalTaskView(),
+        PortfolioDashboardService.getAggregatedHoldingsAumSnapshot(),
       ]);
 
       // Calculate fund performance averages
@@ -100,6 +111,8 @@ export class CEODashboardService {
       return {
         financialPerformance: {
           totalAUM: aumData.totalAUM,
+          holdingsAUM: holdingsSnapshot.totalHoldingsValue,
+          holdingsCompanyCount: holdingsSnapshot.companyCount,
           totalFunds: aumData.totalFunds,
           activeFunds: aumData.activeFunds,
           fundPerformance: fundPerformanceData,
@@ -185,11 +198,11 @@ export class CEODashboardService {
       const tasks = await prisma.task.findMany({
         include: {
           goal: {
-            include: {
-              department: true
-            }
-          }
-        }
+            select: {
+              departmentName: true,
+            },
+          },
+        },
       });
 
       const totalTasks = tasks.length;
@@ -208,31 +221,71 @@ export class CEODashboardService {
         }
       }).length;
 
-      // Group by department
-      const departmentGroups = tasks.reduce((groups, task) => {
-        const departmentName = task.goal?.department?.name || 'Unassigned';
-        const departmentId = task.goal?.department?.id || 'unassigned';
-        
-        if (!groups[departmentId]) {
-          groups[departmentId] = {
-            departmentId,
-            departmentName,
-            total: 0,
-            completed: 0,
-            inProgress: 0,
-            overdue: 0
-          };
-        }
-        
-        groups[departmentId].total++;
-        if (task.status === 'completed') groups[departmentId].completed++;
-        if (task.status === 'in_progress') groups[departmentId].inProgress++;
-        if (task.isOverdue) groups[departmentId].overdue++;
-        
-        return groups;
-      }, {} as Record<string, any>);
+      const departmentNameForTask = (task: (typeof tasks)[number]) => {
+        const fromGoal = task.goal?.departmentName?.trim();
+        const fromTask =
+          typeof task.department === "string" ? task.department.trim() : "";
+        return fromGoal || fromTask || "Unassigned";
+      };
 
-      const tasksByDepartment = Object.values(departmentGroups);
+      // Group by department display name (goals use `departmentName`; tasks may set `department` string)
+      const departmentGroups = tasks.reduce(
+        (groups, task) => {
+          const departmentName = departmentNameForTask(task);
+
+          if (!groups[departmentName]) {
+            groups[departmentName] = {
+              departmentName,
+              total: 0,
+              completed: 0,
+              inProgress: 0,
+              overdue: 0,
+            };
+          }
+
+          groups[departmentName].total++;
+          if (task.status === "completed") groups[departmentName].completed++;
+          if (task.status === "in_progress") groups[departmentName].inProgress++;
+          if (task.isOverdue) groups[departmentName].overdue++;
+
+          return groups;
+        },
+        {} as Record<
+          string,
+          {
+            departmentName: string;
+            total: number;
+            completed: number;
+            inProgress: number;
+            overdue: number;
+          }
+        >
+      );
+
+      const namesToResolve = Object.keys(departmentGroups).filter(
+        (n) => n !== "Unassigned"
+      );
+      const depts =
+        namesToResolve.length === 0
+          ? []
+          : await prisma.department.findMany({
+              where: { name: { in: namesToResolve } },
+              select: { id: true, name: true },
+            });
+      const nameToId = new Map(depts.map((d) => [d.name, d.id]));
+
+      const tasksByDepartment = Object.values(departmentGroups).map((g) => ({
+        departmentId:
+          g.departmentName === "Unassigned"
+            ? "unassigned"
+            : nameToId.get(g.departmentName) ??
+              `unresolved:${g.departmentName}`,
+        departmentName: g.departmentName,
+        total: g.total,
+        completed: g.completed,
+        inProgress: g.inProgress,
+        overdue: g.overdue,
+      }));
 
       return {
         totalTasks,
@@ -574,13 +627,12 @@ export class CEODashboardService {
         include: {
           goal: {
             include: {
-              department: true,
-              assignedTo: true
-            }
+              assignedTo: true,
+            },
           },
           creator: true,
-          activityLogs: true
-        }
+          activityLogs: true,
+        },
       });
 
       if (!task) {

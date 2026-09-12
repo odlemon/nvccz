@@ -7,57 +7,56 @@ import { AuthRequest } from "../middleware/authenticate";
 import { ResponseHelper } from "../utils/responseHelper";
 
 import { prisma } from '../utils/database';
+import { naturalBalanceForAccountType } from '../utils/chartOfAccountsNaturalBalance';
+import { validateChartAccountNumberForType } from '../utils/chartOfAccountsNumberRange';
+import { bulkImportChartOfAccountsFromBuffer } from '../services/ChartOfAccountsBulkValidateService';
+import { isModulePrivilegedUser } from '../config/cfoModulePermissions';
+import {
+  applyChartOfAccountsUpdate,
+  hasChartOfAccountsUpdatableField,
+} from '../services/ChartOfAccountsUpdateService';
 
 export class ChartOfAccountsController {
   /**
-   * Validate that account number range matches account type
-   * Account Number Ranges:
-   * - 1000s = Assets (Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset)
-   * - 2000s = Liabilities (Current Liability, Long-Term Liability)
-   * - 3000s = Equity
-   * - 4000s = Revenue (Revenue, Income)
-   * - 5000s = Expenses (Expense)
+   * POST /api/accounting/chart-of-accounts/bulk-import — validate CSV; on success create all accounts in one transaction.
+   * Row numbers: line 1 = header, line 2 = first data row (Excel-style).
    */
-  private static validateAccountNumberType(accountNo: string, accountType: string): { valid: boolean; message?: string } {
-    // Extract first digit of account number
-    const firstDigit = accountNo.charAt(0);
-    
-    // Define valid account types for each number range
-    const accountTypeMappings: { [key: string]: string[] } = {
-      '1': ['Current Asset', 'Fixed Asset', 'Long-Term Asset', 'Contra-Asset'],
-      '2': ['Current Liability', 'Long-Term Liability'],
-      '3': ['Equity'],
-      '4': ['Revenue', 'Income'],
-      '5': ['Expense']
-    };
+  static async bulkImportChartOfAccounts(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file?.buffer?.length) {
+        return ResponseHelper.badRequest(res, 'file is required (multipart field name: file, CSV)');
+      }
 
-    // Check if first digit is valid (1-5)
-    if (!['1', '2', '3', '4', '5'].includes(firstDigit)) {
-      return {
-        valid: false,
-        message: `Invalid account number range. Account numbers must start with 1-5 (1000s=Assets, 2000s=Liabilities, 3000s=Equity, 4000s=Revenue, 5000s=Expenses).`
-      };
+      const result = await bulkImportChartOfAccountsFromBuffer(file.buffer);
+
+      if (!result.ok) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bulk GL import failed validation; file rejected. Fix row errors and re-upload.',
+          data: {
+            totalDataRows: result.totalDataRows,
+            rowsWithErrors: result.rowErrors.length,
+            rowErrors: result.rowErrors,
+            reportLines: result.reportLines,
+          },
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      return ResponseHelper.created(
+        res,
+        `Created ${result.createdCount} chart of accounts.`,
+        {
+          totalDataRows: result.totalDataRows,
+          createdCount: result.createdCount,
+          accounts: result.created,
+        }
+      );
+    } catch (error: any) {
+      console.error('bulkImportChartOfAccounts:', error);
+      return ResponseHelper.error(res, error?.message || 'Failed to bulk import chart of accounts', undefined, 500);
     }
-
-    // Check if account type matches the number range
-    const validTypesForRange = accountTypeMappings[firstDigit];
-    if (!validTypesForRange.includes(accountType)) {
-      const expectedTypes = validTypesForRange.join(', ');
-      const rangeDescription = {
-        '1': '1000s (Assets)',
-        '2': '2000s (Liabilities)',
-        '3': '3000s (Equity)',
-        '4': '4000s (Revenue)',
-        '5': '5000s (Expenses)'
-      }[firstDigit];
-      
-      return {
-        valid: false,
-        message: `Account number conflict: Account number "${accountNo}" is in the ${rangeDescription} range, but Account Type "${accountType}" is selected. Valid account types for ${rangeDescription} are: ${expectedTypes}`
-      };
-    }
-
-    return { valid: true };
   }
 
   /**
@@ -65,7 +64,7 @@ export class ChartOfAccountsController {
    */
   static async createChartOfAccounts(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { accountNo, accountName, accountType, financialStatement, notes, parentId, isActive = true } = req.body;
+      const { accountNo, accountName, accountType, financialStatement, notes, parentId, isActive = true, naturalBalance: bodyNaturalBalance } = req.body;
 
       // Validate required fields
       if (!accountNo || !accountName || !accountType || !financialStatement) {
@@ -78,8 +77,15 @@ export class ChartOfAccountsController {
         return ResponseHelper.badRequest(res, "Invalid account type. Must be one of: Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset, Current Liability, Long-Term Liability, Equity, Revenue, Expense, Income");
       }
 
-      // Validate that account number range matches account type
-      const accountNumberValidation = ChartOfAccountsController.validateAccountNumberType(accountNo, accountType);
+      const expectedNaturalBalance = naturalBalanceForAccountType(accountType);
+      if (bodyNaturalBalance != null && bodyNaturalBalance !== '' && bodyNaturalBalance !== expectedNaturalBalance) {
+        return ResponseHelper.badRequest(
+          res,
+          `Natural balance for "${accountType}" is ${expectedNaturalBalance} and cannot be changed.`
+        );
+      }
+
+      const accountNumberValidation = validateChartAccountNumberForType(accountNo, accountType);
       if (!accountNumberValidation.valid) {
         return ResponseHelper.badRequest(res, accountNumberValidation.message || "Account number range does not match account type");
       }
@@ -134,7 +140,7 @@ export class ChartOfAccountsController {
    */
   static async getAllChartOfAccounts(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { accountType, isActive, parentId } = req.query;
+      const { accountType, isActive, parentId, forPosting } = req.query;
 
       // Build where clause for filtering
       const where: any = {};
@@ -149,6 +155,12 @@ export class ChartOfAccountsController {
 
       if (parentId) {
         where.parentId = parentId;
+      }
+
+      // Reporting bucket: keep visible in COA list, but exclude from "posting" pickers.
+      // Frontend should call: GET /api/accounting/chart-of-accounts?forPosting=true
+      if (forPosting === 'true') {
+        where.NOT = [{ accountNo: '1000' }];
       }
 
       const chartOfAccounts = await prisma.chartOfAccounts.findMany({
@@ -188,88 +200,76 @@ export class ChartOfAccountsController {
 
   /**
    * Update chart of accounts
+   *
+   * Privileged users (admin/CFO — see isModulePrivilegedUser in config/cfoModulePermissions.ts, the
+   * same check ApprovalService uses to let admin/CFO act on procurement approvals) apply the change
+   * directly and immediately, exactly as this endpoint always has.
+   *
+   * Everyone else does NOT get the change applied here. Instead the proposed change is routed through
+   * the generic approval system (ApprovalRequest/Approval, stageType "MASTER_DATA_COA") and only
+   * actually applied once a CFO approves it — see ApprovalService.updateEntityStatusAfterApproval.
+   * Both paths call the same applyChartOfAccountsUpdate() (services/ChartOfAccountsUpdateService.ts)
+   * so validation/mutation logic is not duplicated between them.
    */
   static async updateChartOfAccounts(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { accountNo, accountName, accountType, financialStatement, notes, parentId, isActive } = req.body;
+      const patch = req.body || {};
 
-      // Check if chart of accounts exists
-      const existingAccount = await prisma.chartOfAccounts.findUnique({
-        where: { id }
-      });
+      if (isModulePrivilegedUser(req.user)) {
+        const result = await applyChartOfAccountsUpdate(id, patch);
+        if (!result.ok) {
+          return ResponseHelper.error(res, result.message, undefined, result.status);
+        }
+        return ResponseHelper.success(res, "Chart of accounts updated successfully", result.data);
+      }
 
+      // Non-privileged caller: don't mutate anything here. Same "no fields sent" guard the direct
+      // path uses, so we don't queue a pointless empty-change approval request.
+      if (!hasChartOfAccountsUpdatableField(patch)) {
+        return ResponseHelper.validationError(
+          res,
+          "No updatable fields provided. Send at least one of: accountNo, accountName, accountType, financialStatement, notes, parentId, isActive."
+        );
+      }
+
+      const existingAccount = await prisma.chartOfAccounts.findUnique({ where: { id } });
       if (!existingAccount) {
         return ResponseHelper.notFound(res, "Chart of accounts not found");
       }
 
-      // Validate account type if provided
-      if (accountType) {
-        const validAccountTypes = ["Current Asset", "Fixed Asset", "Long-Term Asset", "Contra-Asset", "Current Liability", "Long-Term Liability", "Equity", "Revenue", "Expense", "Income"];
-        if (!validAccountTypes.includes(accountType)) {
-          return ResponseHelper.badRequest(res, "Invalid account type. Must be one of: Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset, Current Liability, Long-Term Liability, Equity, Revenue, Expense, Income");
-        }
-      }
-
-      // Validate that account number range matches account type (if either is being updated)
-      const accountNoToValidate = accountNo || existingAccount.accountNo;
-      const accountTypeToValidate = accountType || existingAccount.accountType;
-      const accountNumberValidation = ChartOfAccountsController.validateAccountNumberType(accountNoToValidate, accountTypeToValidate);
-      if (!accountNumberValidation.valid) {
-        return ResponseHelper.badRequest(res, accountNumberValidation.message || "Account number range does not match account type");
-      }
-
-      // Validate financial statement if provided
-      if (financialStatement) {
-        const validFinancialStatements = ["Balance Sheet", "Income Statement", "Cash Flow / Tracking", "Income Statement / Cash Flow"];
-        if (!validFinancialStatements.includes(financialStatement)) {
-          return ResponseHelper.badRequest(res, "Invalid financial statement. Must be one of: Balance Sheet, Income Statement, Cash Flow / Tracking, Income Statement / Cash Flow");
-        }
-      }
-
-      // Check if account number already exists (if changing account number)
-      if (accountNo && accountNo !== existingAccount.accountNo) {
-        const duplicateAccount = await prisma.chartOfAccounts.findUnique({
-          where: { accountNo }
-        });
-
-        if (duplicateAccount) {
-          return ResponseHelper.conflict(res, "Account number already exists");
-        }
-      }
-
-      // If parentId is provided, validate it exists and is not the same as the current account
-      if (parentId !== undefined) {
-        if (parentId === id) {
-          return ResponseHelper.badRequest(res, "Account cannot be its own parent");
-        }
-
-        if (parentId) {
-          const parentAccount = await prisma.chartOfAccounts.findUnique({
-            where: { id: parentId }
-          });
-
-          if (!parentAccount) {
-            return ResponseHelper.badRequest(res, "Parent account not found");
-          }
-        }
-      }
-
-      // Update the chart of accounts entry
-      const updatedChartOfAccounts = await prisma.chartOfAccounts.update({
-        where: { id },
-        data: {
-          ...(accountNo && { accountNo }),
-          ...(accountName && { accountName }),
-          ...(accountType && { accountType }),
-          ...(financialStatement && { financialStatement }),
-          ...(notes !== undefined && { notes }),
-          ...(parentId !== undefined && { parentId: parentId || null }),
-          ...(isActive !== undefined && { isActive })
-        }
+      const { ApprovalService } = await import('../services/ApprovalService');
+      const approvalResult = await ApprovalService.createApprovalRequest({
+        stageType: "MASTER_DATA_COA",
+        entityId: id,
+        entityData: patch,
+        requestedById: req.user?.id,
+        department: "Finance",
       });
 
-      return ResponseHelper.success(res, "Chart of accounts updated successfully", updatedChartOfAccounts);
+      if (!approvalResult) {
+        // No active MASTER_DATA_COA approval configuration/stage found (see
+        // scripts/run-accounting-approval-configs-seed.ts). Fail closed rather than silently
+        // applying the change for a non-privileged caller.
+        return ResponseHelper.error(
+          res,
+          "Chart of accounts changes require CFO approval, but no approval workflow is configured. Contact an administrator.",
+          undefined,
+          503
+        );
+      }
+
+      return ResponseHelper.success(
+        res,
+        "Change submitted for CFO approval",
+        {
+          status: "pending_approval",
+          approvalRequestId: approvalResult.approvalRequest.id,
+          chartOfAccountsId: id,
+          proposedChanges: patch,
+        },
+        202
+      );
     } catch (error) {
       next(error);
     }

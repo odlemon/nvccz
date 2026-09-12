@@ -2,8 +2,12 @@
 import express from "express";
 import { PerformanceETLController } from "../controllers/PerformanceETLController";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 
 const router = express.Router();
+const READ_KEYS = ["performance.etl.view", "performance.etl.manage"]
+const WRITE_KEYS = ["performance.etl.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 /**
  * @swagger
@@ -96,7 +100,7 @@ const router = express.Router();
  *       401:
  *         description: Unauthorized
  */
-router.get("/extract", authenticate, PerformanceETLController.extractPerformanceData);
+router.get("/extract", authenticate, guard, PerformanceETLController.extractPerformanceData);
 
 /**
  * @swagger
@@ -147,7 +151,7 @@ router.get("/extract", authenticate, PerformanceETLController.extractPerformance
  *       401:
  *         description: Unauthorized
  */
-router.post("/transform", authenticate, PerformanceETLController.transformData);
+router.post("/transform", authenticate, guard, PerformanceETLController.transformData);
 
 /**
  * @swagger
@@ -192,7 +196,7 @@ router.post("/transform", authenticate, PerformanceETLController.transformData);
  *       401:
  *         description: Unauthorized
  */
-router.post("/load", authenticate, PerformanceETLController.loadToExternalData);
+router.post("/load", authenticate, guard, PerformanceETLController.loadToExternalData);
 
 /**
  * @swagger
@@ -219,7 +223,7 @@ router.post("/load", authenticate, PerformanceETLController.loadToExternalData);
  *       401:
  *         description: Unauthorized
  */
-router.post("/run", authenticate, PerformanceETLController.runETLPipeline);
+router.post("/run", authenticate, guard, PerformanceETLController.runETLPipeline);
 
 /**
  * @swagger
@@ -246,7 +250,7 @@ router.post("/run", authenticate, PerformanceETLController.runETLPipeline);
  *       401:
  *         description: Unauthorized
  */
-router.post("/schedule", authenticate, PerformanceETLController.scheduleETLJob);
+router.post("/schedule", authenticate, guard, PerformanceETLController.scheduleETLJob);
 
 /**
  * @swagger
@@ -287,6 +291,6 @@ router.post("/schedule", authenticate, PerformanceETLController.scheduleETLJob);
  *       401:
  *         description: Unauthorized
  */
-router.get("/stats", authenticate, PerformanceETLController.getExternalDataStats);
+router.get("/stats", authenticate, guard, PerformanceETLController.getExternalDataStats);
 
 export default router;

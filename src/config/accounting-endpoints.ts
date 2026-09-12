@@ -657,30 +657,71 @@ export const accountingEndpoints = {
   },
   '/accounting/assets/depreciation/monthly': {
     post: {
-      summary: 'Post monthly depreciation',
+      summary: 'Run monthly depreciation for all in-use assets (anniversary-based eligibility)',
       tags: ['Asset Management'],
       security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: false,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                asOfDate: {
+                  type: 'string',
+                  format: 'date',
+                  example: '2026-03-31',
+                  description: 'Run as of this date (default: today). Period is derived from this date unless period is set.',
+                },
+                period: {
+                  type: 'string',
+                  example: '2026-03',
+                  description: 'Optional YYYY-MM override for which calendar month to accrue',
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: 'Monthly depreciation posted successfully' },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' },
+      },
+    },
+  },
+  '/accounting/assets/{assetId}/depreciation/backfill': {
+    post: {
+      summary: 'Backfill depreciation through a date (calculate + post each due month)',
+      tags: ['Asset Management'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'assetId', required: true, schema: { type: 'string' } },
+      ],
       requestBody: {
         required: true,
         content: {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['month', 'year'],
+              required: ['throughDate'],
               properties: {
-                month: { type: 'number', example: 12 },
-                year: { type: 'number', example: 2024 }
-              }
-            }
-          }
-        }
+                throughDate: { type: 'string', format: 'date', example: '2026-03-31' },
+                autoPost: {
+                  type: 'boolean',
+                  default: true,
+                  description: 'If false, only creates depreciation records; does not post JEs',
+                },
+              },
+            },
+          },
+        },
       },
       responses: {
-        200: { description: 'Monthly depreciation posted successfully' },
-        400: { description: 'Bad request' },
-        401: { description: 'Unauthorized' }
-      }
-    }
+        200: { description: 'Backfill result' },
+        401: { description: 'Unauthorized' },
+      },
+    },
   },
   '/accounting/assets/depreciation/annual': {
     post: {
@@ -1622,6 +1663,16 @@ export const accountingEndpoints = {
       summary: 'Generate Balance Sheet (Assets = Liabilities + Equity)',
       tags: ['Balance Sheet'],
       security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'query',
+          name: 'hideZeroBalances',
+          required: false,
+          schema: { type: 'string', enum: ['true', 'false', '1', '0'] },
+          description:
+            'Filter: true or 1 to hide idle zero-balance accounts from display lists; section/grand totals unchanged'
+        }
+      ],
       requestBody: {
         required: true,
         content: {
@@ -1688,7 +1739,14 @@ export const accountingEndpoints = {
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'query', name: 'asOfDate', required: true, schema: { type: 'string', format: 'date' }, description: 'As-of date (YYYY-MM-DD)' },
-        { in: 'query', name: 'currencyId', required: false, schema: { type: 'string' }, description: 'Currency ID (optional)' }
+        { in: 'query', name: 'currencyId', required: false, schema: { type: 'string' }, description: 'Currency ID (optional)' },
+        {
+          in: 'query',
+          name: 'hideZeroBalances',
+          required: false,
+          schema: { type: 'string', enum: ['true', 'false', '1', '0'] },
+          description: 'true or 1 to hide idle zero-balance accounts from lists; totals unchanged'
+        }
       ],
       responses: {
         200: { description: 'Balance sheet retrieved successfully' },
@@ -1702,15 +1760,38 @@ export const accountingEndpoints = {
   '/accounting/income-statement/generate': {
     post: {
       summary: 'Generate Income Statement (Revenue - Expenses = Net Income)',
+      description: 'Supports period filters (month/quarter/year) via URL query parameters OR legacy date range in request body. Period Filter Examples: Month: ?periodType=month&periodValue=2025-01, Quarter: ?periodType=quarter&periodValue=2025-Q1, Year: ?periodType=year&periodValue=2025',
       tags: ['Income Statement'],
       security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'query',
+          name: 'periodType',
+          schema: { type: 'string', enum: ['month', 'quarter', 'year'] },
+          description: 'Period type filter (use with periodValue). Options: month, quarter, year',
+          example: 'month'
+        },
+        {
+          in: 'query',
+          name: 'periodValue',
+          schema: { type: 'string' },
+          description: 'Period value matching periodType: month: "2025-01" (YYYY-MM), quarter: "2025-Q1" or "2025-1" (YYYY-QN or YYYY-N), year: "2025" (YYYY)',
+          example: '2025-01'
+        },
+        {
+          in: 'query',
+          name: 'currencyId',
+          schema: { type: 'string' },
+          description: 'Currency ID (optional, uses default if not provided)'
+        }
+      ],
       requestBody: {
-        required: true,
+        required: false,
         content: {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['startDate', 'endDate'],
+              description: 'Legacy date range format (use if period filters not provided)',
               properties: {
                 startDate: { 
                   type: 'string', 
@@ -1752,7 +1833,7 @@ export const accountingEndpoints = {
             }
           }
         },
-        400: { description: 'Bad request - startDate and endDate required' },
+        400: { description: 'Bad request - Either period filter (periodType + periodValue in URL) or date range (startDate + endDate) is required' },
         401: { description: 'Unauthorized' }
       }
     }
@@ -1762,15 +1843,38 @@ export const accountingEndpoints = {
   '/accounting/cash-flow/generate': {
     post: {
       summary: 'Generate Cash Flow Statement (Operating + Investing + Financing Activities)',
+      description: 'Supports period filters (month/quarter/year) via URL query parameters OR legacy date range in request body. Period Filter Examples: Month: ?periodType=month&periodValue=2025-01, Quarter: ?periodType=quarter&periodValue=2025-Q1, Year: ?periodType=year&periodValue=2025',
       tags: ['Cash Flow Statement'],
       security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'query',
+          name: 'periodType',
+          schema: { type: 'string', enum: ['month', 'quarter', 'year'] },
+          description: 'Period type filter (use with periodValue). Options: month, quarter, year',
+          example: 'month'
+        },
+        {
+          in: 'query',
+          name: 'periodValue',
+          schema: { type: 'string' },
+          description: 'Period value matching periodType: month: "2025-01" (YYYY-MM), quarter: "2025-Q1" or "2025-1" (YYYY-QN or YYYY-N), year: "2025" (YYYY)',
+          example: '2025-01'
+        },
+        {
+          in: 'query',
+          name: 'currencyId',
+          schema: { type: 'string' },
+          description: 'Currency ID (optional, uses default if not provided)'
+        }
+      ],
       requestBody: {
-        required: true,
+        required: false,
         content: {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['startDate', 'endDate'],
+              description: 'Legacy date range format (use if period filters not provided)',
               properties: {
                 startDate: { 
                   type: 'string', 
@@ -1815,7 +1919,7 @@ export const accountingEndpoints = {
             }
           }
         },
-        400: { description: 'Bad request - startDate and endDate required' },
+        400: { description: 'Bad request - Either period filter (periodType + periodValue in URL) or date range (startDate + endDate) is required' },
         401: { description: 'Unauthorized' }
       }
     }
@@ -1825,15 +1929,43 @@ export const accountingEndpoints = {
   '/accounting/trial-balance': {
     get: {
       summary: 'Generate trial balance',
+      description:
+        'Supports period filters (month/quarter/year) via URL query parameters OR legacy date range. Period Filter Examples: Month: ?periodType=month&periodValue=2025-01, Quarter: ?periodType=quarter&periodValue=2025-Q1, Year: ?periodType=year&periodValue=2025. **Ordering:** accounts by type then account number; each account’s `transactions[]` by **journal `transactionDate` newest first** (then line id), aligned with the journal-entries list — not by row creation time.',
       tags: ['Trial Balance'],
       security: [{ bearerAuth: [] }],
       parameters: [
         {
           in: 'query',
+          name: 'periodType',
+          schema: { type: 'string', enum: ['month', 'quarter', 'year'] },
+          description: 'Period type filter (use with periodValue). Options: month, quarter, year',
+          example: 'month'
+        },
+        {
+          in: 'query',
+          name: 'periodValue',
+          schema: { type: 'string' },
+          description: 'Period value matching periodType: month: "2025-01" (YYYY-MM), quarter: "2025-Q1" or "2025-1" (YYYY-QN or YYYY-N), year: "2025" (YYYY)',
+          example: '2025-01'
+        },
+        {
+          in: 'query',
           name: 'date',
           required: false,
           schema: { type: 'string', format: 'date' },
-          description: 'Date for trial balance (YYYY-MM-DD). Defaults to current date if not provided.'
+          description: 'Date for trial balance (YYYY-MM-DD) - legacy format. Defaults to current date if not provided.'
+        },
+        {
+          in: 'query',
+          name: 'startDate',
+          schema: { type: 'string', format: 'date' },
+          description: 'Start date for date range (legacy format - use if period filters not provided)'
+        },
+        {
+          in: 'query',
+          name: 'endDate',
+          schema: { type: 'string', format: 'date' },
+          description: 'End date for date range (legacy format - use if period filters not provided)'
         }
       ],
       responses: {
@@ -1847,15 +1979,30 @@ export const accountingEndpoints = {
   '/accounting/trial-balance/summary': {
     get: {
       summary: 'Get trial balance summary',
+      description: 'Supports period filters (month/quarter/year) via URL query parameters OR legacy date.',
       tags: ['Trial Balance'],
       security: [{ bearerAuth: [] }],
       parameters: [
         {
           in: 'query',
+          name: 'periodType',
+          schema: { type: 'string', enum: ['month', 'quarter', 'year'] },
+          description: 'Period type filter (use with periodValue)',
+          example: 'month'
+        },
+        {
+          in: 'query',
+          name: 'periodValue',
+          schema: { type: 'string' },
+          description: 'Period value (month: "2025-01", quarter: "2025-Q1", year: "2025")',
+          example: '2025-01'
+        },
+        {
+          in: 'query',
           name: 'date',
           required: false,
           schema: { type: 'string', format: 'date' },
-          description: 'Date for trial balance (YYYY-MM-DD). Defaults to current date if not provided.'
+          description: 'Date for trial balance (YYYY-MM-DD) - legacy format. Defaults to current date if not provided.'
         }
       ],
       responses: {
@@ -1868,15 +2015,30 @@ export const accountingEndpoints = {
   '/accounting/trial-balance/by-account-type': {
     get: {
       summary: 'Get trial balance by account type',
+      description: 'Supports period filters (month/quarter/year) via URL query parameters OR legacy date.',
       tags: ['Trial Balance'],
       security: [{ bearerAuth: [] }],
       parameters: [
         {
           in: 'query',
+          name: 'periodType',
+          schema: { type: 'string', enum: ['month', 'quarter', 'year'] },
+          description: 'Period type filter (use with periodValue)',
+          example: 'month'
+        },
+        {
+          in: 'query',
+          name: 'periodValue',
+          schema: { type: 'string' },
+          description: 'Period value (month: "2025-01", quarter: "2025-Q1", year: "2025")',
+          example: '2025-01'
+        },
+        {
+          in: 'query',
           name: 'date',
           required: false,
           schema: { type: 'string', format: 'date' },
-          description: 'Date for trial balance (YYYY-MM-DD). Defaults to current date if not provided.'
+          description: 'Date for trial balance (YYYY-MM-DD) - legacy format. Defaults to current date if not provided.'
         }
       ],
       responses: {
@@ -1994,5 +2156,592 @@ export const accountingEndpoints = {
         500: { description: 'Internal server error' }
       }
     }
+  },
+
+  // ========== ACCOUNTS PAYABLES - PURCHASE INVOICES ==========
+  '/accounting/purchase-invoices/banks': {
+    get: {
+      summary: 'Get bank accounts',
+      description: 'Retrieve all active bank accounts. Use these bank IDs when submitting or paying invoices with BANK payment method.',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'Banks retrieved successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Banks retrieved successfully',
+                data: [
+                  {
+                    id: 'bank-id-1',
+                    name: 'Main Bank Account - USD',
+                    accountNumber: '1234567890',
+                    bankCode: 'BANK001',
+                    branchCode: 'BR001',
+                    currency: {
+                      id: 'currency-id-1',
+                      code: 'USD',
+                      symbol: '$',
+                      name: 'US Dollar'
+                    },
+                    glAccount: {
+                      id: 'gl-account-id-1',
+                      accountNo: '1010',
+                      accountName: 'Main Bank Account - USD'
+                    },
+                    isActive: true
+                  },
+                  {
+                    id: 'bank-id-2',
+                    name: 'Savings Account - USD',
+                    accountNumber: '9876543210',
+                    bankCode: 'BANK002',
+                    branchCode: 'BR002',
+                    currency: {
+                      id: 'currency-id-1',
+                      code: 'USD',
+                      symbol: '$',
+                      name: 'US Dollar'
+                    },
+                    glAccount: {
+                      id: 'gl-account-id-2',
+                      accountNo: '1020',
+                      accountName: 'Savings Account - USD'
+                    },
+                    isActive: true
+                  }
+                ]
+              }
+            }
+          }
+        },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/purchase-invoices/expense-accounts': {
+    get: {
+      summary: 'Get expense accounts',
+      description: 'Retrieve all active expense accounts from chart of accounts. Use these account IDs when submitting purchase invoices.',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'Expense accounts retrieved successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Expense accounts retrieved successfully',
+                data: [
+                  {
+                    id: 'expense-account-id-1',
+                    accountNo: '5000',
+                    accountName: 'Rent Expense',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Office lease',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-2',
+                    accountNo: '5010',
+                    accountName: 'Office Supplies Expense',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Office supplies and materials',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-3',
+                    accountNo: '5020',
+                    accountName: 'Bank Charges',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Transfer fees, account charges',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-4',
+                    accountNo: '5030',
+                    accountName: 'Salaries and Wages',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Staff and executive payroll',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-5',
+                    accountNo: '5040',
+                    accountName: 'Utilities Expense',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Electricity, water, internet',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-6',
+                    accountNo: '5050',
+                    accountName: 'Professional Fees',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Legal, audit, advisory',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-7',
+                    accountNo: '5060',
+                    accountName: 'Marketing Expense',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Branding, advertising, PR',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-8',
+                    accountNo: '5070',
+                    accountName: 'Travel Expense',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Business travel, conferences',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-9',
+                    accountNo: '5080',
+                    accountName: 'Insurance Expense',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Business insurance',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-10',
+                    accountNo: '5090',
+                    accountName: 'Other Operating Expenses',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Miscellaneous operating costs',
+                    isActive: true
+                  }
+                ]
+              }
+            }
+          }
+        },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/purchase-invoices': {
+    post: {
+      summary: 'Create a new purchase invoice',
+      description: 'Create a purchase invoice for non-procurement expenses. This creates an Accounts Payable entry.',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['vendorId', 'invoiceDate', 'currencyId', 'items'],
+              properties: {
+                vendorId: { type: 'string', example: 'vendor-id-here', description: 'Vendor ID' },
+                invoiceDate: { type: 'string', format: 'date-time', example: '2025-01-15T00:00:00Z' },
+                dueDate: { type: 'string', format: 'date-time', example: '2025-02-15T00:00:00Z' },
+                currencyId: { type: 'string', example: 'currency-id-here' },
+                description: { type: 'string', example: 'Office Supplies Purchase' },
+                items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['itemName', 'quantity', 'unitPrice'],
+                    properties: {
+                      itemName: { type: 'string', example: 'Office Chairs' },
+                      description: { type: 'string', example: 'Ergonomic office chairs' },
+                      quantity: { type: 'number', example: 5 },
+                      unitPrice: { type: 'number', example: 150.00 },
+                      unit: { type: 'string', example: 'pcs' },
+                      vatRate: { type: 'number', example: 0.155, description: 'VAT rate decimal (0.155 for 15.5%)' }
+                    }
+                  }
+                },
+                isTaxable: { type: 'boolean', example: true },
+                invoiceNumber: { type: 'string', example: 'INV_20260115_0001' },
+                notes: { type: 'string', example: 'Monthly office supplies order' }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        201: {
+          description: 'Purchase invoice created successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Purchase invoice created successfully',
+                data: {
+                  id: 'invoice-id',
+                  invoiceNumber: 'INV_20260115_0001',
+                  vendorId: 'vendor-id',
+                  subtotal: '1650.00',
+                  vatAmount: '247.50',
+                  totalAmount: '1897.50',
+                  status: 'DRAFT',
+                  paymentStatus: 'PENDING'
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - validation errors' },
+        401: { description: 'Unauthorized' }
+      }
+    },
+    get: {
+      summary: 'Get all purchase invoices',
+      description: 'Retrieve all purchase invoices with pagination and filtering',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'query', name: 'page', schema: { type: 'integer', default: 1 }, description: 'Page number' },
+        { in: 'query', name: 'limit', schema: { type: 'integer', default: 10 }, description: 'Items per page' },
+        { in: 'query', name: 'status', schema: { type: 'string', enum: ['DRAFT', 'POSTED'] }, description: 'Filter by status' },
+        { in: 'query', name: 'paymentStatus', schema: { type: 'string', enum: ['PENDING', 'PAID', 'PARTIALLY_PAID'] }, description: 'Filter by payment status' }
+      ],
+      responses: {
+        200: {
+          description: 'Purchase invoices retrieved successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                data: {
+                  invoices: [],
+                  total: 0,
+                  page: 1,
+                  totalPages: 1
+                }
+              }
+            }
+          }
+        },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/purchase-invoices/{id}': {
+    get: {
+      summary: 'Get purchase invoice by ID',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Purchase invoice ID' }
+      ],
+      responses: {
+        200: {
+          description: 'Purchase invoice retrieved successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                data: {
+                  id: 'invoice-id',
+                  invoiceNumber: 'INV_20260115_0001',
+                  vendor: { id: 'vendor-id', name: 'ABC Supplies Ltd' },
+                  items: []
+                }
+              }
+            }
+          }
+        },
+        404: { description: 'Purchase invoice not found' },
+        401: { description: 'Unauthorized' }
+      }
+    },
+    put: {
+      summary: 'Update purchase invoice',
+      description: 'Update a purchase invoice. Only DRAFT invoices can be updated. Currency cannot be changed after invoice creation. If isTaxable is true, VAT will be calculated (15.5% default if not specified in items).',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Purchase invoice ID' }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                vendorId: { type: 'string', description: 'Vendor ID (can be changed)' },
+                invoiceDate: { type: 'string', format: 'date-time' },
+                dueDate: { type: 'string', format: 'date-time' },
+                description: { type: 'string' },
+                items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      itemName: { type: 'string' },
+                      description: { type: 'string' },
+                      quantity: { type: 'number' },
+                      unitPrice: { type: 'number' },
+                      unit: { type: 'string' },
+                      vatRate: { type: 'number', description: 'VAT rate (0.155 for 15.5%). If not provided and isTaxable is true, defaults to 0.155' }
+                    }
+                  }
+                },
+                isTaxable: { type: 'boolean', description: 'If true, VAT will be calculated (15.5% default if not specified in items)' },
+                notes: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: {
+          description: 'Purchase invoice updated successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Purchase invoice updated successfully',
+                data: {
+                  id: 'invoice-id',
+                  invoiceNumber: 'INV_20260115_0001',
+                  status: 'DRAFT',
+                  vendor: { id: 'vendor-id', name: 'ABC Supplies Ltd' },
+                  items: []
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - only DRAFT invoices can be updated, or currency cannot be changed' },
+        401: { description: 'Unauthorized' }
+      }
+    },
+    delete: {
+      summary: 'Delete purchase invoice',
+      description: 'Delete a purchase invoice. Only DRAFT invoices can be deleted.',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Purchase invoice ID' }
+      ],
+      responses: {
+        200: {
+          description: 'Purchase invoice deleted successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Purchase invoice deleted successfully'
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - only DRAFT invoices can be deleted' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/purchase-invoices/{id}/submit': {
+    post: {
+      summary: 'Submit invoice (creates journal entries based on payment method)',
+      description: 'Submits a DRAFT invoice and creates journal entries based on payment method:\n- BANK: Dr Expense Account, Dr VAT Input (if applicable), Cr Bank Account (bankId required)\n- CASH: Dr Expense Account, Dr VAT Input (if applicable), Cr Petty Cash (1030)\n- CREDIT: Dr Expense Account, Dr VAT Input (if applicable), Cr Accounts Payable (2000)',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Purchase invoice ID' }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['paymentMethod', 'expenseAccountId'],
+              properties: {
+                paymentMethod: { 
+                  type: 'string', 
+                  enum: ['BANK', 'CASH', 'CREDIT'], 
+                  example: 'CREDIT', 
+                  description: 'Payment method for the invoice (dropdown selection)',
+                  'x-enum-varnames': ['BANK', 'CASH', 'CREDIT']
+                },
+                expenseAccountId: { 
+                  type: 'string', 
+                  example: 'expense-account-id', 
+                  description: 'The expense account to debit (e.g., Rent Expense, Office Supplies)' 
+                },
+                bankId: { 
+                  type: 'string', 
+                  example: 'bank-id-here', 
+                  description: 'Bank ID (REQUIRED when paymentMethod is BANK, ignored for CASH/CREDIT)' 
+                }
+              }
+            },
+            examples: {
+              bankPayment: {
+                summary: 'Bank Payment Example',
+                description: 'Example for BANK payment method (bankId is required)',
+                value: {
+                  paymentMethod: 'BANK',
+                  expenseAccountId: 'expense-account-id-here',
+                  bankId: 'bank-id-here'
+                }
+              },
+              cashPayment: {
+                summary: 'Cash Payment Example',
+                description: 'Example for CASH payment method (bankId not needed)',
+                value: {
+                  paymentMethod: 'CASH',
+                  expenseAccountId: 'expense-account-id-here'
+                }
+              },
+              creditPayment: {
+                summary: 'Credit Payment Example',
+                description: 'Example for CREDIT payment method (bankId not needed)',
+                value: {
+                  paymentMethod: 'CREDIT',
+                  expenseAccountId: 'expense-account-id-here'
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: {
+          description: 'Invoice submitted successfully. Journal entry created based on payment method.',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Invoice submitted successfully',
+                data: {
+                  id: 'invoice-id',
+                  status: 'POSTED',
+                  paymentMethod: 'CREDIT',
+                  paymentStatus: 'PENDING',
+                  journalEntry: {
+                    id: 'journal-entry-id',
+                    referenceNumber: 'AP-CREDIT-INV_20260115_0001',
+                    status: 'POSTED'
+                  }
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - invoice must be in DRAFT status' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/purchase-invoices/{id}/pay': {
+    post: {
+      summary: 'Pay invoice (creates cashbook payment entry for CREDIT invoices only)',
+      description: 'Pays a CREDIT invoice by creating a cashbook payment entry which automatically creates a journal entry:\n- BANK: Dr Accounts Payable, Cr Bank Account (bankId required)\n- CASH: Dr Accounts Payable, Cr Cash Account\nOnly invoices submitted with CREDIT payment method can be paid.',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Purchase invoice ID' }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['paymentMethod', 'paymentDate'],
+              properties: {
+                paymentMethod: { 
+                  type: 'string', 
+                  enum: ['BANK', 'CASH'], 
+                  example: 'BANK', 
+                  description: 'Payment method for paying the invoice (dropdown selection)',
+                  'x-enum-varnames': ['BANK', 'CASH']
+                },
+                bankId: { 
+                  type: 'string', 
+                  example: 'bank-id-here', 
+                  description: 'Bank ID (REQUIRED when paymentMethod is BANK, ignored for CASH)' 
+                },
+                paymentDate: { 
+                  type: 'string', 
+                  format: 'date-time', 
+                  example: '2025-01-20T00:00:00Z', 
+                  description: 'Payment date' 
+                },
+                paymentReference: { 
+                  type: 'string', 
+                  example: 'AP-PAY-BANK-INV_20260115_0001', 
+                  description: 'Payment reference number' 
+                },
+                notes: { 
+                  type: 'string', 
+                  example: 'Payment for office supplies', 
+                  description: 'Payment notes' 
+                }
+              }
+            },
+            examples: {
+              bankPayment: {
+                summary: 'Bank Payment Example',
+                description: 'Example for BANK payment method (bankId is required)',
+                value: {
+                  paymentMethod: 'BANK',
+                  bankId: 'bank-id-here',
+                  paymentDate: '2025-01-20T00:00:00Z',
+                  paymentReference: 'AP-PAY-BANK-INV_20260115_0001',
+                  notes: 'Payment via bank transfer'
+                }
+              },
+              cashPayment: {
+                summary: 'Cash Payment Example',
+                description: 'Example for CASH payment method (bankId not needed)',
+                value: {
+                  paymentMethod: 'CASH',
+                  paymentDate: '2025-01-20T00:00:00Z',
+                  paymentReference: 'AP-PAY-BANK-INV_20260115_0001',
+                  notes: 'Cash payment'
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: {
+          description: 'Invoice paid successfully. Cashbook payment entry created which automatically creates journal entry - Dr Accounts Payable, Cr Bank/Cash Account',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Invoice paid successfully',
+                data: {
+                  id: 'invoice-id',
+                  paymentStatus: 'PAID',
+                  paidAmount: '3220.00',
+                  outstandingAmount: '0.00',
+                  cashbookEntryId: 'cashbook-entry-id'
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - invoice must be submitted as CREDIT first, or bankId required when paymentMethod is BANK' },
+        401: { description: 'Unauthorized' }
+      }
+    }
   }
 };
+

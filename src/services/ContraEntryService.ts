@@ -66,6 +66,44 @@ export default class ContraEntryService {
   }
 
   /**
+   * List contra entries (optional filter by cashbook bank currency)
+   */
+  static async listAllContraEntries(currencyId?: string, limit: number = 200) {
+    try {
+      const where: any = {};
+      if (currencyId) {
+        where.cashbookEntry = { bank: { currencyId } };
+      }
+      const entries = await prisma.contraEntry.findMany({
+        where,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          cashbookEntry: {
+            include: {
+              bank: { include: { currency: true } }
+            }
+          },
+          debitAccount: { select: { id: true, accountNo: true, accountName: true } },
+          creditAccount: { select: { id: true, accountNo: true, accountName: true } }
+        }
+      });
+      return {
+        success: true,
+        message: 'Contra entries retrieved successfully',
+        data: entries
+      };
+    } catch (error: any) {
+      console.error('Error listing contra entries:', error);
+      return {
+        success: false,
+        message: 'Failed to list contra entries',
+        error: error.message
+      };
+    }
+  }
+
+  /**
    * Get contra entry configurations
    */
   static async getContraEntryConfigs(filters: {
@@ -160,6 +198,14 @@ export default class ContraEntryService {
       }
 
       // Generate contra entry based on configuration
+      const bankGlId = cashbookEntry.bank?.glAccountId;
+      if (!bankGlId || !cashbookEntry.glAccountId) {
+        return {
+          success: false,
+          message: 'Bank and counterparty GL accounts are required to generate a contra entry',
+        };
+      }
+
       let contraEntry;
       if (contraConfig.contraType === 'DETAILED') {
         // Create detailed contra entry
@@ -169,8 +215,8 @@ export default class ContraEntryService {
             contraType: 'DETAILED',
             description: `Contra for ${cashbookEntry.description}`,
             amount: cashbookEntry.amount,
-            debitAccountId: cashbookEntry.type === 'RECEIPT' ? cashbookEntry.bankId : cashbookEntry.glAccountId,
-            creditAccountId: cashbookEntry.type === 'RECEIPT' ? cashbookEntry.glAccountId : cashbookEntry.bankId,
+            debitAccountId: cashbookEntry.type === 'RECEIPT' ? bankGlId : cashbookEntry.glAccountId,
+            creditAccountId: cashbookEntry.type === 'RECEIPT' ? cashbookEntry.glAccountId : bankGlId,
             createdById: createdById
           }
         });
@@ -182,8 +228,8 @@ export default class ContraEntryService {
             contraType: 'SUMMARY',
             description: `Summary contra for ${cashbookEntry.description}`,
             amount: cashbookEntry.amount,
-            debitAccountId: cashbookEntry.type === 'RECEIPT' ? cashbookEntry.bankId : cashbookEntry.glAccountId,
-            creditAccountId: cashbookEntry.type === 'RECEIPT' ? cashbookEntry.glAccountId : cashbookEntry.bankId,
+            debitAccountId: cashbookEntry.type === 'RECEIPT' ? bankGlId : cashbookEntry.glAccountId,
+            creditAccountId: cashbookEntry.type === 'RECEIPT' ? cashbookEntry.glAccountId : bankGlId,
             createdById: createdById
           }
         });

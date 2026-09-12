@@ -8,6 +8,7 @@
 
 import { PrismaClient } from '@prisma/client';
 import { HARDCODED_ROLES, DEPARTMENTS } from '../src/config/hardcodedRoles';
+import { CFO_MODULE_PERMISSIONS } from '../src/config/cfoModulePermissions';
 
 const prisma = new PrismaClient();
 
@@ -50,7 +51,7 @@ async function seedHardcodedRoles() {
         data: {
           name: hardcodedRole.name,
           description: hardcodedRole.description,
-          permissions: getDefaultPermissionsForLevel(hardcodedRole.level, hardcodedRole.department)
+          permissions: getDefaultPermissionsForLevel(hardcodedRole)
         }
       });
 
@@ -89,7 +90,16 @@ async function seedHardcodedRoles() {
   }
 }
 
-function getDefaultPermissionsForLevel(level: number, department: string): any[] {
+function getDefaultPermissionsForLevel(hardcodedRole: {
+  level: number;
+  department: string;
+  code?: string;
+}): any[] {
+  if (hardcodedRole.code === "CFO") {
+    return [...CFO_MODULE_PERMISSIONS];
+  }
+
+  const { level, department } = hardcodedRole;
   const basePermissions = [
     { name: "view_dashboard", value: true },
     { name: "view_reports", value: true }
@@ -136,6 +146,14 @@ function getDefaultPermissionsForLevel(level: number, department: string): any[]
       { name: "manage_financial_reports", value: level >= 5 },
       { name: "bank_reconciliation", value: level >= 4 }
     );
+    if (level >= 5) {
+      basePermissions.push(
+        { name: "accounting.period_lock.view", value: true },
+        { name: "accounting.period_lock.manage", value: true },
+        { name: "accounting.period_lock.override", value: true },
+        { name: "accounting.period_lock.audit_view", value: true }
+      );
+    }
   }
 
   if (department === 'Sales') {

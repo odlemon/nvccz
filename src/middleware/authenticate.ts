@@ -2,8 +2,13 @@
 // src/middleware/authenticate.ts
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import {
+  cfoPassesLegacyAuthorize,
+  userMatchesAuthorizeRoleList,
+} from "../config/cfoModulePermissions";
 import { prisma } from "../utils/database";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_here";
+const DEBUG_AUTH = process.env.DEBUG_AUTH === "1" || process.env.DEBUG_AUTH === "true";
 
 export interface AuthRequest extends Request {
   user?: any;
@@ -19,17 +24,19 @@ export function createToken(userId: string): string {
 }
 
 export async function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
-  console.log(`🔐 Auth check for ${req.method} ${req.path}`);
-  console.log(`📋 Headers:`, req.headers.authorization ? 'Authorization header present' : 'No Authorization header');
-  
+  if (DEBUG_AUTH) {
+    console.log(`🔐 Auth check for ${req.method} ${req.path}`);
+    console.log(`📋 Headers:`, req.headers.authorization ? "Authorization header present" : "No Authorization header");
+  }
+
   const authHeader = req.headers.authorization;
-  
+
   // Check if authorization header exists and has correct format
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    console.log(`❌ No valid auth header for ${req.path}`);
-    res.status(401).json({ 
+    if (DEBUG_AUTH) console.log(`❌ No valid auth header for ${req.path}`);
+    res.status(401).json({
       success: false,
-      message: "Unauthorized" 
+      message: "Unauthorized",
     });
     return;
   }
@@ -38,31 +45,38 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
-    console.log("decoded", decoded);
-    
+    if (DEBUG_AUTH) console.log("decoded", decoded);
+
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
       include: {
         role: true
       }
     });
-    
-    console.log("the user", user);
+
+    if (DEBUG_AUTH) console.log("the user", user);
     if (!user) {
-      console.log(`❌ User not found for ${req.path}`);
+      if (DEBUG_AUTH) console.log(`❌ User not found for ${req.path}`);
       res.status(401).json({ 
         success: false,
-        message: "Unauthorized" 
+        message: "Unauthorized"     
       });
+      return;
+    }
+
+    const tokenVersionClaim = decoded.tokenVersion ?? 0;
+    const dbTokenVersion = (user as any).tokenVersion ?? 0;
+    if (tokenVersionClaim !== dbTokenVersion) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
       return;
     }
     
     req.user = user;
-    console.log(`✅ Auth successful for ${req.path}`);
-    
+    if (DEBUG_AUTH) console.log(`✅ Auth successful for ${req.path}`);
+
     next();
   } catch (err) {
-    console.log(`❌ JWT error for ${req.path}:`, err.message);
+    if (DEBUG_AUTH) console.log(`❌ JWT error for ${req.path}:`, err.message);
     // All JWT errors (expired, invalid, malformed) return the same message
     res.status(401).json({ 
       success: false,
@@ -75,24 +89,54 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
 export function authorize(roles: string[] | string) {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
-      res.status(401).json({ 
+      res.status(401).json({
         success: false,
-        message: "Unauthorized" 
+        message: "Unauthorized"
       });
       return;
     }
 
-    const userRole = req.user.role.name;
     const allowedRoles = typeof roles === "string" ? [roles] : roles;
 
-    if (!allowedRoles.includes(userRole)) {
-      res.status(403).json({ 
-        success: false,
-        message: "Forbidden: insufficient permissions" 
-      });
+    if (userMatchesAuthorizeRoleList(req.user, allowedRoles)) {
+      next();
       return;
     }
 
-    next();
+    if (cfoPassesLegacyAuthorize(req.user, allowedRoles)) {
+      next();
+      return;
+    }
+
+    res.status(403).json({
+      success: false,
+      message: "Forbidden: insufficient permissions"
+    });
+    return;
   };
+}
+
+/** JWT user is CFO by roleCode or canonical role name (not JSON permissions). */
+export function authorizeCfo(req: AuthRequest, res: Response, next: NextFunction): void {
+  if (!req.user) {
+    res.status(401).json({
+      success: false,
+      message: "Unauthorized"
+    });
+    return;
+  }
+  const name = req.user.role?.name;
+  const code = req.user.roleCode;
+  const ok =
+    code === "CFO" ||
+    name === "Chief Financial Officer" ||
+    name === "CFO";
+  if (!ok) {
+    res.status(403).json({
+      success: false,
+      message: "Forbidden: CFO role required"
+    });
+    return;
+  }
+  next();
 }

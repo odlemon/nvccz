@@ -4,6 +4,129 @@ import { performanceEndpoints } from './performance-endpoints';
 import { taskAssignmentEndpoints } from './task-assignment-endpoints';
 import { procurementEndpoints } from './procurement-endpoints';
 import { financialReportingEndpoints } from './financial-reporting-endpoints';
+import { investeeReportingEndpoints } from './investee-reporting-endpoints';
+import { reportingScheduleSwaggerEndpoints } from './reporting-schedule-swagger-endpoints';
+import { lpFeesAndDistributionsEndpoints } from './lp-fees-and-distributions-endpoints';
+import { eventsEndpoints } from './events-endpoints';
+import { dashboardsEndpoints } from './dashboards-endpoints';
+import { userSavedFilterFavoriteEndpoints } from './user-saved-filter-favorite-endpoints';
+import { companyProfileEndpoints } from './company-profile-endpoints';
+import { vatRateEndpoints } from './vat-rate-endpoints';
+import { consolidatedAccountingReportEndpoints } from './consolidated-accounting-report-endpoints';
+import { shortTermInvestmentsEndpoints } from './short-term-investments-endpoints';
+import { fiscalCalendarEndpoints } from './fiscal-calendar-endpoints';
+import { capitalCallsEndpoints, mergeCapitalCallClientPrerequisitePaths } from './capital-calls-endpoints';
+import { updatedInvestmentFlowExtraPaths } from './updated-investment-flow-swagger-paths';
+import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-paths';
+import { phaseTwoScorecardEditingSwaggerPaths } from './phase-two-scorecard-editing-swagger-paths';
+import { phaseTwoPdfUploadsSwaggerPaths, PHASE_TWO_PDF_UPLOADS_TAG } from './phase-two-pdf-uploads-swagger-paths';
+import {
+  payrollEmploymentTrainingSwaggerPaths,
+  PAYROLL_EMPLOYMENT_TRAINING_TAG,
+  PAYROLL_EMPLOYMENT_TRAINING_TAG_DEFINITION,
+} from './payroll-employment-training-swagger-paths';
+import {
+  stockPriceCollectorSwaggerPaths,
+  STOCK_PRICE_COLLECTOR_TAG,
+  STOCK_PRICE_COLLECTOR_TAG_DEFINITION,
+} from './stock-price-collector-swagger-paths';
+import {
+  investmentOpsSwaggerPaths,
+  INVESTMENT_OPERATIONS_TAG,
+  INVESTMENT_OPERATIONS_TAG_DEFINITION,
+} from './investment-ops-swagger-paths';
+import {
+  fundPerformanceReportingSwaggerPaths,
+  FUND_PERFORMANCE_REPORTING_TAG,
+  FUND_PERFORMANCE_REPORTING_TAG_DEFINITION,
+} from './fund-performance-reporting-swagger-paths';
+import {
+  lpPortalSwaggerPaths,
+  LP_PORTAL_TAG,
+  LP_PORTAL_TAG_DEFINITION,
+} from './lp-portal-swagger-paths';
+import {
+  investmentMemoEditingSwaggerPaths,
+  INVESTMENT_MEMO_EDITING_TAG,
+  INVESTMENT_MEMO_EDITING_TAG_DEFINITION,
+} from './investment-memo-editing-swagger-paths';
+import {
+  streetExchangeRateDisplaySwaggerPaths,
+  STREET_EXCHANGE_RATE_DISPLAY_TAG,
+  STREET_EXCHANGE_RATE_DISPLAY_TAG_DEFINITION,
+} from './street-exchange-rate-display-swagger-paths';
+import {
+  capTableManagementSwaggerPaths,
+  CAP_TABLE_MANAGEMENT_TAG,
+  CAP_TABLE_MANAGEMENT_TAG_DEFINITION,
+} from './cap-table-management-swagger-paths';
+import {
+  fundraisingLpPipelineSwaggerPaths,
+  FUNDRAISING_LP_PIPELINE_TAG,
+  FUNDRAISING_LP_PIPELINE_TAG_DEFINITION,
+} from './fundraising-lp-pipeline-swagger-paths';
+import {
+  fundraisingIrSwaggerPaths,
+  FUNDRAISING_IR_TAG,
+  FUNDRAISING_IR_TAG_DEFINITION,
+} from './fundraising-ir-swagger-paths';
+import {
+  quarterlyClientStatementsSwaggerPaths,
+  QUARTERLY_CLIENT_STATEMENTS_TAG,
+  QUARTERLY_CLIENT_STATEMENTS_TAG_DEFINITION,
+} from './quarterly-client-statements-swagger-paths';
+import {
+  dealExecutionPackSwaggerPaths,
+  DEAL_EXECUTION_PACK_TAG,
+  DEAL_EXECUTION_PACK_TAG_DEFINITION,
+} from './deal-execution-pack-swagger-paths';
+import {
+  taxReturnPackSwaggerPaths,
+  TAX_RETURN_PACK_TAG,
+  TAX_RETURN_PACK_TAG_DEFINITION,
+} from './tax-return-pack-swagger-paths';
+import {
+  fpaSwaggerPaths,
+  FPA_TAG,
+  FPA_TAG_DEFINITION,
+} from './fpa-swagger-paths';
+import { pruneSwaggerSpecByExcludedTags, applyProtectedSwaggerModules } from './swagger-excluded-tags';
+import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
+import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
+import { reviewsUatReviewCyclesIndependentEvalEndpoints } from './reviews-uat-review-cycles-independent-eval-endpoints';
+import { vendorMasterSuite01Endpoints } from './vendor-master-suite01-endpoints';
+import { procurementSuiteSectionsFallbackEndpoints } from './procurement-suite-sections-fallback-endpoints';
+import { eventsEventsyncFallbackEndpoints } from './events-eventsync-fallback-endpoints';
+import { fundManagementEndpoints } from './fund-management-endpoints';
+import { portfolioLetterheadsEndpoints } from './portfolio-letterheads-endpoints';
+import { payrollEndpoints } from './payroll-endpoints';
+import { portfolioMonitoringEndpoints } from './portfolio-monitoring-endpoints';
+import { boardReviewOpenApiOverridePaths } from './board-review-openapi';
+
+/** OpenAPI server base — paths are relative (e.g. `/auth/login` → `{base}/auth/login`). */
+function resolveSwaggerServers(): Array<{ url: string; description: string }> {
+  const raw = (process.env.SWAGGER_SERVER_URL || process.env.BASE_URL || 'https://dev-api.arcus.co.zw/api')
+    .trim()
+    .replace(/\/$/, '');
+  const primary = raw.endsWith('/api') ? raw : `${raw}/api`;
+  const localPort = process.env.PORT || '3009';
+  const preferLocal =
+    process.env.SWAGGER_PREFER_LOCAL === '1' ||
+    process.env.NODE_ENV === 'development' ||
+    !process.env.SWAGGER_SERVER_URL;
+  const local = {
+    url: `http://localhost:${localPort}/api`,
+    description: 'Local development API',
+  };
+  const remote = {
+    url: primary,
+    description: 'Arcus API (configured SWAGGER_SERVER_URL / BASE_URL)',
+  };
+  return preferLocal ? [local, remote] : [remote, local];
+}
+
+/** Build OpenAPI servers for the host serving /api-docs (fixes Try it out hitting wrong server). */
+export { resolveSwaggerServersForRequest } from './swagger-servers';
 
 const options = {
   definition: {
@@ -14,27 +137,72 @@ const options = {
       description: 'A comprehensive API for managing users, roles, and permissions with role-based access control.',
       contact: {
         name: 'API Support',
-        email: 'support@nvccz.co.zw'
+        email: process.env.EMAIL_SUPPORT || 'support@nvccz.co.zw'
       },
       license: {
         name: 'ISC',
         url: 'https://opensource.org/licenses/ISC'
       }
     },
-    servers: [
-      {
-        url: 'https://nvccz-pi.vercel.app/api',
-        description: 'Production server'
-      },
-      {
-        url: 'http://localhost:3000/api',
-        description: 'Development server'
-      }
-    ],
+      // NOTE: `servers[].url` ends with `/api`. OpenAPI paths are relative to that base
+      // (e.g. `/clients`, `/funds/...`) — do NOT prefix paths with `/api` or Swagger shows `/api/api/...`.
+      servers: resolveSwaggerServers(),
     tags: [
       {
+        name: 'Capital Calls (LP drawdowns)',
+        description:
+          '**Start here:** add the LP (**`POST /clients`** — full URL with default server: `/api/clients`) and fund **investment commitment** (same call or **`PUT /clients/{id}`**). Then **`/funds/.../capital-calls`**: list/initiate (**Dr 1210 / Cr 3010**), **lp-summary**, detail, **GET …/notice**, **send-notices** (HTML + **PDF**), **GET/POST …/payments**. **Docs:** **`docs/capital-calls-lp-drawdowns.md`**. **DB:** **`npm run db:migrate:capital-calls`**, **`npm run db:migrate:capital-call-allocation-payments`**, **`npm run db:ensure:capital-call-accounts`**. **IDs:** **`npm run db:print:capital-call-postman`**.'
+      },
+      {
+        name: 'LP Fees & Distributions',
+        description:
+          'Fund operations for **limited partners (LPs)**: configure economics, **bill management fees** (money in from LPs), and **declare distributions** (money out to LPs after carry). Base path: **`/api/funds/{fundId}/...`** (Swagger server URL already includes `/api`).\n\n---\n\n### Prerequisites (before any call)\n- LPs exist as **Clients** with **ACTIVE** or **PENDING** **investment commitments** on this fund.\n- All commitments use the **same currency**.\n- **Capital calls** (drawdowns) are a separate module; paid-in amounts affect distribution splits.\n\n---\n\n### Suggested UI structure (two tabs per fund)\n\n**Tab A — Management fees**\n| Step | Endpoint | Screen |\n|------|----------|--------|\n| Setup | 1–2 `fee-policy` | Fund settings: annual fee %, base (committed/invested/NAV), carry/hurdle |\n| List | 3 `GET management-fees` | Table of billing periods + status badges |\n| Create | 4 `POST management-fees` | Modal: period dates → accrue |\n| Detail | 5 `GET …/{periodId}` | Header totals + LP table (`shareOfFee`, `amountPaid`, status) |\n| Notify | 6 `POST …/send-invoices` | Button (re-sends if clicked again) |\n| Collect | 7 `POST …/payments` | Per-LP “Record payment” + bank account picker |\n\n**Tab B — Distributions**\n| Step | Endpoint | Screen |\n|------|----------|--------|\n| List | 8 `GET distributions` | Table: date, source, gross, carry, net, status |\n| Create | 9 `POST distributions` | Modal: gross amount, source, optional portfolio links |\n| Detail | 10 `GET …/{distributionId}` | Waterfall summary + LP payout table |\n| Notify | 11 `POST …/send-notices` | Email LPs |\n| Pay out | 12 `POST …/payouts` | Per-LP outbound payment |\n\n---\n\n### Status workflows (for badges)\n**Management fee period:** `ACCRUED` → `INVOICED` → `PARTIALLY_PAID` → `PAID` (also `statusLabel` on each row).\n**Per-LP fee line:** `PENDING` → `PARTIALLY_PAID` → `PAID`.\n**Distribution:** `DECLARED` → `NOTICES_SENT` → `PARTIALLY_PAID` → `PAID`.\n\n---\n\n### Frontend conventions\n- Rates in JSON are **fractions** (`0.02` = 2%) — multiply by 100 for display.\n- Amounts are **strings** in list/detail (decimal precision) — parse for math.\n- Save **`data.id`** after create (accrue/declare) for detail routes.\n- Use **`data.allocations[].id`** as `allocationId` in payment/payout URLs.\n- **`cashChartOfAccountId`**: pass bank COA id from your chart-of-accounts picker (recommended).\n- Responses: `{ success, message?, data }` — show `message` on errors only (user-facing text).\n\nEach operation below has a **detailed description** (purpose, request fields, response usage, errors).'
+      },
+      {
+        name: 'Fund Management',
+        description:
+          'Create and configure **funds** (`totalAmount`, `remainingAmount`, **`minInvestment` / `maxInvestment`** per LP ticket, windows, status). **Admin** for create/update/close; **admin** or **fund_manager** for list/get/statistics. Paths are under **`/funds`** (server base URL already includes `/api`). Capital-call routes under `/funds/{fundId}/capital-calls` are documented under **Capital Calls (LP drawdowns)**.'
+      },
+      {
+        name: 'Company Profile',
+        description: 'Company letterhead profile, addresses (one active at a time), and logo upload'
+      },
+      {
+        name: 'Portfolio Letterheads',
+        description:
+          'Investee letterhead CRUD per portfolio company — legal name, address lines, contact, social links, logo (`GET/PUT/DELETE /portfolio-companies/{id}/letterhead`, `POST …/letterhead/logo`). Authenticated users only; not tied to a specific financial report.'
+      },
+      {
+        name: PAYROLL_EMPLOYMENT_TRAINING_TAG,
+        description: PAYROLL_EMPLOYMENT_TRAINING_TAG_DEFINITION.description,
+      },
+      {
+        name: 'Portfolio Monitoring & Exit Management',
+        description:
+          '**§2.4 Portfolio monitoring:** periodic **valuation events** and **exit management** per investment. Base path **`/investments/{investmentImplementationId}`** (server URL already includes `/api`). Resolve `investmentImplementationId` via `GET /investment-implementations/{portfolioCompanyId}` → `data.id`. Roles: admin, fund_manager, ceo, cfo. See **`docs/portfolio-monitoring-valuation-and-exit.md`**. DB: **`npm run db:migrate:investment-valuation-exit`**.'
+      },
+      {
+        name: 'VAT Rates',
+        description: 'Manage VAT rates — only one can be active at a time. The active rate is used by all accounting services for VAT calculations.'
+      },
+      {
+        name: 'Accounting - Period lock',
+        description:
+          'End-to-end period locking: **legacy cashbook** (`/cashbook/periods/...`) and **fiscal calendar** (`/accounting/fiscal-calendar/...`) — month status, lock/unlock, validate date, module draft/commit, policy, audit, posting exceptions. Production Swagger groups all these operations under this tag.'
+      },
+      {
         name: 'Financial Reporting',
-        description: 'Endpoints for uploading and reviewing portfolio financial reports'
+        description:
+          'Portfolio financial reports and automation. Endpoint descriptions state **Audience:** **Applicant (investee)** vs **Investor (fund staff)**. Covers investor calendar (opened periods), mandatory-attachment catalog, **reporting schedule config** CRUD (`reporting_schedule_configs`, investor JWT), manual nudge, and (where documented) reminder cron helpers. **Schedule-tick** automation endpoints are intentionally omitted from this spec. `/applicant/*` routes are investee; `/portfolio-companies/*` reporting routes are typically investor.'
+      },
+      {
+        name: 'Investee Reporting',
+        description:
+          '**Audience:** Applicant (investee) only. Reporting flow: list open requests, upload statement XLSX/PDFs, attach files, submit a reporting period for review, download templates, update draft line items, and save period KPIs.'
+      },
+      {
+        name: 'Accounts Payables',
+        description: 'Purchase invoice management for non-procurement expenses - Create, submit, and pay invoices with BANK, CASH, or CREDIT payment methods'
       },
       {
         name: 'Procurement - Requisitions',
@@ -69,8 +237,176 @@ const options = {
         description: 'Procurement dashboard - Get summary statistics and overview data'
       },
       {
+        name: 'Procurement — UAT',
+        description:
+          'Umbrella tag that groups **Procurement UAT** flows across Suites 01–06 (vendor self-registration + KYC, investee drawdown PR workflow, RFQ/bidding, PO sign-off, GRN/QC, and Suite 06 invoice intake + 3-way match). See **`docs/procurement-uat.md`** for Postman order, request body examples, and acceptance notes.'
+      },
+      {
+        name: 'Vendor Master, Compliance & KYC (Suite 01)',
+        description:
+          'Suite 01: Vendor master data, self-registration and KYC upload (token), staff approval, blacklist / RFQ eligibility, and related accounting vendor APIs where tagged.'
+      },
+      {
+        name: 'Procurement — RFQ & Bidding (Suite 03)',
+        description:
+          'Suite 03: Formal RFQs (procurement_rfqs), sealed bid viewing until closing, comparison matrix with FX normalization, award + regret emails, deadline extension, clarifications, public tender listing.'
+      },
+      {
+        name: 'Procurement — PO & Sign-off (Suite 04)',
+        description:
+          'Suite 04: PO investee/fund tagging, amount-threshold approvals, PDF with verification placeholder, dispatch/ack tokens, line cancel, GRN return-to-vendor stub.'
+      },
+      {
+        name: 'Procurement — GRN & QC (Suite 05)',
+        description:
+          'Suite 05: Goods receipt with over-delivery tolerance, attachments/geo, investee GRN path, partial PO status, RTV records.'
+      },
+      {
+        name: 'Procurement — AI invoice intake (Suite 06)',
+        description:
+          'Suite 06: Vendor invoice PDF URL intake, text extraction, configurable OpenAI-compatible LLM parse, per-vendor correction map, human verification queue.'
+      },
+      {
+        name: 'Procurement — 3-way match (Suite 06)',
+        description:
+          'Suite 06: Deterministic PO vs GRN vs vendor bill line match; price variance and quantity vs GRN; payment blocked when DISPUTED.'
+      },
+      {
+        name: 'Procurement — Match dashboard (Suite 06)',
+        description: 'Suite 06: CFO-oriented counts — matched bills, disputed bills, intakes pending verification.'
+      },
+      {
+        name: 'Investee Portal — Investment Drawdown',
+        description:
+          'Suite 02: Investee purchase requisitions against held investment tranche, VC CFO executive gate, auto-RQFs, fund-scoped visibility, SLA alerts, and applicant portal drawdown APIs.'
+      },
+      {
+        name: 'Applicant Portal',
+        description: 'Investee / portfolio company applicant APIs (profile, application, Suite 02 procurement when tagged).'
+      },
+      {
         name: 'Procurement - Approval Configuration',
         description: 'Approval configuration management - Create and manage approval workflows (SINGLE CONFIG SYSTEM). Also includes approval request endpoints for approvers.'
+      },
+      {
+        name: 'Events — Core & calendar (EventSync)',
+        description:
+          'EventSync UAT: listings, create/update/delete, public event pages, upcoming; Google Calendar sync when configured. See docs/events-uat.md.'
+      },
+      {
+        name: 'Events — Guests & RSVP (EventSync)',
+        description:
+          'EventSync UAT: guest list, invitations, public RSVP by token, check-in. See docs/events-uat.md.'
+      },
+      {
+        name: 'Events — Budget & approval (EventSync)',
+        description:
+          'EventSync UAT: budget line items and internal budget approval (not Procurement PR in current build). See docs/events-uat.md.'
+      },
+      {
+        name: 'Events — Expenses & accounting (EventSync)',
+        description:
+          'EventSync UAT: record event expenses; journal entries via accounting services. See docs/events-uat.md.'
+      },
+      {
+        name: 'Events — Feedback (EventSync)',
+        description:
+          'EventSync UAT: public feedback submit and staff feedback list. See docs/events-uat.md.'
+      },
+      {
+        name: 'Events — Analytics & reports (EventSync)',
+        description:
+          'EventSync UAT: event analytics and generated reports (EventReport). See docs/events-uat.md.'
+      },
+      {
+        name: 'Dashboards',
+        description: 'Dashboard endpoints for comprehensive data visualization - Accounting, Payroll, Performance, and Portfolio Management dashboards with filtering capabilities'
+      },
+      {
+        name: 'Saved filter favorites',
+        description: 'User-scoped named filter presets (routeKey + JSON filters) for lists and reports — not tied to a single report definition'
+      },
+      {
+        name: 'Accounting - Short-term investments',
+        description:
+          'Liquid short-term investments (money market, T-bills, CDs): instruments, APY history, accruals, catch-up, settlement, accrual approval, CFO dashboard, month-end unrealized FX. All routes require JWT only (no permission middleware). Try It Out: use server URL that includes the /api prefix (e.g. http://localhost:3009/api) so paths resolve to /api/accounting/short-term-investments/...'
+      },
+      {
+        name: 'Updated investment flow',
+        description:
+          '**Order:** use `docs/updated-investment-flow-workflow.md`. **CFO banks+GL:** `GET /investment-implementations/disbursement-banks` (operationId `getDisbursementBanksForCfo`) — each `data[].id` is `bankId` on approve; includes `glAccount`. Then `GET .../disbursements/pending`, `POST .../disbursements/{id}/decision`. Earlier steps: apply → assign analyst → screening → RBZ/KYC → collaboration → DD initiate → board IM + votes → signed-term-sheets → initiate → create disbursement → **disbursement-banks** → pending → decision.'
+      },
+      {
+        name: 'Updated performance',
+        description:
+          'BSC **data entry**, **workflow**, **performance contracts**, and **scorecard generate** (persist draft) — see `docs/performance-bsc-data-entry-flow.md` for paths, **example JSON bodies** (incl. contracts), and rules. **Contracts:** **`GET /performance/contracts`** (list all with optional filters: contractType, status, periodYear, periodLabel, subjectUserId, departmentName, skip, take). **`POST /performance/contracts/board|ceo|department|employee`** (annual `periodYear` or exact UTC year bounds; CEO may omit `subjectUserId` to resolve from roles). **Scorecards:** `GET /performance/scorecards/employees-for-generation` (EMPLOYEE contract holders for the period, CEO excluded) and **`POST /performance/scorecards/board/generate`, `…/ceo/generate`, `…/department/{department}/generate`, `…/employee/{employeeId}/generate`** — optional period + **sectionBlendMode** (Board/CEO). JWT only on these routes.'
+      },
+      {
+        name: 'Phase two Scorecard Editing',
+        description:
+          '**Phase 2 — qualitative scorecard correction only.** Load and edit **persisted** scorecards for **EMPLOYEE**, **DEPARTMENT** (by name), **CEO**, and **BOARD** (DRAFT or FINAL). ' +
+          '**Editable:** `qualitativeEvaluation.personalAttributes` (+ optional `trainingAndDevelopment`) and mandatory **`editReason`**. ' +
+          '**Not editable:** goal actuals, targets, raw ratings, matrix rows, or computed numeric scores (system-calculated from progress tracking). ' +
+          'PUT examples include the full 10×5 personal-attributes grid and populated `beginningOfCycle`, `endOfCycle`, and `interventions` arrays.'
+      },
+      {
+        name: PHASE_TWO_PDF_UPLOADS_TAG,
+        description:
+          '**Phase 2 — vendor PDF attachments (3.2).** Unified uploads for **quotations** (`VendorQuotation`), **procurement invoices**, and **accounting purchase invoices**. ' +
+          'Configure allowed types + max size via **settings**; portal uploads require **`vendorPortalToken`**. ' +
+          'Attachments are **optional** on submit; when provided they are validated (type, size, PDF integrity, SHA-256) and fully audited.'
+      },
+      {
+        name: FPA_TAG,
+        description:
+          '**FP&A Planning** — models, worksheet grid, formulas, drivers, scenarios, versions, workflow, actuals sync, variance commentary. See `docs/fpa-backend-requirements.md`.'
+      },
+      {
+        name: INVESTMENT_OPERATIONS_TAG,
+        description: INVESTMENT_OPERATIONS_TAG_DEFINITION.description,
+      },
+      {
+        name: STOCK_PRICE_COLLECTOR_TAG,
+        description: STOCK_PRICE_COLLECTOR_TAG_DEFINITION.description,
+      },
+      {
+        name: FUND_PERFORMANCE_REPORTING_TAG,
+        description: FUND_PERFORMANCE_REPORTING_TAG_DEFINITION.description,
+      },
+      {
+        name: 'Performance collaboration and notifications',
+        description:
+          'UAT E.01–E.10: task chat collaboration (mentions, realtime chat, comment deletion, system messages) and user notifications (list, mark read). Realtime uses Socket.IO rooms `task:{taskId}` and emits `task_message`, `task_comment_created`, `task_comment_deleted`. Notification toasts use `notification_created`.'
+      },
+      {
+        name: 'Reviews UAT (Review cycles & independent evaluation)',
+        description:
+          'Review cycle configuration + independent evaluation workflows: self review, external evaluator access (role-based), HR moderation, manager 1–6 validation (aligned with BSC scorecard scale), quantitative auto-populate, status progression, finalize (locks + generates PDF), rating distribution reports.'
+      },
+      {
+        name: 'Performance UAT (Tasks & board)',
+        description:
+          '**Kanban / performance task board UAT (backend).** Use **GET /tasks/{id}** for task details, **PUT /tasks/{id}** with body **team** (full list of assignee user IDs) to reassign; removed users no longer see the task on **GET /tasks/my**. **POST /tasks** notifies new assignees; **PUT /tasks/{id}/stage** moves one card; **PUT /tasks/bulk/status-update** and **PUT /tasks/bulk/stage** move multiple (body **taskIds** + **stage**). New assignees receive **TASK_ASSIGNED** (title "New task assigned") and a **notification_created** WebSocket event. OpenAPI paths are **without** a second `/api` prefix — the default server URL already ends with `/api`, so Try It Out uses **`/api/tasks/...`**. **Task assignment (due diligence)** is a separate tag: **Task assignment**.'
+      },
+      {
+        name: 'Performance UAT (Balanced Scorecard)',
+        description:
+          'UAT utilities for Balanced Scorecard configuration. **Line of sight (light):** **`GET /performance/config/vision-statement`**. **Full pillar + strategy context:** **`GET /performance/config/pillars`**. **Strategies / vision + PDF edit path:** `GET/POST /performance/config/strategies`, `GET/PUT /performance/config/strategies/{id}`, **`POST /performance/config/strategies/{id}/document`** (multipart `file`), **`POST /performance/config/strategies/{id}/archive`**, `GET /performance/config/strategies/archives`. **Themes:** `GET/POST /performance/config/themes`, `GET/POST /performance/config/themes/{id}/goals`. **Scorecard DB pillars (weights):** `GET/POST /performance/scorecard-pillars`, **`PUT /performance/scorecard-pillars/weights`**, **`PUT /performance/scorecard-pillars/{id}/company-goal-weights`**, `PUT/DELETE /performance/scorecard-pillars/{id}`. **Single-goal line weight:** **`PUT /performance/config/goals/{goalId}`**. **Catalog goals list:** `GET/POST /performance/goals` (query filters e.g. `strategicThemeId`, `pillarId`, `department`). System pillars: `npm run db:migrate:scorecard-pillars`.'
+      },
+      {
+        name: 'Performance Config',
+        description:
+          'Strategic **themes** (`GET/POST /performance/config/themes`), **theme–goal** mapping (`GET/POST /performance/config/themes/{id}/goals`), BSC **pillars** / **strategies**, **`POST /performance/config/strategies/{id}/document`** (multipart PDF — field **`file`**; optional `strategicGoalId`), **`POST /performance/config/strategies/{id}/archive`** (UAT: archive old cycle; read-only afterward), **`GET /performance/config/strategies/archives`** (historical list), **`GET /performance/config/strategies?includeArchived=false`** (active cycles only for dashboards), and **`PUT /performance/config/goals/{goalId}`** (scorecard line + theme on goals). OpenAPI paths are relative to the server URL that ends in `/api`.'
+      },
+      {
+        name: 'Performance Goals',
+        description:
+          'List and manage performance goals. **GET /performance/goals** supports **`strategicThemeId`**, **`pillarId`**, **`department`** (name), **`type`**, **`scorecardPillar`**, **`kpiId`**, **`search`**, and related filters. KPI-scoped list is also available at **GET /performance/goals/by-kpi/{kpiId}**. OpenAPI paths are relative to the server URL that ends in `/api`.'
+      },
+      {
+        name: 'performance-kpis',
+        description:
+          '**Database KPI catalog** (`kpis` table): **POST** **`/kpis`**, **PATCH** / **PUT** / **DELETE** **`/kpis/{id}`** (OpenAPI paths relative to server URL ending in `/api` — same handlers are mounted at **`/api/kpis`** and **`/api/performance/kpis`**). **catalogDepartmentName** must match **`departments.name`**; **`departmentId`** is set automatically. Hardcoded KPI **GET** reference listings stay under **`/performance/kpis`** (see **📊 Hardcoded KPIs**).'
       }
     ],
     components: {
@@ -82,6 +418,298 @@ const options = {
         }
       },
       schemas: {
+        // ───────── LP Fees & Distributions ─────────
+        FundFeePolicy: {
+          type: 'object',
+          description: 'LP fee/carry policy attached to a Fund. All rate fields are fractions (0.02 = 2%).',
+          properties: {
+            id: { type: 'string', example: 'clx0fundid' },
+            name: { type: 'string', example: 'Sports Growth Fund I' },
+            managementFeeRate: { type: 'number', nullable: true, example: 0.02 },
+            managementFeeBase: { type: 'string', nullable: true, enum: ['COMMITTED', 'INVESTED', 'NAV'], example: 'COMMITTED' },
+            managementFeeFrequency: { type: 'string', nullable: true, enum: ['MONTHLY', 'QUARTERLY', 'SEMI_ANNUAL', 'ANNUAL'], example: 'QUARTERLY' },
+            managementFeeStartDate: { type: 'string', nullable: true, format: 'date', example: '2025-01-01' },
+            carryRate: { type: 'number', nullable: true, example: 0.20 },
+            hurdleRate: { type: 'number', nullable: true, example: 0.08 },
+            hurdleType: { type: 'string', nullable: true, enum: ['NONE', 'PREFERRED_RETURN'], example: 'PREFERRED_RETURN' },
+            catchUpRate: { type: 'number', nullable: true, example: 1.0 },
+            waterfallType: { type: 'string', nullable: true, enum: ['EUROPEAN', 'AMERICAN'], example: 'EUROPEAN' }
+          }
+        },
+        FundFeePolicyUpsertRequest: {
+          type: 'object',
+          description: 'Upsert payload. Pass null to clear a field.',
+          properties: {
+            managementFeeRate: { type: 'number', nullable: true, example: 0.02 },
+            managementFeeBase: { type: 'string', nullable: true, enum: ['COMMITTED', 'INVESTED', 'NAV'], example: 'COMMITTED' },
+            managementFeeFrequency: { type: 'string', nullable: true, enum: ['MONTHLY', 'QUARTERLY', 'SEMI_ANNUAL', 'ANNUAL'], example: 'QUARTERLY' },
+            managementFeeStartDate: { type: 'string', nullable: true, format: 'date', example: '2025-01-01' },
+            carryRate: { type: 'number', nullable: true, example: 0.20 },
+            hurdleRate: { type: 'number', nullable: true, example: 0.08 },
+            hurdleType: { type: 'string', nullable: true, enum: ['NONE', 'PREFERRED_RETURN'], example: 'PREFERRED_RETURN' },
+            catchUpRate: { type: 'number', nullable: true, example: 1.0 },
+            waterfallType: { type: 'string', nullable: true, enum: ['EUROPEAN', 'AMERICAN'], example: 'EUROPEAN' }
+          }
+        },
+        ManagementFeeAccrueRequest: {
+          type: 'object',
+          required: ['periodStart', 'periodEnd'],
+          properties: {
+            periodStart: { type: 'string', format: 'date', example: '2026-01-01' },
+            periodEnd: { type: 'string', format: 'date', example: '2026-03-31' },
+            feeBase: {
+              type: 'string',
+              nullable: true,
+              enum: ['COMMITTED', 'INVESTED', 'NAV'],
+              description: 'Overrides Fund.managementFeeBase for this run.',
+              example: 'COMMITTED'
+            },
+            rateOverride: {
+              type: 'number',
+              nullable: true,
+              description: 'Fraction; overrides Fund.managementFeeRate for this run. e.g. 0.02 = 2%/yr.',
+              example: 0.02
+            },
+            feeBaseAmountOverride: {
+              type: 'number',
+              nullable: true,
+              description: 'Force-set the fee base (e.g. external NAV). When omitted, computed from the selected feeBase.',
+              example: 10000000
+            },
+            transactionDate: { type: 'string', nullable: true, format: 'date', example: '2026-03-31' },
+            notes: { type: 'string', nullable: true, example: 'Q1 2026 management fee accrual' }
+          }
+        },
+        DistributionCreateRequest: {
+          type: 'object',
+          required: ['distributionDate', 'source', 'grossAmount'],
+          properties: {
+            distributionDate: { type: 'string', format: 'date', example: '2026-05-30' },
+            source: { type: 'string', enum: ['DIVIDEND', 'EXIT_PROCEEDS', 'INTEREST', 'OTHER'], example: 'DIVIDEND' },
+            grossAmount: { type: 'number', example: 250000 },
+            sourceCompanyId: {
+              type: 'string',
+              nullable: true,
+              description: 'Optional FK to the source PortfolioCompany.',
+              example: 'cmpxxxxxxxxxxxxxxxxxxxxxxx'
+            },
+            sourceDividendId: {
+              type: 'string',
+              nullable: true,
+              description: 'Optional FK to the originating PortfolioCompanyDividend (dividend pass-through).',
+              example: 'cmdyxxxxxxxxxxxxxxxxxxxxx'
+            },
+            carryRateOverride: {
+              type: 'number',
+              nullable: true,
+              description: 'Overrides Fund.carryRate for this event (fraction).',
+              example: 0.20
+            },
+            currencyCode: {
+              type: 'string',
+              nullable: true,
+              description: 'Optional ISO code; must match the LP commitment currency.',
+              example: 'USD'
+            },
+            notes: { type: 'string', nullable: true, example: 'FY2025 interim dividend pass-through' }
+          }
+        },
+        AllocationPaymentRequest: {
+          type: 'object',
+          required: ['amount'],
+          properties: {
+            amount: { type: 'number', example: 25000, description: 'Must be > 0 and ≤ remaining balance for this allocation.' },
+            transactionDate: { type: 'string', nullable: true, format: 'date', example: '2026-04-10' },
+            cashChartOfAccountId: {
+              type: 'string',
+              nullable: true,
+              description: 'Chart of accounts id for the bank/cash account that received or paid funds. Strongly recommended.',
+              example: 'clx0bankglacctid'
+            }
+          }
+        },
+        ManagementFeePeriodSummary: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            periodStart: { type: 'string', format: 'date-time' },
+            periodEnd: { type: 'string', format: 'date-time' },
+            feeBase: { type: 'string', enum: ['COMMITTED', 'INVESTED', 'NAV'] },
+            feeBaseAmount: { type: 'string', example: '110000.00' },
+            rate: { type: 'string', example: '0.02' },
+            totalFee: { type: 'string', example: '542.47' },
+            status: { type: 'string', enum: ['ACCRUED', 'INVOICED', 'PARTIALLY_PAID', 'PAID'] },
+            statusLabel: { type: 'string', example: 'Accrued' },
+            invoicesSentAt: { type: 'string', nullable: true, format: 'date-time' },
+            journalEntryId: { type: 'string', nullable: true },
+            currency: {
+              type: 'object',
+              properties: {
+                code: { type: 'string', example: 'USD' },
+                symbol: { type: 'string', example: '$' }
+              }
+            },
+            _count: {
+              type: 'object',
+              properties: { allocations: { type: 'integer', example: 3 } }
+            }
+          }
+        },
+        ManagementFeeAllocationLine: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            lpLegalNameSnapshot: { type: 'string' },
+            commitmentSnapshot: { type: 'string' },
+            shareOfFee: { type: 'string' },
+            amountPaid: { type: 'string' },
+            status: { type: 'string', enum: ['PENDING', 'PARTIALLY_PAID', 'PAID'] },
+            statusLabel: { type: 'string' },
+            client: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                legalName: { type: 'string' },
+                email: { type: 'string', format: 'email' }
+              }
+            },
+            payments: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  amount: { type: 'string' },
+                  recordedAt: { type: 'string', format: 'date-time' }
+                }
+              }
+            }
+          }
+        },
+        ManagementFeePeriodDetail: {
+          allOf: [
+            { $ref: '#/components/schemas/ManagementFeePeriodSummary' },
+            {
+              type: 'object',
+              properties: {
+                notes: { type: 'string', nullable: true },
+                fund: { type: 'object', properties: { name: { type: 'string' } } },
+                journalEntry: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    referenceNumber: { type: 'string', example: 'MGTFEE-cmjfpk-1779093542669' },
+                    transactionDate: { type: 'string', format: 'date-time' },
+                    status: { type: 'string', example: 'POSTED' },
+                    auditTrailSequenceNumber: { type: 'integer', nullable: true }
+                  }
+                },
+                allocations: {
+                  type: 'array',
+                  items: { $ref: '#/components/schemas/ManagementFeeAllocationLine' }
+                },
+                invoiceDispatch: {
+                  type: 'object',
+                  description: 'Present after POST send-invoices',
+                  properties: {
+                    sentCount: { type: 'integer' },
+                    failedCount: { type: 'integer' },
+                    skippedCount: { type: 'integer' }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        DistributionSummary: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            distributionDate: { type: 'string', format: 'date-time' },
+            source: { type: 'string', enum: ['DIVIDEND', 'EXIT_PROCEEDS', 'INTEREST', 'OTHER'] },
+            grossAmount: { type: 'string' },
+            carryAmount: { type: 'string' },
+            netToLPs: { type: 'string' },
+            hurdleAppliedAmount: { type: 'string', nullable: true },
+            status: { type: 'string', enum: ['DECLARED', 'NOTICES_SENT', 'PARTIALLY_PAID', 'PAID'] },
+            statusLabel: { type: 'string' },
+            noticesSentAt: { type: 'string', nullable: true, format: 'date-time' },
+            journalEntryId: { type: 'string', nullable: true },
+            currency: {
+              type: 'object',
+              properties: {
+                code: { type: 'string' },
+                symbol: { type: 'string' }
+              }
+            },
+            _count: {
+              type: 'object',
+              properties: { allocations: { type: 'integer' } }
+            }
+          }
+        },
+        DistributionAllocationLine: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            lpLegalNameSnapshot: { type: 'string' },
+            commitmentSnapshot: { type: 'string' },
+            paidInSnapshot: { type: 'string' },
+            shareAmount: { type: 'string' },
+            amountPaid: { type: 'string' },
+            status: { type: 'string' },
+            statusLabel: { type: 'string' },
+            client: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                legalName: { type: 'string' },
+                email: { type: 'string' }
+              }
+            },
+            payments: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  amount: { type: 'string' },
+                  recordedAt: { type: 'string', format: 'date-time' }
+                }
+              }
+            }
+          }
+        },
+        DistributionDetail: {
+          allOf: [
+            { $ref: '#/components/schemas/DistributionSummary' },
+            {
+              type: 'object',
+              properties: {
+                notes: { type: 'string', nullable: true },
+                sourceCompanyId: { type: 'string', nullable: true },
+                sourceDividendId: { type: 'string', nullable: true },
+                fund: { type: 'object', properties: { name: { type: 'string' } } },
+                sourceCompany: {
+                  type: 'object',
+                  nullable: true,
+                  properties: { id: { type: 'string' }, name: { type: 'string' } }
+                },
+                journalEntry: {
+                  type: 'object',
+                  properties: {
+                    referenceNumber: { type: 'string', example: 'DIST-cmjfpk-...' }
+                  }
+                },
+                allocations: {
+                  type: 'array',
+                  items: { $ref: '#/components/schemas/DistributionAllocationLine' }
+                },
+                noticeDispatch: { type: 'object' }
+              }
+            }
+          ]
+        },
         User: {
           type: 'object',
           properties: {
@@ -145,7 +773,9 @@ const options = {
           properties: {
             success: { type: 'boolean', example: true },
             message: { type: 'string', example: 'Logged in successfully' },
-            token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
+            token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjbHgxMjMifQ.example' },
+            mfaRequired: { type: 'boolean', example: false, description: 'When true, complete MFA flow instead of using token' },
+            mfaPendingToken: { type: 'string', description: 'Present when mfaRequired is true (LP portal MFA)' },
             user: {
               type: 'object',
               properties: {
@@ -153,7 +783,12 @@ const options = {
                 email: { type: 'string', example: 'admin@nvccz.co.zw' },
                 firstName: { type: 'string', example: 'Admin' },
                 lastName: { type: 'string', example: 'User' },
+                department: { type: 'string', example: 'Finance' },
                 role: { type: 'string', example: 'admin' },
+                roleName: { type: 'string', example: 'Admin' },
+                roleCode: { type: 'string', nullable: true, example: 'ADMIN' },
+                isApplicant: { type: 'boolean', example: false },
+                passwordChanged: { type: 'boolean', example: true },
                 permissions: {
                   type: 'array',
                   items: { $ref: '#/components/schemas/Permission' }
@@ -224,6 +859,21 @@ const options = {
           properties: {
             currentPassword: { type: 'string', example: 'oldpassword' },
             newPassword: { type: 'string', example: 'newpassword123' }
+          }
+        },
+        ForgotPasswordRequest: {
+          type: 'object',
+          required: ['email'],
+          properties: {
+            email: { type: 'string', format: 'email', example: 'user@example.com' }
+          }
+        },
+        ResetPasswordRequest: {
+          type: 'object',
+          required: ['token', 'newPassword'],
+          properties: {
+            token: { type: 'string', example: 'reset-token-from-email' },
+            newPassword: { type: 'string', example: 'newPassword123' }
           }
         },
         CreateRoleRequest: {
@@ -397,7 +1047,13 @@ const options = {
             id: { type: 'string', example: 'clx1234567890abcdef' },
             title: { type: 'string', example: 'Monthly Company Newsletter' },
             content: { type: 'string', example: 'This is the newsletter content...' },
-            imageUrl: { type: 'string', nullable: true, example: 'https://lysp.s3.amazonaws.com/newsletters/1234567890-image.jpg' },
+            imageUrl: {
+              type: 'string',
+              nullable: true,
+              description:
+                'Public URL for the cover image after multipart upload, served through the API media proxy, e.g. .../api/public-media/newsletters/{file}.',
+              example: 'https://dev-api.arcus.co.zw/api/public-media/newsletters/1700000000000-abc123.jpg'
+            },
             authorId: { type: 'string', example: 'clx1234567890abcdef' },
             author: {
               type: 'object',
@@ -416,6 +1072,8 @@ const options = {
         CreateNewsletterRequest: {
           type: 'object',
           required: ['title', 'content'],
+          description:
+            '**Deprecated for `POST /newsletters`**: create uses **`multipart/form-data`** with `title`, `content`, optional binary **`image`**. Retained for clients that send JSON elsewhere.',
           properties: {
             title: { type: 'string', example: 'Monthly Company Newsletter' },
             content: { type: 'string', example: 'This is the newsletter content...' }
@@ -473,7 +1131,15 @@ const options = {
             description: { type: 'string', example: 'Updated annual company meeting' },
             startDate: { type: 'string', format: 'date-time', example: '2024-12-25T09:00:00.000Z' },
             endDate: { type: 'string', format: 'date-time', example: '2024-12-25T17:00:00.000Z' },
-            location: { type: 'string', example: 'Updated Conference Room' }
+            location: { type: 'string', example: 'Updated Conference Room' },
+            rsvpDeadline: { type: 'string', format: 'date-time', example: '2024-12-20T23:59:59.000Z', description: 'RSVP deadline (optional, can be null to remove deadline)' },
+            eventType: { type: 'string', enum: ['CONFERENCE', 'MEETING', 'WORKSHOP', 'SOCIAL', 'SEMINAR', 'TRAINING', 'OTHER'], example: 'CONFERENCE' },
+            maxAttendees: { type: 'integer', example: 500 },
+            isPublic: { type: 'boolean', example: false },
+            requiresRSVP: { type: 'boolean', example: true },
+            estimatedBudget: { type: 'number', example: 50000 },
+            checkInRequired: { type: 'boolean', example: true },
+            feedbackRequired: { type: 'boolean', example: true }
           }
         },
         // Notification schemas
@@ -804,7 +1470,7 @@ const options = {
                 amount: { type: 'number', example: 300.00 },
                 vatAmount: { type: 'number', example: 43.50 },
                 totalAmount: { type: 'number', example: 343.50 },
-                vatRate: { type: 'number', example: 0.145 }
+                vatRate: { type: 'number', example: 0.155 }
               }
             }
           }
@@ -936,7 +1602,7 @@ const options = {
             currencyId: { type: 'string', example: 'clx1234567890abcdef' },
             transactionDate: { type: 'string', format: 'date', example: '2025-08-05' },
             description: { type: 'string', example: 'Management Fees Q4 2024' },
-            invoiceNumber: { type: 'string', example: 'INV-1754391778855-504' },
+            invoiceNumber: { type: 'string', example: 'INV_20260115_0001' },
             items: {
               type: 'array',
               items: {
@@ -949,7 +1615,11 @@ const options = {
               }
             },
             isTaxable: { type: 'boolean', example: true },
-            status: { type: 'string', example: 'DRAFT', enum: ['DRAFT', 'SENT', 'PAID', 'VOID'] },
+            status: {
+              type: 'string',
+              example: 'DRAFT',
+              enum: ['DRAFT', 'SENT', 'PARTIALLY_PAID', 'PAID', 'VOID']
+            },
             paymentMethod: { 
               type: 'string', 
               enum: ['CASH', 'BANK', 'CREDIT'],
@@ -959,8 +1629,8 @@ const options = {
             // Currency conversion fields
             exchangeRateAtCreation: { 
               type: 'number', 
-              example: 1.15,
-              description: 'Exchange rate when invoice was created (for multi-currency payments)'
+              example: 26.5,
+              description: 'USD/ZWG snapshot at creation; set automatically from live or stored rates (do not send on create)'
             },
             paymentCurrencyId: { 
               type: 'string', 
@@ -998,13 +1668,8 @@ const options = {
             currencyId: { type: 'string', example: 'clx1234567890abcdef' },
             transactionDate: { type: 'string', format: 'date', example: '2025-08-05' },
             description: { type: 'string', example: 'Management Fees Q4 2024' },
-            invoiceNumber: { type: 'string', example: 'INV-2024-001' },
+            invoiceNumber: { type: 'string', example: 'INV_20260115_0001' },
             isTaxable: { type: 'boolean', example: true },
-            exchangeRateAtCreation: { 
-              type: 'number', 
-              example: 1.15,
-              description: 'Exchange rate when invoice was created (for multi-currency payments)'
-            },
             items: {
               type: 'array',
               items: {
@@ -1026,7 +1691,7 @@ const options = {
             currencyId: { type: 'string', example: 'clx1234567890abcdef' },
             transactionDate: { type: 'string', format: 'date', example: '2025-08-05' },
             description: { type: 'string', example: 'Management Fees Q4 2024 Updated' },
-            invoiceNumber: { type: 'string', example: 'INV-2024-001' },
+            invoiceNumber: { type: 'string', example: 'INV_20260115_0001' },
             isTaxable: { type: 'boolean', example: true },
             items: {
               type: 'array',
@@ -1274,10 +1939,50 @@ const options = {
           type: 'object',
           properties: {
             id: { type: 'string', example: 'clx1234567890abcdef' },
+            legalName: { type: 'string', example: 'NVCCZ (Pvt) Ltd' },
+            registrationNumber: { type: 'string', example: 'REG123456' },
+            taxNumber: { type: 'string', example: 'TAX987654' },
+            email: { type: 'string', example: 'info@nvccz.co.zw' },
+            phone: { type: 'string', example: '+263 242 123456' },
+            website: { type: 'string', example: 'https://nvccz.co.zw' },
+            logoUrl: { type: 'string', example: 'http://31.220.82.129/uploads/application-documents/logo.png' },
             twitter: { type: 'string', example: 'https://twitter.com/nvccz' },
             facebook: { type: 'string', example: 'https://facebook.com/nvccz' },
             linkedin: { type: 'string', example: 'https://linkedin.com/company/nvccz' },
             instagram: { type: 'string', example: 'https://instagram.com/nvccz' },
+            addresses: {
+              type: 'array',
+              items: { '$ref': '#/components/schemas/CompanyProfileAddress' }
+            },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        CompanyProfileAddress: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            companyProfileId: { type: 'string', example: 'clx1234567890abcdef' },
+            label: { type: 'string', example: 'Head Office' },
+            line1: { type: 'string', example: '123 Main Street' },
+            line2: { type: 'string', example: 'Floor 4, Block B' },
+            city: { type: 'string', example: 'Harare' },
+            state: { type: 'string', example: 'Harare Province' },
+            postalCode: { type: 'string', example: 'HRE 100' },
+            country: { type: 'string', example: 'Zimbabwe' },
+            logoUrl: { type: 'string', example: 'http://31.220.82.129/uploads/application-documents/logo.png' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        VatRate: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            name: { type: 'string', example: 'Standard VAT 15%' },
+            rateDecimal: { type: 'number', example: 0.15, description: 'Decimal multiplier (e.g. 0.15 = 15%, 0.155 = 15.5%)' },
+            isActive: { type: 'boolean', example: true, description: 'Only one rate can be active at a time' },
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' }
           }
@@ -1316,7 +2021,7 @@ const options = {
             foundingDate: { type: 'string', format: 'date-time', example: '2023-01-15T00:00:00.000Z' },
             requestedAmount: { type: 'number', example: 100000 },
             fundId: { type: 'string', example: 'clx1234567890abcdef' },
-            currentStage: { type: 'string', example: 'SHORTLISTED' },
+            currentStage: { type: 'string', example: 'SCREENING' },
             submittedAt: { type: 'string', format: 'date-time', example: '2024-01-15T10:30:00.000Z' },
             initialScreeningScore: { type: 'number', example: 75.5 },
             screeningOutcome: { type: 'string', example: 'PASSED' },
@@ -1346,6 +2051,85 @@ const options = {
               }
             }
           }
+        },
+        Fund: {
+          type: 'object',
+          description: 'Fund vehicle; `remainingAmount` is callable capital left; LP commitments validate against `minInvestment`/`maxInvestment` and `remainingAmount`.',
+          properties: {
+            id: { type: 'string', example: 'cmfund01example0001nvcczabcd' },
+            name: { type: 'string', example: 'Sports Growth Fund I' },
+            description: { type: 'string', example: 'Early-stage sports and media investments.' },
+            totalAmount: { type: 'number', example: 50000000, description: 'Total fund size (committed capital ceiling).' },
+            remainingAmount: { type: 'number', example: 32000000, description: 'Capital not yet called/deployed.' },
+            minInvestment: { type: 'number', example: 10000, description: 'Minimum single LP commitment amount.' },
+            maxInvestment: { type: 'number', example: 10000000, description: 'Maximum single LP commitment amount (enforced when adding clients/commitments).' },
+            focusIndustries: {
+              type: 'array',
+              items: { type: 'string' },
+              example: ['Sports', 'Media', 'Technology'],
+            },
+            applicationStart: { type: 'string', format: 'date-time', example: '2025-01-01T00:00:00.000Z' },
+            applicationEnd: { type: 'string', format: 'date-time', example: '2027-12-31T23:59:59.999Z' },
+            status: { type: 'string', enum: ['OPEN', 'CLOSED', 'COMING_SOON'], example: 'OPEN' },
+            createdById: { type: 'string', example: 'cmuser01example0001nvcczabcd' },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        CreateFundRequest: {
+          type: 'object',
+          required: ['name', 'description', 'totalAmount', 'minInvestment', 'maxInvestment', 'focusIndustries', 'applicationStart', 'applicationEnd'],
+          description: '`createdById` is taken from the JWT; do not send it in the body.',
+          properties: {
+            name: { type: 'string', example: 'Sports Growth Fund I' },
+            description: { type: 'string', example: 'Early-stage sports and media investments.' },
+            totalAmount: { type: 'number', example: 50000000, description: 'Initial fund size; `remainingAmount` is set equal on create.' },
+            minInvestment: { type: 'number', example: 10000 },
+            maxInvestment: { type: 'number', example: 10000000 },
+            focusIndustries: {
+              type: 'array',
+              items: { type: 'string' },
+              example: ['Sports', 'Media', 'Technology'],
+            },
+            applicationStart: { type: 'string', format: 'date-time', example: '2025-01-01T00:00:00.000Z' },
+            applicationEnd: { type: 'string', format: 'date-time', example: '2027-12-31T23:59:59.999Z' },
+            status: { type: 'string', enum: ['OPEN', 'CLOSED', 'COMING_SOON'], example: 'OPEN' },
+          },
+          example: {
+            name: 'Sports Growth Fund I',
+            description: 'Early-stage sports and media investments.',
+            totalAmount: 50000000,
+            minInvestment: 10000,
+            maxInvestment: 10000000,
+            focusIndustries: ['Sports', 'Media', 'Technology'],
+            applicationStart: '2025-01-01T00:00:00.000Z',
+            applicationEnd: '2027-12-31T23:59:59.999Z',
+            status: 'OPEN',
+          },
+        },
+        UpdateFundRequest: {
+          type: 'object',
+          description:
+            'Partial update. Increasing `totalAmount` scales `remainingAmount` proportionally to the previous total vs remaining (see API implementation).',
+          properties: {
+            name: { type: 'string', example: 'Sports Growth Fund I (Updated)' },
+            description: { type: 'string', example: 'Expanded mandate to include fitness tech.' },
+            totalAmount: { type: 'number', example: 75000000 },
+            minInvestment: { type: 'number', example: 25000 },
+            maxInvestment: { type: 'number', example: 15000000 },
+            focusIndustries: {
+              type: 'array',
+              items: { type: 'string' },
+              example: ['Sports', 'Media', 'Technology', 'Fitness'],
+            },
+            applicationStart: { type: 'string', format: 'date-time', example: '2025-01-01T00:00:00.000Z' },
+            applicationEnd: { type: 'string', format: 'date-time', example: '2028-12-31T23:59:59.999Z' },
+            status: { type: 'string', enum: ['OPEN', 'CLOSED', 'COMING_SOON'], example: 'OPEN' },
+          },
+          example: {
+            maxInvestment: 15000000,
+            totalAmount: 75000000,
+          },
         },
         // Portfolio Company schemas
         PortfolioCompany: {
@@ -1458,6 +2242,44 @@ const options = {
               }
             }
           }
+        },
+        SavedFilterFavorite: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clxxxxxxxxxxxxxxxxxxxxxxxx' },
+            userId: { type: 'string' },
+            name: { type: 'string', example: 'Western Region Sales' },
+            routeKey: { type: 'string', example: 'sales-invoices', description: 'Client route or module key' },
+            filters: {
+              type: 'object',
+              description: 'Arbitrary JSON the UI replays as query params or filters',
+              additionalProperties: true,
+              example: { status: 'OPEN', dateFrom: '2026-01-01' }
+            },
+            sortOrder: { type: 'integer', example: 0 },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        SavedFilterFavoriteCreate: {
+          type: 'object',
+          required: ['name', 'routeKey', 'filters'],
+          properties: {
+            name: { type: 'string', maxLength: 255, example: 'Western Region Sales' },
+            routeKey: { type: 'string', maxLength: 191, example: 'sales-invoices' },
+            filters: { type: 'object', additionalProperties: true },
+            sortOrder: { type: 'integer', example: 0 }
+          }
+        },
+        SavedFilterFavoriteUpdate: {
+          type: 'object',
+          minProperties: 1,
+          properties: {
+            name: { type: 'string', maxLength: 255 },
+            routeKey: { type: 'string', maxLength: 191 },
+            filters: { type: 'object', additionalProperties: true },
+            sortOrder: { type: 'integer' }
+          }
         }
       }
     },
@@ -1475,13 +2297,34 @@ const fallbackSpec = {
   ...options.definition,
   paths: {
     ...accountingEndpoints,
+    ...shortTermInvestmentsEndpoints,
+    ...fiscalCalendarEndpoints,
+    ...vatRateEndpoints,
+    ...companyProfileEndpoints,
+    ...consolidatedAccountingReportEndpoints,
     ...performanceEndpoints,
+    ...performanceUatTasksBoardEndpoints,
+    ...performanceCollaborationNotificationsEndpoints,
+    ...reviewsUatReviewCyclesIndependentEvalEndpoints,
     ...taskAssignmentEndpoints,
     ...financialReportingEndpoints,
+    ...capitalCallsEndpoints,
     ...procurementEndpoints,
+    ...eventsEndpoints,
+    ...dashboardsEndpoints,
+    ...userSavedFilterFavoriteEndpoints,
+    ...reportingScheduleSwaggerEndpoints,
+    ...lpFeesAndDistributionsEndpoints,
+    ...phaseTwoPdfUploadsSwaggerPaths,
+    ...fpaSwaggerPaths,
+    ...payrollEmploymentTrainingSwaggerPaths,
+    ...stockPriceCollectorSwaggerPaths,
+  ...investmentOpsSwaggerPaths,
+    ...investmentOpsSwaggerPaths,
+    ...fundPerformanceReportingSwaggerPaths,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
-    '/api/cashbook/receipts': {
+    '/cashbook/receipts': {
       post: {
         summary: 'Create cash receipt',
         description: 'Create a new cash receipt transaction',
@@ -1519,7 +2362,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/payments': {
+    '/cashbook/payments': {
       post: {
         summary: 'Create cash payment',
         description: 'Create a new cash payment transaction',
@@ -1558,7 +2401,7 @@ const fallbackSpec = {
       }
     },
     // Batch Operations
-    '/api/cashbook/batches/import': {
+    '/cashbook/batches/import': {
       post: {
         summary: 'Import CSV batch',
         description: 'Import cashbook transactions from CSV file',
@@ -1584,7 +2427,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/batches': {
+    '/cashbook/batches': {
       get: {
         summary: 'List batches',
         description: 'Get list of cashbook batches',
@@ -1606,7 +2449,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/batches/{batchId}': {
+    '/cashbook/batches/{batchId}': {
       get: {
         summary: 'Get batch details',
         description: 'Retrieve details for a specific cashbook batch',
@@ -1691,7 +2534,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/batches/{batchId}/post': {
+    '/cashbook/batches/{batchId}/post': {
       post: {
         summary: 'Post batch',
         description: 'Post a specific cashbook batch to the General Ledger (GL)',
@@ -1707,7 +2550,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/batches/{batchId}/export': {
+    '/cashbook/batches/{batchId}/export': {
       get: {
         summary: 'Export batch to CSV',
         description: 'Export a single cashbook batch to a CSV file',
@@ -1723,7 +2566,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/batches/export/all': {
+    '/cashbook/batches/export/all': {
       get: {
         summary: 'Export all batches',
         description: 'Export all cashbook batches to a CSV file',
@@ -1735,7 +2578,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/batches/{batchId}/transactions/{transactionId}': {
+    '/cashbook/batches/{batchId}/transactions/{transactionId}': {
       post: {
         summary: 'Add transaction to batch',
         description: 'Add a transaction to a specific batch',
@@ -1754,7 +2597,7 @@ const fallbackSpec = {
     },
     // Removed non-existent /api/cashbook/{bankId}/post-batch endpoint
     // Cashbook Entry Operations
-    '/api/cashbook/entries': {
+    '/cashbook/entries': {
       get: {
         summary: 'Get all entries',
         description: 'Retrieve all cashbook entries with support for advanced filtering',
@@ -1766,7 +2609,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/entries/{id}': {
+    '/cashbook/entries/{id}': {
       get: {
         summary: 'Get entry by ID',
         description: 'Retrieve a specific cashbook entry by its ID',
@@ -1796,7 +2639,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/entries/{id}/void': {
+    '/cashbook/entries/{id}/void': {
       put: {
         summary: 'Void entry',
         description: 'Void a specific cashbook entry',
@@ -1812,7 +2655,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/entries/{id}/reconcile': {
+    '/cashbook/entries/{id}/reconcile': {
       put: {
         summary: 'Reconcile entry',
         description: 'Mark a cashbook entry as reconciled',
@@ -1829,7 +2672,7 @@ const fallbackSpec = {
       }
     },
     // Reference and Configuration
-    '/api/cashbook/reference/next': {
+    '/cashbook/reference/next': {
       get: {
         summary: 'Get next reference number',
         description: 'Retrieve the next available reference number',
@@ -1874,7 +2717,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/reference/configure': {
+    '/cashbook/reference/configure': {
       post: {
         summary: 'Configure reference numbers',
         description: 'Configure settings for reference numbers',
@@ -1939,7 +2782,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/templates': {
+    '/cashbook/templates': {
       post: {
         summary: 'Create template',
         description: 'Create a new template for cashbook entries',
@@ -2018,7 +2861,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/discounts/calculate': {
+    '/cashbook/discounts/calculate': {
       post: {
         summary: 'Calculate settlement discounts',
         description: 'Calculate settlement discounts',
@@ -2096,7 +2939,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/discounts/configure': {
+    '/cashbook/discounts/configure': {
       post: {
         summary: 'Configure settlement discounts',
         description: 'Configure settlement discounts',
@@ -2164,7 +3007,7 @@ const fallbackSpec = {
       }
     },
     // Summary and Reconciliation - Removed non-existent endpoint
-    '/api/cashbook/{bankId}/unreconciled': {
+    '/cashbook/{bankId}/unreconciled': {
       get: {
         summary: 'Get unreconciled entries',
         description: 'Retrieve unreconciled entries for a specific bank account',
@@ -2181,7 +3024,7 @@ const fallbackSpec = {
       }
     },
     // Reference Data
-    '/api/cashbook/banks': {
+    '/cashbook/banks': {
       get: {
         summary: 'List banks',
         description: 'Get list of bank accounts',
@@ -2203,7 +3046,7 @@ const fallbackSpec = {
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['name', 'accountNumber', 'currencyId', 'glAccountId'],
+                required: ['name', 'accountNumber', 'currencyId'],
                 properties: {
                   name: {
                     type: 'string',
@@ -2222,7 +3065,8 @@ const fallbackSpec = {
                   },
                   glAccountId: {
                     type: 'string',
-                    description: 'GL account ID',
+                    description:
+                      'Optional. When omitted, the server auto-creates a dedicated bank GL account and links the bank to it. Do not use 1000 (Cash and Cash Equivalents) — it is reporting-only.',
                     example: 'cmh3c1fdt0001unxkqzzihy55'
                   },
                   bankCode: {
@@ -2266,7 +3110,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/customers': {
+    '/cashbook/customers': {
       get: {
         summary: 'List customers',
         description: 'Get list of customers',
@@ -2278,7 +3122,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/customers/{id}': {
+    '/cashbook/customers/{id}': {
       get: {
         summary: 'Get customer details',
         description: 'Get customer details by ID',
@@ -2294,7 +3138,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/vendors': {
+    '/cashbook/vendors': {
       get: {
         summary: 'List vendors',
         description: 'Get list of vendors',
@@ -2306,7 +3150,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/gl-accounts': {
+    '/cashbook/gl-accounts': {
       get: {
         summary: 'Get chart of accounts',
         description: 'Get chart of accounts for cashbook transactions',
@@ -2322,27 +3166,65 @@ const fallbackSpec = {
         '/auth/login': {
           post: {
             summary: 'User login',
-            description: 'Authenticate user with email and password',
+            description:
+              'Authenticate with email and password. On success, copy `token` from the response into **Authorize** (Bearer JWT), or use Try it out — the docs UI auto-fills the bearer token after a successful login.',
             tags: ['Authentication'],
             requestBody: {
               required: true,
               content: {
                 'application/json': {
-                  schema: { $ref: '#/components/schemas/LoginRequest' }
-                }
-              }
+                  schema: { $ref: '#/components/schemas/LoginRequest' },
+                  example: {
+                    email: 'admin@nvccz.co.zw',
+                    password: 'your-password-here',
+                  },
+                },
+              },
             },
             responses: {
               200: {
-                description: 'Login successful',
+                description: 'Login successful — use `token` as Bearer JWT for other endpoints',
                 content: {
                   'application/json': {
-                    schema: { $ref: '#/components/schemas/LoginResponse' }
-                  }
-                }
-              }
-            }
-          }
+                    schema: { $ref: '#/components/schemas/LoginResponse' },
+                    example: {
+                      success: true,
+                      message: 'Logged in successfully',
+                      token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example',
+                      user: {
+                        id: 'clx1234567890abcdef',
+                        email: 'admin@nvccz.co.zw',
+                        firstName: 'Admin',
+                        lastName: 'User',
+                        department: 'Finance',
+                        role: 'Admin',
+                        roleName: 'Admin',
+                        roleCode: 'ADMIN',
+                        isApplicant: false,
+                        passwordChanged: true,
+                      },
+                    },
+                  },
+                },
+              },
+              400: {
+                description: 'Missing email or password',
+                content: {
+                  'application/json': {
+                    example: { success: false, message: 'Email and password required.' },
+                  },
+                },
+              },
+              401: {
+                description: 'Invalid credentials',
+                content: {
+                  'application/json': {
+                    example: { success: false, message: 'Invalid credentials.' },
+                  },
+                },
+              },
+            },
+          },
         },
         '/auth/me': {
           get: {
@@ -2446,6 +3328,114 @@ const fallbackSpec = {
               500: {
                 description: 'Internal server error'
               }
+            }
+          }
+        },
+        '/auth/forgot-password': {
+          post: {
+            summary: 'Request password reset',
+            description:
+              'Public endpoint. Always returns success to avoid account enumeration. If the email exists, a reset link is sent.',
+            tags: ['Authentication'],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ForgotPasswordRequest' },
+                  examples: {
+                    example: {
+                      value: {
+                        email: 'user@example.com'
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'If an account with that email exists, a reset link has been sent',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: true },
+                        message: {
+                          type: 'string',
+                          example: 'If an account with that email exists, a password reset link has been sent'
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              400: {
+                description: 'Bad request - missing email',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' }
+                  }
+                }
+              },
+              500: { description: 'Internal server error' }
+            }
+          }
+        },
+        '/auth/reset-password': {
+          post: {
+            summary: 'Reset password using token',
+            description:
+              'Public endpoint. Resets password using a token from email. Accepts the raw token string, or the full reset URL (token extracted from query string).',
+            tags: ['Authentication'],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ResetPasswordRequest' },
+                  examples: {
+                    rawToken: {
+                      value: {
+                        token: 'f47ac10b58cc4372a5670e02b2c3d479f47ac10b58cc4372a5670e02b2c3d479',
+                        newPassword: 'newPassword123'
+                      }
+                    },
+                    fullUrl: {
+                      value: {
+                        token:
+                          'https://app.example.com/reset-password?token=f47ac10b58cc4372a5670e02b2c3d479f47ac10b58cc4372a5670e02b2c3d479',
+                        newPassword: 'newPassword123'
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Password has been reset successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: true },
+                        message: { type: 'string', example: 'Password has been reset successfully' }
+                      }
+                    }
+                  }
+                }
+              },
+              400: {
+                description: 'Bad request - invalid/expired token or weak password',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' }
+                  }
+                }
+              },
+              404: { description: 'User not found' },
+              500: { description: 'Internal server error' }
             }
           }
         },
@@ -2927,26 +3917,40 @@ const fallbackSpec = {
           },
           post: {
             summary: 'Create newsletter',
-            description: 'Create a new newsletter',
+            description:
+              '**`multipart/form-data`**: `title`, `content`, optional **`image`** file. Response **`data.imageUrl`** is the saved cover URL when a file was uploaded.',
             tags: ['Newsletters'],
             security: [{ bearerAuth: [] }],
             requestBody: {
               required: true,
               content: {
-                'application/json': {
-                  schema: { $ref: '#/components/schemas/CreateNewsletterRequest' }
+                'multipart/form-data': {
+                  schema: {
+                    type: 'object',
+                    required: ['title', 'content'],
+                    properties: {
+                      title: { type: 'string', example: 'Monthly Company Update' },
+                      content: { type: 'string', description: 'HTML or plain text body' },
+                      image: { type: 'string', format: 'binary', description: 'Optional cover image' }
+                    }
+                  },
+                  encoding: {
+                    title: { contentType: 'text/plain; charset=UTF-8' },
+                    content: { contentType: 'text/plain; charset=UTF-8' }
+                  }
                 }
               }
             },
             responses: {
               201: {
-                description: 'Newsletter created successfully',
+                description: 'Newsletter created successfully; `data.imageUrl` set when cover uploaded',
                 content: {
                   'application/json': {
                     schema: {
                       type: 'object',
                       properties: {
                         success: { type: 'boolean' },
+                        message: { type: 'string' },
                         data: { $ref: '#/components/schemas/Newsletter' }
                       }
                     }
@@ -2955,6 +3959,111 @@ const fallbackSpec = {
               }
             }
           }
+        },
+        '/newsletters/recipients/config': {
+          get: {
+            summary: 'Get newsletter audience config',
+            description:
+              'Load eligible internal users and current include/exclude overrides for newsletter recipients.',
+            tags: ['Newsletters'],
+            security: [{ bearerAuth: [] }],
+            responses: {
+              200: {
+                description: 'Newsletter recipient config loaded successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: true },
+                        data: { type: 'object' },
+                      },
+                    },
+                  },
+                },
+              },
+              401: {
+                description: 'Unauthorized',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' },
+                  },
+                },
+              },
+              403: {
+                description: 'Forbidden - admin only',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' },
+                  },
+                },
+              },
+            },
+          },
+          put: {
+            summary: 'Save newsletter audience config',
+            description:
+              'Save include/exclude user IDs and extra include/exclude email addresses used for newsletter delivery.',
+            tags: ['Newsletters'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: false,
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      includeUserIds: { type: 'array', items: { type: 'string' } },
+                      excludeUserIds: { type: 'array', items: { type: 'string' } },
+                      includeEmails: { type: 'array', items: { type: 'string', format: 'email' } },
+                      excludeEmails: { type: 'array', items: { type: 'string', format: 'email' } },
+                    },
+                  },
+                },
+              },
+            },
+            responses: {
+              200: {
+                description: 'Newsletter recipient config saved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: true },
+                        message: { type: 'string' },
+                        data: { type: 'object' },
+                      },
+                    },
+                  },
+                },
+              },
+              400: {
+                description: 'Validation error',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' },
+                  },
+                },
+              },
+              401: {
+                description: 'Unauthorized',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' },
+                  },
+                },
+              },
+              403: {
+                description: 'Forbidden - admin only',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' },
+                  },
+                },
+              },
+            },
+          },
         },
         '/newsletters/{id}': {
           get: {
@@ -2989,7 +4098,8 @@ const fallbackSpec = {
           },
           put: {
             summary: 'Update newsletter',
-            description: 'Update an existing newsletter with optional image upload',
+            description:
+              '**`multipart/form-data`**: `title`, `content`, optional new cover **`image`**. **`data.imageUrl`** updates when a file is sent.',
             tags: ['Newsletters'],
             security: [{ bearerAuth: [] }],
             parameters: [
@@ -3015,15 +4125,19 @@ const fallbackSpec = {
                       },
                       content: {
                         type: 'string',
-                        description: 'Newsletter content',
+                        description: 'Newsletter body (HTML or plain text)',
                         example: 'This month we achieved great milestones...'
                       },
                       image: {
                         type: 'string',
                         format: 'binary',
-                        description: 'Newsletter image (optional)'
+                        description: 'Optional new cover image'
                       }
                     }
+                  },
+                  encoding: {
+                    title: { contentType: 'text/plain; charset=UTF-8' },
+                    content: { contentType: 'text/plain; charset=UTF-8' }
                   }
                 }
               }
@@ -3101,191 +4215,6 @@ const fallbackSpec = {
                       properties: {
                         success: { type: 'boolean' },
                         message: { type: 'string' }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        // Events Management
-        '/events': {
-          get: {
-            summary: 'Get all events',
-            description: 'Retrieve all events',
-            tags: ['Events'],
-            security: [{ bearerAuth: [] }],
-            responses: {
-              200: {
-                description: 'Events retrieved successfully',
-                content: {
-                  'application/json': {
-                    schema: {
-                      type: 'object',
-                      properties: {
-                        success: { type: 'boolean' },
-                        data: {
-                          type: 'array',
-                          items: { $ref: '#/components/schemas/Event' }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          post: {
-            summary: 'Create event',
-            description: 'Create a new event',
-            tags: ['Events'],
-            security: [{ bearerAuth: [] }],
-            requestBody: {
-              required: true,
-              content: {
-                'application/json': {
-                  schema: { $ref: '#/components/schemas/CreateEventRequest' }
-                }
-              }
-            },
-            responses: {
-              201: {
-                description: 'Event created successfully',
-                content: {
-                  'application/json': {
-                    schema: {
-                      type: 'object',
-                      properties: {
-                        success: { type: 'boolean' },
-                        data: { $ref: '#/components/schemas/Event' }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        '/events/{id}': {
-          get: {
-            summary: 'Get event by ID',
-            description: 'Retrieve a specific event by ID',
-            tags: ['Events'],
-            security: [{ bearerAuth: [] }],
-            parameters: [
-              {
-                name: 'id',
-                in: 'path',
-                required: true,
-                schema: { type: 'string' }
-              }
-            ],
-            responses: {
-              200: {
-                description: 'Event retrieved successfully',
-                content: {
-                  'application/json': {
-                    schema: {
-                      type: 'object',
-                      properties: {
-                        success: { type: 'boolean' },
-                        data: { $ref: '#/components/schemas/Event' }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          put: {
-            summary: 'Update event',
-            description: 'Update an existing event',
-            tags: ['Events'],
-            security: [{ bearerAuth: [] }],
-            parameters: [
-              {
-                name: 'id',
-                in: 'path',
-                required: true,
-                schema: { type: 'string' }
-              }
-            ],
-            requestBody: {
-              required: true,
-              content: {
-                'application/json': {
-                  schema: { $ref: '#/components/schemas/UpdateEventRequest' }
-                }
-              }
-            },
-            responses: {
-              200: {
-                description: 'Event updated successfully',
-                content: {
-                  'application/json': {
-                    schema: {
-                      type: 'object',
-                      properties: {
-                        success: { type: 'boolean' },
-                        data: { $ref: '#/components/schemas/Event' }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          delete: {
-            summary: 'Delete event',
-            description: 'Delete an event',
-            tags: ['Events'],
-            security: [{ bearerAuth: [] }],
-            parameters: [
-              {
-                name: 'id',
-                in: 'path',
-                required: true,
-                schema: { type: 'string' }
-              }
-            ],
-            responses: {
-              200: {
-                description: 'Event deleted successfully',
-                content: {
-                  'application/json': {
-                    schema: {
-                      type: 'object',
-                      properties: {
-                        success: { type: 'boolean' },
-                        message: { type: 'string' }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        '/events/upcoming': {
-          get: {
-            summary: 'Get upcoming events',
-            description: 'Retrieve upcoming events',
-            tags: ['Events'],
-            security: [{ bearerAuth: [] }],
-            responses: {
-              200: {
-                description: 'Upcoming events retrieved successfully',
-                content: {
-                  'application/json': {
-                    schema: {
-                      type: 'object',
-                      properties: {
-                        success: { type: 'boolean' },
-                        data: {
-                          type: 'array',
-                          items: { $ref: '#/components/schemas/Event' }
-                        }
                       }
                     }
                   }
@@ -4554,7 +5483,10 @@ const fallbackSpec = {
               {
                 name: 'status',
                 in: 'query',
-                schema: { type: 'string', enum: ['DRAFT', 'SENT', 'PAID', 'VOID'] },
+                schema: {
+                  type: 'string',
+                  enum: ['DRAFT', 'SENT', 'PARTIALLY_PAID', 'PAID', 'VOID']
+                },
                 description: 'Filter by invoice status'
               }
             ],
@@ -5682,7 +6614,7 @@ const fallbackSpec = {
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - OPEN ITEM MATCHING
       // ============================================================================
-      '/api/cashbook/open-items/customers/{customerId}': {
+      '/cashbook/open-items/customers/{customerId}': {
         get: {
           summary: 'Get open invoices for customer',
           description: 'Get all open invoices for a specific customer that can be matched with payments',
@@ -5718,7 +6650,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/open-items/suppliers/{supplierId}': {
+      '/cashbook/open-items/suppliers/{supplierId}': {
         get: {
           summary: 'Get open invoices for supplier',
           description: 'Get all open invoices for a specific supplier that can be matched with payments',
@@ -5754,7 +6686,7 @@ const fallbackSpec = {
             }
           }
         },
-      '/api/cashbook/open-items/match/{paymentId}': {
+      '/cashbook/open-items/match/{paymentId}': {
         post: {
           summary: 'Match payment to invoices',
           description: 'Match a payment to specific invoices with allocation amounts',
@@ -5820,7 +6752,7 @@ const fallbackSpec = {
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - TRANSACTION REVERSAL
       // ============================================================================
-      '/api/cashbook/transactions/{transactionId}/reverse': {
+      '/cashbook/transactions/{transactionId}/reverse': {
         post: {
           summary: 'Reverse a posted transaction',
           description: 'Create a reversal transaction for a posted cashbook entry',
@@ -5872,7 +6804,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/transactions/{transactionId}/reversal-history': {
+      '/cashbook/transactions/{transactionId}/reversal-history': {
         get: {
           summary: 'Get reversal history for a transaction',
           description: 'Get all reversal transactions for a specific original transaction',
@@ -5908,7 +6840,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/reversals': {
+      '/cashbook/reversals': {
         get: {
           summary: 'Get all reversals for a user',
           description: 'Get paginated list of all reversal transactions created by the user',
@@ -5954,7 +6886,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/transactions/{transactionId}/can-reverse': {
+      '/cashbook/transactions/{transactionId}/can-reverse': {
         get: {
           summary: 'Check if transaction can be reversed',
           description: 'Check if a transaction is eligible for reversal',
@@ -5999,7 +6931,7 @@ const fallbackSpec = {
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - CASHBOOK TRANSFERS
       // ============================================================================
-      '/api/cashbook/transfers': {
+      '/cashbook/transfers': {
         post: {
           summary: 'Create cashbook transfer',
           description: 'Create a transfer between two bank accounts',
@@ -6114,7 +7046,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/transfers/{transferId}': {
+      '/cashbook/transfers/{transferId}': {
         get: {
           summary: 'Get transfer details',
           description: 'Get detailed information about a specific transfer',
@@ -6150,7 +7082,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/transfers/summary': {
+      '/cashbook/transfers/summary': {
         get: {
           summary: 'Get transfer summary',
           description: 'Get summary statistics for transfers',
@@ -6194,7 +7126,7 @@ const fallbackSpec = {
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - ENTRY TYPES MANAGEMENT
       // ============================================================================
-      '/api/cashbook/entry-types': {
+      '/cashbook/entry-types': {
         post: {
           summary: 'Create entry type',
           description: 'Create a new cashbook entry type with D/C designation and account access control',
@@ -6284,7 +7216,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/entry-types/{entryTypeId}': {
+      '/cashbook/entry-types/{entryTypeId}': {
         get: {
           summary: 'Get entry type by ID',
           description: 'Get detailed information about a specific entry type',
@@ -6368,11 +7300,12 @@ const fallbackSpec = {
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - PERIOD LOCKOUT
       // ============================================================================
-      '/api/cashbook/periods/lock': {
+      '/cashbook/periods/lock': {
         post: {
           summary: 'Lock/unlock accounting period',
-          description: 'Lock or unlock an accounting period to prevent transactions',
-          tags: ['Period Lockout'],
+          description:
+            'Lock or unlock a calendar month (`YYYY-MM`). Syncs module locks (when a fiscal period exists), `accounting_periods`, and `period_lockouts`. The authenticated user is recorded as the locker — do not send `lockedBy` in the body. On failure, `message` contains the server error detail.',
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -6412,11 +7345,11 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/periods/{period}/status': {
+      '/cashbook/periods/{period}/status': {
         get: {
           summary: 'Get period lockout status',
           description: 'Check if a specific accounting period is locked',
-          tags: ['Period Lockout'],
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -6459,11 +7392,11 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/periods': {
+      '/cashbook/periods': {
         get: {
           summary: 'Get all periods with lockout status',
           description: 'Retrieve all accounting periods with their lockout status',
-          tags: ['Period Lockout'],
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -6502,11 +7435,11 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/periods/validate-date': {
+      '/cashbook/periods/validate-date': {
         post: {
           summary: 'Validate transaction date against period lockout',
           description: 'Check if a transaction can be created on a specific date',
-          tags: ['Period Lockout'],
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -6557,11 +7490,11 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/periods/{period}/history': {
+      '/cashbook/periods/{period}/history': {
         get: {
           summary: 'Get lockout history for a period',
           description: 'Retrieve the lockout/unlock history for a specific period',
-          tags: ['Period Lockout'],
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -6599,7 +7532,7 @@ const fallbackSpec = {
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - CONTRA ENTRIES
       // ============================================================================
-      '/api/cashbook/contra/configure': {
+      '/cashbook/contra/configure': {
         post: {
           summary: 'Configure contra entry settings',
           description: 'Configure contra entry settings for specific entry types and GL accounts',
@@ -6644,7 +7577,7 @@ const fallbackSpec = {
             }
           }
         },
-      '/api/cashbook/contra/configs': {
+      '/cashbook/contra/configs': {
         get: {
           summary: 'Get contra entry configurations',
           description: 'Retrieve contra entry configurations with optional filtering',
@@ -6692,7 +7625,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/contra/generate': {
+      '/cashbook/contra/generate': {
         post: {
           summary: 'Generate contra entry for cashbook transaction',
           description: 'Generate contra entry for a specific cashbook transaction',
@@ -6734,7 +7667,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/contra/entries/{cashbookEntryId}': {
+      '/cashbook/contra/entries/{cashbookEntryId}': {
         get: {
           summary: 'Get contra entries for cashbook entry',
           description: 'Retrieve all contra entries for a specific cashbook entry',
@@ -6776,7 +7709,7 @@ const fallbackSpec = {
       // ==========================================
       '/applications': {
         post: {
-          tags: ['🏢 Portfolio Management'],
+          tags: ['🏢 Portfolio Management', 'Updated investment flow'],
           summary: 'Create a new investment application (PUBLIC)',
           description: 'Create a new investment application with document uploads. Files are automatically uploaded to Firebase Storage. No authentication required.',
           requestBody: {
@@ -6839,7 +7772,120 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/upload-documents': {
+      '/applications/below-threshold': {
+        get: {
+          tags: ['📝 Stage 0: Shortlist'],
+          summary: 'Get applications below investment threshold (Investor)',
+          description: 'Retrieve all applications that did not meet investment criteria. These applications are marked as BELOW_THRESHOLD and are filtered out from the main application list. Admin/Fund Manager access required.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { 
+              name: 'page', 
+              in: 'query', 
+              schema: { type: 'integer', default: 1 },
+              description: 'Page number for pagination'
+            },
+            { 
+              name: 'limit', 
+              in: 'query', 
+              schema: { type: 'integer', default: 10 },
+              description: 'Number of items per page'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Below threshold applications retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      message: { type: 'string', example: 'Below threshold applications retrieved successfully' },
+                      data: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string', example: 'clx1234567890abcdef' },
+                            businessName: { type: 'string', example: 'TechStart Inc.' },
+                            applicantName: { type: 'string', example: 'John Doe' },
+                            applicantEmail: { type: 'string', example: 'john.doe@example.com' },
+                            requestedAmount: { type: 'number', example: 75000 },
+                            currentStage: { type: 'string', example: 'BELOW_THRESHOLD' },
+                            createdAt: { type: 'string', format: 'date-time' },
+                            updatedAt: { type: 'string', format: 'date-time' }
+                          }
+                        }
+                      },
+                      pagination: {
+                        type: 'object',
+                        properties: {
+                          total: { type: 'integer', example: 15 },
+                          page: { type: 'integer', example: 1 },
+                          limit: { type: 'integer', example: 10 },
+                          totalPages: { type: 'integer', example: 2 }
+                        }
+                      }
+                    }
+                  },
+                  example: {
+                    success: true,
+                    message: 'Below threshold applications retrieved successfully',
+                    data: [
+                      {
+                        id: 'clx1234567890abcdef',
+                        businessName: 'Legora',
+                        applicantName: 'Vexi Games',
+                        applicantEmail: 'veximagames@gmail.com',
+                        requestedAmount: 50000,
+                        currentStage: 'BELOW_THRESHOLD',
+                        createdAt: '2025-11-20T10:30:00.000Z',
+                        updatedAt: '2025-11-25T05:28:16.883Z'
+                      }
+                    ],
+                    pagination: {
+                      total: 1,
+                      page: 1,
+                      limit: 10,
+                      totalPages: 1
+                    }
+                  }
+                }
+              }
+            },
+            401: { 
+              description: 'Unauthorized - Authentication required',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: false },
+                      message: { type: 'string', example: 'Unauthorized' }
+                    }
+                  }
+                }
+              }
+            },
+            500: { 
+              description: 'Internal server error',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: false },
+                      message: { type: 'string', example: 'Internal server error' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/applications/upload-documents': {
         post: {
           tags: ['📝 Stage 1: Application Submission'],
           summary: 'Upload application documents (PUBLIC)',
@@ -6874,7 +7920,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/{id}': {
+      '/applications/{id}': {
         get: {
           tags: ['📝 Stage 1: Application Submission'],
           summary: 'Get application by ID (Investor)',
@@ -6930,7 +7976,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/{id}/status': {
+      '/applications/{id}/status': {
         get: {
           tags: ['📝 Stage 1: Application Submission'],
           summary: 'Get application status (PUBLIC)',
@@ -6942,7 +7988,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/{id}/change-stage': {
+      '/applications/{id}/change-stage': {
         post: {
           tags: ['📝 Stage 1: Application Submission'],
           summary: 'Change application stage (Investor)',
@@ -6959,7 +8005,7 @@ const fallbackSpec = {
                   properties: {
                     newStage: {
                       type: 'string',
-                      enum: ['UNDER_DUE_DILIGENCE', 'DUE_DILIGENCE_COMPLETED', 'UNDER_BOARD_REVIEW', 'BOARD_APPROVED', 'BOARD_REJECTED', 'BOARD_CONDITIONAL', 'TERM_SHEET_NEGOTIATION', 'IMPLEMENTATION', 'FUNDED', 'REJECTED']
+                      enum: ['UNDER_DUE_DILIGENCE', 'DUE_DILIGENCE_COMPLETED', 'UNDER_BOARD_REVIEW', 'BOARD_APPROVED', 'BOARD_REJECTED', 'BOARD_CONDITIONAL', 'TERM_SHEET_NEGOTIATION', 'IMPLEMENTATION', 'FUNDED', 'BELOW_THRESHOLD']
                     },
                     notes: { type: 'string' }
                   }
@@ -6978,9 +8024,9 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - STAGE 2: DUE DILIGENCE
       // ==========================================
-      '/api/applications/{id}/due-diligence/initiate': {
+      '/applications/{id}/due-diligence/initiate': {
         post: {
-          tags: ['🔍 Stage 2: Due Diligence'],
+          tags: ['🔍 Stage 2: Due Diligence', 'Updated investment flow'],
           summary: 'Initiate due diligence (Investor)',
           description: 'Start the due diligence process for an application. Admin/Fund Manager access required.',
           security: [{ bearerAuth: [] }],
@@ -6993,7 +8039,52 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/{id}/due-diligence': {
+      '/applications/due-diligence/investments-users': {
+        get: {
+          tags: ['🔍 Stage 2: Due Diligence'],
+          summary: 'Get users from Investments department only',
+          description: 'List Investment department users eligible for due diligence task assignment',
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Investment users retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/applications/{id}/due-diligence/assign-task': {
+        post: {
+          tags: ['🔍 Stage 2: Due Diligence'],
+          summary: 'Assign task from due diligence (Investor)',
+          description: 'Create a due diligence task and sync it with the performance module',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['assigneeId', 'title'],
+                  properties: {
+                    assigneeId: { type: 'string' },
+                    title: { type: 'string' },
+                    description: { type: 'string' },
+                    priority: { type: 'string', example: 'high' },
+                    dueDate: { type: 'string', format: 'date-time' },
+                    category: { type: 'string', example: 'Financial Assessment' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Task assigned successfully and synced with performance module' },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/applications/{id}/due-diligence': {
         get: {
           tags: ['🔍 Stage 2: Due Diligence'],
           summary: 'Get due diligence report (Investor)',
@@ -7041,7 +8132,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/{id}/due-diligence/complete': {
+      '/applications/{id}/due-diligence/complete': {
         post: {
           tags: ['🔍 Stage 2: Due Diligence'],
           summary: 'Complete due diligence (Investor)',
@@ -7056,7 +8147,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/due-diligence': {
+      '/applications/due-diligence': {
         get: {
           tags: ['🔍 Stage 2: Due Diligence'],
           summary: 'Get all due diligence reviews (Investor)',
@@ -7080,7 +8171,8 @@ const fallbackSpec = {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'List board voting members',
-          description: 'Retrieve board members eligible to vote along with their configured voting power.',
+          description:
+            'Users with role codes BOARD_CHAIR, BOARD_MEMBER, INV_COMM_MEM, or CIO. When NVCCZ_STRICT_BOARD_VOTE=true, only Investments department; otherwise all departments (UAT). Response includes `boardVotingDisabled` (true/false). Disabled users cannot be assigned votingPower and are excluded from vote-invite emails.',
           security: [{ bearerAuth: [] }],
           responses: {
             200: { description: 'Board voting members retrieved successfully' },
@@ -7127,27 +8219,56 @@ const fallbackSpec = {
           }
         }
       },
-      '/board-reviews/{applicationId}': {
-        post: {
+      '/board-reviews/voting-members/{userId}/disable': {
+        put: {
           tags: ['🗳️ Voting Process'],
-          summary: 'Create board review (Investor)',
-          description: 'Create a board review for an application that has completed due diligence',
+          summary: 'Remove/restore a user from board voting',
+          description:
+            'Set disabled=true to remove from voting (excluded from voting members list and vote-invite emails). Set disabled=false to restore. Disabling also clears votingPower.',
           security: [{ bearerAuth: [] }],
-          parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
+          parameters: [
+            { name: 'userId', in: 'path', required: true, schema: { type: 'string' } }
+          ],
           requestBody: {
             required: true,
             content: {
               'application/json': {
                 schema: {
                   type: 'object',
+                  required: ['disabled'],
                   properties: {
-                    investmentApproved: { type: 'boolean' },
-                    investmentRejected: { type: 'boolean' },
-                    conditionalApproval: { type: 'boolean' },
-                    recommendationReport: { type: 'string' },
-                    decisionReason: { type: 'string' },
-                    overallScore: { type: 'number' },
-                    finalComments: { type: 'string' }
+                    disabled: { type: 'boolean', example: true }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Updated board voting membership' },
+            400: { description: 'Validation error' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden' },
+            404: { description: 'User not found' }
+          }
+        }
+      },
+      '/board-reviews/{applicationId}': {
+        post: {
+          tags: ['🏢 Portfolio Management', '🗳️ Voting Process', 'Updated investment flow'],
+          summary: 'Create board review — upload final Investment Memorandum (multipart)',
+          description:
+            '**multipart/form-data** — **document** (IM file) only. Recommendation and decision fields: **PUT** same path. Application must be `UNDER_BOARD_REVIEW`.',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'multipart/form-data': {
+                schema: {
+                  type: 'object',
+                  required: ['document'],
+                  properties: {
+                    document: { type: 'string', format: 'binary', description: 'Final Investment Memorandum' }
                   }
                 }
               }
@@ -7205,13 +8326,15 @@ const fallbackSpec = {
       },
       '/board-reviews/{applicationId}/complete': {
         post: {
-          tags: ['🗳️ Voting Process'],
+          tags: ['🗳️ Voting Process', 'Updated investment flow'],
           summary: 'Complete board review (Investor)',
-          description: 'Complete a board review and update application stage',
+          description:
+            'Complete a board review and update application stage. When NVCCZ_STRICT_BOARD_VOTE=true, only the Board Chair (Investments) may call this; otherwise any authenticated user may finalize for UAT.',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
           responses: {
             200: { description: 'Board review completed successfully' },
+            403: { description: 'Forbidden when NVCCZ_STRICT_BOARD_VOTE=true and caller is not Board Chair' },
             404: { description: 'Board review not found' },
             401: { description: 'Unauthorized' }
           }
@@ -7219,9 +8342,10 @@ const fallbackSpec = {
       },
       '/board-reviews/{applicationId}/votes': {
         post: {
-          tags: ['🗳️ Voting Process'],
+          tags: ['🗳️ Voting Process', 'Updated investment flow'],
           summary: 'Cast board review vote',
-          description: 'Submit your weighted vote (approve or reject) for a board review. Only authorized board members can vote.',
+          description:
+            'Submit APPROVE or REJECT. **comment** is required when vote is APPROVE. Eligibility: when NVCCZ_STRICT_BOARD_VOTE=true, Investments department and board/IC role codes apply; otherwise any authenticated user may vote (UAT). After BOARD_VOTE_QUORUM_YES_COUNT (default 3) APPROVE votes with an APPROVE majority, the review may auto-complete.',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
           requestBody: {
@@ -7233,7 +8357,11 @@ const fallbackSpec = {
                   required: ['vote'],
                   properties: {
                     vote: { type: 'string', enum: ['APPROVE', 'REJECT'], example: 'APPROVE' },
-                    comment: { type: 'string', example: 'Strong fundamentals, I support this deal.' }
+                    comment: {
+                      type: 'string',
+                      example: 'Strong fundamentals, I support this deal.',
+                      description: 'Required when vote is APPROVE; optional for REJECT.'
+                    }
                   }
                 }
               }
@@ -7241,24 +8369,25 @@ const fallbackSpec = {
           },
           responses: {
             200: { description: 'Vote recorded successfully (response includes anonymized progress and your vote)' },
-            400: { description: 'Bad request' },
+            400: { description: 'Bad request (e.g. missing comment on APPROVE)' },
             401: { description: 'Unauthorized' },
-            403: { description: 'Forbidden - User not eligible to vote' }
+            403: { description: 'Forbidden when NVCCZ_STRICT_BOARD_VOTE=true and user not eligible to vote' }
           }
         }
       },
       '/board-reviews/{applicationId}/votes/summary': {
         get: {
-          tags: ['🗳️ Voting Process'],
+          tags: ['🗳️ Voting Process', 'Updated investment flow'],
           summary: 'Get board vote summary',
-          description: 'Retrieve the weighted voting progress and outcome. Individual votes remain hidden until the board review is completed.',
+          description:
+            'Weighted voting progress and outcome. Votes stay hidden until the review is completed. When NVCCZ_STRICT_BOARD_VOTE=true, only admin/fund_manager role name or Investments BOARD_MEMBER/BOARD_CHAIR may call; otherwise any authenticated user (UAT).',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
           responses: {
             200: { description: 'Vote summary retrieved successfully' },
             400: { description: 'Bad request' },
             401: { description: 'Unauthorized' },
-            403: { description: 'Forbidden - User not permitted to view voting summary' }
+            403: { description: 'Forbidden when NVCCZ_STRICT_BOARD_VOTE=true and user not permitted to view summary' }
           }
         }
       },
@@ -7310,7 +8439,7 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - STAGE 4: TERM SHEET
       // ==========================================
-      '/api/term-sheets/{applicationId}': {
+      '/term-sheets/{applicationId}': {
         post: {
           tags: ['📋 Stage 4: Term Sheet'],
           summary: 'Create term sheet (Investor)',
@@ -7393,7 +8522,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/term-sheets/{applicationId}/finalize': {
+      '/term-sheets/{applicationId}/finalize': {
         post: {
           tags: ['📋 Stage 4: Term Sheet'],
           summary: 'Finalize term sheet (Investor)',
@@ -7408,7 +8537,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/term-sheets': {
+      '/term-sheets': {
         get: {
           tags: ['📋 Stage 4: Term Sheet'],
           summary: 'Get all term sheets (Investor)',
@@ -7429,9 +8558,9 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - STAGE 5: INVESTMENT IMPLEMENTATION
       // ==========================================
-      '/api/investment-implementations/signed-term-sheets': {
+      '/investment-implementations/signed-term-sheets': {
         get: {
-          tags: ['💼 Stage 5: Investment Implementation'],
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Get applications with signed term sheets (Investor)',
           description: 'Get all applications that have signed term sheets and are ready for implementation',
           security: [{ bearerAuth: [] }],
@@ -7445,11 +8574,12 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations/initiate': {
+      '/investment-implementations/initiate': {
         post: {
-          tags: ['💼 Stage 5: Investment Implementation'],
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Initiate investment implementation (Investor)',
-          description: 'Start the investment implementation process for an approved application',
+          description:
+            'Start the investment implementation process. If an implementation already exists for the portfolio company, returns existing record (idempotent). When disbursementMode is MILESTONE_BASED, disbursementPeriods is required and milestones are auto-created in the same call.',
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -7459,11 +8589,57 @@ const fallbackSpec = {
                   type: 'object',
                   required: ['portfolioCompanyId', 'applicationId', 'fundId'],
                   properties: {
-                    portfolioCompanyId: { type: 'string' },
-                    applicationId: { type: 'string' },
-                    fundId: { type: 'string' },
-                    implementationPlan: { type: 'string' },
-                    notes: { type: 'string' }
+                    portfolioCompanyId: { type: 'string', example: 'cmi79aihl000ajx04sc7x6ec7', description: 'Portfolio company ID that will receive funding' },
+                    applicationId: { type: 'string', example: 'cmi78trsi0000jx048i72bb7m', description: 'Application that has been approved' },
+                    fundId: { type: 'string', example: 'cmht6ve7x0001jx04kz890uj6', description: 'Fund to allocate the investment from' },
+                    implementationPlan: { type: 'string', example: 'Phase 1: Product development, Phase 2: Market launch', description: 'Implementation plan summary' },
+                    notes: { type: 'string', example: 'Investment implementation for LY company', description: 'Additional notes' },
+                    disbursementMode: { type: 'string', enum: ['ONE_TIME', 'MILESTONE_BASED'], example: 'MILESTONE_BASED', description: 'Disbursement mode. Defaults to ONE_TIME.' },
+                    totalCommittedAmount: { type: 'number', example: 30000, description: 'Total amount committed when milestone based' },
+                    disbursementPeriods: {
+                      type: 'array',
+                      description: 'Required for MILESTONE_BASED mode. Backend auto-creates milestones from this array.',
+                      items: {
+                        type: 'object',
+                        required: ['dueDate'],
+                        properties: {
+                          label: { type: 'string', example: 'Tranche 1 - Q2 2026' },
+                          dueDate: { type: 'string', format: 'date', example: '2026-06-30' },
+                          amount: { type: 'number', example: 10000, description: 'Optional. If omitted, backend auto-splits remaining committed amount.' },
+                          notes: { type: 'string', example: 'Subject to milestone completion' }
+                        }
+                      }
+                    }
+                  }
+                },
+                examples: {
+                  milestoneBased: {
+                    summary: 'Milestone-based disbursement',
+                    value: {
+                      portfolioCompanyId: 'cmi79aihl000ajx04sc7x6ec7',
+                      applicationId: 'cmi78trsi0000jx048i72bb7m',
+                      fundId: 'cmht6ve7x0001jx04kz890uj6',
+                      implementationPlan: 'Phase 1: Product development, Phase 2: Market launch',
+                      notes: 'Investment implementation for LY company',
+                      disbursementMode: 'MILESTONE_BASED',
+                      totalCommittedAmount: 30000,
+                      disbursementPeriods: [
+                        { label: 'Tranche 1', dueDate: '2026-06-30', amount: 10000 },
+                        { label: 'Tranche 2', dueDate: '2026-09-30' },
+                        { label: 'Tranche 3', dueDate: '2026-12-31' }
+                      ]
+                    }
+                  },
+                  oneTime: {
+                    summary: 'One-time disbursement',
+                    value: {
+                      portfolioCompanyId: 'cmi79aihl000ajx04sc7x6ec7',
+                      applicationId: 'cmi78trsi0000jx048i72bb7m',
+                      fundId: 'cmht6ve7x0001jx04kz890uj6',
+                      implementationPlan: 'Full investment implementation',
+                      notes: 'Investment implementation for LY company',
+                      disbursementMode: 'ONE_TIME'
+                    }
                   }
                 }
               }
@@ -7476,7 +8652,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations/{portfolioCompanyId}': {
+      '/investment-implementations/{portfolioCompanyId}': {
         get: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Get investment implementation by portfolio company (Investor)',
@@ -7490,7 +8666,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations/{portfolioCompanyId}/checklist': {
+      '/investment-implementations/{portfolioCompanyId}/checklist': {
         put: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Update implementation checklist (Investor)',
@@ -7519,7 +8695,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations/{portfolioCompanyId}/milestones': {
+      '/investment-implementations/{portfolioCompanyId}/milestones': {
         post: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Add milestone to implementation (Investor)',
@@ -7550,11 +8726,12 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations/disbursements': {
+      '/investment-implementations/disbursements': {
         post: {
-          tags: ['💼 Stage 5: Investment Implementation'],
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Create fund disbursement (Investor)',
-          description: 'Create a fund disbursement for an investment implementation',
+          description:
+            'Create a fund disbursement (initial status PENDING). For MILESTONE_BASED implementations, milestoneId is required (selected disbursement period) and amount cannot exceed that period remaining amount. Response includes trancheIndex (1-based order for this implementation) and cfoApprovalStatusLabel PENDING_CFO_APPROVAL while pending.',
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -7565,36 +8742,219 @@ const fallbackSpec = {
                   required: ['investmentImplementationId', 'amount', 'disbursementDate', 'disbursementType'],
                   properties: {
                     investmentImplementationId: { type: 'string' },
-                    milestoneId: { type: 'string' },
+                    milestoneId: { type: 'string', description: 'Required when implementation disbursementMode is MILESTONE_BASED (selected period milestone).' },
                     amount: { type: 'number' },
                     disbursementDate: { type: 'string', format: 'date-time' },
                     disbursementType: { type: 'string', enum: ['INITIAL', 'MILESTONE', 'FINAL'] },
                     notes: { type: 'string' }
+                  }
+                },
+                examples: {
+                  default: {
+                    summary: 'Fund disbursement payload',
+                    value: {
+                      investmentImplementationId: 'cmi78trsi0000jx048i72bb7m',
+                      amount: 5000,
+                      disbursementDate: '2024-01-15T00:00:00Z',
+                      disbursementType: 'MILESTONE',
+                      notes: 'First milestone payment'
+                    }
+                  },
+                  milestonePeriodTranche: {
+                    summary: 'Milestone-based period draw (milestoneId required)',
+                    value: {
+                      investmentImplementationId: 'cmi78trsi0000jx048i72bb7m',
+                      milestoneId: 'cmnvms000001ktwmperiod001',
+                      amount: 10000,
+                      disbursementDate: '2026-06-30T00:00:00Z',
+                      disbursementType: 'MILESTONE',
+                      notes: 'Disbursement for Period 1 milestone'
+                    }
                   }
                 }
               }
             }
           },
           responses: {
-            201: { description: 'Fund disbursement created successfully' },
+            201: {
+              description: 'Fund disbursement created successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    description: 'Wrapped in success/data by API; disbursement object includes extra UAT fields',
+                    properties: {
+                      trancheIndex: { type: 'integer', example: 1 },
+                      cfoApprovalStatusLabel: { type: 'string', example: 'PENDING_CFO_APPROVAL' },
+                      status: { type: 'string', example: 'PENDING' },
+                      amount: { type: 'string' },
+                      milestoneId: { type: 'string', nullable: true }
+                    }
+                  }
+                }
+              }
+            },
             401: { description: 'Unauthorized' }
           }
         }
       },
-      '/api/investment-implementations/disbursements/{disbursementId}/approve': {
+      '/investment-implementations/disbursement-banks': {
+        get: {
+          operationId: 'getDisbursementBanksForCfo',
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
+          summary: 'List banks and linked GL accounts (CFO disbursement picker)',
+          description:
+            'Call before APPROVE. Each bank `id` is the `bankId` for POST /investment-implementations/disbursements/{disbursementId}/decision. Optional query paymentCurrencyId = tranche payment currency.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: 'paymentCurrencyId',
+              in: 'query',
+              required: false,
+              schema: { type: 'string', example: 'cmh3bymy70000una4yk8leusu' },
+              description: 'currencies.id — filter banks to this payout currency'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'success + data[] banks with glAccount',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      message: { type: 'string' },
+                      data: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string', example: 'cmh3bank00001unnvccbzusd01' },
+                            name: { type: 'string', example: 'NVCCZ USD Operating Account' },
+                            accountNumber: { type: 'string', example: '10002938475621' },
+                            currencyId: { type: 'string' },
+                            currencyCode: { type: 'string', example: 'USD' },
+                            currencyName: { type: 'string', example: 'US Dollar' },
+                            glAccount: {
+                              type: 'object',
+                              properties: {
+                                id: { type: 'string' },
+                                accountNo: { type: 'string', example: '1010' },
+                                accountName: { type: 'string', example: 'Bank — USD Operating' },
+                                accountType: { type: 'string', example: 'ASSET' }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  examples: {
+                    oneBank: {
+                      summary: 'Example',
+                      value: {
+                        success: true,
+                        message: 'Banks for disbursement approval retrieved successfully',
+                        data: [
+                          {
+                            id: 'cmh3bank00001unnvccbzusd01',
+                            name: 'NVCCZ USD Operating Account',
+                            accountNumber: '10002938475621',
+                            currencyId: 'cmh3bymy70000una4yk8leusu',
+                            currencyCode: 'USD',
+                            currencyName: 'US Dollar',
+                            glAccount: {
+                              id: 'cmglacct0001coaoperating01',
+                              accountNo: '1010',
+                              accountName: 'Bank — USD Operating',
+                              accountType: 'ASSET'
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/investment-implementations/disbursements/pending': {
+        get: {
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
+          summary: 'List PENDING disbursement requests',
+          description: 'JWT only. Review queue for all tranches awaiting approve/reject.',
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Pending disbursements with tranche and company context' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/investment-implementations/disbursements/{disbursementId}/decision': {
         post: {
-          tags: ['💼 Stage 5: Investment Implementation'],
-          summary: 'Approve fund disbursement (Investor)',
-          description: 'Approve a fund disbursement',
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
+          summary: 'Approve or reject disbursement',
+          description:
+            'APPROVE requires bankId (from GET disbursement-banks). REJECT optional reason.',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'disbursementId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['decision'],
+                  properties: {
+                    decision: { type: 'string', enum: ['APPROVE', 'REJECT'] },
+                    bankId: {
+                      type: 'string',
+                      description: 'Required when decision is APPROVE'
+                    },
+                    reason: { type: 'string', description: 'Optional; appended to notes on reject' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Fund disbursement updated' },
+            400: { description: 'Invalid decision or not PENDING' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/investment-implementations/disbursements/{disbursementId}/approve': {
+        post: {
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
+          summary: 'Approve fund disbursement (legacy)',
+          description: 'Requires bankId in body; same effect as decision APPROVE.',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'disbursementId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['bankId'],
+                  properties: { bankId: { type: 'string' } }
+                }
+              }
+            }
+          },
           responses: {
             200: { description: 'Fund disbursement approved successfully' },
             401: { description: 'Unauthorized' }
           }
         }
       },
-      '/api/investment-implementations/disbursements/{disbursementId}/disburse': {
+      '/investment-implementations/disbursements/{disbursementId}/disburse': {
         post: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Mark disbursement as disbursed (Investor)',
@@ -7619,7 +8979,72 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations': {
+      '/investment-implementations/{investmentImplementationId}/disbursement-summary': {
+        get: {
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
+          summary: 'Disbursement summary (Investor)',
+          description: 'Get the committed, disbursed, and remaining amounts for an investment implementation',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'investmentImplementationId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: {
+              description: 'Disbursement summary retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          totalCommittedAmount: { type: 'number', example: 30000 },
+                          totalDisbursedAmount: { type: 'number', example: 5000 },
+                          remainingCommittedAmount: { type: 'number', example: 25000 },
+                          undrawnCommittedAmount: {
+                            type: 'number',
+                            example: 25000,
+                            description: 'Same as remainingCommittedAmount (UAT undrawn commitment)'
+                          },
+                          disbursementCount: { type: 'number', example: 2 },
+                          disbursementMode: { type: 'string', example: 'MILESTONE_BASED' },
+                          complianceCleared: { type: 'boolean' },
+                          kycVerified: { type: 'boolean' },
+                          disbursementBlockedReason: { type: 'string', nullable: true },
+                          disbursements: {
+                            type: 'array',
+                            items: {
+                              type: 'object',
+                              properties: {
+                                id: { type: 'string' },
+                                trancheIndex: { type: 'integer', example: 1 },
+                                cfoApprovalStatusLabel: {
+                                  type: 'string',
+                                  example: 'PENDING_CFO_APPROVAL',
+                                  description: 'Present when status is PENDING'
+                                },
+                                milestoneId: { type: 'string', nullable: true },
+                                amount: { type: 'string', example: '5000.00' },
+                                status: { type: 'string', example: 'APPROVED' },
+                                disbursementType: { type: 'string', example: 'MILESTONE' },
+                                disbursementDate: { type: 'string', format: 'date-time', example: '2024-01-15T00:00:00Z' },
+                                approvedAt: { type: 'string', format: 'date-time', example: '2024-01-15T10:00:00Z' }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+    ...portfolioMonitoringEndpoints,
+      '/investment-implementations': {
         get: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Get all investment implementations (Investor)',
@@ -7639,7 +9064,7 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - STAGE 6: PORTFOLIO MANAGEMENT
       // ==========================================
-      '/api/portfolio-companies': {
+      '/portfolio-companies': {
         post: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Create portfolio company (Investor)',
@@ -7687,7 +9112,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-companies/admin': {
+      '/portfolio-companies/admin': {
         post: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Create portfolio company by admin (Investor)',
@@ -7725,7 +9150,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-companies/{id}': {
+      '/portfolio-companies/{id}': {
         get: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Get portfolio company by ID (Investor + Applicant)',
@@ -7784,7 +9209,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-companies/me': {
+      '/portfolio-companies/me': {
         get: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Get my portfolio company (Applicant)',
@@ -7824,7 +9249,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-valuations': {
+      '/portfolio-valuations': {
         post: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Create portfolio valuation (Investor)',
@@ -7873,7 +9298,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-valuations/{id}': {
+      '/portfolio-valuations/{id}': {
         get: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Get portfolio valuation by ID (Investor)',
@@ -7928,7 +9353,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-valuations/{id}/activities': {
+      '/portfolio-valuations/{id}/activities': {
         post: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Create portfolio valuation activity (Investor)',
@@ -7970,7 +9395,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-valuations/summary/quarterly': {
+      '/portfolio-valuations/summary/quarterly': {
         get: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Get quarterly valuation summary (Investor)',
@@ -7986,7 +9411,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-valuations/analytics/summary': {
+      '/portfolio-valuations/analytics/summary': {
         get: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Get valuation analytics (Investor)',
@@ -8051,7 +9476,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/term-sheets/my': {
+      '/term-sheets/my': {
         get: {
           tags: ['📋 Stage 4: Term Sheet'],
           summary: 'Get my term sheets (Applicant)',
@@ -8142,17 +9567,276 @@ try {
   if (!specs || !specs.paths || Object.keys(specs.paths).length === 0) {
     console.log('Swagger-jsdoc returned empty spec, using fallback');
     specs = fallbackSpec;
+    // Ensure fallback has all merged endpoints too (including Investee Reporting).
+    specs.paths = {
+      ...(specs.paths || {}),
+      ...userSavedFilterFavoriteEndpoints,
+      ...accountingEndpoints,
+      ...shortTermInvestmentsEndpoints,
+      ...fiscalCalendarEndpoints,
+      ...performanceEndpoints,
+      ...performanceUatTasksBoardEndpoints,
+      ...performanceCollaborationNotificationsEndpoints,
+      ...reviewsUatReviewCyclesIndependentEvalEndpoints,
+      ...taskAssignmentEndpoints,
+      ...financialReportingEndpoints,
+      ...capitalCallsEndpoints,
+      ...investeeReportingEndpoints,
+      ...reportingScheduleSwaggerEndpoints,
+      ...lpFeesAndDistributionsEndpoints,
+      ...procurementEndpoints,
+      ...eventsEndpoints,
+      ...dashboardsEndpoints,
+    };
   } else {
     console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
-    // Merge accounting, cashbook, performance, task assignment, financial reporting, and procurement endpoints with generated spec
-    specs.paths = { ...specs.paths, ...accountingEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints, ...procurementEndpoints };
-    console.log(`Added accounting, cashbook, performance, task assignment, financial reporting, and procurement endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
+    // Merge accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints with generated spec
+    specs.paths = {
+      ...specs.paths,
+      ...userSavedFilterFavoriteEndpoints,
+      ...accountingEndpoints,
+      ...shortTermInvestmentsEndpoints,
+      ...fiscalCalendarEndpoints,
+      ...performanceEndpoints,
+      ...performanceUatTasksBoardEndpoints,
+      ...performanceCollaborationNotificationsEndpoints,
+      ...reviewsUatReviewCyclesIndependentEvalEndpoints,
+      ...taskAssignmentEndpoints,
+      ...financialReportingEndpoints,
+      ...capitalCallsEndpoints,
+      ...investeeReportingEndpoints,
+      ...reportingScheduleSwaggerEndpoints,
+      ...lpFeesAndDistributionsEndpoints,
+      ...procurementEndpoints,
+      ...eventsEndpoints,
+      ...dashboardsEndpoints,
+    };
+    console.log(`Added accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
   }
 } catch (error: any) {
   // Silently use fallback spec - it already includes all endpoints
   // Suppress error logging to avoid cluttering console with known parsing issues
   specs = fallbackSpec;
-  console.log(`✅ Using fallback Swagger spec with ${Object.keys(fallbackSpec.paths).length} endpoints (accounting + performance + task assignment + financial reporting + procurement + cashbook)`);
+  // Ensure fallback has all merged endpoints too (including Investee Reporting).
+  specs.paths = {
+    ...(specs.paths || {}),
+    ...userSavedFilterFavoriteEndpoints,
+    ...accountingEndpoints,
+    ...shortTermInvestmentsEndpoints,
+    ...fiscalCalendarEndpoints,
+    ...performanceEndpoints,
+    ...performanceUatTasksBoardEndpoints,
+    ...performanceCollaborationNotificationsEndpoints,
+    ...reviewsUatReviewCyclesIndependentEvalEndpoints,
+    ...taskAssignmentEndpoints,
+    ...financialReportingEndpoints,
+    ...capitalCallsEndpoints,
+    ...investeeReportingEndpoints,
+    ...reportingScheduleSwaggerEndpoints,
+    ...lpFeesAndDistributionsEndpoints,
+    ...procurementEndpoints,
+    ...eventsEndpoints,
+    ...dashboardsEndpoints,
+  };
+  console.log(`✅ Using fallback Swagger spec with ${Object.keys(fallbackSpec.paths).length} endpoints (accounting + performance + task assignment + financial reporting + procurement + events + dashboards + cashbook)`);
 }
 
-export { specs }; 
+specs.paths = {
+  ...specs.paths,
+  ...lpFeesAndDistributionsEndpoints,
+  ...updatedInvestmentFlowExtraPaths,
+  ...updatedPerformanceSwaggerPaths,
+  ...phaseTwoScorecardEditingSwaggerPaths,
+  ...phaseTwoPdfUploadsSwaggerPaths,
+  ...fpaSwaggerPaths,
+  ...payrollEndpoints,
+  ...payrollEmploymentTrainingSwaggerPaths,
+  ...stockPriceCollectorSwaggerPaths,
+  ...investmentOpsSwaggerPaths,
+  ...fundPerformanceReportingSwaggerPaths,
+  ...fundManagementEndpoints,
+  ...portfolioLetterheadsEndpoints,
+  ...portfolioMonitoringEndpoints,
+  ...boardReviewOpenApiOverridePaths
+};
+
+specs.paths = mergeCapitalCallClientPrerequisitePaths(specs.paths);
+
+/** Fill missing path/method entries only so rich JSDoc (e.g. Suite 06) is not clobbered. */
+function mergeOpenApiPathItemsPreferExisting(
+  base: Record<string, Record<string, unknown>> | undefined,
+  additions: Record<string, Record<string, unknown>>
+): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = { ...(base ?? {}) };
+  for (const [pathKey, pathItem] of Object.entries(additions)) {
+    if (!out[pathKey]) {
+      out[pathKey] = pathItem;
+      continue;
+    }
+    const existing = out[pathKey]!;
+    const merged: Record<string, unknown> = { ...existing };
+    for (const [method, op] of Object.entries(pathItem)) {
+      if (merged[method] === undefined) {
+        merged[method] = op;
+      }
+    }
+    out[pathKey] = merged as Record<string, unknown>;
+  }
+  return out;
+}
+
+// Suites 03–06 + public procurement — fill gaps (swagger-jsdoc may omit route blocks)
+specs.paths = mergeOpenApiPathItemsPreferExisting(
+  specs.paths,
+  procurementSuiteSectionsFallbackEndpoints
+);
+
+// EventSync — public event listing gaps (swagger-jsdoc may omit route blocks)
+specs.paths = mergeOpenApiPathItemsPreferExisting(specs.paths, eventsEventsyncFallbackEndpoints);
+
+// Suite 01 — always expose vendor master / public registration (swagger-jsdoc may be skipped)
+specs.paths = {
+  ...specs.paths,
+  ...vendorMasterSuite01Endpoints,
+};
+
+function addTagToOps(
+  paths: Record<string, any>,
+  shouldTagPath: (pathKey: string) => boolean,
+  tagName: string,
+  opts?: { skipIfHasTagPrefix?: string }
+) {
+  const skipPrefix = opts?.skipIfHasTagPrefix;
+  for (const [pathKey, pathItem] of Object.entries(paths ?? {})) {
+    if (!shouldTagPath(pathKey)) continue;
+    for (const [method, op] of Object.entries(pathItem ?? {})) {
+      // Skip non-operation keys in PathItem (OpenAPI: parameters, summary, etc.)
+      if (!['get', 'post', 'put', 'patch', 'delete', 'options', 'head'].includes(String(method))) continue;
+      if (!op || typeof op !== 'object') continue;
+      const tags = Array.isArray((op as any).tags) ? (op as any).tags : [];
+      // Avoid Swagger UI listing the same operation under two procurement sections (umbrella + specific).
+      if (skipPrefix && tags.some((t: any) => typeof t === 'string' && t.startsWith(skipPrefix))) continue;
+      if (!tags.includes(tagName)) {
+        (op as any).tags = [...tags, tagName];
+      }
+    }
+  }
+}
+
+// Procurement UAT umbrella tag — make procurement-suite paths discoverable under one filter,
+// but ONLY when the operation does not already have a specific "Procurement — ..." tag,
+// otherwise Swagger UI would list the same endpoint twice (umbrella + specific section).
+addTagToOps(
+  specs.paths as any,
+  (pathKey) =>
+    pathKey.startsWith('/procurement/') ||
+    pathKey.startsWith('/applicant/procurement/') ||
+    pathKey.startsWith('/public/vendor-registration') ||
+    pathKey.startsWith('/accounting/vendors/pending-review') ||
+    pathKey.includes('/accounting/vendors/') && pathKey.includes('/approve-registration'),
+  'Procurement — UAT',
+  { skipIfHasTagPrefix: 'Procurement — ' }
+);
+
+const beforePrune = Object.keys(specs.paths ?? {}).length;
+specs = pruneSwaggerSpecByExcludedTags(specs);
+const afterPrune = Object.keys(specs.paths ?? {}).length;
+console.log(`Swagger prune: ${beforePrune} path keys -> ${afterPrune} path keys`);
+
+// Phase 2 protected modules — always publish in /api-docs (production + fallback), same as vendor PDF uploads.
+specs = applyProtectedSwaggerModules(specs, [
+  {
+    paths: phaseTwoPdfUploadsSwaggerPaths,
+    tagName: PHASE_TWO_PDF_UPLOADS_TAG,
+    tagDefinition: {
+      name: PHASE_TWO_PDF_UPLOADS_TAG,
+      description:
+        '**Phase 2 — vendor PDF attachments (3.2).** Unified uploads for **quotations** (`VendorQuotation`), **procurement invoices**, and **accounting purchase invoices**. ' +
+        'Configure allowed types + max size via **settings**; portal uploads require **`vendorPortalToken`**. ' +
+        'Attachments are **optional** on submit; when provided they are validated (type, size, PDF integrity, SHA-256) and fully audited.'
+    }
+  },
+  {
+    paths: payrollEmploymentTrainingSwaggerPaths,
+    tagName: PAYROLL_EMPLOYMENT_TRAINING_TAG,
+    tagDefinition: PAYROLL_EMPLOYMENT_TRAINING_TAG_DEFINITION,
+  },
+  {
+    paths: investmentOpsSwaggerPaths,
+    tagName: INVESTMENT_OPERATIONS_TAG,
+    tagDefinition: INVESTMENT_OPERATIONS_TAG_DEFINITION,
+  },
+  {
+    paths: stockPriceCollectorSwaggerPaths,
+    tagName: STOCK_PRICE_COLLECTOR_TAG,
+    tagDefinition: STOCK_PRICE_COLLECTOR_TAG_DEFINITION,
+  },
+  {
+    paths: fundPerformanceReportingSwaggerPaths,
+    tagName: FUND_PERFORMANCE_REPORTING_TAG,
+    tagDefinition: FUND_PERFORMANCE_REPORTING_TAG_DEFINITION,
+  },
+  {
+    paths: lpPortalSwaggerPaths,
+    tagName: LP_PORTAL_TAG,
+    tagDefinition: LP_PORTAL_TAG_DEFINITION,
+  },
+  {
+    paths: investmentMemoEditingSwaggerPaths,
+    tagName: INVESTMENT_MEMO_EDITING_TAG,
+    tagDefinition: INVESTMENT_MEMO_EDITING_TAG_DEFINITION,
+  },
+  {
+    paths: streetExchangeRateDisplaySwaggerPaths,
+    tagName: STREET_EXCHANGE_RATE_DISPLAY_TAG,
+    tagDefinition: STREET_EXCHANGE_RATE_DISPLAY_TAG_DEFINITION,
+  },
+  {
+    paths: capTableManagementSwaggerPaths,
+    tagName: CAP_TABLE_MANAGEMENT_TAG,
+    tagDefinition: CAP_TABLE_MANAGEMENT_TAG_DEFINITION,
+  },
+  {
+    paths: fundraisingLpPipelineSwaggerPaths,
+    tagName: FUNDRAISING_LP_PIPELINE_TAG,
+    tagDefinition: FUNDRAISING_LP_PIPELINE_TAG_DEFINITION,
+  },
+  {
+    paths: fundraisingIrSwaggerPaths,
+    tagName: FUNDRAISING_IR_TAG,
+    tagDefinition: FUNDRAISING_IR_TAG_DEFINITION,
+  },
+  {
+    paths: quarterlyClientStatementsSwaggerPaths,
+    tagName: QUARTERLY_CLIENT_STATEMENTS_TAG,
+    tagDefinition: QUARTERLY_CLIENT_STATEMENTS_TAG_DEFINITION,
+  },
+  {
+    paths: dealExecutionPackSwaggerPaths,
+    tagName: DEAL_EXECUTION_PACK_TAG,
+    tagDefinition: DEAL_EXECUTION_PACK_TAG_DEFINITION,
+  },
+  {
+    paths: taxReturnPackSwaggerPaths,
+    tagName: TAX_RETURN_PACK_TAG,
+    tagDefinition: TAX_RETURN_PACK_TAG_DEFINITION,
+  },
+  {
+    paths: fpaSwaggerPaths,
+    tagName: FPA_TAG,
+    tagDefinition: FPA_TAG_DEFINITION,
+  },
+]);
+
+const protectedModules = Object.keys(specs.paths ?? {}).filter(
+  (p) => p.includes('/v1/fpa/') || p.includes('/forecast-entities') || p.includes('document-attachments')
+);
+console.log(
+  `Swagger protected modules: ${protectedModules.filter((p) => p.includes('/v1/fpa/') || p.includes('fpa')).length} FP&A paths, ` +
+    `${protectedModules.filter((p) => p.includes('document-attachments')).length} vendor PDF paths`
+);
+
+specs.servers = resolveSwaggerServers();
+
+export { specs };
+

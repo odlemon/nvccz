@@ -4,9 +4,11 @@
 
 1. Make sure your database is set up and seeded:
    ```bash
-   npm run prisma:db:push
+   npx prisma generate
+   npm run db:migrate:invoice-payment-snapshots
    npm run prisma:seed
    ```
+   (NVCCZ applies DDL via `scripts/run-*-migration.ts` / `npm run db:migrate:*` — not `prisma migrate` or `prisma db push`. See `.claude-rules.md` §13.)
 
 2. Start the server:
    ```bash

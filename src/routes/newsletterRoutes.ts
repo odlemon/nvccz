@@ -2,7 +2,7 @@
 import express from "express";
 import multer from "multer";
 import { newsletterController } from "../controllers/NewsletterController";
-import { authenticate } from "../middleware/authenticate";
+import { authenticate, authorize } from "../middleware/authenticate";
 
 // Configure multer for memory storage
 const upload = multer({
@@ -20,6 +20,17 @@ const upload = multer({
   }
 });
 
+function newsletterImageUploadMw(req: express.Request, res: express.Response, next: express.NextFunction) {
+  return upload.single("image")(req, res, (err: unknown) => {
+    if (err) {
+      const message =
+        err instanceof Error ? err.message : typeof err === "string" ? err : "Multipart upload failed";
+      return res.status(400).json({ success: false, message });
+    }
+    next();
+  });
+}
+
 const router = express.Router();
 
 // All routes require authentication
@@ -30,7 +41,14 @@ router.use(authenticate);
  * /newsletters:
  *   post:
  *     summary: Create a new newsletter
- *     description: Create a new company newsletter and notify all users
+ *     description: |
+ *       **`multipart/form-data` only.** Fields: **`title`** (string), **`content`** (string; HTML or plain text),
+ *       optional **`image`** (binary cover photo).
+ *
+ *       The server uploads the cover to remote media storage and returns the public **`imageUrl`**
+ *       on **`data`** (use this in the UI). Omit `multipart` file fields if there is no cover image.
+ *
+ *       Notifies internal staff (in-app) and queues promotional emails (background); see `distribution.emailDispatch`.
  *     tags: [Newsletters]
  *     security:
  *       - bearerAuth: []
@@ -50,15 +68,15 @@ router.use(authenticate);
  *                 example: "Monthly Company Update"
  *               content:
  *                 type: string
- *                 description: Newsletter content
- *                 example: "This month we achieved great milestones..."
+ *                 description: Newsletter body (HTML from rich editor, or plain text)
+ *                 example: "<p>This month we achieved great milestones...</p>"
  *               image:
  *                 type: string
  *                 format: binary
- *                 description: Newsletter image (optional)
+ *                 description: Optional cover image (field name **`image`**)
  *     responses:
  *       201:
- *         description: Newsletter created successfully
+ *         description: Newsletter created successfully; **`data.imageUrl`** is the public URL of the uploaded cover when a file was sent
  *         content:
  *           application/json:
  *             schema:
@@ -85,7 +103,66 @@ router.use(authenticate);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post("/", upload.single('image'), newsletterController.createNewsletter);
+router.post("/", newsletterImageUploadMw, newsletterController.createNewsletter);
+
+/**
+ * @swagger
+ * /newsletters/recipients/config:
+ *   get:
+ *     summary: Get newsletter audience config
+ *     description: Returns default eligible internal users (non-investee, non-LP, non-applicant) plus saved include/exclude overrides.
+ *     tags: [Newsletters]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Newsletter audience config loaded
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - admin only
+ */
+router.get("/recipients/config", authorize(["admin"]), newsletterController.getRecipientConfig);
+
+/**
+ * @swagger
+ * /newsletters/recipients/config:
+ *   put:
+ *     summary: Save newsletter audience config
+ *     description: Save include/exclude user IDs and extra include/exclude email addresses for newsletter delivery.
+ *     tags: [Newsletters]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               includeUserIds:
+ *                 type: array
+ *                 items: { type: string }
+ *               excludeUserIds:
+ *                 type: array
+ *                 items: { type: string }
+ *               includeEmails:
+ *                 type: array
+ *                 items: { type: string, format: email }
+ *               excludeEmails:
+ *                 type: array
+ *                 items: { type: string, format: email }
+ *     responses:
+ *       200:
+ *         description: Newsletter audience config saved
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - admin only
+ */
+router.put("/recipients/config", authorize(["admin"]), newsletterController.saveRecipientConfig);
 
 /**
  * @swagger
@@ -203,10 +280,10 @@ router.get("/:id", newsletterController.getNewsletterById);
  *               image:
  *                 type: string
  *                 format: binary
- *                 description: Newsletter image (optional)
+ *                 description: Optional new cover image
  *     responses:
  *       200:
- *         description: Newsletter updated successfully
+ *         description: Newsletter updated successfully — **`data.imageUrl`** refreshed when a new file is uploaded
  *         content:
  *           application/json:
  *             schema:
@@ -245,7 +322,7 @@ router.get("/:id", newsletterController.getNewsletterById);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.put("/:id", upload.single('image'), newsletterController.updateNewsletter);
+router.put("/:id", newsletterImageUploadMw, newsletterController.updateNewsletter);
 
 /**
  * @swagger

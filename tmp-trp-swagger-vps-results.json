@@ -1,0 +1,111 @@
+{
+  "server": "https://dev-api.arcus.co.zw/api",
+  "packId": "cmr66grg20085kt7h2riuh8rd",
+  "rows": [
+    {
+      "op": "Auth (prerequisite)",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "ok": true,
+      "note": "token obtained"
+    },
+    {
+      "op": "List tax return packs",
+      "method": "GET",
+      "path": "/tax-return-packs",
+      "status": 200,
+      "ok": true,
+      "note": "count=5"
+    },
+    {
+      "op": "Provision tax return pack",
+      "method": "POST",
+      "path": "/tax-return-packs",
+      "status": 201,
+      "ok": true,
+      "note": "cmr66grg20085kt7h2riuh8rd"
+    },
+    {
+      "op": "Pack detail",
+      "method": "GET",
+      "path": "/tax-return-packs/{packId}",
+      "status": 200,
+      "ok": true,
+      "note": "status=DRAFT"
+    },
+    {
+      "op": "Dashboard",
+      "method": "GET",
+      "path": "/tax-return-packs/{packId}/dashboard",
+      "status": 200,
+      "ok": true,
+      "note": "glSync=SYNCED"
+    },
+    {
+      "op": "Compile",
+      "method": "POST",
+      "path": "/tax-return-packs/{packId}/compile",
+      "status": 200,
+      "ok": true,
+      "note": "DRAFT_REVIEW"
+    },
+    {
+      "op": "ITF 12C reconciliation",
+      "method": "GET",
+      "path": "/tax-return-packs/{packId}/reconciliation",
+      "status": 200,
+      "ok": true,
+      "note": "lines=1"
+    },
+    {
+      "op": "Override tax categorization",
+      "method": "PATCH",
+      "path": "/tax-return-packs/{packId}/reconciliation/{lineId}",
+      "status": 200,
+      "ok": true,
+      "note": "NET_INCOME_BOOK"
+    },
+    {
+      "op": "CGT schedule",
+      "method": "GET",
+      "path": "/tax-return-packs/{packId}/cgt",
+      "status": 200,
+      "ok": true,
+      "note": "lines=0"
+    },
+    {
+      "op": "Maker submit for review",
+      "method": "POST",
+      "path": "/tax-return-packs/{packId}/submit-review",
+      "status": 200,
+      "ok": true,
+      "note": "status=DRAFT_REVIEW"
+    },
+    {
+      "op": "Checker sign-off",
+      "method": "POST",
+      "path": "/tax-return-packs/{packId}/sign-off",
+      "status": 200,
+      "ok": true,
+      "note": "sha256=66db966b21e8e43e"
+    },
+    {
+      "op": "Download signed PDF",
+      "method": "GET",
+      "path": "/tax-return-packs/{packId}/pdf",
+      "status": 200,
+      "ok": true,
+      "note": "content-type=application/pdf"
+    },
+    {
+      "op": "Audit trail",
+      "method": "GET",
+      "path": "/tax-return-packs/{packId}/audit",
+      "status": 200,
+      "ok": true,
+      "note": "events=6"
+    }
+  ],
+  "failed": 0
+}

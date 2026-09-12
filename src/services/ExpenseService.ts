@@ -2,9 +2,11 @@
 import { PrismaClient, Expense, Vendor, ExpenseCategory, Currency } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
+import { prismaJournalEntryRateSelect } from "../config/accountingSnapshotResponseSelect";
 import VATService from "./VATService";
 import JournalEntryService, { CreateExpenseJournalEntryParams } from "./JournalEntryService";
 import AuditService from "./AuditService";
+import { VcCacSyncService } from "./VcCacSyncService";
 
 export interface CreateExpenseParams {
   vendorId: string;
@@ -101,7 +103,8 @@ export class ExpenseService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         }
@@ -139,7 +142,8 @@ export class ExpenseService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         }
@@ -152,6 +156,10 @@ export class ExpenseService {
         entityType: "Expense",
         entityId: updatedExpense.id,
         newValues: updatedExpense,
+      });
+
+      await VcCacSyncService.recomputeAndPersist({ source: "expenses" }).catch((err: any) => {
+        console.error("VcCacSyncService.recomputeAndPersist failed after expense create", err?.message ?? err);
       });
 
       return updatedExpense;
@@ -202,7 +210,8 @@ export class ExpenseService {
           select: {
             id: true,
             referenceNumber: true,
-            status: true
+            status: true,
+            ...prismaJournalEntryRateSelect
           }
         }
       }
@@ -262,7 +271,8 @@ export class ExpenseService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         },
@@ -333,7 +343,8 @@ export class ExpenseService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         }
@@ -374,7 +385,8 @@ export class ExpenseService {
               select: {
                 id: true,
                 referenceNumber: true,
-                status: true
+                status: true,
+                ...prismaJournalEntryRateSelect
               }
             }
           }
@@ -450,7 +462,8 @@ export class ExpenseService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         }
@@ -497,7 +510,8 @@ export class ExpenseService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         }
@@ -511,6 +525,10 @@ export class ExpenseService {
         entityId: id,
         oldValues: before,
         newValues: finalExpense,
+      });
+
+      await VcCacSyncService.recomputeAndPersist({ source: "expenses" }).catch((err: any) => {
+        console.error("VcCacSyncService.recomputeAndPersist failed after expense update", err?.message ?? err);
       });
 
       return finalExpense;
@@ -585,6 +603,10 @@ export class ExpenseService {
         entityType: "Expense",
         entityId: id,
         oldValues: before,
+      });
+
+      await VcCacSyncService.recomputeAndPersist({ source: "expenses" }).catch((err: any) => {
+        console.error("VcCacSyncService.recomputeAndPersist failed after expense delete", err?.message ?? err);
       });
       return;
     }

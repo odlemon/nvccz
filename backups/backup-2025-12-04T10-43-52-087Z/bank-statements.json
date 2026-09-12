@@ -1,0 +1,16 @@
+[
+  {
+    "id": "cmhxbw2aw0001unncozs4vshh",
+    "bankId": "cmh5u1h3y0001unagy8qtrkng",
+    "statementDate": "2025-11-03T00:00:00.000Z",
+    "openingBalance": "100000",
+    "closingBalance": "100000",
+    "totalDebits": "3150",
+    "totalCredits": "500",
+    "isReconciled": false,
+    "reconciledAt": null,
+    "reconciledById": null,
+    "createdAt": "2025-11-13T11:11:05.383Z",
+    "updatedAt": "2025-11-13T11:11:13.351Z"
+  }
+]

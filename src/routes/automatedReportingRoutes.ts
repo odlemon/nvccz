@@ -271,7 +271,7 @@ const router = express.Router();
  *       500:
  *         description: Internal server error
  */
-router.post("/templates", authenticate, authorize(["ADMIN", "MANAGER"]), AutomatedReportingController.createReportTemplate);
+router.post("/templates", authenticate, authorize(["admin", "accountant", "finance_manager", "cfo"]), AutomatedReportingController.createReportTemplate);
 
 /**
  * @swagger
@@ -360,7 +360,7 @@ router.post("/templates", authenticate, authorize(["ADMIN", "MANAGER"]), Automat
  *       500:
  *         description: Internal server error
  */
-router.get("/templates", authenticate, authorize(["ADMIN", "MANAGER", "USER"]), AutomatedReportingController.getAllReportTemplates);
+router.get("/templates", authenticate, authorize(["admin", "accountant", "finance_manager", "cfo"]), AutomatedReportingController.getAllReportTemplates);
 
 /**
  * @swagger
@@ -417,7 +417,7 @@ router.get("/templates", authenticate, authorize(["ADMIN", "MANAGER", "USER"]), 
  *       500:
  *         description: Internal server error
  */
-router.get("/analytics", authenticate, authorize(["ADMIN", "MANAGER"]), AutomatedReportingController.getReportingAnalytics);
+router.get("/analytics", authenticate, authorize(["admin", "accountant", "finance_manager", "cfo"]), AutomatedReportingController.getReportingAnalytics);
 
 /**
  * @swagger
@@ -458,7 +458,7 @@ router.get("/analytics", authenticate, authorize(["ADMIN", "MANAGER"]), Automate
  *       500:
  *         description: Internal server error
  */
-router.get("/templates/:id", authenticate, authorize(["ADMIN", "MANAGER", "USER"]), AutomatedReportingController.getReportTemplateById);
+router.get("/templates/:id", authenticate, authorize(["admin", "accountant", "finance_manager", "cfo"]), AutomatedReportingController.getReportTemplateById);
 
 /**
  * @swagger
@@ -533,7 +533,7 @@ router.get("/templates/:id", authenticate, authorize(["ADMIN", "MANAGER", "USER"
  *       500:
  *         description: Internal server error
  */
-router.put("/templates/:id", authenticate, authorize(["ADMIN", "MANAGER"]), AutomatedReportingController.updateReportTemplate);
+router.put("/templates/:id", authenticate, authorize(["admin", "accountant", "finance_manager", "cfo"]), AutomatedReportingController.updateReportTemplate);
 
 /**
  * @swagger
@@ -578,7 +578,7 @@ router.put("/templates/:id", authenticate, authorize(["ADMIN", "MANAGER"]), Auto
  *       500:
  *         description: Internal server error
  */
-router.delete("/templates/:id", authenticate, authorize(["ADMIN"]), AutomatedReportingController.deleteReportTemplate);
+router.delete("/templates/:id", authenticate, authorize(["admin", "accountant", "finance_manager", "cfo"]), AutomatedReportingController.deleteReportTemplate);
 
 /**
  * @swagger
@@ -628,7 +628,7 @@ router.delete("/templates/:id", authenticate, authorize(["ADMIN"]), AutomatedRep
  *       500:
  *         description: Internal server error
  */
-router.post("/generate", authenticate, authorize(["ADMIN", "MANAGER"]), AutomatedReportingController.generateReport);
+router.post("/generate", authenticate, authorize(["admin", "accountant", "finance_manager", "cfo"]), AutomatedReportingController.generateReport);
 
 /**
  * @swagger
@@ -695,7 +695,7 @@ router.post("/generate", authenticate, authorize(["ADMIN", "MANAGER"]), Automate
  *       500:
  *         description: Internal server error
  */
-router.post("/variance-reports", authenticate, authorize(["ADMIN", "MANAGER"]), AutomatedReportingController.createVarianceReport);
+router.post("/variance-reports", authenticate, authorize(["admin", "accountant", "finance_manager", "cfo"]), AutomatedReportingController.createVarianceReport);
 
 /**
  * @swagger
@@ -772,6 +772,6 @@ router.post("/variance-reports", authenticate, authorize(["ADMIN", "MANAGER"]), 
  *       500:
  *         description: Internal server error
  */
-router.post("/turnover-reports", authenticate, authorize(["ADMIN", "MANAGER"]), AutomatedReportingController.createTurnoverAnalysisReport);
+router.post("/turnover-reports", authenticate, authorize(["admin", "accountant", "finance_manager", "cfo"]), AutomatedReportingController.createTurnoverAnalysisReport);
 
 export default router;

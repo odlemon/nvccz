@@ -1,5 +1,7 @@
 // @ts-nocheck
 import { PrismaClient } from '@prisma/client';
+import { attachAccountingSnapshotMiddleware } from './prismaAccountingSnapshotMiddleware';
+import { attachChartOfAccountsNaturalBalanceMiddleware } from './chartOfAccountsNaturalBalance';
 
 // Prevent hot reloading from creating new instances in development
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
@@ -15,15 +17,21 @@ const getDatabaseUrl = () => {
   return `${baseUrl}${separator}connection_limit=${connectionLimit}&pool_timeout=${poolTimeout}&connect_timeout=60&socket_timeout=60`;
 };
 
-export const prisma =
-  globalForPrisma.prisma || new PrismaClient({
+function createPrismaClient(): PrismaClient {
+  const client = new PrismaClient({
     datasources: {
       db: {
         url: getDatabaseUrl()
       }
     },
-    log: ['error', 'warn'], // Enable logging for debugging
+    log: ['error', 'warn'] // Enable logging for debugging
   });
+  attachChartOfAccountsNaturalBalanceMiddleware(client);
+  attachAccountingSnapshotMiddleware(client);
+  return client;
+}
+
+export const prisma = globalForPrisma.prisma || createPrismaClient();
 
 // Store in global to prevent hot reload issues in development
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;

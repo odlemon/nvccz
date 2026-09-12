@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { PerformanceGoalService } from "../services/PerformanceGoalService";
+import { parseDate } from "../utils/dateHelper";
 
 export class PerformanceGoalController {
   // Create a new performance goal
@@ -10,12 +11,12 @@ export class PerformanceGoalController {
         title,
         description,
         type,
-        category,
         parentGoalId,
         departmentName,
         targetValue,
         targetUnit,
         currentValue,
+        kpiId,
         kpiName,
         priority,
         startDate,
@@ -26,14 +27,25 @@ export class PerformanceGoalController {
         targetOperator,
         dataSourceModule,
         dataSourceField,
-        trackingFrequency
+        trackingFrequency,
+        scorecardPillar,
+        // Governance indicator section (A1/A2/B/C/D) for Board/CEO contracts. Was accepted by
+        // PerformanceGoalService's CreatePerformanceGoalRequest but silently dropped here,
+        // since it was never destructured from the request body — no API route could ever
+        // create a governance indicator, only a seed script could.
+        scorecardSection,
+        performanceContractId,
+        contributionWeightPercent,
+        isReverseKpi,
+        strategyId,
+        scorecardWeight
       } = req.body;
       const userId = req.user.id;
 
-      if (!title || !type || !category || !startDate || !endDate || !targetValue || !targetUnit) {
+      if (!title || !type || !startDate || !endDate || !targetValue || !targetUnit) {
         return res.status(400).json({
           success: false,
-          message: "Title, type, category, start date, end date, target value, and target unit are required"
+          message: "Title, type, start date, end date, target value, and target unit are required"
         });
       }
 
@@ -41,23 +53,30 @@ export class PerformanceGoalController {
         title,
         description,
         type,
-        category,
         parentGoalId,
         departmentName,
         targetValue,
         targetUnit,
         currentValue,
+        kpiId,
         kpiName,
         priority,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
+        startDate: parseDate(startDate),
+        endDate: parseDate(endDate),
         assignedToId,
         cascadeMode,
         // NEW: Enhanced Goal Definition Form Fields
         targetOperator,
         dataSourceModule,
         dataSourceField,
-        trackingFrequency
+        trackingFrequency,
+        scorecardPillar,
+        scorecardSection,
+        performanceContractId,
+        contributionWeightPercent,
+        isReverseKpi,
+        strategyId,
+        scorecardWeight
       }, userId);
 
       res.status(201).json({
@@ -78,21 +97,27 @@ export class PerformanceGoalController {
     try {
       const {
         type,
-        category,
         status,
         department,
         assignedToId,
         parentGoalId,
+        kpiId,
+        strategicThemeId,
+        scorecardPillar,
+        pillarId,
         search
       } = req.query;
 
       const filters: any = {};
       if (type) filters.type = type as string;
-      if (category) filters.category = category as string;
       if (status) filters.status = status as string;
       if (department) filters.departmentName = department as string;
       if (assignedToId) filters.assignedToId = assignedToId as string;
       if (parentGoalId) filters.parentGoalId = parentGoalId as string;
+      if (kpiId) filters.kpiId = kpiId as string;
+      if (strategicThemeId) filters.strategicThemeId = strategicThemeId as string;
+      if (scorecardPillar) filters.scorecardPillar = scorecardPillar as string;
+      if (pillarId) filters.pillarId = pillarId as string;
       if (search) filters.search = search as string;
 
       const goals = await PerformanceGoalService.getAllPerformanceGoals(filters);
@@ -104,6 +129,24 @@ export class PerformanceGoalController {
       });
     } catch (error: any) {
       res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  // Get performance goals by KPI id
+  static async getGoalsByKpiId(req: Request, res: Response) {
+    try {
+      const { kpiId } = req.params;
+      const goals = await PerformanceGoalService.getGoalsByKpiId(kpiId);
+      return res.status(200).json({
+        success: true,
+        count: goals.length,
+        goals
+      });
+    } catch (error: any) {
+      return res.status(400).json({
         success: false,
         message: error.message
       });
@@ -137,36 +180,62 @@ export class PerformanceGoalController {
         title,
         description,
         type,
-        category,
+        parentGoalId,
+        departmentName,
         monetaryValue,
         percentValue,
         monetaryValueAchieved,
         percentValueAchieved,
         kpiId,
+        kpiName,
         priority,
         status,
         stage,
         startDate,
         endDate,
-        assignedToId
+        assignedToId,
+        targetValue,
+        targetUnit,
+        currentValue,
+        targetOperator,
+        dataSourceModule,
+        dataSourceField,
+        trackingFrequency,
+        contributionWeightPercent,
+        stretchTargetValue,
+        isReverseKpi,
+        scorecardPillar
       } = req.body;
 
       const goal = await PerformanceGoalService.updatePerformanceGoal(id, {
         title,
         description,
         type,
-        category,
+        parentGoalId,
+        departmentName,
         monetaryValue,
         percentValue,
         monetaryValueAchieved,
         percentValueAchieved,
         kpiId,
+        kpiName,
         priority,
         status,
         stage,
-        startDate: startDate ? new Date(startDate) : undefined,
-        endDate: endDate ? new Date(endDate) : undefined,
-        assignedToId
+        startDate: startDate ? parseDate(startDate) : undefined,
+        endDate: endDate ? parseDate(endDate) : undefined,
+        assignedToId,
+        targetValue,
+        targetUnit,
+        currentValue,
+        targetOperator,
+        dataSourceModule,
+        dataSourceField,
+        trackingFrequency,
+        contributionWeightPercent,
+        stretchTargetValue,
+        isReverseKpi,
+        scorecardPillar
       });
 
       res.status(200).json({
@@ -201,6 +270,48 @@ export class PerformanceGoalController {
     }
   }
 
+  static async uploadGoalAttachmentBase64(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { fileName, contentBase64, mimeType } = req.body;
+
+      const result = await PerformanceGoalService.uploadGoalAttachmentBase64(
+        id,
+        { fileName, contentBase64, mimeType },
+        req.user.id
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Goal attachment uploaded successfully",
+        result
+      });
+    } catch (error: any) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  static async uploadGoalAttachments(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const files = Array.isArray(req.files) ? req.files : [];
+      const result = await PerformanceGoalService.uploadGoalAttachments(id, files, req.user.id);
+      return res.status(200).json({
+        success: true,
+        message: "Goal attachments uploaded successfully",
+        result
+      });
+    } catch (error: any) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
   // Get performance goal statistics
   static async getPerformanceGoalStatistics(req: Request, res: Response) {
     try {
@@ -218,21 +329,29 @@ export class PerformanceGoalController {
     }
   }
 
-  // Update goal progress with absolute values
+  // Update goal progress: body `value` (or `currentValue`) is added to achieved amount; server uses goal targetUnit / legacy fields for baseline.
   static async updateGoalProgress(req: Request, res: Response) {
     try {
-      const { goalId } = req.params;
-      const { currentValue } = req.body;
+      const { id: goalId } = req.params;
+      const raw = req.body.value ?? req.body.currentValue;
       const userId = req.user.id;
 
-      if (!currentValue && currentValue !== 0) {
+      if (raw === undefined || raw === null || raw === "") {
         return res.status(400).json({
           success: false,
-          message: "Current value is required"
+          message: "value is required (alias: currentValue)"
         });
       }
 
-      const updatedGoal = await PerformanceGoalService.updateGoalProgress(goalId, currentValue, userId);
+      const num = typeof raw === "number" ? raw : parseFloat(String(raw));
+      if (Number.isNaN(num)) {
+        return res.status(400).json({
+          success: false,
+          message: "value must be a number"
+        });
+      }
+
+      const updatedGoal = await PerformanceGoalService.updateGoalProgress(goalId, num, userId);
 
       res.json({
         success: true,

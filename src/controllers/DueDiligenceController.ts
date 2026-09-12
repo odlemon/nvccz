@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { DueDiligenceService } from '../services/DueDiligenceService';
 import { ActivityService } from '../services/ActivityService';
 import { EmailNotificationService } from '../services/EmailNotificationService';
+import { parseDate } from '../utils/dateHelper';
 import { ResponseHelper } from '../utils/responseHelper';
 import { logger } from '../utils/logger';
 import { FirebaseStorageService } from '../services/FirebaseStorageService';
@@ -30,27 +31,6 @@ export class DueDiligenceController {
         applicationId: id,
         reviewerId: userId
       });
-
-      // Send due diligence started email notification
-      try {
-        await EmailNotificationService.sendDueDiligenceStartedEmail({
-          applicantName: dueDiligence.application.applicantName,
-          applicantEmail: dueDiligence.application.applicantEmail,
-          businessName: dueDiligence.application.businessName,
-          applicationId: dueDiligence.application.id,
-          currentStage: 'UNDER_DUE_DILIGENCE'
-        });
-        logger.info("Due diligence started email sent successfully", {
-          applicationId: id,
-          applicantEmail: dueDiligence.application.applicantEmail
-        });
-      } catch (emailError) {
-        logger.error("Failed to send due diligence started email", {
-          applicationId: id,
-          error: emailError.message
-        });
-        // Don't fail the due diligence initiation if email fails
-      }
 
       logger.info("Due diligence initiated", {
         applicationId: id,
@@ -138,25 +118,47 @@ export class DueDiligenceController {
 
       const dueDiligence = await DueDiligenceService.completeDueDiligence(id);
 
-      // Send due diligence completed email notification
+      // Send due diligence completed email notification (applicant)
       try {
         await EmailNotificationService.sendDueDiligenceCompletedEmail({
           applicantName: dueDiligence.application.applicantName,
           applicantEmail: dueDiligence.application.applicantEmail,
           businessName: dueDiligence.application.businessName,
           applicationId: dueDiligence.application.id,
-          currentStage: 'DUE_DILIGENCE_COMPLETED'
+          currentStage: dueDiligence.application.currentStage || 'TERM_SHEET'
         });
-        logger.info("Due diligence completed email sent successfully", {
+        logger.info("Due diligence completed email sent to applicant", {
           applicationId: id,
           applicantEmail: dueDiligence.application.applicantEmail
         });
-      } catch (emailError) {
-        logger.error("Failed to send due diligence completed email", {
+      } catch (emailError: any) {
+        logger.error("Failed to send due diligence completed email to applicant", {
           applicationId: id,
           error: emailError.message
         });
-        // Don't fail the due diligence completion if email fails
+      }
+
+      // Notify DD reviewer / deal owner (internal)
+      if (dueDiligence.reviewer?.email) {
+        try {
+          await EmailNotificationService.sendDueDiligenceCompletedReviewerEmail({
+            reviewerName: `${dueDiligence.reviewer.firstName || ''} ${dueDiligence.reviewer.lastName || ''}`.trim() || 'Reviewer',
+            reviewerEmail: dueDiligence.reviewer.email,
+            businessName: dueDiligence.application.businessName,
+            applicationId: dueDiligence.application.id,
+            recommendation: dueDiligence.recommendation || '',
+            overallScore: dueDiligence.overallScore != null ? String(dueDiligence.overallScore) : '',
+          });
+          logger.info("Due diligence completed email sent to reviewer", {
+            applicationId: id,
+            reviewerEmail: dueDiligence.reviewer.email
+          });
+        } catch (emailError: any) {
+          logger.error("Failed to send due diligence completed email to reviewer", {
+            applicationId: id,
+            error: emailError.message
+          });
+        }
       }
 
       logger.info("Due diligence completed", {
@@ -234,7 +236,7 @@ export class DueDiligenceController {
   static async assignDueDiligenceTask(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params; // applicationId
-      const { assigneeId, title, description, priority, dueDate } = req.body;
+      const { assigneeId, title, description, priority, dueDate, category } = req.body;
       const assignedById = (req as any).user?.id;
 
       if (!id) {
@@ -264,7 +266,8 @@ export class DueDiligenceController {
           title,
           description,
           priority,
-          dueDate: dueDate ? new Date(dueDate) : undefined
+          dueDate: dueDate ? parseDate(dueDate) : undefined,
+          category
         },
         assignedById
       );

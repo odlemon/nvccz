@@ -2,8 +2,12 @@
 import express from "express";
 import { KPIController } from "../controllers/KPIController";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 
 const router = express.Router();
+const READ_KEYS = ["performance.kpi.view", "performance.kpi.manage"]
+const WRITE_KEYS = ["performance.kpi.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 /**
  * @swagger
@@ -13,7 +17,6 @@ const router = express.Router();
  *       type: object
  *       required:
  *         - name
- *         - type
  *       properties:
  *         id:
  *           type: string
@@ -21,22 +24,15 @@ const router = express.Router();
  *         name:
  *           type: string
  *           description: KPI name
- *         type:
+ *         unitCategory:
  *           type: string
- *           enum: [Metric, Percentage]
- *           description: KPI type
+ *           description: Drives Metric vs Percent style semantics with unit field (replaces legacy type)
  *         branch:
  *           type: string
  *           description: Branch association
- *         weightValue:
- *           type: number
- *           description: Weight value for the KPI
  *         hasUnit:
  *           type: boolean
  *           description: Whether the KPI has a unit
- *         unitCategory:
- *           type: string
- *           description: Unit category
  *         unit:
  *           type: string
  *           description: Unit name
@@ -49,7 +45,13 @@ const router = express.Router();
  *           description: Unit position
  *         isActive:
  *           type: boolean
- *           description: Whether the KPI is active
+ *           description: Synced with goal links (inactive until linked unless overridden)
+ *         scorecardPillar:
+ *           type: string
+ *           nullable: true
+ *           description: BSC org pillar (e.g. Financial, Customer & Market)
+ *         isFinancial:
+ *           type: boolean
  *         createdAt:
  *           type: string
  *           format: date-time
@@ -63,7 +65,7 @@ const router = express.Router();
  * /api/kpis:
  *   post:
  *     summary: Create a new KPI
- *     tags: [KPIs]
+ *     tags: [KPIs, performance-kpis]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -74,37 +76,59 @@ const router = express.Router();
  *             type: object
  *             required:
  *               - name
- *               - type
+ *               - isReverseKpi
+ *               - hasUnit
+ *               - unitCategory
+ *               - code
+ *               - description
+ *               - isFinancial
+ *               - pillarId
  *             properties:
  *               name:
  *                 type: string
  *                 description: KPI name
- *               type:
- *                 type: string
- *                 enum: [Metric, Percentage]
- *                 description: KPI type
- *               branch:
- *                 type: string
- *                 description: Branch association
- *               weightValue:
- *                 type: number
- *                 description: Weight value for the KPI
+ *               isReverseKpi:
+ *                 type: boolean
+ *                 description: Lower actual is better — goals linked by kpiName default to reverse scoring
  *               hasUnit:
  *                 type: boolean
  *                 description: Whether the KPI has a unit
  *               unitCategory:
  *                 type: string
- *                 description: Unit category
+ *                 description: Unit category (e.g. Currency, Percentage)
  *               unit:
  *                 type: string
- *                 description: Unit name
+ *                 description: Unit name; required only when hasUnit is true
  *               unitSymbol:
  *                 type: string
- *                 description: Unit symbol
+ *                 description: Unit symbol; required only when hasUnit is true
  *               unitPosition:
  *                 type: string
  *                 enum: [prefix, suffix]
- *                 description: Unit position
+ *                 description: Unit position; required only when hasUnit is true
+ *               code:
+ *                 type: string
+ *                 description: Stable catalog code (e.g. TRAINING_EXPENSE)
+ *               description:
+ *                 type: string
+ *                 description: Long description (catalog)
+ *               accountType:
+ *                 type: string
+ *                 enum: [Revenue, Expense, Asset, Liability, Equity]
+ *                 description: Required when isFinancial is true
+ *               accountNumber:
+ *                 type: string
+ *                 nullable: true
+ *                 description: GL/chart id for journals; required when isFinancial is true
+ *               journalEntryType:
+ *                 type: string
+ *                 enum: [Debit, Credit]
+ *                 description: Required when isFinancial is true
+ *               isFinancial:
+ *                 type: boolean
+ *               pillarId:
+ *                 type: string
+ *                 description: Required. Scorecard pillar id (e.g. bsc_financial, bsc_internal_operations)
  *     responses:
  *       201:
  *         description: KPI created successfully
@@ -113,7 +137,7 @@ const router = express.Router();
  *       401:
  *         description: Unauthorized
  */
-router.post("/", authenticate, KPIController.createKPI);
+router.post("/", authenticate, guard, KPIController.createKPI);
 
 /**
  * @swagger
@@ -124,17 +148,6 @@ router.post("/", authenticate, KPIController.createKPI);
  *     security:
  *       - bearerAuth: []
  *     parameters:
- *       - in: query
- *         name: type
- *         schema:
- *           type: string
- *           enum: [Metric, Percentage]
- *         description: Filter by KPI type
- *       - in: query
- *         name: branch
- *         schema:
- *           type: string
- *         description: Filter by branch
  *       - in: query
  *         name: isActive
  *         schema:
@@ -150,13 +163,18 @@ router.post("/", authenticate, KPIController.createKPI);
  *         schema:
  *           type: string
  *         description: Search in name, unit category, and unit
+ *       - in: query
+ *         name: scorecardPillar
+ *         schema:
+ *           type: string
+ *         description: Filter by BSC org pillar (exact match to stored value, e.g. Financial)
  *     responses:
  *       200:
  *         description: List of KPIs
  *       401:
  *         description: Unauthorized
  */
-router.get("/", authenticate, KPIController.getAllKPIs);
+router.get("/", authenticate, guard, KPIController.getAllKPIs);
 
 /**
  * @swagger
@@ -172,7 +190,7 @@ router.get("/", authenticate, KPIController.getAllKPIs);
  *       401:
  *         description: Unauthorized
  */
-router.get("/statistics", authenticate, KPIController.getKPIStatistics);
+router.get("/statistics", authenticate, guard, KPIController.getKPIStatistics);
 
 /**
  * @swagger
@@ -189,21 +207,15 @@ router.get("/statistics", authenticate, KPIController.getKPIStatistics);
  *           type: string
  *         description: Filter by specific KPI ID
  *       - in: query
- *         name: type
- *         schema:
- *           type: string
- *           enum: [Metric, Percentage]
- *         description: Filter by KPI type
- *       - in: query
- *         name: departmentId
- *         schema:
- *           type: string
- *         description: Filter by department ID
- *       - in: query
  *         name: isActive
  *         schema:
  *           type: boolean
  *         description: Filter by active status
+ *       - in: query
+ *         name: scorecardPillar
+ *         schema:
+ *           type: string
+ *         description: Filter by BSC org pillar (exact match)
  *     responses:
  *       200:
  *         description: Comprehensive KPI tracking data with progress metrics
@@ -228,10 +240,12 @@ router.get("/statistics", authenticate, KPIController.getKPIStatistics);
  *                             type: string
  *                           name:
  *                             type: string
- *                           type:
+ *                           unitCategory:
  *                             type: string
- *                           departmentId:
+ *                             nullable: true
+ *                           scorecardPillar:
  *                             type: string
+ *                             nullable: true
  *                           tracking:
  *                             type: object
  *                             properties:
@@ -272,7 +286,7 @@ router.get("/statistics", authenticate, KPIController.getKPIStatistics);
  *       400:
  *         description: Bad request
  */
-router.get("/tracking", authenticate, KPIController.getKPITracking);
+router.get("/tracking", authenticate, guard, KPIController.getKPITracking);
 
 /**
  * @swagger
@@ -284,10 +298,10 @@ router.get("/tracking", authenticate, KPIController.getKPITracking);
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
- *         name: departmentId
+ *         name: scorecardPillar
  *         schema:
  *           type: string
- *         description: Filter by department ID
+ *         description: Filter by BSC org pillar (exact match)
  *       - in: query
  *         name: period
  *         schema:
@@ -323,19 +337,6 @@ router.get("/tracking", authenticate, KPIController.getKPITracking);
  *                           type: number
  *                         onTrackPercentage:
  *                           type: number
- *                     departmentBreakdown:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           departmentId:
- *                             type: string
- *                           departmentName:
- *                             type: string
- *                           kpiCount:
- *                             type: number
- *                           averageProgress:
- *                             type: number
  *                     performanceMetrics:
  *                       type: object
  *                       properties:
@@ -348,6 +349,9 @@ router.get("/tracking", authenticate, KPIController.getKPITracking);
  *                                 type: string
  *                               name:
  *                                 type: string
+ *                               scorecardPillar:
+ *                                 type: string
+ *                                 nullable: true
  *                               progress:
  *                                 type: number
  *                         needsAttentionKPIs:
@@ -359,6 +363,9 @@ router.get("/tracking", authenticate, KPIController.getKPITracking);
  *                                 type: string
  *                               name:
  *                                 type: string
+ *                               scorecardPillar:
+ *                                 type: string
+ *                                 nullable: true
  *                               progress:
  *                                 type: number
  *                     trends:
@@ -377,7 +384,7 @@ router.get("/tracking", authenticate, KPIController.getKPITracking);
  *       400:
  *         description: Bad request
  */
-router.get("/analytics/summary", authenticate, KPIController.getKPIAnalyticsSummary);
+router.get("/analytics/summary", authenticate, guard, KPIController.getKPIAnalyticsSummary);
 
 /**
  * @swagger
@@ -402,14 +409,14 @@ router.get("/analytics/summary", authenticate, KPIController.getKPIAnalyticsSumm
  *       401:
  *         description: Unauthorized
  */
-router.get("/:id", authenticate, KPIController.getKPIById);
+router.get("/:id", authenticate, guard, KPIController.getKPIById);
 
 /**
  * @swagger
  * /api/kpis/{id}:
  *   put:
- *     summary: Update KPI
- *     tags: [KPIs]
+ *     summary: Update KPI (same handler as PATCH /api/performance/kpis/{id})
+ *     tags: [KPIs, performance-kpis]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -418,64 +425,47 @@ router.get("/:id", authenticate, KPIController.getKPIById);
  *         required: true
  *         schema:
  *           type: string
- *         description: KPI ID
  *     requestBody:
- *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
+ *             description: Partial update — send only fields to change
  *             properties:
- *               name:
+ *               name: { type: string }
+ *               isReverseKpi: { type: boolean }
+ *               hasUnit: { type: boolean }
+ *               unitCategory: { type: string }
+ *               unit: { type: string }
+ *               unitSymbol: { type: string }
+ *               unitPosition: { type: string, enum: [prefix, suffix] }
+ *               isActive: { type: boolean }
+ *               code: { type: string }
+ *               description: { type: string }
+ *               accountType: { type: string, enum: [Revenue, Expense, Asset, Liability, Equity] }
+ *               accountNumber: { type: string, nullable: true }
+ *               journalEntryType: { type: string, enum: [Debit, Credit] }
+ *               isFinancial: { type: boolean }
+ *               scorecardPillar:
  *                 type: string
- *                 description: KPI name
- *               type:
- *                 type: string
- *                 enum: [Metric, Percentage]
- *                 description: KPI type
- *               branch:
- *                 type: string
- *                 description: Branch association
- *               weightValue:
- *                 type: number
- *                 description: Weight value for the KPI
- *               hasUnit:
- *                 type: boolean
- *                 description: Whether the KPI has a unit
- *               unitCategory:
- *                 type: string
- *                 description: Unit category
- *               unit:
- *                 type: string
- *                 description: Unit name
- *               unitSymbol:
- *                 type: string
- *                 description: Unit symbol
- *               unitPosition:
- *                 type: string
- *                 enum: [prefix, suffix]
- *                 description: Unit position
- *               isActive:
- *                 type: boolean
- *                 description: Whether the KPI is active
+ *                 nullable: true
+ *                 description: BSC org pillar; omit to leave unchanged
  *     responses:
  *       200:
  *         description: KPI updated successfully
  *       400:
  *         description: Bad request
- *       404:
- *         description: KPI not found
  *       401:
  *         description: Unauthorized
  */
-router.put("/:id", authenticate, KPIController.updateKPI);
+router.put("/:id", authenticate, guard, KPIController.updateKPI);
 
 /**
  * @swagger
  * /api/kpis/{id}:
  *   delete:
- *     summary: Delete KPI
- *     tags: [KPIs]
+ *     summary: Delete KPI (same handler as DELETE /api/performance/kpis/{id})
+ *     tags: [KPIs, performance-kpis]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -484,17 +474,14 @@ router.put("/:id", authenticate, KPIController.updateKPI);
  *         required: true
  *         schema:
  *           type: string
- *         description: KPI ID
  *     responses:
  *       200:
- *         description: KPI deleted successfully
+ *         description: Deleted
  *       400:
- *         description: Bad request
- *       404:
- *         description: KPI not found
+ *         description: Validation or cannot delete (e.g. linked goals)
  *       401:
  *         description: Unauthorized
  */
-router.delete("/:id", authenticate, KPIController.deleteKPI);
+router.delete("/:id", authenticate, guard, KPIController.deleteKPI);
 
 export default router;

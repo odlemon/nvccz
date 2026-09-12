@@ -2,11 +2,15 @@
 import express from "express";
 import { PerformanceReviewCycleController } from "../controllers/PerformanceReviewCycleController";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 
 const router = express.Router();
+const READ_KEYS = ["performance.reviews.view", "performance.reviews.manage"]
+const WRITE_KEYS = ["performance.reviews.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * components:
  *   schemas:
  *     PerformanceReviewCycle:
@@ -65,7 +69,7 @@ const router = express.Router();
  */
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance/review-cycles:
  *   post:
  *     summary: Create a new performance review cycle
@@ -121,7 +125,7 @@ const router = express.Router();
  *               reviewRatingScale:
  *                 type: string
  *                 description: Review rating scale
- *                 example: "1-5 Scale"
+ *                 example: "1-6 Scale"
  *     responses:
  *       201:
  *         description: Performance review cycle created successfully
@@ -141,10 +145,10 @@ const router = express.Router();
  *       401:
  *         description: Unauthorized
  */
-router.post("/", authenticate, PerformanceReviewCycleController.createReviewCycle);
+router.post("/", authenticate, guard, PerformanceReviewCycleController.createReviewCycle);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance/review-cycles:
  *   get:
  *     summary: Get all performance review cycles
@@ -201,10 +205,10 @@ router.post("/", authenticate, PerformanceReviewCycleController.createReviewCycl
  *       401:
  *         description: Unauthorized
  */
-router.get("/", authenticate, PerformanceReviewCycleController.getAllReviewCycles);
+router.get("/", authenticate, guard, PerformanceReviewCycleController.getAllReviewCycles);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance/review-cycles/{cycleId}:
  *   get:
  *     summary: Get review cycle by ID
@@ -237,10 +241,10 @@ router.get("/", authenticate, PerformanceReviewCycleController.getAllReviewCycle
  *       401:
  *         description: Unauthorized
  */
-router.get("/:cycleId", authenticate, PerformanceReviewCycleController.getReviewCycleById);
+router.get("/:cycleId", authenticate, guard, PerformanceReviewCycleController.getReviewCycleById);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance/review-cycles/{cycleId}:
  *   put:
  *     summary: Update performance review cycle
@@ -314,10 +318,10 @@ router.get("/:cycleId", authenticate, PerformanceReviewCycleController.getReview
  *       401:
  *         description: Unauthorized
  */
-router.put("/:cycleId", authenticate, PerformanceReviewCycleController.updateReviewCycle);
+router.put("/:cycleId", authenticate, guard, PerformanceReviewCycleController.updateReviewCycle);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance/review-cycles/{cycleId}:
  *   delete:
  *     summary: Delete performance review cycle
@@ -348,10 +352,10 @@ router.put("/:cycleId", authenticate, PerformanceReviewCycleController.updateRev
  *       401:
  *         description: Unauthorized
  */
-router.delete("/:cycleId", authenticate, PerformanceReviewCycleController.deleteReviewCycle);
+router.delete("/:cycleId", authenticate, guard, PerformanceReviewCycleController.deleteReviewCycle);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance/review-cycles/active:
  *   get:
  *     summary: Get active review cycle
@@ -379,10 +383,10 @@ router.delete("/:cycleId", authenticate, PerformanceReviewCycleController.delete
  *       401:
  *         description: Unauthorized
  */
-router.get("/active", authenticate, PerformanceReviewCycleController.getActiveReviewCycle);
+router.get("/active", authenticate, guard, PerformanceReviewCycleController.getActiveReviewCycle);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance/review-cycles/check-deadlines:
  *   post:
  *     summary: Check review cycle deadlines
@@ -406,10 +410,10 @@ router.get("/active", authenticate, PerformanceReviewCycleController.getActiveRe
  *       401:
  *         description: Unauthorized
  */
-router.post("/check-deadlines", authenticate, PerformanceReviewCycleController.checkReviewCycleDeadlines);
+router.post("/check-deadlines", authenticate, guard, PerformanceReviewCycleController.checkReviewCycleDeadlines);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance/review-cycles/{cycleId}/stats:
  *   get:
  *     summary: Get review cycle statistics
@@ -476,10 +480,10 @@ router.post("/check-deadlines", authenticate, PerformanceReviewCycleController.c
  *       401:
  *         description: Unauthorized
  */
-router.get("/:cycleId/stats", authenticate, PerformanceReviewCycleController.getReviewCycleStats);
+router.get("/:cycleId/stats", authenticate, guard, PerformanceReviewCycleController.getReviewCycleStats);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance/review-cycles/{cycleId}/close:
  *   post:
  *     summary: Close review cycle
@@ -510,6 +514,6 @@ router.get("/:cycleId/stats", authenticate, PerformanceReviewCycleController.get
  *       401:
  *         description: Unauthorized
  */
-router.post("/:cycleId/close", authenticate, PerformanceReviewCycleController.closeReviewCycle);
+router.post("/:cycleId/close", authenticate, guard, PerformanceReviewCycleController.closeReviewCycle);
 
 export default router;

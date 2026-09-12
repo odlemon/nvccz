@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { StatementOfEquityService, StatementOfEquityParams } from "../services/StatementOfEquityService";
+import { parseDate } from "../utils/dateHelper";
 
 export class StatementOfEquityController {
   /**
@@ -18,8 +19,8 @@ export class StatementOfEquityController {
       }
 
       const params: StatementOfEquityParams = {
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
+        startDate: parseDate(startDate),
+        endDate: parseDate(endDate),
         currencyId
       };
 

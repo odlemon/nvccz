@@ -1,10 +1,23 @@
 // @ts-nocheck
 import { PrismaClient } from "@prisma/client";
+import { randomBytes } from "crypto";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
 import JournalEntryService from "./JournalEntryService";
 import AuditService from "./AuditService";
 import { ApprovalService } from "./ApprovalService";
+import { CashbookService } from "./CashbookService";
+import VATService from "./VATService";
+import { nextUnifiedInvoiceNumber } from "../utils/accountingDocumentNumbers";
+import {
+  nextProcurementGrnNumber,
+  nextProcurementPoNumber,
+  nextProcurementRequisitionNumber,
+  nextProcurementRfqNumber,
+} from "../utils/procurementDocumentNumbers";
+import { computePurchaseRequisitionContentFingerprint } from "../utils/purchaseRequisitionContentFingerprint";
+import { normalizeRfqItemLinesFromBody, prItemsToNormalizedRfqLines } from "../utils/rfqItemInput";
+import { isModulePrivilegedUser, isCfoUser } from "../config/cfoModulePermissions";
 
 // Hardcoded departments
 export enum Department {
@@ -31,6 +44,14 @@ export interface CreatePurchaseRequisitionParams {
   requestedById: string;
   priority?: string;
   justification?: string;
+  /** Aligns with vendor.category for RFQ vendor filtering (e.g. AGROTECH, SOLAR, IT_SERVICES). */
+  sourcingCategory?: string;
+  /** Investee portal (Suite 02): portfolio company for drawdown cap. */
+  portfolioCompanyId?: string;
+  fundId?: string;
+  useOfFundsDocumentUrl?: string;
+  /** Required with portfolioCompanyId — vs tranche − pending PRs. */
+  drawdownRequestAmount?: number;
   items: {
     itemName: string;
     description?: string;
@@ -51,12 +72,21 @@ export interface CreateRFQParams {
   rfqDeadline?: Date;
   specialRequirements?: string;
   createdById: string;
-  items: {
+  /** Suite 03.10 */
+  visibility?: "INVITED_ONLY" | "PUBLIC_LISTING";
+  reportingCurrencyId?: string;
+  priceWeight?: number;
+  technicalWeight?: number;
+  /** When omitted or empty and `requisitionId` is set, PR line items are copied. */
+  items?: {
     itemName: string;
     description?: string;
     quantity: number;
     unit?: string;
     specifications?: any;
+    /** Reference pricing on RFQ snapshot (optional; null = vendor quotes). */
+    unitPrice?: number | null;
+    lineTotal?: number | null;
   }[];
 }
 
@@ -72,6 +102,9 @@ export interface CreatePurchaseOrderParams {
   paymentTerms?: string;
   deliveryTerms?: string;
   createdById: string;
+  /** Suite 04 */
+  validityEndDate?: Date;
+  drawdownTrancheId?: string;
   items: {
     itemName: string;
     description?: string;
@@ -79,18 +112,28 @@ export interface CreatePurchaseOrderParams {
     unitPrice: number;
     unit?: string;
     specifications?: any;
+    expectedDeliveryDate?: Date;
   }[];
 }
 
 export interface CreateProcurementInvoiceParams {
   purchaseOrderId?: string;
-  vendorId: string;
-  invoiceDate: Date;
+  /** Required for staff-created invoices. For public vendor submits, derived from `vendorPortalToken` when set. */
+  vendorId?: string;
+  /**
+   * Signed portal token (`PO_VENDOR_INVOICE`) embedding vendor id + purchase order id.
+   * Required when `createdById` is absent (vendor self-serve).
+   */
+  vendorPortalToken?: string;
+  /** Required for staff creates; ignored when `vendorPortalToken` is set (uses current date). */
+  invoiceDate?: Date;
   dueDate?: Date;
   currencyId?: string;
   documentPath?: string;
   documentType?: string;
-  createdById: string;
+  /** Phase 2 — staged upload ids from document-attachments portal upload */
+  attachmentIds?: string[];
+  createdById?: string; // Optional for public vendor submissions
   items: {
     itemName: string;
     description?: string;
@@ -129,40 +172,29 @@ export interface AIMatchingResult {
 }
 
 export class ProcurementService {
-  /**
-   * Generate unique requisition number
-   */
-  private static generateRequisitionNumber(): string {
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `REQ-${timestamp}-${random}`;
+  // Document numbering:
+  // Use the same shape as accounting docs: PREFIX_YYYYMMDD_0001 (UTC day, per-document sequence).
+  // Prefixes are distinct from accounting (`INV_`, `QUO_`) so numbers do not clash across modules.
+
+  /** Safe segment for building `PO-…` numbers from vendor quotation numbers. */
+  private static sanitizeQuotationNumberForPoSegment(raw: string): string {
+    const t = String(raw || "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-zA-Z0-9._-]/g, "");
+    const seg = t.slice(0, 80);
+    return seg.length > 0 ? seg : "Q";
   }
 
   /**
-   * Generate unique RFQ number
+   * When a PO is created from an accepted vendor quotation, align the PO number with that quotation
+   * (e.g. `PO-VQ-2026-0042` instead of an unrelated `PO-{timestamp}-{rand}`), so procurement and finance
+   * see the same logical reference. Falls back to timestamp PO if quotation is missing or collision.
    */
-  private static generateRFQNumber(): string {
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `RFQ-${timestamp}-${random}`;
-  }
-
-  /**
-   * Generate unique PO number
-   */
-  private static generatePONumber(): string {
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `PO-${timestamp}-${random}`;
-  }
-
-  /**
-   * Generate unique GRN number
-   */
-  private static generateGRNNumber(): string {
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `GRN-${timestamp}-${random}`;
+  private static async resolvePoNumberForCreate(quotationId?: string | null): Promise<string> {
+    // Always use PO_YYYYMMDD_#### to match agreed numbering format.
+    // Quotation reference is carried via `quotationId` + API includes `quotation.quotationNumber` for display.
+    return nextProcurementPoNumber(prisma as any, new Date());
   }
 
   /**
@@ -177,6 +209,11 @@ export class ProcurementService {
         requestedById,
         priority = "MEDIUM",
         justification,
+        sourcingCategory,
+        portfolioCompanyId,
+        fundId: fundIdParam,
+        useOfFundsDocumentUrl,
+        drawdownRequestAmount,
         items
       } = params;
 
@@ -190,6 +227,34 @@ export class ProcurementService {
         throw new Error(`Invalid department. Must be one of: ${Object.values(Department).join(', ')}`);
       }
 
+      let resolvedPortfolioId: string | undefined;
+      let resolvedFundId: string | undefined;
+      let drawdownDec: Decimal | undefined;
+      if (portfolioCompanyId != null && String(portfolioCompanyId).trim() !== "") {
+        resolvedPortfolioId = String(portfolioCompanyId).trim();
+        const pc = await prisma.portfolioCompany.findUnique({
+          where: { id: resolvedPortfolioId },
+          select: { id: true, fundId: true },
+        });
+        if (!pc) {
+          throw new Error("Portfolio company not found");
+        }
+        if (drawdownRequestAmount == null || Number(drawdownRequestAmount) <= 0) {
+          throw new Error("drawdownRequestAmount is required and must be positive for investee drawdown requisitions.");
+        }
+        drawdownDec = new Decimal(Number(drawdownRequestAmount));
+        const { InvesteeDrawdownProcurementService } = await import(
+          "./InvesteeDrawdownProcurementService"
+        );
+        await InvesteeDrawdownProcurementService.assertDrawdownWithinTranche({
+          portfolioCompanyId: resolvedPortfolioId,
+          additionalAmount: drawdownDec,
+        });
+        resolvedFundId = fundIdParam != null && String(fundIdParam).trim() !== ""
+          ? String(fundIdParam).trim()
+          : pc.fundId ?? undefined;
+      }
+
       console.log("\n════════════════════════════════════════════════════════════════");
       console.log("📝 CREATING PURCHASE REQUISITION");
       console.log("════════════════════════════════════════════════════════════════");
@@ -199,24 +264,48 @@ export class ProcurementService {
       console.log("");
 
       // Create requisition (no prices, no total amount)
+      const { normalizeVendorCategory } = await import("../utils/vendorCategoryNormalize");
+      const normalizedSourcing =
+        sourcingCategory != null && String(sourcingCategory).trim() !== ""
+          ? normalizeVendorCategory(sourcingCategory)
+          : undefined;
+
+      // Line estimates are the requester's internal figure: they give the department head a value to
+      // approve against and are never copied onto an RFQ (see prItemsToNormalizedRfqLines).
+      const estimateOf = (item: any) => {
+        const n = Number(item?.unitPrice ?? item?.estimatedUnitPrice ?? 0);
+        return Number.isFinite(n) && n > 0 ? n : 0;
+      };
+      const requisitionEstimateTotal = items.reduce(
+        (sum, item) => sum + estimateOf(item) * Number(item.quantity || 0),
+        0
+      );
+
       const requisition = await prisma.purchaseRequisition.create({
         data: {
-          requisitionNumber: this.generateRequisitionNumber(),
+          requisitionNumber: await nextProcurementRequisitionNumber(prisma as any, new Date()),
           title,
           description,
           department: department, // ⬅️ Now storing department name as string
           requestedById,
           priority,
           justification,
-          totalAmount: new Decimal(0), // No prices yet, will be determined after vendor quotes
+          ...(normalizedSourcing ? { sourcingCategory: normalizedSourcing } : {}),
+          ...(resolvedPortfolioId ? { portfolioCompanyId: resolvedPortfolioId } : {}),
+          ...(resolvedFundId ? { fundId: resolvedFundId } : {}),
+          ...(useOfFundsDocumentUrl != null && String(useOfFundsDocumentUrl).trim() !== ""
+            ? { useOfFundsDocumentUrl: String(useOfFundsDocumentUrl).trim() }
+            : {}),
+          ...(drawdownDec ? { drawdownRequestAmount: drawdownDec } : {}),
+          totalAmount: new Decimal(requisitionEstimateTotal),
           status: "DRAFT",
           items: {
             create: items.map(item => ({
               itemName: item.itemName,
               description: item.description,
               quantity: new Decimal(item.quantity),
-              unitPrice: new Decimal(0), // No price yet - will get from vendor quotes
-              totalPrice: new Decimal(0), // No price yet
+              unitPrice: new Decimal(estimateOf(item)),
+              totalPrice: new Decimal(estimateOf(item) * Number(item.quantity || 0)),
               unit: item.unit,
               specifications: item.specifications
             }))
@@ -249,93 +338,8 @@ export class ProcurementService {
       console.log("════════════════════════════════════════════════════════════════");
       console.log("");
 
-      // Trigger approval workflow
-      console.log("🔄 Initiating approval workflow...");
-      const approvalResult = await ApprovalService.createApprovalRequest({
-        stageType: "PURCHASE_REQUISITION",
-        entityId: requisition.id,
-        entityData: {
-          requisitionNumber: requisition.requisitionNumber,
-          title: requisition.title,
-          department: requisition.department,
-          totalAmount: requisition.totalAmount.toString(),
-          itemCount: items.length
-        },
-        requestedById: requestedById,
-        department: department as any // Cast to Department enum for filtering
-      });
-
-      // Update requisition status based on approval workflow
-      let updatedRequisition;
-      if (approvalResult) {
-        // Approval workflow created - update status to PENDING_APPROVAL
-        updatedRequisition = await prisma.purchaseRequisition.update({
-          where: { id: requisition.id },
-          data: { status: "PENDING_APPROVAL" },
-          include: {
-            requestedBy: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                userDepartment: true,
-                departmentRole: true,
-                roleCode: true
-              }
-            },
-            items: true
-          }
-        });
-        console.log("✅ Requisition status updated to PENDING_APPROVAL");
-      
-        // Send email notification to department HEAD when requisition is submitted
-        try {
-          const { EmailNotificationService } = await import('./EmailNotificationService');
-          
-          // Find department HEAD
-          const departmentHeads = await prisma.user.findMany({
-            where: {
-              userDepartment: department,
-              departmentRole: 'HEAD'
-            },
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          });
-
-          if (departmentHeads.length > 0) {
-            for (const head of departmentHeads) {
-              await EmailNotificationService.sendRequisitionSubmittedToHead({
-                headName: `${head.firstName} ${head.lastName}`,
-                headEmail: head.email,
-                requisitionNumber: updatedRequisition.requisitionNumber,
-                title: updatedRequisition.title,
-                department: updatedRequisition.department,
-                submittedByName: `${updatedRequisition.requestedBy.firstName} ${updatedRequisition.requestedBy.lastName}`,
-                submittedByEmail: updatedRequisition.requestedBy.email,
-                totalAmount: Number(updatedRequisition.totalAmount),
-                itemCount: items.length,
-                status: updatedRequisition.status,
-                companyName: 'NVCCZ'
-              });
-            }
-          }
-        } catch (emailError: any) {
-          console.error("⚠️  Error sending email notification:", emailError.message || emailError);
-          // Don't throw - email failure shouldn't block requisition creation
-        }
-      } else {
-        // No approval stages configured - keep as DRAFT
-        updatedRequisition = requisition;
-        console.log("⚠️  No approval stages configured - Requisition remains in DRAFT status");
-        console.log("    Submit the requisition using /submit endpoint to initiate approval");
-      }
-
-      return updatedRequisition;
+      console.log("ℹ️ Purchase requisition created in DRAFT status. Submit via /submit endpoint to initiate approvals.");
+      return requisition;
     } catch (error) {
       console.error("Error creating purchase requisition:", error);
       throw error;
@@ -372,12 +376,6 @@ export class ProcurementService {
               firstName: true,
               lastName: true,
               email: true
-            }
-          },
-          department: {
-            select: {
-              id: true,
-              name: true
             }
           },
           items: true
@@ -488,6 +486,366 @@ export class ProcurementService {
   }
 
   /**
+   * Create default approval request when no config exists
+   * Default: Department HEAD approval (1 step)
+   */
+  private static async createDefaultApprovalRequest(params: {
+    stageType: "PURCHASE_REQUISITION" | "PURCHASE_ORDER" | "INVOICE" | "GRN";
+    entityId: string;
+    entityData?: any;
+    requestedById: string;
+    department: Department;
+  }) {
+    console.log("\n════════════════════════════════════════════════════════════════");
+    console.log("📝 CREATING DEFAULT APPROVAL REQUEST");
+    console.log("════════════════════════════════════════════════════════════════");
+    console.log(`🔖 Stage Type: ${params.stageType}`);
+    console.log(`🆔 Entity ID: ${params.entityId}`);
+    console.log(`👤 Requested By: ${params.requestedById}`);
+    console.log(`🏢 Department: ${params.department}`);
+    console.log("");
+
+    // Find or create default approval config
+    let defaultConfig = await prisma.procurementApprovalConfig.findFirst({
+      where: {
+        name: "Default Approval Config",
+        isActive: true
+      }
+    });
+
+    if (!defaultConfig) {
+      // Create default config
+      defaultConfig = await prisma.procurementApprovalConfig.create({
+        data: {
+          name: "Default Approval Config",
+          description: "Default approval configuration for department HEAD approval",
+          isActive: true,
+          createdById: params.requestedById,
+          department: null // General config
+        }
+      });
+      console.log(`✅ Created default approval config: ${defaultConfig.id}`);
+    } else {
+      console.log(`✅ Using existing default approval config: ${defaultConfig.id}`);
+    }
+
+    // Find or create default approval stage for department HEAD
+    let defaultStage = await prisma.procurementApprovalStage.findFirst({
+      where: {
+        configId: defaultConfig.id,
+        stageType: params.stageType,
+        stepNumber: 1
+      }
+    });
+
+    if (!defaultStage) {
+      // Create default stage for department HEAD approval
+      defaultStage = await prisma.procurementApprovalStage.create({
+        data: {
+          configId: defaultConfig.id,
+          stageType: params.stageType,
+          stepNumber: 1,
+          stepName: "Department Head Approval",
+          stepType: "DEPARTMENT",
+          requiredDepartmentRole: "HEAD",
+          requiredUserDepartment: params.department,
+          isRequired: true,
+          canDelegate: false,
+          autoApprove: false,
+          approvalOrder: "SEQUENTIAL"
+        }
+      });
+      console.log(`✅ Created default approval stage: ${defaultStage.id}`);
+    } else {
+      console.log(`✅ Using existing default approval stage: ${defaultStage.id}`);
+    }
+
+    // Find department HEAD users
+    const departmentHeads = await prisma.user.findMany({
+      where: {
+        userDepartment: params.department,
+        departmentRole: "HEAD"
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true
+      }
+    });
+
+    if (departmentHeads.length === 0) {
+      // If no HEAD, try DEPUTY
+      const departmentDeputies = await prisma.user.findMany({
+        where: {
+          userDepartment: params.department,
+          departmentRole: "DEPUTY"
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true
+        }
+      });
+
+      if (departmentDeputies.length === 0) {
+        throw new Error(`No department HEAD or DEPUTY found for ${params.department} department. Cannot create default approval workflow.`);
+      }
+
+      console.log(`⚠️  No HEAD found, using DEPUTY users (${departmentDeputies.length})`);
+      departmentHeads.push(...departmentDeputies);
+    }
+
+    console.log(`📋 Found ${departmentHeads.length} approver(s) for ${params.department} department`);
+    departmentHeads.forEach(head => {
+      console.log(`   - ${head.firstName} ${head.lastName} (${head.email})`);
+    });
+    console.log("");
+
+    // Create approval request and approval records in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Create approval request
+      const approvalRequest = await tx.approvalRequest.create({
+        data: {
+          configId: defaultConfig.id,
+          stageType: params.stageType,
+          entityId: params.entityId,
+          entityData: params.entityData || {},
+          requestedById: params.requestedById,
+          status: "PENDING",
+          currentStep: 1,
+          totalSteps: 1
+        }
+      });
+
+      console.log(`✅ Approval request created: ${approvalRequest.id}`);
+
+      // Create approval records for each department HEAD
+      const approvals = [];
+      for (const head of departmentHeads) {
+        const approval = await tx.approval.create({
+          data: {
+            requestId: approvalRequest.id,
+            stageId: defaultStage.id,
+            approverId: head.id,
+            status: "PENDING"
+          }
+        });
+        approvals.push(approval);
+        console.log(`   ✅ Approval created for ${head.firstName} ${head.lastName} (${head.id})`);
+      }
+
+      console.log("");
+      console.log(`✅ Created ${approvals.length} approval record(s)`);
+      console.log("════════════════════════════════════════════════════════════════");
+      console.log("");
+
+      // Send email notifications
+      try {
+        const { ProcurementApprovalConfigService } = await import('./ProcurementApprovalConfigService');
+        await ProcurementApprovalConfigService.sendApprovalStepNotifications(
+          approvalRequest.id,
+          defaultStage,
+          params.stageType
+        );
+      } catch (emailError: any) {
+        console.error("⚠️  Error sending approval notifications:", emailError.message || emailError);
+        // Don't throw - email failure shouldn't block approval request creation
+      }
+
+      return { approvalRequest, approvals };
+    });
+
+    return result;
+  }
+
+  private static async cancelStalePendingApprovalRequestsForPurchaseRequisitionEntity(
+    requisitionId: string
+  ) {
+    const now = new Date();
+    await prisma.approvalRequest.updateMany({
+      where: {
+        entityId: requisitionId,
+        stageType: "PURCHASE_REQUISITION",
+        status: "PENDING",
+      },
+      data: {
+        status: "CANCELLED",
+        rejectionReason: "Superseded: requisition resubmitted after rejection",
+        rejectedAt: now,
+      },
+    });
+  }
+
+  /**
+   * Update a purchase requisition while it is DRAFT or REJECTED (requester only).
+   * Rejected rows must be edited here (or via equivalent investee route) before resubmit is allowed.
+   */
+  static async updatePurchaseRequisitionByOwner(
+    requisitionId: string,
+    userId: string,
+    body: {
+      title?: string;
+      description?: string | null;
+      department?: string;
+      priority?: string;
+      justification?: string | null;
+      sourcingCategory?: string | null;
+      items?: Array<{
+        itemName: string;
+        description?: string | null;
+        quantity: number | string;
+        unit?: string | null;
+        specifications?: unknown;
+      }>;
+      portfolioCompanyId?: string | null;
+      fundId?: string | null;
+      useOfFundsDocumentUrl?: string | null;
+      drawdownRequestAmount?: number | string | null;
+    },
+    opts?: { restrictToPortfolioCompanyId?: string }
+  ) {
+    const existing = await prisma.purchaseRequisition.findUnique({
+      where: { id: requisitionId },
+      include: { items: true },
+    });
+    if (!existing) {
+      throw new Error("Purchase requisition not found");
+    }
+    if (existing.requestedById !== userId) {
+      throw new Error("Only the requisition requester can update this requisition.");
+    }
+    if (
+      opts?.restrictToPortfolioCompanyId &&
+      existing.portfolioCompanyId !== opts.restrictToPortfolioCompanyId
+    ) {
+      throw new Error("This requisition is not linked to your portfolio company.");
+    }
+    if (existing.status !== "DRAFT" && existing.status !== "REJECTED") {
+      throw new Error("Only draft or rejected requisitions can be updated.");
+    }
+    if (existing.portfolioCompanyId && body.portfolioCompanyId != null) {
+      throw new Error("portfolioCompanyId cannot be changed on an investee-linked requisition.");
+    }
+    if (body.items != null) {
+      if (!Array.isArray(body.items) || body.items.length === 0) {
+        throw new Error("When provided, items must be a non-empty array.");
+      }
+    }
+
+    let drawdownDec: Decimal | undefined;
+    if (existing.portfolioCompanyId) {
+      const url =
+        body.useOfFundsDocumentUrl !== undefined
+          ? body.useOfFundsDocumentUrl
+          : existing.useOfFundsDocumentUrl;
+      if (!url || String(url).trim() === "") {
+        throw new Error(
+          "useOfFundsDocumentUrl is required for investee drawdown requisitions (Suite 02)."
+        );
+      }
+      const rawAmt =
+        body.drawdownRequestAmount !== undefined && body.drawdownRequestAmount !== null
+          ? body.drawdownRequestAmount
+          : existing.drawdownRequestAmount;
+      if (rawAmt == null || Number(rawAmt) <= 0) {
+        throw new Error("drawdownRequestAmount is required and must be positive for investee requisitions.");
+      }
+      drawdownDec = new Decimal(Number(rawAmt));
+      const { InvesteeDrawdownProcurementService } = await import("./InvesteeDrawdownProcurementService");
+      await InvesteeDrawdownProcurementService.assertDrawdownWithinTranche({
+        portfolioCompanyId: existing.portfolioCompanyId,
+        additionalAmount: drawdownDec,
+        excludeRequisitionId: requisitionId,
+      });
+    }
+
+    const { normalizeVendorCategory } = await import("../utils/vendorCategoryNormalize");
+    const normalizedSourcing =
+      body.sourcingCategory !== undefined
+        ? body.sourcingCategory != null && String(body.sourcingCategory).trim() !== ""
+          ? normalizeVendorCategory(body.sourcingCategory)
+          : null
+        : undefined;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      if (body.items) {
+        await tx.purchaseRequisitionItem.deleteMany({ where: { requisitionId } });
+        const lineEstimate = (item: any) => {
+          const n = Number(item?.unitPrice ?? item?.estimatedUnitPrice ?? 0);
+          return Number.isFinite(n) && n > 0 ? n : 0;
+        };
+        await tx.purchaseRequisitionItem.createMany({
+          data: body.items.map((item) => ({
+            requisitionId,
+            itemName: item.itemName,
+            description: item.description ?? null,
+            quantity: new Decimal(item.quantity),
+            unitPrice: new Decimal(lineEstimate(item)),
+            totalPrice: new Decimal(lineEstimate(item) * Number(item.quantity || 0)),
+            unit: item.unit ?? null,
+            specifications: item.specifications as object | undefined,
+          })),
+        });
+      }
+
+      const agg = await tx.purchaseRequisitionItem.aggregate({
+        where: { requisitionId },
+        _sum: { totalPrice: true },
+      });
+      const totalAmount = new Decimal(agg._sum.totalPrice?.toString() ?? "0");
+
+      return tx.purchaseRequisition.update({
+        where: { id: requisitionId },
+        data: {
+          ...(body.title !== undefined ? { title: body.title } : {}),
+          ...(body.description !== undefined ? { description: body.description } : {}),
+          ...(body.department !== undefined ? { department: body.department } : {}),
+          ...(body.priority !== undefined ? { priority: body.priority } : {}),
+          ...(body.justification !== undefined ? { justification: body.justification } : {}),
+          ...(normalizedSourcing !== undefined
+            ? { sourcingCategory: normalizedSourcing }
+            : {}),
+          ...(body.useOfFundsDocumentUrl !== undefined
+            ? { useOfFundsDocumentUrl: body.useOfFundsDocumentUrl }
+            : {}),
+          ...(body.fundId !== undefined ? { fundId: body.fundId } : {}),
+          ...(drawdownDec ? { drawdownRequestAmount: drawdownDec } : {}),
+          totalAmount,
+        },
+        include: {
+          requestedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              userDepartment: true,
+              departmentRole: true,
+              roleCode: true,
+            },
+          },
+          currency: {
+            select: { id: true, code: true, name: true, symbol: true },
+          },
+          items: true,
+        },
+      });
+    });
+
+    await AuditService.log({
+      userId,
+      action: "UPDATE",
+      entityType: "PurchaseRequisition",
+      entityId: requisitionId,
+      newValues: { ...updated, note: "Owner update (draft or rejected)" },
+    });
+
+    return updated;
+  }
+
+  /**
    * Submit a purchase requisition for approval
    */
   static async submitPurchaseRequisition(requisitionId: string, submittedById: string) {
@@ -514,11 +872,27 @@ export class ProcurementService {
         throw new Error("Purchase requisition not found");
       }
 
-      if (requisition.status !== "DRAFT") {
-        throw new Error("Requisition is not in draft status");
+      const resubmitFromRejection = requisition.status === "REJECTED";
+      const isDraft = requisition.status === "DRAFT";
+      if (!isDraft && !resubmitFromRejection) {
+        throw new Error("Requisition is not in draft or rejected status");
       }
 
-      // Trigger approval workflow
+      if (resubmitFromRejection) {
+        if (requisition.requestedById !== submittedById) {
+          throw new Error("Only the requisition requester can resubmit after rejection.");
+        }
+        const fp = requisition.rejectionContentFingerprint;
+        if (fp) {
+          const nowFp = computePurchaseRequisitionContentFingerprint(requisition);
+          if (nowFp === fp) {
+            throw new Error(
+              "Update the requisition details before resubmitting. No changes were detected since rejection."
+            );
+          }
+        }
+      }
+
       console.log("\n════════════════════════════════════════════════════════════════");
       console.log("🔄 SUBMITTING REQUISITION FOR APPROVAL");
       console.log("════════════════════════════════════════════════════════════════");
@@ -526,6 +900,97 @@ export class ProcurementService {
       console.log(`👤 Submitted By: ${submittedById}`);
       console.log(`🏢 Department: ${requisition.department}`);
       console.log("");
+
+      // Investee drawdown PR (Suite 02): VC CFO gate, no department-head approval chain
+      if (requisition.portfolioCompanyId) {
+        if (!requisition.drawdownRequestAmount) {
+          throw new Error("drawdownRequestAmount is required before submit.");
+        }
+        if (
+          !requisition.useOfFundsDocumentUrl ||
+          String(requisition.useOfFundsDocumentUrl).trim() === ""
+        ) {
+          throw new Error(
+            "Use of funds / business case attachment is required before submit (Suite 02)."
+          );
+        }
+        const portfolioOwner = await prisma.portfolioCompany.findUnique({
+          where: { id: requisition.portfolioCompanyId },
+          select: { userId: true },
+        });
+        if (!portfolioOwner || portfolioOwner.userId !== submittedById) {
+          throw new Error("Only the investee portal user for this portfolio company can submit this requisition.");
+        }
+        const { InvesteeDrawdownProcurementService } = await import(
+          "./InvesteeDrawdownProcurementService"
+        );
+        await InvesteeDrawdownProcurementService.assertDrawdownWithinTranche({
+          portfolioCompanyId: requisition.portfolioCompanyId,
+          additionalAmount: new Decimal(requisition.drawdownRequestAmount.toString()),
+        });
+        const updatedRequisition = await prisma.purchaseRequisition.update({
+          where: { id: requisitionId },
+          data: {
+            status: "PENDING_VC_EXECUTIVE_REVIEW",
+            investeeSubmittedAt: new Date(),
+            rejectionContentFingerprint: null,
+          },
+          include: {
+            requestedBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                userDepartment: true,
+                departmentRole: true,
+                roleCode: true,
+              },
+            },
+            currency: {
+              select: { id: true, code: true, name: true, symbol: true },
+            },
+            items: true,
+          },
+        });
+        await AuditService.log({
+          userId: submittedById,
+          action: "SUBMIT",
+          entityType: "PurchaseRequisition",
+          entityId: requisitionId,
+          newValues: {
+            ...updatedRequisition,
+            note: "Investee PR pending VC executive review (Suite 02)",
+          },
+        });
+        try {
+          const pcName = await prisma.portfolioCompany.findUnique({
+            where: { id: requisition.portfolioCompanyId },
+            select: { name: true },
+          });
+          const recipients = await ProcurementService.resolveProcurementDeskNotifyRecipients();
+          const { EmailNotificationService } = await import("./EmailNotificationService");
+          await EmailNotificationService.sendInvesteeDrawdownSubmittedToProcurementDesk({
+            recipients,
+            portfolioCompanyName: pcName?.name ?? "Portfolio company",
+            requisitionNumber: updatedRequisition.requisitionNumber,
+            title: updatedRequisition.title,
+            drawdownAmount: String(requisition.drawdownRequestAmount),
+            submittedByName: `${requisition.requestedBy.firstName} ${requisition.requestedBy.lastName}`,
+            useOfFundsDocumentUrl: requisition.useOfFundsDocumentUrl,
+          });
+        } catch (notifyErr) {
+          console.error(
+            "⚠️  Suite 02: failed to notify procurement desk:",
+            (notifyErr as Error)?.message || notifyErr
+          );
+        }
+        return updatedRequisition;
+      }
+
+      if (resubmitFromRejection) {
+        await this.cancelStalePendingApprovalRequestsForPurchaseRequisitionEntity(requisitionId);
+      }
 
       const { ApprovalService } = await import('./ApprovalService');
       
@@ -547,13 +1012,25 @@ export class ProcurementService {
         });
         if (approvalResult) {
           console.log("✅ Approval request created successfully");
-        } else {
-          console.log("⚠️  No approval request created - check approval config");
         }
       } catch (error: any) {
-        console.error("❌ Error creating approval request:", error.message || error);
-        // Don't throw - we'll keep status as DRAFT if approval fails
-        approvalResult = null;
+        console.log("⚠️  No active approval configuration found - using default workflow (Department HEAD approval)");
+        console.log(`   Error: ${error.message || error}`);
+        
+        // Create default approval workflow with department HEAD approval
+        approvalResult = await this.createDefaultApprovalRequest({
+          stageType: "PURCHASE_REQUISITION",
+          entityId: requisition.id,
+          entityData: {
+            requisitionNumber: requisition.requisitionNumber,
+            title: requisition.title,
+            department: requisition.department,
+            totalAmount: requisition.totalAmount.toString(),
+            itemCount: requisition.items.length
+          },
+          requestedById: submittedById,
+          department: requisition.department
+        });
       }
 
       // Update requisition status based on approval workflow
@@ -563,7 +1040,8 @@ export class ProcurementService {
         updatedRequisition = await prisma.purchaseRequisition.update({
           where: { id: requisitionId },
           data: {
-            status: "PENDING_APPROVAL"
+            status: "PENDING_APPROVAL",
+            rejectionContentFingerprint: null,
           },
           include: {
             requestedBy: {
@@ -589,74 +1067,10 @@ export class ProcurementService {
           }
         });
         console.log("✅ Requisition status updated to PENDING_APPROVAL");
-        
-        // Send email notification to department HEAD when requisition is submitted
-        try {
-          const { EmailNotificationService } = await import('./EmailNotificationService');
-          
-          // Find department HEAD
-          const departmentHeads = await prisma.user.findMany({
-            where: {
-              userDepartment: requisition.department,
-              departmentRole: 'HEAD'
-            },
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          });
-
-          if (departmentHeads.length > 0) {
-            for (const head of departmentHeads) {
-              await EmailNotificationService.sendRequisitionSubmittedToHead({
-                headName: `${head.firstName} ${head.lastName}`,
-                headEmail: head.email,
-                requisitionNumber: updatedRequisition.requisitionNumber,
-                title: updatedRequisition.title,
-                department: updatedRequisition.department,
-                submittedByName: `${requisition.requestedBy.firstName} ${requisition.requestedBy.lastName}`,
-                submittedByEmail: requisition.requestedBy.email,
-                totalAmount: Number(updatedRequisition.totalAmount),
-                itemCount: requisition.items.length,
-                status: updatedRequisition.status,
-                companyName: 'NVCCZ'
-              });
-            }
-          }
-        } catch (emailError: any) {
-          console.error("⚠️  Error sending email notification:", emailError.message || emailError);
-          // Don't throw - email failure shouldn't block requisition submission
-        }
       } else {
-        // No approval stages configured - keep as DRAFT
-        updatedRequisition = await prisma.purchaseRequisition.findUnique({
-          where: { id: requisitionId },
-          include: {
-            requestedBy: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                userDepartment: true,
-                departmentRole: true,
-                roleCode: true
-              }
-            },
-            currency: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                symbol: true
-              }
-            },
-            items: true
-          }
-        });
-        console.log("⚠️  No approval stages configured - Requisition remains in DRAFT status");
+        // This should not happen if default workflow is created, but handle it just in case
+        console.log("⚠️  No approval workflow could be created - Requisition remains in DRAFT status");
+        throw new Error("Failed to create approval workflow. Please contact administrator.");
       }
 
       // Audit log
@@ -683,12 +1097,140 @@ export class ProcurementService {
       const requisition = await prisma.purchaseRequisition.findUnique({
         where: { id: requisitionId },
         include: {
-          items: true
-        }
+          items: true,
+          requestedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          },
+        },
       });
 
       if (!requisition) {
         throw new Error("Purchase requisition not found");
+      }
+
+      const requisitionInclude = {
+        requestedBy: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+        },
+        approvedBy: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        },
+        items: true
+      };
+
+      // Suite 02: investee drawdown — VC CFO (or SYSADMIN) final gate → auto RFQ to top eligible vendors
+      if (
+        requisition.status === "PENDING_VC_EXECUTIVE_REVIEW" &&
+        requisition.portfolioCompanyId
+      ) {
+        const execApprover = await prisma.user.findUnique({
+          where: { id: approvedById },
+          select: { roleCode: true, firstName: true, lastName: true, email: true, role: true },
+        });
+        if (!execApprover) {
+          throw new Error("Approver not found");
+        }
+        if (!isCfoUser(execApprover) && execApprover.roleCode !== "SYSADMIN") {
+          throw new Error("Only VC CFO (or SYSADMIN) can approve investee drawdown requisitions at this stage.");
+        }
+
+        await prisma.purchaseRequisition.update({
+          where: { id: requisitionId },
+          data: {
+            status: "APPROVED",
+            approvedById,
+            approvedAt: new Date()
+          }
+        });
+
+        await AuditService.log({
+          userId: approvedById,
+          action: "APPROVE",
+          entityType: "PurchaseRequisition",
+          entityId: requisitionId,
+          newValues: {
+            ...requisition,
+            status: "APPROVED",
+            note: "Investee PR — VC executive approval (Suite 02)",
+          },
+        });
+
+        try {
+          const { listVendorsEligibleForRfqQuery } = await import(
+            "./VendorProcurementListService"
+          );
+          let eligible = await listVendorsEligibleForRfqQuery({ requisitionId });
+          eligible = [...eligible].sort(
+            (a, b) => Number(b.vendorRating ?? 0) - Number(a.vendorRating ?? 0)
+          );
+          const vendorIds = eligible.slice(0, 5).map((v) => v.id);
+          if (vendorIds.length > 0) {
+            await this.createAndSendRFQ({
+              requisitionId: requisition.id,
+              vendorIds,
+              title: `RFQ — ${requisition.title}`,
+              description: requisition.description || undefined,
+              items: requisition.items.map((i) => ({
+                itemName: i.itemName,
+                description: i.description || undefined,
+                quantity: Number(i.quantity),
+                unit: i.unit || undefined,
+                specifications: i.specifications,
+              })),
+              createdById: approvedById,
+            });
+          } else {
+            console.warn(
+              `[Suite 02] No eligible vendors for auto-RFQ on requisition ${requisitionId}; status remains APPROVED until RFQ is sent manually.`
+            );
+          }
+        } catch (rfqErr) {
+          console.error("[Suite 02] Auto-RFQ after VC approval failed:", rfqErr);
+        }
+
+        const after = await prisma.purchaseRequisition.findUnique({
+          where: { id: requisitionId },
+          include: requisitionInclude,
+        });
+        if (!after) {
+          throw new Error("Purchase requisition not found after approval");
+        }
+        try {
+          const rb = requisition.requestedBy;
+          if (rb?.email) {
+            const { EmailNotificationService } = await import("./EmailNotificationService");
+            await EmailNotificationService.sendRequisitionApprovedToSubmitter({
+              submitterName: `${rb.firstName} ${rb.lastName}`.trim(),
+              submitterEmail: rb.email,
+              requisitionNumber: requisition.requisitionNumber,
+              title: requisition.title,
+              department: String(requisition.department ?? ""),
+              approvedByName: `${execApprover.firstName} ${execApprover.lastName}`.trim(),
+              approvedByEmail: execApprover.email ?? "",
+            });
+          }
+        } catch (notifyErr) {
+          console.error(
+            "⚠️  Failed to email submitter after investee PR approval:",
+            (notifyErr as Error)?.message || notifyErr
+          );
+        }
+        return after;
       }
 
       if (requisition.status !== "PENDING_APPROVAL") {
@@ -698,24 +1240,31 @@ export class ProcurementService {
       // Check if the approver is the department head or deputy
       const approver = await prisma.user.findUnique({
         where: { id: approvedById },
-        select: { 
-          userDepartment: true, 
+        select: {
+          userDepartment: true,
           departmentRole: true,
-          firstName: true, 
-          lastName: true 
-        }
+          firstName: true,
+          lastName: true,
+          email: true,
+          roleCode: true,
+          role: true,
+        },
       });
 
       if (!approver) {
         throw new Error("Approver not found");
       }
 
-      if (!approver.userDepartment || approver.userDepartment !== requisition.department) {
-        throw new Error(`You are not assigned to the ${requisition.department} department`);
-      }
+      const privilegedApprover = isModulePrivilegedUser(approver);
 
-      if (!approver.departmentRole || (approver.departmentRole !== DepartmentRole.HEAD && approver.departmentRole !== DepartmentRole.DEPUTY)) {
-        throw new Error(`Only department HEAD or DEPUTY can approve requisitions. Your role: ${approver.departmentRole || 'MEMBER'}`);
+      if (!privilegedApprover) {
+        if (!approver.userDepartment || approver.userDepartment !== requisition.department) {
+          throw new Error(`You are not assigned to the ${requisition.department} department`);
+        }
+
+        if (!approver.departmentRole || (approver.departmentRole !== DepartmentRole.HEAD && approver.departmentRole !== DepartmentRole.DEPUTY)) {
+          throw new Error(`Only department HEAD or DEPUTY can approve requisitions. Your role: ${approver.departmentRole || 'MEMBER'}`);
+        }
       }
 
       const updatedRequisition = await prisma.purchaseRequisition.update({
@@ -724,6 +1273,188 @@ export class ProcurementService {
           status: "APPROVED",
           approvedById,
           approvedAt: new Date()
+        },
+        include: requisitionInclude
+      });
+
+      // Audit log
+      await AuditService.log({
+        userId: approvedById,
+        action: "APPROVE",
+        entityType: "PurchaseRequisition",
+        entityId: requisitionId,
+        newValues: updatedRequisition,
+      });
+
+      try {
+        const rb = updatedRequisition.requestedBy;
+        if (rb?.email) {
+          const { EmailNotificationService } = await import("./EmailNotificationService");
+          await EmailNotificationService.sendRequisitionApprovedToSubmitter({
+            submitterName: `${rb.firstName} ${rb.lastName}`.trim(),
+            submitterEmail: rb.email,
+            requisitionNumber: updatedRequisition.requisitionNumber,
+            title: updatedRequisition.title,
+            department: String(updatedRequisition.department ?? ""),
+            approvedByName: `${approver.firstName} ${approver.lastName}`.trim(),
+            approvedByEmail: approver.email ?? "",
+          });
+        }
+      } catch (notifyErr) {
+        console.error(
+          "⚠️  Failed to email submitter after PR approval:",
+          (notifyErr as Error)?.message || notifyErr
+        );
+      }
+
+      return updatedRequisition;
+    } catch (error) {
+      console.error("Error approving purchase requisition:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reject a purchase requisition with a reason
+   */
+  static async rejectPurchaseRequisition(requisitionId: string, rejectedById: string, rejectionReason: string) {
+    try {
+      const requisition = await prisma.purchaseRequisition.findUnique({
+        where: { id: requisitionId },
+        include: {
+          items: true,
+          requestedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              userDepartment: true,
+              departmentRole: true,
+              roleCode: true
+            }
+          }
+        }
+      });
+
+      if (!requisition) {
+        throw new Error("Purchase requisition not found");
+      }
+
+      if (
+        requisition.status === "PENDING_VC_EXECUTIVE_REVIEW" &&
+        requisition.portfolioCompanyId
+      ) {
+        const execRejector = await prisma.user.findUnique({
+          where: { id: rejectedById },
+          select: { roleCode: true, firstName: true, lastName: true, email: true, role: true },
+        });
+        if (!execRejector) {
+          throw new Error("Approver not found");
+        }
+        if (!isCfoUser(execRejector) && execRejector.roleCode !== "SYSADMIN") {
+          throw new Error("Only VC CFO (or SYSADMIN) can reject investee drawdown requisitions at this stage.");
+        }
+        const rejectionFingerprint = computePurchaseRequisitionContentFingerprint(requisition);
+        const updatedRequisition = await prisma.purchaseRequisition.update({
+          where: { id: requisitionId },
+          data: {
+            status: "REJECTED",
+            rejectionReason,
+            investeeSubmittedAt: null,
+            rejectionContentFingerprint: rejectionFingerprint,
+          },
+          include: {
+            requestedBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            },
+            approvedBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            },
+            items: true
+          }
+        });
+        await AuditService.log({
+          userId: rejectedById,
+          action: "REJECT",
+          entityType: "PurchaseRequisition",
+          entityId: requisitionId,
+          newValues: { ...updatedRequisition, note: "Investee PR — VC executive rejection (Suite 02)" },
+        });
+        try {
+          const rb = updatedRequisition.requestedBy;
+          if (rb?.email) {
+            const { EmailNotificationService } = await import("./EmailNotificationService");
+            await EmailNotificationService.sendRequisitionRejectedToSubmitter({
+              submitterName: `${rb.firstName} ${rb.lastName}`.trim(),
+              submitterEmail: rb.email,
+              requisitionNumber: updatedRequisition.requisitionNumber,
+              title: updatedRequisition.title,
+              department: String(updatedRequisition.department ?? ""),
+              rejectedByName: `${execRejector.firstName} ${execRejector.lastName}`.trim(),
+              rejectedByEmail: execRejector.email ?? "",
+              rejectionReason,
+            });
+          }
+        } catch (notifyErr) {
+          console.error(
+            "⚠️  Failed to email submitter after investee PR rejection:",
+            (notifyErr as Error)?.message || notifyErr
+          );
+        }
+        return updatedRequisition;
+      }
+
+      if (requisition.status !== "PENDING_APPROVAL") {
+        throw new Error("Requisition is not pending approval");
+      }
+
+      const approver = await prisma.user.findUnique({
+        where: { id: rejectedById },
+        select: {
+          userDepartment: true,
+          departmentRole: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          roleCode: true,
+          role: true,
+        },
+      });
+
+      if (!approver) {
+        throw new Error("Approver not found");
+      }
+
+      const privilegedRejector = isModulePrivilegedUser(approver);
+
+      if (!privilegedRejector) {
+        if (approver.userDepartment !== requisition.department) {
+          throw new Error(`You are not assigned to the ${requisition.department} department`);
+        }
+
+        if (!approver.departmentRole || (approver.departmentRole !== DepartmentRole.HEAD && approver.departmentRole !== DepartmentRole.DEPUTY)) {
+          throw new Error(`Only department HEAD or DEPUTY can reject requisitions. Your role: ${approver.departmentRole || 'MEMBER'}`);
+        }
+      }
+
+      const rejectionFingerprint = computePurchaseRequisitionContentFingerprint(requisition);
+      const updatedRequisition = await prisma.purchaseRequisition.update({
+        where: { id: requisitionId },
+        data: {
+          status: "REJECTED",
+          rejectionReason,
+          rejectionContentFingerprint: rejectionFingerprint,
         },
         include: {
           requestedBy: {
@@ -746,20 +1477,352 @@ export class ProcurementService {
         }
       });
 
-      // Audit log
       await AuditService.log({
-        userId: approvedById,
-        action: "APPROVE",
+        userId: rejectedById,
+        action: "REJECT",
         entityType: "PurchaseRequisition",
         entityId: requisitionId,
-        newValues: updatedRequisition,
+        newValues: updatedRequisition
       });
+
+      try {
+        const rb = updatedRequisition.requestedBy;
+        if (rb?.email) {
+          const { EmailNotificationService } = await import("./EmailNotificationService");
+          await EmailNotificationService.sendRequisitionRejectedToSubmitter({
+            submitterName: `${rb.firstName} ${rb.lastName}`.trim(),
+            submitterEmail: rb.email,
+            requisitionNumber: updatedRequisition.requisitionNumber,
+            title: updatedRequisition.title,
+            department: String(updatedRequisition.department ?? ""),
+            rejectedByName: `${approver.firstName} ${approver.lastName}`.trim(),
+            rejectedByEmail: approver.email ?? "",
+            rejectionReason,
+          });
+        }
+      } catch (notifyErr) {
+        console.error(
+          "⚠️  Failed to email submitter after PR rejection:",
+          (notifyErr as Error)?.message || notifyErr
+        );
+      }
 
       return updatedRequisition;
     } catch (error) {
-      console.error("Error approving purchase requisition:", error);
+      console.error("Error rejecting purchase requisition:", error);
       throw error;
     }
+  }
+
+  /**
+   * Investee drawdown PR lists (Suite 02): who may see **all** funds without a FundManager row.
+   * Uses `isModulePrivilegedUser` plus senior finance/procurement/exec role codes.
+   */
+  static async userHasUnrestrictedInvesteePrViewScope(viewerUserId: string): Promise<boolean> {
+    const u = await prisma.user.findUnique({
+      where: { id: viewerUserId },
+      select: {
+        roleCode: true,
+        departmentRole: true,
+        userDepartment: true,
+        role: { select: { name: true } },
+      },
+    });
+    if (!u) return false;
+    if (isModulePrivilegedUser(u)) return true;
+    const code = String(u.roleCode || "").trim().toUpperCase();
+    const unrestrictedCodes = new Set([
+      "SYSADMIN",
+      "PROC_MGR",
+      "ADMIN",
+      "CEO",
+      "FIN_MGR",
+      "CIO",
+      "COO",
+      "SUPER_ADMIN",
+    ]);
+    return code.length > 0 && unrestrictedCodes.has(code);
+  }
+
+  /**
+   * CFO / module-privileged users / SYSADMIN / PROC_MGR / ADMIN / CEO / FIN_MGR / CIO / COO: all funds.
+   * Otherwise must have at least one active FundManager row (Suite 02 fund isolation).
+   */
+  static async getInvesteePrViewerFundScopeOrThrow(viewerUserId: string): Promise<string[] | null> {
+    if (await this.userHasUnrestrictedInvesteePrViewScope(viewerUserId)) {
+      return null;
+    }
+    const rows = await prisma.fundManager.findMany({
+      where: { userId: viewerUserId, isActive: true },
+      select: { fundId: true },
+    });
+    if (rows.length === 0) {
+      throw new Error("Not authorized to view investee drawdown requisitions.");
+    }
+    return rows.map((r) => r.fundId);
+  }
+
+  /**
+   * Fund isolation (Suite 02): investee-linked PRs only visible to requester, unrestricted roles, or a FundManager for that fund.
+   */
+  static async assertUserCanViewInvesteePurchaseRequisition(
+    viewerUserId: string,
+    r: {
+      portfolioCompanyId: string | null;
+      fundId: string | null;
+      requestedById: string;
+    }
+  ): Promise<void> {
+    if (!r.portfolioCompanyId) {
+      return;
+    }
+    const owner = await prisma.portfolioCompany.findUnique({
+      where: { id: r.portfolioCompanyId },
+      select: { userId: true },
+    });
+    if (owner?.userId === viewerUserId) {
+      return;
+    }
+    if (r.requestedById === viewerUserId) {
+      return;
+    }
+    if (await this.userHasUnrestrictedInvesteePrViewScope(viewerUserId)) {
+      return;
+    }
+    const rows = await prisma.fundManager.findMany({
+      where: { userId: viewerUserId, isActive: true },
+      select: { fundId: true },
+    });
+    if (rows.length === 0) {
+      throw new Error("Not authorized to view this investee requisition.");
+    }
+    const allowed = rows.map((x) => x.fundId);
+    let fund = r.fundId;
+    if (!fund) {
+      const pc = await prisma.portfolioCompany.findUnique({
+        where: { id: r.portfolioCompanyId },
+        select: { fundId: true },
+      });
+      fund = pc?.fundId ?? null;
+    }
+    if (!fund || !allowed.includes(fund)) {
+      throw new Error("Not authorized to view this investee requisition.");
+    }
+  }
+
+  static async listInvesteePurchaseRequisitionsForVc(viewerUserId: string) {
+    const fundIds = await this.getInvesteePrViewerFundScopeOrThrow(viewerUserId);
+    const where: any = { portfolioCompanyId: { not: null } };
+    if (fundIds !== null) {
+      where.OR = [
+        { fundId: { in: fundIds } },
+        { portfolioCompany: { fundId: { in: fundIds } } },
+      ];
+    }
+    return prisma.purchaseRequisition.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: {
+        requestedBy: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        portfolioCompany: { select: { id: true, name: true, fundId: true } },
+        fund: { select: { id: true, name: true } },
+        items: true,
+      },
+    });
+  }
+
+  /** PRs stuck in PENDING_VC_EXECUTIVE_REVIEW for more than 48 hours (Suite 02 SLA). */
+  static async listInvesteePrsPendingVcOver48Hours(viewerUserId: string) {
+    const fundIds = await this.getInvesteePrViewerFundScopeOrThrow(viewerUserId);
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const where: any = {
+      portfolioCompanyId: { not: null },
+      status: "PENDING_VC_EXECUTIVE_REVIEW",
+      investeeSubmittedAt: { lt: cutoff },
+    };
+    if (fundIds !== null) {
+      where.OR = [
+        { fundId: { in: fundIds } },
+        { portfolioCompany: { fundId: { in: fundIds } } },
+      ];
+    }
+    return prisma.purchaseRequisition.findMany({
+      where,
+      orderBy: { investeeSubmittedAt: "asc" },
+      include: {
+        requestedBy: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        portfolioCompany: { select: { id: true, name: true, fundId: true } },
+        fund: { select: { id: true, name: true } },
+        items: true,
+      },
+    });
+  }
+
+  /**
+   * Investee cancels before RFQ — releases drawdown reservation (Suite 02).
+   */
+  static async cancelInvesteePurchaseRequisition(requisitionId: string, userId: string) {
+    const r = await prisma.purchaseRequisition.findUnique({
+      where: { id: requisitionId },
+      select: {
+        id: true,
+        status: true,
+        portfolioCompanyId: true,
+      },
+    });
+    if (!r) {
+      throw new Error("Purchase requisition not found");
+    }
+    if (!r.portfolioCompanyId) {
+      throw new Error("Not an investee drawdown requisition.");
+    }
+    const pc = await prisma.portfolioCompany.findUnique({
+      where: { id: r.portfolioCompanyId },
+      select: { userId: true },
+    });
+    if (!pc || pc.userId !== userId) {
+      throw new Error("Only the investee portal user for this portfolio company can cancel this requisition.");
+    }
+    if (!["DRAFT", "PENDING_VC_EXECUTIVE_REVIEW"].includes(r.status)) {
+      throw new Error("Only draft or pending VC executive review requisitions can be cancelled.");
+    }
+    const updated = await prisma.purchaseRequisition.update({
+      where: { id: requisitionId },
+      data: {
+        status: "DRAFT",
+        investeeSubmittedAt: null,
+      },
+      include: {
+        requestedBy: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            userDepartment: true,
+            departmentRole: true,
+            roleCode: true,
+          },
+        },
+        currency: {
+          select: { id: true, code: true, name: true, symbol: true },
+        },
+        items: true,
+      },
+    });
+    await AuditService.log({
+      userId,
+      action: "CANCEL",
+      entityType: "PurchaseRequisition",
+      entityId: requisitionId,
+      newValues: { ...updated, note: "Investee cancelled before RFQ — returned to Draft (Suite 02)" },
+    });
+    return updated;
+  }
+
+  /**
+   * Optional env `PROCUREMENT_INVESTEE_NOTIFY_EMAILS` (comma-separated); else Procurement dept + procurement role codes.
+   */
+  static async resolveProcurementDeskNotifyRecipients(): Promise<
+    { email: string; name: string }[]
+  > {
+    const envCsv = process.env.PROCUREMENT_INVESTEE_NOTIFY_EMAILS;
+    if (envCsv && String(envCsv).trim() !== "") {
+      const seen = new Set<string>();
+      const out: { email: string; name: string }[] = [];
+      for (const part of String(envCsv).split(",")) {
+        const email = part.trim();
+        if (!email || seen.has(email)) {
+          continue;
+        }
+        seen.add(email);
+        out.push({ email, name: "Procurement desk" });
+      }
+      if (out.length > 0) {
+        return out;
+      }
+    }
+    const rows = await prisma.user.findMany({
+      where: {
+        OR: [
+          { userDepartment: Department.PROCUREMENT },
+          { roleCode: { in: ["PROC_MGR", "PROC_OFF", "BUYER", "PROC_COORD"] } },
+        ],
+      },
+      select: { email: true, firstName: true, lastName: true },
+    });
+    const seen = new Set<string>();
+    const out: { email: string; name: string }[] = [];
+    for (const r of rows) {
+      if (!r.email || seen.has(r.email)) {
+        continue;
+      }
+      seen.add(r.email);
+      out.push({
+        email: r.email,
+        name: `${r.firstName} ${r.lastName}`.trim(),
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Suite 02 / 2.7: single source of truth for "which requisitions may this viewer see" when rows may be investee-linked.
+   * `null` = unrestricted (admin viewer, CFO, SYSADMIN, PROC_MGR, CEO, FIN_MGR, CIO, COO, ADMIN) — no extra filter.
+   */
+  static async buildInvesteeFundVisibilityWhereForViewer(
+    viewerUserId: string
+  ): Promise<Record<string, unknown> | null> {
+    if (await this.userHasUnrestrictedInvesteePrViewScope(viewerUserId)) {
+      return null;
+    }
+    const fm = await prisma.fundManager.findMany({
+      where: { userId: viewerUserId, isActive: true },
+      select: { fundId: true },
+    });
+    const fundIds = fm.map((x) => x.fundId);
+    if (fundIds.length === 0) {
+      return { portfolioCompanyId: null };
+    }
+    return {
+      OR: [
+        { portfolioCompanyId: null },
+        {
+          AND: [
+            { portfolioCompanyId: { not: null } },
+            {
+              OR: [
+                { fundId: { in: fundIds } },
+                { portfolioCompany: { fundId: { in: fundIds } } },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  /**
+   * Department requisition list (Suite 02 / 2.7): FundManagers only see investee PRs for funds they manage; unrestricted roles (admin viewer, CFO, SYSADMIN, PROC_MGR, CEO, FIN_MGR, etc.) see all.
+   */
+  static async applyInvesteeFundScopeToDepartmentRequisitionWhere(
+    viewerUserId: string,
+    where: Record<string, any>
+  ): Promise<void> {
+    const scope = await this.buildInvesteeFundVisibilityWhereForViewer(viewerUserId);
+    if (!scope) {
+      return;
+    }
+    const existingAnd = where.AND;
+    where.AND = existingAnd
+      ? Array.isArray(existingAnd)
+        ? [...existingAnd, scope]
+        : [existingAnd, scope]
+      : [scope];
   }
 
   /**
@@ -779,15 +1842,59 @@ export class ProcurementService {
         rfqDeadline,
         specialRequirements,
         createdById,
-        items
+        items,
+        visibility = "INVITED_ONLY",
+        reportingCurrencyId,
+        priceWeight,
+        technicalWeight,
       } = params;
+
+      const sanitizedBodyItems = normalizeRfqItemLinesFromBody(items ?? []);
+
+      let requisitionSourcingCategory: string | null | undefined;
+      let resolvedItems: NonNullable<CreateRFQParams["items"]>;
+      let prEmailMeta: { requisitionNumber: string; requisitionTitle: string } | undefined;
+
+      if (requisitionId) {
+        const pr = await prisma.purchaseRequisition.findUnique({
+          where: { id: requisitionId },
+          include: { items: true },
+        });
+        if (!pr) {
+          throw new Error(`Purchase requisition not found: ${requisitionId}`);
+        }
+        if (pr.status !== "APPROVED") {
+          throw new Error(
+            `RFQ can only be linked to an approved purchase requisition. Requisition ${pr.requisitionNumber} is "${pr.status}" (expected APPROVED).`
+          );
+        }
+        requisitionSourcingCategory = pr.sourcingCategory;
+        prEmailMeta = { requisitionNumber: pr.requisitionNumber, requisitionTitle: pr.title };
+        if (sanitizedBodyItems.length > 0) {
+          resolvedItems = sanitizedBodyItems;
+        } else {
+          if (!pr.items.length) {
+            throw new Error(
+              "No RFQ items were supplied and the purchase requisition has no line items to copy."
+            );
+          }
+          resolvedItems = prItemsToNormalizedRfqLines(pr.items);
+        }
+      } else {
+        if (sanitizedBodyItems.length === 0) {
+          throw new Error(
+            "Items are required when requisitionId is not provided, or pass requisitionId to use PR line items."
+          );
+        }
+        resolvedItems = sanitizedBodyItems;
+      }
 
       console.log("\n════════════════════════════════════════════════════════════════");
       console.log("📧 CREATING AND SENDING RFQ TO VENDORS");
       console.log("════════════════════════════════════════════════════════════════");
       console.log(`📋 Title: ${title}`);
       console.log(`👥 Selected Vendors: ${vendorIds.length}`);
-      console.log(`📦 Items: ${items.length}`);
+      console.log(`📦 Items: ${resolvedItems.length}`);
       console.log("");
 
       // Validate vendors exist and have emails
@@ -800,6 +1907,27 @@ export class ProcurementService {
         throw new Error("One or more vendors not found");
       }
 
+      const { categoriesMatch } = await import("../utils/vendorCategoryNormalize");
+
+      for (const v of vendors) {
+        if (v.isBlacklisted) {
+          throw new Error(`Vendor "${v.name}" is blacklisted and cannot be invited to quote.`);
+        }
+        if (v.registrationStatus === "SUSPENDED") {
+          throw new Error(`Vendor "${v.name}" is suspended and cannot be invited to quote.`);
+        }
+        if (v.registrationStatus === "PENDING_REVIEW") {
+          throw new Error(
+            `Vendor "${v.name}" is pending review and cannot be invited to quote until approved.`
+          );
+        }
+        if (requisitionSourcingCategory && !categoriesMatch(v.category, requisitionSourcingCategory)) {
+          throw new Error(
+            `Vendor "${v.name}" category does not match this requisition sourcing category (${requisitionSourcingCategory}).`
+          );
+        }
+      }
+
       const vendorsWithoutEmail = vendors.filter(v => !v.email);
       if (vendorsWithoutEmail.length > 0) {
         throw new Error(`Vendors without email: ${vendorsWithoutEmail.map(v => v.name).join(', ')}`);
@@ -808,29 +1936,67 @@ export class ProcurementService {
       console.log("✅ All vendors found with valid emails:");
       vendors.forEach(v => console.log(`   - ${v.name} (${v.email})`));
 
-      // Generate RFQ number
-      const rfqNumber = this.generateRFQNumber();
+      // Generate RFQ number (RFQ_YYYYMMDD_####)
+      const rfqNumber = await nextProcurementRfqNumber(prisma as any, new Date());
 
       console.log(`\n📝 Step 2: Creating RFQ record: ${rfqNumber}`);
 
-      // Create RFQ record (store as JSON since we don't have RFQ table)
-      // We'll store it in the notes field of the requisition or create a simple tracking mechanism
+      const rfqRow = await prisma.procurementRfq.create({
+        data: {
+          rfqNumber,
+          requisitionId: requisitionId || null,
+          title,
+          description: description || null,
+          status: "OPEN",
+          visibility,
+          closingAt: rfqDeadline || null,
+          reportingCurrencyId: reportingCurrencyId || null,
+          priceWeight:
+            priceWeight != null ? new Decimal(priceWeight) : new Decimal(0.5),
+          technicalWeight:
+            technicalWeight != null ? new Decimal(technicalWeight) : new Decimal(0.5),
+          itemsSnapshot: { items: resolvedItems } as object,
+          deliveryAddress: deliveryAddress || null,
+          expectedDeliveryDate: expectedDeliveryDate || null,
+          specialRequirements: specialRequirements || null,
+          createdById,
+        },
+      });
+
+      const {
+        signVendorPortalToken,
+        rfqPortalTokenExpiryUnixSeconds,
+        VENDOR_PORTAL_KIND_RFQ_SUBMIT,
+      } = await import("../utils/vendorPortalToken");
+      const rfqExp = rfqPortalTokenExpiryUnixSeconds(rfqRow.closingAt);
+
+      for (const v of vendors) {
+        await prisma.rfqVendorInvitation.create({
+          data: {
+            procurementRfqId: rfqRow.id,
+            vendorId: v.id,
+            emailSentAt: new Date(),
+          },
+        });
+      }
+
       const rfqData = {
         rfqNumber,
+        procurementRfqId: rfqRow.id,
         title,
         description,
-        vendors: vendors.map(v => ({ id: v.id, name: v.name, email: v.email })),
-        items,
+        vendors: vendors.map((v) => ({ id: v.id, name: v.name, email: v.email })),
+        items: resolvedItems,
         deliveryAddress,
         expectedDeliveryDate,
         rfqDeadline,
         specialRequirements,
         createdAt: new Date(),
         createdById,
-        status: 'SENT'
+        status: "SENT",
       };
 
-      console.log("✅ RFQ record prepared");
+      console.log("✅ RFQ record persisted (procurement_rfqs + invitations)");
 
       // Update requisition if provided
       if (requisitionId) {
@@ -852,14 +2018,22 @@ export class ProcurementService {
       for (const vendor of vendors) {
         console.log(`   📤 Sending to: ${vendor.name} (${vendor.email})`);
         
+        const portalToken = signVendorPortalToken({
+          k: VENDOR_PORTAL_KIND_RFQ_SUBMIT,
+          v: vendor.id,
+          r: rfqRow.id,
+          exp: rfqExp,
+        });
+
         await EmailNotificationService.sendRFQToVendor({
           vendorName: vendor.name,
           vendorEmail: vendor.email,
           rfqNumber,
+          invitationToken: portalToken,
           rfqDate: new Date(),
           title,
           description: description || '',
-          items: items.map(item => ({
+          items: resolvedItems.map(item => ({
             itemName: item.itemName,
             description: item.description || '',
             quantity: item.quantity,
@@ -870,7 +2044,10 @@ export class ProcurementService {
           expectedDeliveryDate,
           rfqDeadline,
           specialRequirements,
-          companyName: 'NVCCZ'
+          priority,
+          visibility,
+          requisitionNumber: prEmailMeta?.requisitionNumber,
+          requisitionTitle: prEmailMeta?.requisitionTitle,
         });
         
         console.log(`   ✅ Sent to ${vendor.name}`);
@@ -893,12 +2070,7 @@ export class ProcurementService {
       console.log(`📋 RFQ Number: ${rfqNumber}`);
       console.log(`👥 Vendors Contacted: ${vendors.length}`);
       vendors.forEach(v => console.log(`   - ${v.name} (${v.email})`));
-      console.log(`📦 Items: ${items.length}`);
-      if (rfqDeadline) {
-        console.log(`⏰ Response Deadline: ${rfqDeadline.toLocaleDateString()}`);
-      }
-      console.log("");
-      console.log("📌 NEXT STEPS:");
+      console.log(`📦 Items: ${resolvedItems.length}`);
       console.log("   1. Vendors receive RFQ via email");
       console.log("   2. Vendors respond with their quotes (via email)");
       console.log("   3. Review vendor quotes");
@@ -936,76 +2108,60 @@ export class ProcurementService {
     offset?: number;
   }) {
     try {
-      const {
-        rfqNumber,
-        requisitionId,
-        limit = 50,
-        offset = 0
-      } = filters || {};
+      const { rfqNumber, requisitionId, limit = 50, offset = 0 } = filters || {};
 
-      const { default: AuditService } = await import('./AuditService');
-      
-      const where: any = {
-        entityType: "RFQ"
-      };
+      const where: any = {};
+      if (rfqNumber) where.rfqNumber = rfqNumber;
+      if (requisitionId) where.requisitionId = requisitionId;
 
-      if (rfqNumber) {
-        where.entityId = rfqNumber;
-      }
+      const [rows, count] = await Promise.all([
+        prisma.procurementRfq.findMany({
+          where,
+          include: {
+            createdBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+              },
+            },
+            requisition: {
+              select: {
+                id: true,
+                requisitionNumber: true,
+                title: true,
+                rejectionReason: true,
+                rejectionContentFingerprint: true,
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          take: limit,
+          skip: offset,
+        }),
+        prisma.procurementRfq.count({ where }),
+      ]);
 
-      // Get RFQs from audit logs
-      const audits = await prisma.auditLog.findMany({
-        where,
-        include: {
-          user: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          }
-        },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-        skip: offset,
-        distinct: ['entityId'] // Only get unique RFQ numbers
-      });
+      const rfqs = rows.map((r) => ({
+        id: r.id,
+        rfqNumber: r.rfqNumber,
+        procurementRfqId: r.id,
+        title: r.title,
+        description: r.description,
+        status: r.status,
+        visibility: r.visibility,
+        closingAt: r.closingAt,
+        requisitionId: r.requisitionId,
+        rejectionReason: r.rejectionReason,
+        rejectionContentFingerprint: r.rejectionContentFingerprint,
+        createdAt: r.createdAt,
+        createdBy: r.createdBy,
+        requisition: r.requisition,
+        source: "procurement_rfqs",
+      }));
 
-      // Parse RFQ data from newValues JSON
-      const rfqs = audits.map(audit => {
-        const rfqData = audit.newValues as any;
-        return {
-          rfqNumber: audit.entityId,
-          ...rfqData,
-          createdBy: audit.user,
-          createdAt: audit.createdAt
-        };
-      });
-
-      // Filter by requisitionId if provided
-      let filteredRFQs = rfqs;
-      if (requisitionId) {
-        filteredRFQs = rfqs.filter((rfq: any) => 
-          rfq.requisitionId === requisitionId
-        );
-      }
-
-      // Get count (distinct RFQ numbers)
-      const count = await prisma.auditLog.count({
-        where: {
-          entityType: "RFQ",
-          ...(rfqNumber ? { entityId: rfqNumber } : {})
-        },
-        distinct: ['entityId']
-      });
-
-      return {
-        rfqs: filteredRFQs,
-        count: requisitionId ? filteredRFQs.length : count,
-        limit,
-        offset
-      };
+      return { rfqs, count, limit, offset };
     } catch (error: any) {
       console.error("Error fetching RFQs:", error);
       throw error;
@@ -1028,8 +2184,21 @@ export class ProcurementService {
         paymentTerms,
         deliveryTerms,
         createdById,
-        items
+        items,
+        validityEndDate,
+        drawdownTrancheId,
       } = params;
+
+      let portfolioCompanyId: string | undefined;
+      let fundIdFromReq: string | undefined;
+      if (requisitionId) {
+        const reqRow = await prisma.purchaseRequisition.findUnique({
+          where: { id: requisitionId },
+          select: { portfolioCompanyId: true, fundId: true },
+        });
+        portfolioCompanyId = reqRow?.portfolioCompanyId ?? undefined;
+        fundIdFromReq = reqRow?.fundId ?? undefined;
+      }
 
       // Validate vendor exists
       const vendor = await prisma.vendor.findUnique({
@@ -1040,15 +2209,71 @@ export class ProcurementService {
         throw new Error("Vendor not found");
       }
 
-      // Calculate totals
-      const subtotal = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-      const taxAmount = subtotal * 0.15; // Assuming 15% tax rate
-      const totalAmount = subtotal + taxAmount;
+      if (vendor.isBlacklisted) {
+        throw new Error(
+          `Vendor "${vendor.name}" is blacklisted and cannot be used on a purchase order.`
+        );
+      }
+
+      if (quotationId) {
+        const qRow = await prisma.vendorQuotation.findUnique({
+          where: { id: quotationId },
+          select: { id: true, vendorEmail: true },
+        });
+        if (!qRow) {
+          throw new Error("Vendor quotation not found");
+        }
+        const vEmail = String(vendor.email || "").trim().toLowerCase();
+        const qEmail = String(qRow.vendorEmail || "").trim().toLowerCase();
+        if (vEmail && qEmail && vEmail !== qEmail) {
+          throw new Error("Selected vendor does not match the vendor quotation");
+        }
+      }
+
+      let effectiveCurrencyId = currencyId;
+      if (!effectiveCurrencyId && vendor.settlementCurrencyId) {
+        effectiveCurrencyId = vendor.settlementCurrencyId;
+      }
+
+      await VATService.refreshActiveVatRate(false).catch(() => undefined);
+
+      const computedSubtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+      let subtotal = computedSubtotal;
+      let taxAmount = VATService.calculateVAT(computedSubtotal);
+      let totalAmount = computedSubtotal + taxAmount;
+
+      if (quotationId) {
+        const qAgg = await prisma.vendorQuotation.findUnique({
+          where: { id: quotationId },
+          select: { subtotal: true, taxAmount: true, totalAmount: true },
+        });
+        if (qAgg) {
+          const qs = Number(qAgg.subtotal);
+          const qt = Number(qAgg.taxAmount);
+          const qtTot = Number(qAgg.totalAmount);
+          const subMatch =
+            Number.isFinite(qs) && Math.abs(computedSubtotal - qs) <= 0.02;
+          const expectedTax = VATService.calculateVAT(computedSubtotal);
+          const expectedTotal = computedSubtotal + expectedTax;
+          const taxCoherent =
+            Number.isFinite(qt) &&
+            Number.isFinite(qtTot) &&
+            Math.abs(qt - expectedTax) <= 0.05 &&
+            Math.abs(qtTot - expectedTotal) <= 0.05;
+          if (subMatch && taxCoherent) {
+            subtotal = qs;
+            taxAmount = qt;
+            totalAmount = qtTot;
+          }
+        }
+      }
+
+      const poNumber = await this.resolvePoNumberForCreate(quotationId ?? null);
 
       // Create purchase order
       const purchaseOrder = await prisma.purchaseOrder.create({
         data: {
-          poNumber: this.generatePONumber(),
+          poNumber,
           requisitionId,
           quotationId,
           vendorId,
@@ -1056,15 +2281,19 @@ export class ProcurementService {
           subtotal: new Decimal(subtotal),
           taxAmount: new Decimal(taxAmount),
           totalAmount: new Decimal(totalAmount),
-          currencyId,
+          currencyId: effectiveCurrencyId,
           expectedDeliveryDate,
           shippingAddress,
           paymentTerms,
           deliveryTerms,
           createdById,
           status: "DRAFT",
+          portfolioCompanyId: portfolioCompanyId || null,
+          fundId: fundIdFromReq || null,
+          drawdownTrancheId: drawdownTrancheId || null,
+          validityEndDate: validityEndDate || null,
           items: {
-            create: items.map(item => ({
+            create: items.map((item) => ({
               itemName: item.itemName,
               description: item.description,
               quantity: new Decimal(item.quantity),
@@ -1073,9 +2302,11 @@ export class ProcurementService {
               unit: item.unit,
               quantityReceived: new Decimal(0),
               quantityPending: new Decimal(item.quantity),
-              specifications: item.specifications
-            }))
-          }
+              specifications: item.specifications,
+              expectedDeliveryDate: item.expectedDeliveryDate || null,
+              lineStatus: "ACTIVE",
+            })),
+          },
         },
         include: {
           vendor: {
@@ -1093,6 +2324,14 @@ export class ProcurementService {
               requisitionNumber: true,
               title: true
             }
+          },
+          quotation: {
+            select: {
+              id: true,
+              quotationNumber: true,
+              status: true,
+              rfqNumber: true,
+            },
           },
           currency: {
             select: {
@@ -1141,7 +2380,20 @@ export class ProcurementService {
   /**
    * Send/Approve Purchase Order and email to vendor
    */
-  static async sendPurchaseOrder(poId: string, sentById: string) {
+  static async sendPurchaseOrder(
+    poId: string,
+    sentById: string,
+    options?: {
+      /** When set, email states the linked quotation was accepted (single combined vendor email). */
+      quotationAcceptContext?: {
+        quotationNumber: string;
+        quotationAmount: number;
+        currencyCode: string;
+        reviewNotes?: string;
+        rfqNumber?: string;
+      };
+    }
+  ) {
     try {
       console.log("\n════════════════════════════════════════════════════════════════");
       console.log("📧 SENDING PURCHASE ORDER TO VENDOR");
@@ -1184,40 +2436,93 @@ export class ProcurementService {
       console.log(`   ✅ Vendor email: ${purchaseOrder.vendor.email}`);
 
       console.log("\n📧 Step 2: Sending PO email to vendor...");
-      
-      // Import email service dynamically
-      const { EmailNotificationService } = await import('./EmailNotificationService');
-      
+
+      const vendorAckToken = randomBytes(24).toString("hex");
+      const poPdfVerificationToken = randomBytes(24).toString("hex");
+
+      // Persist verification tokens BEFORE rendering the PDF so the PDF embeds the same token
+      // that vendor-side `verify` endpoints will accept. PO stays in its current pre-send status
+      // until the email is dispatched successfully (next step).
+      await prisma.purchaseOrder.update({
+        where: { id: poId },
+        data: { vendorAckToken, poPdfVerificationToken },
+      });
+
+      console.log("\n🧾 Step 2a: Rendering branded PO PDF with accounting letterhead (required, same pipeline as sales invoices)...");
+
+      const [{ ProcurementPoPdfService }, { loadCapitalCallAccountingLetterhead }, { EmailNotificationService }] =
+        await Promise.all([
+          import("./ProcurementPoPdfService"),
+          import("../utils/capitalCallAccountingLetterhead"),
+          import("./EmailNotificationService"),
+        ]);
+
+      const letterhead = await loadCapitalCallAccountingLetterhead();
+      const pdfBuf = await ProcurementPoPdfService.renderPurchaseOrderPdf(poId, { letterhead });
+      if (!pdfBuf?.length) {
+        throw new Error("Purchase order PDF generation returned an empty buffer");
+      }
+      const safeBase = String(purchaseOrder.poNumber || poId)
+        .replace(/[^a-zA-Z0-9._-]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+      const pdfAttachment = {
+        filename: `PurchaseOrder-${safeBase}.pdf`,
+        content: pdfBuf,
+      };
+      console.log("   ✅ PO PDF generated");
+
+      const {
+        signVendorPortalToken,
+        poInvoicePortalTokenExpiryUnixSeconds,
+        VENDOR_PORTAL_KIND_PO_VENDOR_INVOICE,
+      } = await import("../utils/vendorPortalToken");
+      const { escapeVendorPoInvoiceSubmitUrlForEmailHref } = await import("../utils/vendorPoInvoiceEmailLinks");
+      const invExp = poInvoicePortalTokenExpiryUnixSeconds();
+      const invoicePortalToken = signVendorPortalToken({
+        k: VENDOR_PORTAL_KIND_PO_VENDOR_INVOICE,
+        v: purchaseOrder.vendorId,
+        p: poId,
+        exp: invExp,
+      });
+      const vendorInvoiceSubmitUrlEscaped =
+        escapeVendorPoInvoiceSubmitUrlForEmailHref(invoicePortalToken) || undefined;
+
       await EmailNotificationService.sendPurchaseOrderToVendor({
         vendorName: purchaseOrder.vendor.name,
         vendorEmail: purchaseOrder.vendor.email,
         poNumber: purchaseOrder.poNumber,
         poDate: purchaseOrder.createdAt,
         totalAmount: Number(purchaseOrder.totalAmount),
-        currency: purchaseOrder.currency?.code || 'USD',
-        items: purchaseOrder.items.map(item => ({
+        currency: purchaseOrder.currency?.code || "USD",
+        items: purchaseOrder.items.map((item) => ({
           itemName: item.itemName,
-          description: item.description || '',
+          description: item.description || "",
           quantity: Number(item.quantity),
+          unit: item.unit || undefined,
           unitPrice: Number(item.unitPrice),
-          total: Number(item.totalPrice)
+          total: Number(item.totalPrice),
         })),
         deliveryAddress: purchaseOrder.shippingAddress || undefined,
         expectedDeliveryDate: purchaseOrder.expectedDeliveryDate || undefined,
         paymentTerms: purchaseOrder.paymentTerms || undefined,
-        notes: purchaseOrder.notes || undefined,
-        companyName: 'NVCCZ'
+        notes: undefined,
+        pdfAttachment,
+        vendorInvoiceSubmitUrlEscaped,
+        vendorInvoicePortalToken: invoicePortalToken,
+        quotationAcceptContext: options?.quotationAcceptContext,
       });
 
       console.log("   ✅ Email sent successfully");
 
       console.log("\n📝 Step 3: Updating PO status to SENT...");
+      const dispatchedAt = new Date();
       const updatedPO = await prisma.purchaseOrder.update({
         where: { id: poId },
         data: {
           status: "SENT",
-          sentAt: new Date(),
-          sentById
+          sentAt: dispatchedAt,
+          dispatchedAt,
+          sentById,
         },
         include: {
           vendor: true,
@@ -1400,9 +2705,81 @@ export class ProcurementService {
   }
 
   /**
-   * Approve a procurement invoice and create journal entry
+   * Reject a procurement invoice that is still awaiting approval. Stores the reason and a content
+   * fingerprint, clears any approval stamp and writes a REJECT audit event. Nothing is posted: an
+   * invoice creates accounting entries only when it is paid, and a rejected one never is.
    */
-  static async approveProcurementInvoice(invoiceId: string, approvedById: string) {
+  static async rejectProcurementInvoice(invoiceId: string, rejectedById: string, rejectionReason: string) {
+    const reason = String(rejectionReason || "").trim();
+    if (!reason) {
+      throw new Error("Rejection reason is required");
+    }
+
+    const existing = await prisma.procurementInvoice.findUnique({
+      where: { id: invoiceId },
+      include: { items: true },
+    });
+    if (!existing) {
+      throw new Error("Invoice not found");
+    }
+    const status = String(existing.status || "").toUpperCase();
+    if (status === "REJECTED") {
+      throw new Error("Invoice is already rejected");
+    }
+    if (!["DRAFT", "PENDING", "PENDING_APPROVAL", "MATCHED", "DISCREPANCY"].includes(status)) {
+      throw new Error(`Only an invoice awaiting approval can be rejected (status: ${existing.status})`);
+    }
+
+    const { computeProcurementInvoiceRejectionFingerprint } = await import(
+      "../utils/procurementEntityRejectionFingerprint"
+    );
+    const rejectionContentFingerprint = computeProcurementInvoiceRejectionFingerprint({
+      ...existing,
+      status: "REJECTED",
+    });
+
+    const updated = await prisma.procurementInvoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: "REJECTED",
+        rejectionReason: reason,
+        rejectionContentFingerprint,
+        approvedById: null,
+        approvedAt: null,
+      },
+      include: {
+        vendor: { select: { id: true, name: true, email: true } },
+        purchaseOrder: { select: { id: true, poNumber: true, status: true } },
+        currency: { select: { id: true, code: true, symbol: true } },
+        items: true,
+      },
+    });
+
+    await AuditService.log({
+      userId: rejectedById,
+      action: "REJECT",
+      entityType: "ProcurementInvoice",
+      entityId: invoiceId,
+      oldValues: { status: existing.status },
+      newValues: { status: "REJECTED", rejectionReason: reason },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Approve a procurement invoice and create journal entry
+   * @param invoiceId - ID of the invoice to approve
+   * @param approvedById - ID of the user approving the invoice
+   * @param approvalData - Optional approval data including taxable status (VAT calculated automatically)
+   */
+  static async approveProcurementInvoice(
+    invoiceId: string, 
+    approvedById: string,
+    approvalData?: {
+      isTaxable?: boolean;
+    }
+  ) {
     try {
       console.log("\n");
       console.log("════════════════════════════════════════════════════════════════");
@@ -1440,26 +2817,78 @@ export class ProcurementService {
       }
       console.log("   ✅ Invoice is ready for approval");
 
+      // Handle taxable status and tax calculation using VATService
+      console.log("\n💰 Step 3: Calculating tax and totals...");
+      let finalSubtotal = Number(invoice.subtotal);
+      let finalTaxAmount = Number(invoice.taxAmount);
+      let finalTotalAmount = Number(invoice.totalAmount);
+      
+      // Import VATService
+      const VATService = (await import('./VATService')).default;
+      await VATService.refreshActiveVatRate().catch(() => undefined);
+      
+      // If approval data provided, recalculate based on taxable status
+      if (approvalData && approvalData.isTaxable !== undefined) {
+        const isTaxable = approvalData.isTaxable;
+        
+        if (isTaxable) {
+          // Calculate VAT automatically using active VAT rate from DB
+          finalTaxAmount = VATService.isVATEligible(finalSubtotal, true)
+            ? VATService.calculateVAT(finalSubtotal)
+            : 0;
+          finalTotalAmount = finalSubtotal + finalTaxAmount;
+          console.log(`   ✅ Invoice is TAXABLE`);
+          console.log(`   • Using VAT rate: ${VATService.getVATRate()}% (active VAT)`);
+          console.log(`   • Subtotal: $${finalSubtotal.toFixed(2)}`);
+          console.log(`   • Tax (VAT): $${finalTaxAmount.toFixed(2)}`);
+          console.log(`   • Total: $${finalTotalAmount.toFixed(2)}`);
+        } else {
+          // Not taxable - zero out tax
+          finalTaxAmount = 0;
+          finalTotalAmount = finalSubtotal;
+          console.log(`   ✅ Invoice is NOT TAXABLE`);
+          console.log(`   • Subtotal: $${finalSubtotal.toFixed(2)}`);
+          console.log(`   • Tax: $0.00`);
+          console.log(`   • Total: $${finalTotalAmount.toFixed(2)}`);
+        }
+      } else {
+        // No approval data - keep existing values
+        const isTaxable = finalTaxAmount > 0;
+        console.log(`   ℹ️  Using existing invoice amounts`);
+        console.log(`   • Taxable: ${isTaxable ? 'YES' : 'NO'}`);
+        console.log(`   • Subtotal: $${finalSubtotal.toFixed(2)}`);
+        console.log(`   • Tax: $${finalTaxAmount.toFixed(2)}`);
+        console.log(`   • Total: $${finalTotalAmount.toFixed(2)}`);
+      }
+
       // ⚠️ IMPORTANT: Accounting entries will be created when invoice is PAID, not when approved
-      console.log("\n📝 Step 3: Updating invoice status...");
+      console.log("\n📝 Step 4: Updating invoice status...");
       console.log("   New Status: APPROVED");
       console.log("   Payment Status: PENDING (awaiting payment)");
       console.log("");
       console.log("   ℹ️  Accounting entries will be created when payment is processed");
       console.log("   ℹ️  This includes:");
-      console.log(`      • DEBIT Expense Account: $${Number(invoice.subtotal).toFixed(2)}`);
-      console.log(`      • DEBIT VAT Input Account: $${Number(invoice.taxAmount).toFixed(2)}`);
-      console.log(`      • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)} (on payment)`);
+      if (finalTaxAmount > 0) {
+        console.log(`      • DEBIT Expense Account: $${finalSubtotal.toFixed(2)}`);
+        console.log(`      • DEBIT VAT Input Account: $${finalTaxAmount.toFixed(2)}`);
+        console.log(`      • CREDIT Accounts Payable: $${finalTotalAmount.toFixed(2)} (on payment)`);
+      } else {
+        console.log(`      • DEBIT Expense Account: $${finalTotalAmount.toFixed(2)}`);
+        console.log(`      • CREDIT Accounts Payable: $${finalTotalAmount.toFixed(2)} (on payment)`);
+      }
       console.log(`      • Then: DEBIT Accounts Payable, CREDIT Bank/Cash (on payment)`);
       
-      // Update invoice with approval (NO journal entry yet)
+      // Update invoice with approval and recalculated amounts (NO journal entry yet)
       const updatedInvoice = await prisma.procurementInvoice.update({
         where: { id: invoiceId },
         data: {
           status: "APPROVED",
           approvedById,
           approvedAt: new Date(),
-          paymentStatus: "PENDING"
+          paymentStatus: "PENDING",
+          subtotal: new Decimal(finalSubtotal),
+          taxAmount: new Decimal(finalTaxAmount),
+          totalAmount: new Decimal(finalTotalAmount)
           // NO journalEntryId here - will be created on payment
         },
         include: {
@@ -1478,7 +2907,7 @@ export class ProcurementService {
       console.log("   ✅ Invoice updated successfully");
 
       // Audit log
-      console.log("\n📊 Step 4: Creating audit log...");
+      console.log("\n📊 Step 5: Creating audit log...");
       await AuditService.log({
         userId: approvedById,
         action: "APPROVE",
@@ -1487,6 +2916,77 @@ export class ProcurementService {
         newValues: updatedInvoice,
       });
       console.log("   ✅ Audit log created");
+
+      // Send approval email to vendor (best-effort: never roll back the APPROVE on email/PDF failure)
+      console.log("\n📧 Step 6: Sending approval email to vendor with PDF copy...");
+      try {
+        const vendorEmail = String(invoice.vendor?.email || "").trim();
+        if (!vendorEmail) {
+          console.warn("   ⚠️  Skipping vendor email — vendor has no email on file");
+        } else {
+          const [{ EmailNotificationService }, { loadCapitalCallAccountingLetterhead }, { buildProcurementInvoicePdfBuffer, safeProcurementInvoicePdfFileBaseName }] =
+            await Promise.all([
+              import("./EmailNotificationService"),
+              import("../utils/capitalCallAccountingLetterhead"),
+              import("../utils/procurementInvoicePdf"),
+            ]);
+          const letterhead = await loadCapitalCallAccountingLetterhead().catch(() => null);
+
+          let poNumber: string | null = null;
+          if (updatedInvoice.purchaseOrderId) {
+            const po = await prisma.purchaseOrder.findUnique({
+              where: { id: updatedInvoice.purchaseOrderId },
+              select: { poNumber: true },
+            });
+            poNumber = po?.poNumber || null;
+          }
+
+          const pdf = await buildProcurementInvoicePdfBuffer({
+            invoiceNumber: updatedInvoice.invoiceNumber,
+            invoiceDate: updatedInvoice.invoiceDate,
+            dueDate: updatedInvoice.dueDate ?? null,
+            status: updatedInvoice.status,
+            paymentStatus: updatedInvoice.paymentStatus,
+            currencyCode: updatedInvoice.currency?.code || invoice.currency?.code || "USD",
+            subtotal: Number(updatedInvoice.subtotal ?? finalSubtotal),
+            taxAmount: Number(updatedInvoice.taxAmount ?? finalTaxAmount),
+            totalAmount: Number(updatedInvoice.totalAmount ?? finalTotalAmount),
+            poNumber,
+            vendor: {
+              name: invoice.vendor?.name || "Vendor",
+              email: invoice.vendor?.email ?? null,
+              phone: (invoice.vendor as any)?.phone ?? null,
+              address: (invoice.vendor as any)?.address ?? null,
+              bpNumber: (invoice.vendor as any)?.bpNumber ?? null,
+              taxNumber: (invoice.vendor as any)?.taxNumber ?? null,
+            },
+            items: (updatedInvoice.items || []).map((it: any) => ({
+              itemName: it.itemName,
+              description: it.description ?? null,
+              quantity: Number(it.quantity ?? 0),
+              unitPrice: Number(it.unitPrice ?? 0),
+              totalPrice: Number(it.totalPrice ?? 0),
+            })),
+            letterhead,
+          });
+
+          const fileBase = safeProcurementInvoicePdfFileBaseName(updatedInvoice.invoiceNumber);
+          await EmailNotificationService.sendProcurementInvoiceToVendor({
+            vendorName: invoice.vendor?.name || "Vendor",
+            vendorEmail,
+            invoiceNumber: updatedInvoice.invoiceNumber,
+            invoiceDate: updatedInvoice.invoiceDate,
+            totalAmount: Number(updatedInvoice.totalAmount ?? finalTotalAmount),
+            currencyCode: updatedInvoice.currency?.code || invoice.currency?.code || "USD",
+            dueDate: updatedInvoice.dueDate ?? null,
+            poNumber,
+            pdfAttachment: { filename: `Invoice-${fileBase}.pdf`, content: pdf },
+          });
+          console.log("   ✅ Approval email + PDF sent to vendor");
+        }
+      } catch (emailError: any) {
+        console.error("   ⚠️  Failed to send approval email:", emailError?.message || emailError);
+      }
 
       console.log("\n════════════════════════════════════════════════════════════════");
       console.log("✅ INVOICE APPROVED SUCCESSFULLY!");
@@ -1534,6 +3034,7 @@ export class ProcurementService {
       paymentMethod: "CASH" | "BANK";
       bankAccountId?: string; // Optional: specific bank account (e.g., ZIG account)
       paymentReference?: string; // Bank transaction reference
+      proofOfPaymentPath?: string; // Path to uploaded proof of payment document
       notes?: string;
     },
     processedById: string
@@ -1567,9 +3068,15 @@ export class ProcurementService {
       }
       console.log(`✅ Invoice Found: ${invoice.invoiceNumber}`);
       console.log(`   Vendor: ${invoice.vendor.name}`);
+      console.log(`   Subtotal: $${Number(invoice.subtotal).toFixed(2)}`);
+      console.log(`   Tax (VAT): $${Number(invoice.taxAmount).toFixed(2)}`);
       console.log(`   Total Amount: $${Number(invoice.totalAmount).toFixed(2)}`);
       console.log(`   Status: ${invoice.status}`);
       console.log(`   Payment Status: ${invoice.paymentStatus}`);
+      
+      // Determine if invoice is taxable
+      const isTaxable = Number(invoice.taxAmount) > 0;
+      console.log(`   Taxable: ${isTaxable ? 'YES (15.5% VAT)' : 'NO'}`);
 
       // Validation checks
       console.log("\n🔒 Step 2: Validating payment request...");
@@ -1580,23 +3087,30 @@ export class ProcurementService {
       }
       console.log("   ✅ Invoice is approved");
 
+      // Check if invoice is already fully paid (but allow partial payments if partially paid)
       if (invoice.paymentStatus === "PAID") {
-        console.error("❌ VALIDATION FAILED: Invoice has already been paid");
-        throw new Error("Invoice has already been paid");
+        console.error("❌ VALIDATION FAILED: Invoice has already been fully paid");
+        throw new Error("Invoice has already been fully paid");
       }
-      console.log("   ✅ Invoice is not already paid");
+      console.log("   ✅ Invoice can be paid (not fully paid)");
 
       // Validate payment amount
       const invoiceTotal = Number(invoice.totalAmount);
-      if (paymentData.paymentAmount > invoiceTotal) {
-        console.error(`❌ VALIDATION FAILED: Payment amount ($${paymentData.paymentAmount}) exceeds invoice total ($${invoiceTotal})`);
-        throw new Error(`Payment amount ($${paymentData.paymentAmount}) cannot exceed invoice total ($${invoiceTotal})`);
+      // Check if there's an existing partial payment
+      const existingPaidAmount = invoice.paymentStatus === "PARTIALLY_PAID" 
+        ? 0 // We don't track partial amounts yet, so treat as 0 for now
+        : 0;
+      const remainingInvoiceBalance = invoiceTotal - existingPaidAmount;
+      
+      if (paymentData.paymentAmount > remainingInvoiceBalance) {
+        console.error(`❌ VALIDATION FAILED: Payment amount ($${paymentData.paymentAmount}) exceeds remaining balance ($${remainingInvoiceBalance})`);
+        throw new Error(`Payment amount ($${paymentData.paymentAmount}) cannot exceed remaining balance ($${remainingInvoiceBalance})`);
       }
-      console.log(`   ✅ Payment amount valid ($${paymentData.paymentAmount.toFixed(2)} <= $${invoiceTotal.toFixed(2)})`);
+      console.log(`   ✅ Payment amount valid ($${paymentData.paymentAmount.toFixed(2)} <= $${remainingInvoiceBalance.toFixed(2)})`);
 
       // Determine payment type
-      const isPartialPayment = paymentData.paymentAmount < invoiceTotal;
-      const remainingBalance = invoiceTotal - paymentData.paymentAmount;
+      const isPartialPayment = paymentData.paymentAmount < remainingInvoiceBalance;
+      const remainingBalance = remainingInvoiceBalance - paymentData.paymentAmount;
       
       if (isPartialPayment) {
         console.log(`   ℹ️  PARTIAL PAYMENT: Paying $${paymentData.paymentAmount.toFixed(2)} of $${invoiceTotal.toFixed(2)}`);
@@ -1605,59 +3119,117 @@ export class ProcurementService {
         console.log(`   ℹ️  FULL PAYMENT: Paying entire invoice amount`);
       }
 
-      console.log("\n💰 Step 3: Creating accounting entries (EXPENSE + PAYMENT)...");
+      console.log("\n💰 Step 3: Creating accounting entries...");
       console.log("   ⚠️  IMPORTANT: Accounting entries created when payment is processed");
-      console.log("   This will create TWO journal entries:");
-      console.log("");
-      console.log("   ENTRY 1: Expense Recognition");
-      console.log(`   • DEBIT Expense Account: $${Number(invoice.subtotal).toFixed(2)}`);
-      console.log(`   • DEBIT VAT Input Account: $${Number(invoice.taxAmount).toFixed(2)}`);
-      console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)}`);
-      console.log("");
-      console.log("   ENTRY 2: Payment Processing");
+      
+      // Check if expense entry already exists (for partial payments scenario)
+      const hasExistingExpenseEntry = invoice.journalEntry !== null;
+      
+      let expenseJournalEntry;
+      
+      if (!hasExistingExpenseEntry) {
+        // First payment - create expense recognition entry
+        console.log("   This will create TWO journal entries:");
+        console.log("");
+        console.log("   ENTRY 1: Expense Recognition");
+        if (isTaxable) {
+          console.log(`   • DEBIT Expense Account: $${Number(invoice.subtotal).toFixed(2)}`);
+          console.log(`   • DEBIT VAT Input Account: $${Number(invoice.taxAmount).toFixed(2)}`);
+          console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)}`);
+        } else {
+          console.log(`   • DEBIT Expense Account: $${Number(invoice.totalAmount).toFixed(2)}`);
+          console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)}`);
+        }
+        console.log("");
+        
+        // First, create expense journal entry (Dr. Expense, Dr. VAT if taxable, Cr. AP)
+        console.log("\n   📊 Creating Entry 1: Expense Recognition...");
+        const expenseJournalEntryParams = {
+          vendorId: invoice.vendorId,
+          categoryName: "PROCUREMENT", // You might want to get this from invoice items/category
+          amount: Number(invoice.subtotal),
+          vatAmount: isTaxable ? Number(invoice.taxAmount) : 0,
+          totalAmount: Number(invoice.totalAmount),
+          currencyId: invoice.currencyId || "default-currency",
+          transactionDate: paymentData.paymentDate,
+          description: `Purchase Invoice: ${invoice.invoiceNumber} - ${invoice.vendor.name}`,
+          receiptNumber: invoice.invoiceNumber, // Use invoice number as receipt number
+          isTaxable: isTaxable,
+          paymentMethod: "CREDIT" as const, // Creates AP liability
+          createdById: processedById
+        };
+
+        expenseJournalEntry = await JournalEntryService.createExpenseJournalEntry(expenseJournalEntryParams);
+        console.log(`   ✅ Expense Entry Created: ${expenseJournalEntry.journalEntry.referenceNumber}`);
+        console.log(`   ℹ️  Expense recognized: ${isTaxable ? `$${Number(invoice.subtotal).toFixed(2)} + VAT $${Number(invoice.taxAmount).toFixed(2)}` : `$${Number(invoice.totalAmount).toFixed(2)}`}`);
+      } else {
+        // Subsequent payment (partial payment scenario) - expense already recognized
+        console.log("   ℹ️  Expense already recognized in previous payment");
+        console.log("   ℹ️  Only creating payment entry (Entry 2)");
+        expenseJournalEntry = {
+          journalEntry: invoice.journalEntry! // Use existing expense entry
+        };
+      }
+      
+      // Create payment via cashbook (Dr. AP, Cr. Bank/Cash) and link to invoice
+      console.log("\n   💳 Creating Entry 2: Payment via Cashbook...");
       console.log(`   • DEBIT Accounts Payable: $${paymentData.paymentAmount.toFixed(2)}`);
       console.log(`   • CREDIT ${paymentData.paymentMethod} Account: $${paymentData.paymentAmount.toFixed(2)}`);
-      
-      // First, create expense journal entry (Dr. Expense, Dr. VAT, Cr. AP)
-      console.log("\n   📊 Creating Entry 1: Expense Recognition...");
-      const expenseJournalEntryParams = {
-        vendorId: invoice.vendorId,
-        categoryName: "PROCUREMENT", // You might want to get this from invoice items/category
-        amount: Number(invoice.subtotal),
-        vatAmount: Number(invoice.taxAmount),
-        totalAmount: Number(invoice.totalAmount),
-        currencyId: invoice.currencyId || "default-currency",
-        transactionDate: paymentData.paymentDate,
-        description: `Purchase Invoice: ${invoice.invoiceNumber} - ${invoice.vendor.name}`,
-        receiptNumber: invoice.invoiceNumber, // Use invoice number as receipt number
-        isTaxable: Number(invoice.taxAmount) > 0,
-        paymentMethod: "CREDIT" as const, // Creates AP liability
-        createdById: processedById
-      };
 
-      const expenseJournalEntry = await JournalEntryService.createExpenseJournalEntry(expenseJournalEntryParams);
-      console.log(`   ✅ Expense Entry Created: ${expenseJournalEntry.journalEntry.referenceNumber}`);
+      const accountsPayableAccount = await prisma.chartOfAccounts.findFirst({
+        where: {
+          OR: [
+            { accountNo: "2000" },
+            { accountName: { contains: "Accounts Payable" } }
+          ],
+          isActive: true
+        }
+      });
+      if (!accountsPayableAccount) {
+        throw new Error("Accounts Payable account (2000) not found in chart of accounts");
+      }
 
-      // Then, create payment journal entry (Dr. AP, Cr. Bank/Cash)
-      console.log("\n   💳 Creating Entry 2: Payment Processing...");
-      const paymentJournalEntryResult = await JournalEntryService.createVendorPaymentJournalEntry({
-        vendorId: invoice.vendorId,
-        invoiceId: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        paymentAmount: paymentData.paymentAmount,
-        currencyId: invoice.currencyId || "default-currency",
+      let bankId: string;
+      if (paymentData.paymentMethod === "BANK" && paymentData.bankAccountId) {
+        const bank = await prisma.bank.findUnique({
+          where: { id: paymentData.bankAccountId },
+          include: { glAccount: true }
+        });
+        if (!bank) throw new Error("Bank account not found");
+        bankId = bank.id;
+      } else {
+        const cashBank = await prisma.bank.findFirst({
+          where: { name: { contains: "Cash" } },
+          include: { glAccount: true }
+        });
+        if (cashBank) {
+          bankId = cashBank.id;
+        } else {
+          const firstBank = await prisma.bank.findFirst({ include: { glAccount: true } });
+          if (!firstBank) throw new Error("No bank account found for payment");
+          bankId = firstBank.id;
+        }
+      }
+
+      const cashbookResult = await CashbookService.createCashPayment({
+        bankId,
         transactionDate: paymentData.paymentDate,
-        description: `Payment to ${invoice.vendor.name} for Purchase Invoice ${invoice.invoiceNumber}`,
-        paymentMethod: paymentData.paymentMethod,
-        bankAccountId: paymentData.bankAccountId,
-        paymentReference: paymentData.paymentReference,
-        notes: paymentData.notes,
+        description: `Payment for Procurement Invoice ${invoice.invoiceNumber} - ${invoice.vendor.name}`,
+        amount: paymentData.paymentAmount,
+        reference: paymentData.paymentReference || `PAY-${invoice.invoiceNumber}`,
+        counterpartyType: "GL",
+        glAccountId: accountsPayableAccount.id,
         createdById: processedById
       });
-      console.log(`   ✅ Payment Entry Created: ${paymentJournalEntryResult.journalEntry.referenceNumber}`);
 
-      // Use payment entry as the main journal entry reference
-      const journalEntryResult = paymentJournalEntryResult;
+      if (!cashbookResult.success || !cashbookResult.transaction) {
+        throw new Error(cashbookResult.message || "Failed to create cashbook payment");
+      }
+      console.log(`   ✅ Cashbook payment created: ${cashbookResult.transaction.id}`);
+
+      const journalEntryResult = cashbookResult.journalEntry
+        ? { journalEntry: cashbookResult.journalEntry }
+        : { journalEntry: await prisma.journalEntry.findUnique({ where: { id: cashbookResult.transaction.journalEntryId! } }) };
 
       // Determine payment status based on amount paid
       let paymentStatus = "PAID";
@@ -1705,20 +3277,26 @@ export class ProcurementService {
       console.log("\n📝 Step 5: Updating invoice payment status...");
       console.log(`   New Payment Status: ${paymentStatus}`);
       console.log(`   Payment Date: ${paymentData.paymentDate.toISOString().split('T')[0]}`);
+      console.log(`   Taxable: ${isTaxable ? 'YES (15.5% VAT)' : 'NO'}`);
       if (paymentData.paymentReference) {
         console.log(`   Payment Reference: ${paymentData.paymentReference}`);
       }
+      if (paymentData.proofOfPaymentPath) {
+        console.log(`   Proof of Payment: ${paymentData.proofOfPaymentPath}`);
+      }
       console.log(`   Receipt Number: ${receiptNumber}`);
 
-      // Update invoice with payment details and journal entry
+      // Update invoice with payment details, journal entry, and cashbook entry link
       const updatedInvoice = await prisma.procurementInvoice.update({
         where: { id: invoiceId },
         data: {
           paymentStatus,
           paymentDate: paymentData.paymentDate,
-          paymentReference: paymentData.paymentReference || receiptNumber, // Store receipt number in payment reference if no ref provided
-          journalEntryId: expenseJournalEntry.journalEntry.id // Link to expense entry
-          // Note: paymentJournalEntryId might not exist in schema, storing receipt number in paymentReference
+          paymentReference: paymentData.paymentReference || receiptNumber,
+          journalEntryId: expenseJournalEntry.journalEntry.id,
+          cashbookEntryId: cashbookResult.transaction.id,
+          documentPath: paymentData.proofOfPaymentPath || invoice.documentPath,
+          documentType: paymentData.proofOfPaymentPath ? (paymentData.proofOfPaymentPath.endsWith('.pdf') ? 'PDF' : 'IMAGE') : invoice.documentType
         },
         include: {
           vendor: true,
@@ -1729,6 +3307,14 @@ export class ProcurementService {
               id: true,
               referenceNumber: true,
               status: true
+            }
+          },
+          cashbookEntry: {
+            select: {
+              id: true,
+              reference: true,
+              status: true,
+              amount: true
             }
           }
         }
@@ -1758,13 +3344,15 @@ export class ProcurementService {
         const { EmailNotificationService } = await import('./EmailNotificationService');
         await EmailNotificationService.sendInvoicePaidEmail({
           vendorName: invoice.vendor.name,
-          vendorEmail: invoice.vendor.email,
+          vendorEmail: invoice.vendor.email || '',
           invoiceNumber: invoice.invoiceNumber,
           invoiceAmount: paymentData.paymentAmount,
           currencyCode: invoice.currency?.code || "USD",
           paymentDate: paymentData.paymentDate,
-          paymentReference: paymentData.paymentReference,
-          paymentMethod: paymentData.paymentMethod
+          paymentReference: paymentData.paymentReference || receiptNumber,
+          paymentMethod: paymentData.paymentMethod,
+          isPartialPayment: isPartialPayment,
+          remainingBalance: isPartialPayment ? remainingBalance : 0
         });
         console.log("   ✅ Payment confirmation email sent to vendor");
       } catch (emailError: any) {
@@ -1803,15 +3391,6 @@ export class ProcurementService {
   }
 
   /**
-   * Generate unique invoice number
-   */
-  private static generateInvoiceNumber(): string {
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `INV-${timestamp}-${random}`;
-  }
-
-  /**
    * Create a procurement invoice
    */
   static async createProcurementInvoice(params: CreateProcurementInvoiceParams) {
@@ -1819,101 +3398,275 @@ export class ProcurementService {
       const {
         purchaseOrderId,
         vendorId,
+        vendorPortalToken,
         invoiceDate,
         dueDate,
         currencyId,
         documentPath,
         documentType,
+        attachmentIds,
         createdById,
         items
       } = params;
 
+      const {
+        verifyVendorPortalToken,
+        VENDOR_PORTAL_KIND_PO_VENDOR_INVOICE,
+      } = await import("../utils/vendorPortalToken");
+
+      let resolvedVendorId = vendorId?.trim() || "";
+      let resolvedPurchaseOrderId = purchaseOrderId?.trim() || "";
+
+      const portalRaw = vendorPortalToken?.trim();
+      if (portalRaw) {
+        const pl = verifyVendorPortalToken(portalRaw);
+        if (pl.k !== VENDOR_PORTAL_KIND_PO_VENDOR_INVOICE) {
+          throw new Error("Invalid vendor portal token for procurement invoice submission");
+        }
+        const po = await prisma.purchaseOrder.findUnique({
+          where: { id: pl.p },
+          select: { id: true, vendorId: true, status: true, poNumber: true },
+        });
+        if (!po) throw new Error("Purchase order not found");
+        if (po.vendorId !== pl.v) throw new Error("Token does not match this purchase order");
+        const { canVendorSubmitProcurementInvoice } = await import(
+          "../constants/purchaseOrderStatus"
+        );
+        if (!canVendorSubmitProcurementInvoice(po.status)) {
+          throw new Error(`Purchase order is not open for vendor invoices (status: ${po.status})`);
+        }
+        if (resolvedVendorId && resolvedVendorId !== pl.v) {
+          throw new Error("vendorId does not match portal token");
+        }
+        if (resolvedPurchaseOrderId && resolvedPurchaseOrderId !== pl.p) {
+          throw new Error("purchaseOrderId does not match portal token");
+        }
+        resolvedVendorId = pl.v;
+        resolvedPurchaseOrderId = pl.p;
+      } else if (!createdById) {
+        throw new Error(
+          "vendorPortalToken is required when submitting a procurement invoice without staff authentication"
+        );
+      }
+
+      if (!resolvedVendorId) {
+        throw new Error("Vendor ID is required (or supply a valid vendorPortalToken)");
+      }
+      if (!resolvedPurchaseOrderId) {
+        throw new Error("purchaseOrderId is required (or supply a valid vendorPortalToken)");
+      }
+
+      const isVendorPortalSubmit = Boolean(portalRaw);
+      const resolvedInvoiceDate = isVendorPortalSubmit ? new Date() : invoiceDate;
+      if (!resolvedInvoiceDate || Number.isNaN(resolvedInvoiceDate.getTime())) {
+        throw new Error("Invoice date is required");
+      }
+
       // Validate vendor exists
       const vendor = await prisma.vendor.findUnique({
-        where: { id: vendorId }
+        where: { id: resolvedVendorId }
       });
 
       if (!vendor) {
         throw new Error("Vendor not found");
       }
 
+      // If createdById is not provided (public vendor submission), find a system admin user
+      let finalCreatedById = createdById;
+      if (!finalCreatedById) {
+        const systemUser = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { email: process.env.EMAIL_ADMIN || 'admin@nvccz.co.zw' },
+              { roleCode: 'ADMIN' },
+              { role: { name: 'ADMIN' } }
+            ]
+          },
+          select: { id: true }
+        });
+
+        if (!systemUser) {
+          throw new Error("System user not found. Please contact administrator.");
+        }
+
+        finalCreatedById = systemUser.id;
+      }
+
       // Calculate totals
       const subtotal = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-      const taxAmount = subtotal * 0.15; // Assuming 15% tax rate
+      const taxAmount = VATService.calculateVAT(subtotal);
       const totalAmount = subtotal + taxAmount;
 
-      // Create procurement invoice
-      const invoice = await prisma.procurementInvoice.create({
-        data: {
-          invoiceNumber: this.generateInvoiceNumber(),
-          purchaseOrderId,
-          vendorId,
-          invoiceDate,
-          dueDate,
-          subtotal: new Decimal(subtotal),
-          taxAmount: new Decimal(taxAmount),
-          totalAmount: new Decimal(totalAmount),
-          currencyId,
-          documentPath,
-          documentType,
-          createdById,
-          status: "DRAFT", // Start as DRAFT so it can go through approval workflow
-          items: {
-            create: items.map(item => ({
-              itemName: item.itemName,
-              description: item.description,
-              quantity: new Decimal(item.quantity),
-              unitPrice: new Decimal(item.unitPrice),
-              totalPrice: new Decimal(item.quantity * item.unitPrice),
-              unit: item.unit
-            }))
+      const procurementInvoiceInclude = {
+        vendor: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            address: true
           }
         },
-        include: {
-          vendor: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true,
-              address: true
-            }
-          },
-          purchaseOrder: {
-            select: {
-              id: true,
-              poNumber: true,
-              status: true
-            }
-          },
-          currency: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              symbol: true
-            }
-          },
-          createdBy: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          },
-          items: true
+        purchaseOrder: {
+          select: {
+            id: true,
+            poNumber: true,
+            status: true
+          }
+        },
+        currency: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            symbol: true
+          }
+        },
+        createdBy: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        },
+        items: true
+      };
+
+      let invoice = null;
+      let lastProcInvoiceErr: any = null;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        try {
+          const invoiceNumber = await nextUnifiedInvoiceNumber(prisma, resolvedInvoiceDate);
+          invoice = await prisma.procurementInvoice.create({
+            data: {
+              invoiceNumber,
+              purchaseOrderId: resolvedPurchaseOrderId,
+              vendorId: resolvedVendorId,
+              invoiceDate: resolvedInvoiceDate,
+              dueDate,
+              subtotal: new Decimal(subtotal),
+              taxAmount: new Decimal(taxAmount),
+              totalAmount: new Decimal(totalAmount),
+              currencyId,
+              documentPath,
+              documentType,
+              createdById: finalCreatedById,
+              status: "DRAFT", // Start as DRAFT so it can go through approval workflow
+              items: {
+                create: items.map(item => ({
+                  itemName: item.itemName,
+                  description: item.description,
+                  quantity: new Decimal(item.quantity),
+                  unitPrice: new Decimal(item.unitPrice),
+                  totalPrice: new Decimal(item.quantity * item.unitPrice),
+                  unit: item.unit
+                }))
+              }
+            },
+            include: procurementInvoiceInclude
+          });
+          break;
+        } catch (error: any) {
+          lastProcInvoiceErr = error;
+          if (error?.code === "P2002") {
+            const t = error.meta?.target;
+            const fields = Array.isArray(t) ? t : t != null ? [t] : [];
+            const hit = fields.some(
+              (x: string) =>
+                x === "invoiceNumber" || String(x).includes("invoice_number")
+            );
+            if (hit) continue;
+          }
+          throw error;
         }
-      });
+      }
+
+      if (!invoice) {
+        throw lastProcInvoiceErr instanceof Error
+          ? lastProcInvoiceErr
+          : new Error(String(lastProcInvoiceErr));
+      }
+
+      const { PO_STATUS, PO_STATUSES_BEFORE_ACKNOWLEDGED } = await import(
+        "../constants/purchaseOrderStatus"
+      );
+      if (resolvedPurchaseOrderId) {
+        const poForAck = await prisma.purchaseOrder.findUnique({
+          where: { id: resolvedPurchaseOrderId },
+          select: { id: true, status: true, poNumber: true },
+        });
+        if (
+          poForAck &&
+          PO_STATUSES_BEFORE_ACKNOWLEDGED.includes(String(poForAck.status || ""))
+        ) {
+          await prisma.purchaseOrder.update({
+            where: { id: poForAck.id },
+            data: { status: PO_STATUS.ACKNOWLEDGED },
+          });
+          console.log(
+            `   ✅ PO ${poForAck.poNumber} status → ${PO_STATUS.ACKNOWLEDGED} (vendor invoice submitted)`
+          );
+        }
+      }
+
+      if (attachmentIds?.length) {
+        const { VendorDocumentAttachmentService } = await import(
+          "./VendorDocumentAttachmentService"
+        );
+        await VendorDocumentAttachmentService.linkStagedAttachments({
+          attachmentIds,
+          entityType: "PROCUREMENT_INVOICE",
+          entityId: invoice.id,
+          vendorId: resolvedVendorId,
+          actorUserId: createdById ?? finalCreatedById
+        });
+        invoice = await prisma.procurementInvoice.findUnique({
+          where: { id: invoice.id },
+          include: procurementInvoiceInclude
+        });
+      }
+
+      // Three-way match the new invoice against its PO and the receipts so far; a failure here is
+      // logged and never blocks the invoice itself.
+      {
+        const { ProcurementInvoiceMatchService } = await import("./ProcurementInvoiceMatchService");
+        if (await ProcurementInvoiceMatchService.evaluateQuietly(invoice.id)) {
+          invoice = await prisma.procurementInvoice.findUnique({
+            where: { id: invoice.id },
+            include: procurementInvoiceInclude,
+          });
+        }
+      }
 
       // Audit log
       await AuditService.log({
-        userId: createdById,
+        userId: createdById ?? finalCreatedById,
         action: "CREATE",
         entityType: "ProcurementInvoice",
         entityId: invoice.id,
         newValues: invoice,
       });
+
+      if (!createdById) {
+        try {
+          const recipients = await this.resolveProcurementDeskNotifyRecipients();
+          const { EmailNotificationService } = await import("./EmailNotificationService");
+          await EmailNotificationService.sendProcurementInvoiceCreatedForReview({
+            recipients,
+            vendorName: invoice.vendor?.name ?? "Vendor",
+            invoiceNumber: invoice.invoiceNumber,
+            poNumber: invoice.purchaseOrder?.poNumber ?? null,
+            totalAmount: Number(invoice.totalAmount),
+            currencyCode: invoice.currency?.code ?? "USD",
+          });
+        } catch (notifyErr) {
+          console.error(
+            "⚠️  Failed to notify desk of vendor-submitted procurement invoice:",
+            (notifyErr as Error)?.message || notifyErr
+          );
+        }
+      }
 
       return invoice;
     } catch (error) {
@@ -1925,45 +3678,118 @@ export class ProcurementService {
   /**
    * Create a goods received note
    */
-  static async createGoodsReceivedNote(purchaseOrderId: string, receivedById: string, items: {
-    purchaseOrderItemId: string;
-    quantityReceived: number;
-    quantityAccepted: number;
-    quantityRejected: number;
-    qualityStatus: string;
-    qualityNotes?: string;
-  }[]) {
+  static async createGoodsReceivedNote(
+    purchaseOrderId: string,
+    receivedById: string,
+    items: {
+      purchaseOrderItemId: string;
+      quantityReceived: number;
+      quantityAccepted: number;
+      quantityRejected: number;
+      qualityStatus: string;
+      qualityNotes?: string;
+      lineType?: string;
+      milestoneDescription?: string;
+      serialNumbers?: unknown;
+    }[],
+    options?: {
+      receivedDate?: Date;
+      attachmentUrls?: unknown;
+      latitude?: number;
+      longitude?: number;
+      geoCapturedAt?: Date;
+      submittedByInvestee?: boolean;
+    }
+  ) {
     try {
       const purchaseOrder = await prisma.purchaseOrder.findUnique({
         where: { id: purchaseOrderId },
         include: {
-          items: true
-        }
+          items: true,
+        },
       });
 
       if (!purchaseOrder) {
         throw new Error("Purchase order not found");
       }
 
+      const { PO_STATUS, isPoFullyDelivered } = await import("../constants/purchaseOrderStatus");
+      if (purchaseOrder.status === PO_STATUS.DRAFT) {
+        throw new Error("Cannot receive goods against a draft purchase order");
+      }
+      if (purchaseOrder.status === PO_STATUS.BILLED) {
+        throw new Error("Cannot receive goods against a purchase order that is already billed");
+      }
+      if (isPoFullyDelivered(purchaseOrder.status)) {
+        const pendingLines = purchaseOrder.items.filter(
+          (l) => (l as { lineStatus?: string }).lineStatus !== "CANCELLED" && Number(l.quantityPending) > 0
+        );
+        if (pendingLines.length === 0) {
+          throw new Error("Purchase order is already fully delivered");
+        }
+      }
+
+      const settings = await prisma.procurementSettings.findUnique({
+        where: { id: "default" },
+      });
+      const tolPct = settings ? Number(settings.overDeliveryTolerancePct) : 5;
+
+      const poItemMap = new Map(purchaseOrder.items.map((i) => [i.id, i]));
+
+      for (const item of items) {
+        const poi = poItemMap.get(item.purchaseOrderItemId);
+        if (!poi) throw new Error(`PO line ${item.purchaseOrderItemId} not on this PO`);
+        if ((poi as any).lineStatus === "CANCELLED") {
+          throw new Error("Cannot receive against a cancelled PO line");
+        }
+        const ordered = Number(poi.quantity);
+        const already = Number(poi.quantityReceived);
+        const maxRecv = ordered * (1 + tolPct / 100);
+        if (already + item.quantityReceived > maxRecv + 1e-9) {
+          throw new Error(
+            `Over-delivery blocked: line exceeds ${tolPct}% tolerance vs PO quantity (Suite 05.3).`
+          );
+        }
+      }
+
+      const grnStatus =
+        options?.submittedByInvestee === true ? "PENDING_GP_REVIEW" : "RECEIVED";
+
+      const grnNumber = await nextProcurementGrnNumber(prisma as any, new Date());
+
       // Create GRN
       const grn = await prisma.goodsReceivedNote.create({
         data: {
-          grnNumber: this.generateGRNNumber(),
+          grnNumber,
           purchaseOrderId,
           receivedById,
-          status: "RECEIVED",
+          ...(options?.receivedDate ? { receivedDate: options.receivedDate } : {}),
+          ...(options?.attachmentUrls != null
+            ? { attachmentUrls: options.attachmentUrls as object }
+            : {}),
+          ...(options?.latitude != null ? { latitude: new Decimal(options.latitude) } : {}),
+          ...(options?.longitude != null ? { longitude: new Decimal(options.longitude) } : {}),
+          ...(options?.geoCapturedAt ? { geoCapturedAt: options.geoCapturedAt } : {}),
+          submittedByInvestee: !!options?.submittedByInvestee,
+          status: grnStatus,
           qualityStatus: "PENDING",
           items: {
-            create: items.map(item => ({
-              purchaseOrderItemId: item.purchaseOrderItemId,
-              quantityOrdered: new Decimal(0), // Will be populated from PO item
-              quantityReceived: new Decimal(item.quantityReceived),
-              quantityAccepted: new Decimal(item.quantityAccepted),
-              quantityRejected: new Decimal(item.quantityRejected),
-              qualityStatus: item.qualityStatus,
-              qualityNotes: item.qualityNotes
-            }))
-          }
+            create: items.map((item) => {
+              const poi = poItemMap.get(item.purchaseOrderItemId)!;
+              return {
+                purchaseOrderItemId: item.purchaseOrderItemId,
+                quantityOrdered: new Decimal(poi.quantity),
+                quantityReceived: new Decimal(item.quantityReceived),
+                quantityAccepted: new Decimal(item.quantityAccepted),
+                quantityRejected: new Decimal(item.quantityRejected),
+                qualityStatus: item.qualityStatus,
+                qualityNotes: item.qualityNotes,
+                lineType: item.lineType || "GOODS",
+                milestoneDescription: item.milestoneDescription || null,
+                serialNumbers: item.serialNumbers != null ? (item.serialNumbers as object) : undefined,
+              };
+            }),
+          },
         },
         include: {
           purchaseOrder: {
@@ -2003,22 +3829,36 @@ export class ProcurementService {
         });
       }
 
-      // Check if all items are received
-      const allItemsReceived = await prisma.purchaseOrderItem.findMany({
-        where: {
-          purchaseOrderId,
-          quantityPending: { gt: 0 }
-        }
+      const updatedLines = await prisma.purchaseOrderItem.findMany({
+        where: { purchaseOrderId },
       });
 
-      if (allItemsReceived.length === 0) {
+      const { purchaseOrderStatusAfterGrnReceipt } = await import(
+        "../constants/purchaseOrderStatus"
+      );
+      const nextPoStatus = purchaseOrderStatusAfterGrnReceipt(updatedLines);
+
+      if (nextPoStatus === PO_STATUS.DELIVERED) {
         await prisma.purchaseOrder.update({
           where: { id: purchaseOrderId },
           data: {
-            status: "RECEIVED",
-            actualDeliveryDate: new Date()
-          }
+            status: PO_STATUS.DELIVERED,
+            actualDeliveryDate: new Date(),
+          },
         });
+        console.log(`   ✅ PO status → ${PO_STATUS.DELIVERED} (GRN ${grn.grnNumber})`);
+      } else if (nextPoStatus === PO_STATUS.PARTIALLY_DELIVERED) {
+        await prisma.purchaseOrder.update({
+          where: { id: purchaseOrderId },
+          data: { status: PO_STATUS.PARTIALLY_DELIVERED },
+        });
+        console.log(`   ✅ PO status → ${PO_STATUS.PARTIALLY_DELIVERED} (GRN ${grn.grnNumber})`);
+      }
+
+      // The PO's receipts changed: re-match on create so its open invoices reflect them.
+      {
+        const { ProcurementInvoiceMatchService } = await import("./ProcurementInvoiceMatchService");
+        await ProcurementInvoiceMatchService.evaluateForPurchaseOrder(purchaseOrderId);
       }
 
       // Audit log
@@ -2030,7 +3870,39 @@ export class ProcurementService {
         newValues: grn,
       });
 
-      return grn;
+      const { VendorRatingService } = await import("./VendorRatingService");
+      try {
+        await VendorRatingService.recalculateForVendor(grn.purchaseOrder.vendorId);
+      } catch (e) {
+        console.error("VendorRatingService.recalculateForVendor:", e);
+      }
+
+      const grnFresh = await prisma.goodsReceivedNote.findUnique({
+        where: { id: grn.id },
+        include: {
+          purchaseOrder: {
+            include: {
+              vendor: true,
+              items: true,
+            },
+          },
+          receivedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          },
+          items: {
+            include: {
+              purchaseOrderItem: true,
+            },
+          },
+        },
+      });
+
+      return grnFresh ?? grn;
     } catch (error) {
       console.error("Error creating goods received note:", error);
       throw error;
@@ -2038,7 +3910,296 @@ export class ProcurementService {
   }
 
   /**
-   * Convert a Purchase Order to a Creditor Bill (Invoice) in the Accounting module
+   * QC approve a GRN: header + all lines → qualityStatus PASSED; records approver and time.
+   */
+  static async approveGoodsReceivedNote(
+    grnId: string,
+    approvedById: string,
+    options?: { qualityNotes?: string }
+  ) {
+    const existing = await prisma.goodsReceivedNote.findUnique({
+      where: { id: grnId },
+      select: { id: true, grnNumber: true, status: true, qualityStatus: true },
+    });
+    if (!existing) {
+      throw new Error("Goods received note not found");
+    }
+    if (existing.status === "REJECTED") {
+      throw new Error("Cannot approve a rejected goods received note");
+    }
+    if (existing.qualityStatus === "FAILED") {
+      throw new Error("Cannot approve a goods received note that failed QC");
+    }
+
+    const qualityNotes =
+      options?.qualityNotes != null && String(options.qualityNotes).trim()
+        ? String(options.qualityNotes).trim()
+        : undefined;
+
+    const nextHeaderStatus =
+      existing.status === "RECEIVED" ||
+      existing.status === "PENDING_GP_REVIEW" ||
+      existing.status === "DRAFT"
+        ? "APPROVED"
+        : existing.status;
+
+    await prisma.$transaction([
+      prisma.goodsReceivedNoteItem.updateMany({
+        where: { grnId },
+        data: { qualityStatus: "PASSED" },
+      }),
+      prisma.goodsReceivedNote.update({
+        where: { id: grnId },
+        data: {
+          qualityStatus: "PASSED",
+          approvedById,
+          approvedAt: new Date(),
+          status: nextHeaderStatus,
+          ...(qualityNotes ? { qualityNotes } : {}),
+        },
+      }),
+    ]);
+
+    const updated = await prisma.goodsReceivedNote.findUnique({
+      where: { id: grnId },
+      include: {
+        purchaseOrder: { include: { vendor: true, items: true } },
+        receivedBy: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        approvedBy: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        items: { include: { purchaseOrderItem: true } },
+        returnToVendors: {
+          include: {
+            createdBy: {
+              select: { id: true, firstName: true, lastName: true, email: true },
+            },
+          },
+        },
+      },
+    });
+
+    // The PO's receipts changed: re-match on approve so its open invoices reflect them.
+    {
+      const { ProcurementInvoiceMatchService } = await import("./ProcurementInvoiceMatchService");
+      await ProcurementInvoiceMatchService.evaluateForPurchaseOrder(updated?.purchaseOrderId);
+    }
+
+    await AuditService.log({
+      userId: approvedById,
+      action: "APPROVE",
+      entityType: "GoodsReceivedNote",
+      entityId: grnId,
+      newValues: {
+        qualityStatus: "PASSED",
+        status: nextHeaderStatus,
+        qualityNotes: qualityNotes ?? null,
+      },
+    });
+
+    console.log(
+      `✅ GRN ${existing.grnNumber} QC approved (qualityStatus=PASSED, status=${nextHeaderStatus})`
+    );
+
+    return updated;
+  }
+
+  /**
+   * QC reject a GRN: header + all lines → qualityStatus FAILED; status REJECTED; stores reason + fingerprint.
+   */
+  static async rejectGoodsReceivedNote(
+    grnId: string,
+    rejectedById: string,
+    rejectionReason: string
+  ) {
+    const reason = String(rejectionReason || "").trim();
+    if (!reason) {
+      throw new Error("Rejection reason is required");
+    }
+
+    const existing = await prisma.goodsReceivedNote.findUnique({
+      where: { id: grnId },
+      include: { items: true },
+    });
+    if (!existing) {
+      throw new Error("Goods received note not found");
+    }
+    if (existing.status === "REJECTED") {
+      throw new Error("Goods received note is already rejected");
+    }
+
+    const { computeGoodsReceivedNoteRejectionFingerprint } = await import(
+      "../utils/procurementEntityRejectionFingerprint"
+    );
+    const rejectionContentFingerprint = computeGoodsReceivedNoteRejectionFingerprint({
+      ...existing,
+      status: "REJECTED",
+      qualityStatus: "FAILED",
+      qualityNotes: reason,
+    });
+
+    await prisma.$transaction([
+      prisma.goodsReceivedNoteItem.updateMany({
+        where: { grnId },
+        data: { qualityStatus: "FAILED" },
+      }),
+      prisma.goodsReceivedNote.update({
+        where: { id: grnId },
+        data: {
+          qualityStatus: "FAILED",
+          status: "REJECTED",
+          rejectionReason: reason,
+          rejectionContentFingerprint,
+          qualityNotes: reason,
+          approvedById: null,
+          approvedAt: null,
+        },
+      }),
+    ]);
+
+    const updated = await prisma.goodsReceivedNote.findUnique({
+      where: { id: grnId },
+      include: {
+        purchaseOrder: { include: { vendor: true, items: true } },
+        receivedBy: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        approvedBy: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        items: { include: { purchaseOrderItem: true } },
+        returnToVendors: {
+          include: {
+            createdBy: {
+              select: { id: true, firstName: true, lastName: true, email: true },
+            },
+          },
+        },
+      },
+    });
+
+    // The PO's receipts changed: re-match on reject so its open invoices stop counting this GRN.
+    {
+      const { ProcurementInvoiceMatchService } = await import("./ProcurementInvoiceMatchService");
+      await ProcurementInvoiceMatchService.evaluateForPurchaseOrder(updated?.purchaseOrderId);
+    }
+
+    await AuditService.log({
+      userId: rejectedById,
+      action: "REJECT",
+      entityType: "GoodsReceivedNote",
+      entityId: grnId,
+      newValues: {
+        qualityStatus: "FAILED",
+        status: "REJECTED",
+        rejectionReason: reason,
+      },
+    });
+
+    console.log(
+      `❌ GRN ${existing.grnNumber} QC rejected (qualityStatus=FAILED, status=REJECTED)`
+    );
+
+    return updated;
+  }
+
+  static async cancelPurchaseOrderLine(poId: string, lineId: string, userId: string) {
+    const line = await prisma.purchaseOrderItem.findFirst({
+      where: { id: lineId, purchaseOrderId: poId },
+    });
+    if (!line) throw new Error("PO line not found");
+    await prisma.purchaseOrderItem.update({
+      where: { id: lineId },
+      data: { lineStatus: "CANCELLED", quantityPending: new Decimal(0) },
+    });
+    const items = await prisma.purchaseOrderItem.findMany({ where: { purchaseOrderId: poId } });
+    const active = items.filter((i) => i.lineStatus !== "CANCELLED");
+    const subtotal = active.reduce((s, i) => s + Number(i.totalPrice), 0);
+    const taxAmount = VATService.calculateVAT(subtotal);
+    await prisma.purchaseOrder.update({
+      where: { id: poId },
+      data: {
+        subtotal: new Decimal(subtotal),
+        taxAmount: new Decimal(taxAmount),
+        totalAmount: new Decimal(subtotal + taxAmount),
+        version: { increment: 1 },
+      },
+    });
+    await AuditService.log({
+      userId,
+      action: "UPDATE",
+      entityType: "PurchaseOrder",
+      entityId: poId,
+      newValues: { cancelledLineId: lineId, note: "Line cancelled (Suite 04.7)" },
+    });
+    return { purchaseOrderId: poId, lineId, lineStatus: "CANCELLED" };
+  }
+
+  static async createGrnReturnToVendor(params: {
+    goodsReceivedNoteId: string;
+    purchaseOrderItemId: string;
+    quantity: number;
+    reason?: string;
+    createdById: string;
+  }) {
+    const qty = Number(params.quantity);
+    if (!(qty > 0) || Number.isNaN(qty)) {
+      throw new Error("quantity must be a positive number");
+    }
+
+    const grn = await prisma.goodsReceivedNote.findUnique({
+      where: { id: params.goodsReceivedNoteId },
+      include: {
+        items: {
+          where: { purchaseOrderItemId: params.purchaseOrderItemId },
+        },
+      },
+    });
+
+    if (!grn) {
+      throw new Error("Goods received note not found");
+    }
+
+    const line = grn.items[0];
+    if (!line) {
+      throw new Error("Purchase order line is not on this GRN");
+    }
+
+    const received = Number(line.quantityReceived);
+    const agg = await prisma.grnReturnToVendor.aggregate({
+      where: {
+        goodsReceivedNoteId: params.goodsReceivedNoteId,
+        purchaseOrderItemId: params.purchaseOrderItemId,
+      },
+      _sum: { quantity: true },
+    });
+    const alreadyReturned = Number(agg._sum.quantity ?? 0);
+    const remaining = received - alreadyReturned;
+    if (qty > remaining + 1e-9) {
+      throw new Error(
+        `Return quantity exceeds remaining receivable on this GRN line (${remaining.toFixed(2)} remaining vs ${received.toFixed(2)} received, ${alreadyReturned.toFixed(2)} already marked for RTV)`
+      );
+    }
+
+    return prisma.grnReturnToVendor.create({
+      data: {
+        goodsReceivedNoteId: params.goodsReceivedNoteId,
+        purchaseOrderItemId: params.purchaseOrderItemId,
+        quantity: new Decimal(qty),
+        reason: params.reason,
+        status: "SUBMITTED",
+        createdById: params.createdById,
+      },
+    });
+  }
+
+  /**
+   * Legacy: creates a sales-module `Invoice` with a generic customer.
+   * Prefer {@link PurchaseInvoiceService.createVendorBillFromPurchaseOrder} via
+   * `POST /api/procurement/purchase-orders/:id/convert-to-bill` or
+   * `POST /api/accounting/purchase-invoices/from-purchase-order`.
    */
   static async convertPOToBill(poId: string, createdById: string) {
     try {
@@ -2084,7 +4245,7 @@ export class ProcurementService {
         genericCustomer = await prisma.customer.create({
           data: {
             name: 'Generic Supplier - Internal Use',
-            email: 'suppliers@nvccz.co.zw',
+            email: process.env.EMAIL_SUPPLIERS || 'suppliers@nvccz.co.zw',
             phone: '+263-XXX-XXX-XXXX',
             address: 'Internal Use Only',
             isActive: true
@@ -2112,7 +4273,7 @@ export class ProcurementService {
         description: item.itemName + (item.description ? ' - ' + item.description : ''),
         quantity: Number(item.quantity),
         unitPrice: Number(item.unitPrice),
-        vatRate: taxAmount > 0 ? 15 : 0 // Assuming 15% VAT if tax exists
+        vatRate: taxAmount > 0 ? VATService.getVATRate() : 0
       }));
 
       console.log('   Items prepared: ' + invoiceItems.length);
@@ -2267,56 +4428,503 @@ export class ProcurementService {
   }
 
   /**
-   * Get procurement dashboard data
+   * Get procurement dashboard data with detailed information.
+   * @param viewerUserId When set, recent requisitions + Suite 02 SLA block respect investee fund isolation (2.7 / 2.8).
    */
-  static async getProcurementDashboard() {
+  static async getProcurementDashboard(viewerUserId?: string) {
     try {
+      const investeeVisibilityWhere = viewerUserId
+        ? await this.buildInvesteeFundVisibilityWhereForViewer(viewerUserId)
+        : null;
+
+      // Get summary counts
       const [
         totalRequisitions,
         pendingRequisitions,
         approvedRequisitions,
-        totalPurchaseOrders,
-        pendingPOs,
-        receivedPOs,
+        rejectedRequisitions,
+        draftRequisitions,
         totalInvoices,
         pendingInvoices,
         approvedInvoices,
-        totalGRNs,
-        pendingGRNs
+        paidInvoices,
+        partiallyPaidInvoices,
+        totalRFQs,
+        activeRFQs,
+        totalQuotations,
+        pendingQuotations,
+        acceptedQuotations,
+        rejectedQuotations
       ] = await Promise.all([
         prisma.purchaseRequisition.count(),
         prisma.purchaseRequisition.count({ where: { status: "PENDING_APPROVAL" } }),
         prisma.purchaseRequisition.count({ where: { status: "APPROVED" } }),
-        prisma.purchaseOrder.count(),
-        prisma.purchaseOrder.count({ where: { status: "SENT" } }),
-        prisma.purchaseOrder.count({ where: { status: "RECEIVED" } }),
+        prisma.purchaseRequisition.count({ where: { status: "REJECTED" } }),
+        prisma.purchaseRequisition.count({ where: { status: "DRAFT" } }),
         prisma.procurementInvoice.count(),
-        prisma.procurementInvoice.count({ where: { status: "PROCESSING" } }),
+        prisma.procurementInvoice.count({ where: { status: { in: ["PROCESSING", "MATCHED", "DISCREPANCY"] } } }),
         prisma.procurementInvoice.count({ where: { status: "APPROVED" } }),
-        prisma.goodsReceivedNote.count(),
-        prisma.goodsReceivedNote.count({ where: { status: "RECEIVED" } })
+        prisma.procurementInvoice.count({ where: { paymentStatus: "PAID" } }),
+        prisma.procurementInvoice.count({ where: { paymentStatus: "PARTIALLY_PAID" } }),
+        prisma.auditLog.count({ 
+          where: { 
+            entityType: "RequestForQuotation",
+            action: "CREATE"
+          }
+        }),
+        prisma.auditLog.count({
+          where: {
+            entityType: "RequestForQuotation",
+            action: "CREATE",
+            createdAt: {
+              gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) // Last 30 days
+            }
+          }
+        }),
+        prisma.vendorQuotation.count(),
+        prisma.vendorQuotation.count({ where: { status: "PENDING" } }),
+        prisma.vendorQuotation.count({ where: { status: "ACCEPTED" } }),
+        prisma.vendorQuotation.count({ where: { status: "REJECTED" } })
       ]);
 
-      return {
-        requisitions: {
-          total: totalRequisitions,
-          pending: pendingRequisitions,
-          approved: approvedRequisitions
+      // Get recent requisitions with details (Suite 02: scoped when viewer is fund-manager-only)
+      const recentRequisitions = await prisma.purchaseRequisition.findMany({
+        where: investeeVisibilityWhere ?? undefined,
+        take: 10,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          requisitionNumber: true,
+          title: true,
+          status: true,
+          totalAmount: true,
+          department: true, // Scalar field (String), not a relation
+          rejectionReason: true,
+          rejectionContentFingerprint: true,
+          requestedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+
+      // Get requisitions by status
+      const requisitionsByStatus = await prisma.purchaseRequisition.groupBy({
+        by: ['status'],
+        _count: { id: true },
+        _sum: { totalAmount: true }
+      });
+
+      // Get recent invoices with details
+      const recentInvoices = await prisma.procurementInvoice.findMany({
+        take: 10,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          status: true,
+          paymentStatus: true,
+          subtotal: true,
+          taxAmount: true,
+          totalAmount: true,
+          invoiceDate: true,
+          paymentDate: true,
+          createdAt: true,
+          rejectionReason: true,
+          rejectionContentFingerprint: true,
+          vendor: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          },
+          currency: {
+            select: {
+              id: true,
+              code: true,
+              symbol: true
+            }
+          },
+          approvedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          }
+        }
+      });
+
+      // Get invoices by status
+      const invoicesByStatus = await prisma.procurementInvoice.groupBy({
+        by: ['status'],
+        _count: { id: true },
+        _sum: { totalAmount: true }
+      });
+
+      // Get invoices by payment status
+      const invoicesByPaymentStatus = await prisma.procurementInvoice.groupBy({
+        by: ['paymentStatus'],
+        _count: { id: true },
+        _sum: { totalAmount: true }
+      });
+
+      // Calculate invoice amounts
+      const invoiceAmounts = await prisma.procurementInvoice.aggregate({
+        _sum: {
+          subtotal: true,
+          taxAmount: true,
+          totalAmount: true
         },
-        purchaseOrders: {
-          total: totalPurchaseOrders,
-          pending: pendingPOs,
-          received: receivedPOs
+        _avg: {
+          totalAmount: true
+        }
+      });
+
+      // Get paid invoices total
+      const paidInvoicesAmount = await prisma.procurementInvoice.aggregate({
+        where: {
+          paymentStatus: { in: ['PAID', 'PARTIALLY_PAID'] }
+        },
+        _sum: {
+          totalAmount: true
+        }
+      });
+
+      // Get pending invoices total
+      const pendingInvoicesAmount = await prisma.procurementInvoice.aggregate({
+        where: {
+          paymentStatus: 'PENDING',
+          status: 'APPROVED'
+        },
+        _sum: {
+          totalAmount: true
+        }
+      });
+
+      // Get recent RFQs from audit logs
+      const recentRFQsLogs = await prisma.auditLog.findMany({
+        where: {
+          entityType: "RequestForQuotation",
+          action: "CREATE"
+        },
+        take: 10,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          entityId: true,
+          newValues: true,
+          createdAt: true,
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          }
+        }
+      });
+
+      // Get recent quotations
+      const recentQuotations = await prisma.vendorQuotation.findMany({
+        take: 10,
+        orderBy: { submittedAt: 'desc' },
+        select: {
+          id: true,
+          quotationNumber: true,
+          rfqNumber: true,
+          status: true,
+          totalAmount: true,
+          vendorName: true,       // Scalar field
+          vendorEmail: true,      // Scalar field
+          companyName: true,      // Scalar field
+          submittedAt: true,
+          updatedAt: true,
+          rejectionReason: true,
+          rejectionContentFingerprint: true,
+        }
+      });
+
+      // Get quotations by status
+      const quotationsByStatus = await prisma.vendorQuotation.groupBy({
+        by: ['status'],
+        _count: { id: true },
+        _sum: { totalAmount: true }
+      });
+
+      // Get recent payments (invoices with payment status)
+      const recentPayments = await prisma.procurementInvoice.findMany({
+        where: {
+          paymentStatus: { in: ['PAID', 'PARTIALLY_PAID'] }
+        },
+        take: 10,
+        orderBy: { paymentDate: 'desc' },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          totalAmount: true,
+          paymentStatus: true,
+          paymentDate: true,
+          paymentReference: true,
+          vendor: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          currency: {
+            select: {
+              code: true,
+              symbol: true
+            }
+          }
+        }
+      });
+
+      // Get top vendors by invoice count
+      const topVendors = await prisma.procurementInvoice.groupBy({
+        by: ['vendorId'],
+        _count: { id: true },
+        _sum: { totalAmount: true },
+        orderBy: {
+          _count: {
+            id: 'desc'
+          }
+        },
+        take: 5
+      });
+
+      // Get vendor details for top vendors
+      const vendorIds = topVendors.map(v => v.vendorId);
+      const vendors = await prisma.vendor.findMany({
+        where: { id: { in: vendorIds } },
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      });
+
+      const topVendorsWithDetails = topVendors.map(tv => {
+        const vendor = vendors.find(v => v.id === tv.vendorId);
+        return {
+          vendor: vendor || { id: tv.vendorId, name: 'Unknown', email: null },
+          invoiceCount: tv._count.id,
+          totalAmount: Number(tv._sum.totalAmount || 0)
+        };
+      });
+
+      const { OPEN_PO_COMMITMENT_STATUSES } = await import("../constants/purchaseOrderStatus");
+
+      const [committedGroup, openPoCommitmentCount] = await Promise.all([
+        prisma.purchaseOrder.groupBy({
+          by: ["currencyId"],
+          where: { status: { in: OPEN_PO_COMMITMENT_STATUSES } },
+          _sum: { totalAmount: true },
+          _count: { id: true }
+        }),
+        prisma.purchaseOrder.count({
+          where: { status: { in: OPEN_PO_COMMITMENT_STATUSES } }
+        })
+      ]);
+
+      const commitCurrencyIds = [
+        ...new Set(
+          committedGroup
+            .map((g) => g.currencyId)
+            .filter((id): id is string => id != null)
+        )
+      ];
+      const commitCurrencies =
+        commitCurrencyIds.length > 0
+          ? await prisma.currency.findMany({
+              where: { id: { in: commitCurrencyIds } }
+            })
+          : [];
+      const commitCurrencyMap = new Map(commitCurrencies.map((c) => [c.id, c]));
+
+      const committedSpendByCurrency = committedGroup.map((row) => {
+        const cur = row.currencyId
+          ? commitCurrencyMap.get(row.currencyId)
+          : null;
+        return {
+          currencyId: row.currencyId,
+          code: cur?.code ?? "UNSET",
+          symbol: cur?.symbol ?? null,
+          name: cur?.name ?? "No currency on PO",
+          committedSpend: Number(row._sum.totalAmount || 0),
+          openPurchaseOrderCount: row._count.id
+        };
+      });
+
+      const zigCommitted = committedSpendByCurrency.find(
+        (x) => x.code && x.code.toUpperCase() === "ZIG"
+      );
+
+      let suite02InvesteeDrawdown: {
+        pendingVcExecutiveReviewOver48h: Awaited<
+          ReturnType<typeof ProcurementService.listInvesteePrsPendingVcOver48Hours>
+        >;
+        pendingVcExecutiveReviewOver48hCount: number;
+      } | null = null;
+      if (viewerUserId) {
+        try {
+          const sla = await this.listInvesteePrsPendingVcOver48Hours(viewerUserId);
+          suite02InvesteeDrawdown = {
+            pendingVcExecutiveReviewOver48h: sla,
+            pendingVcExecutiveReviewOver48hCount: sla.length,
+          };
+        } catch {
+          suite02InvesteeDrawdown = {
+            pendingVcExecutiveReviewOver48h: [],
+            pendingVcExecutiveReviewOver48hCount: 0,
+          };
+        }
+      }
+
+      return {
+        commitmentAccounting: {
+          note:
+            "Committed spend sums open purchase orders (DRAFT, SENT, APPROVED, PENDING, ACKNOWLEDGED, partial delivery). No GL posting occurs when a PO is created. When a vendor bill is created from the PO, status becomes BILLED and the amount leaves committed spend; Accounts Payable posts when the purchase invoice is submitted.",
+          openPurchaseOrderCount: openPoCommitmentCount,
+          committedSpendByCurrency,
+          committedSpendZIG: zigCommitted?.committedSpend ?? 0
+        },
+        requisitions: {
+          summary: {
+            total: totalRequisitions,
+            pending: pendingRequisitions,
+            approved: approvedRequisitions,
+            rejected: rejectedRequisitions,
+            draft: draftRequisitions
+          },
+          byStatus: requisitionsByStatus.map(rs => ({
+            status: rs.status,
+            count: rs._count.id,
+            totalAmount: Number(rs._sum.totalAmount || 0)
+          })),
+          recent: recentRequisitions.map(r => ({
+            id: r.id,
+            requisitionNumber: r.requisitionNumber,
+            title: r.title,
+            status: r.status,
+            totalAmount: Number(r.totalAmount),
+            department: r.department, // String field (department name)
+            requestedBy: r.requestedBy,
+            createdAt: r.createdAt,
+            updatedAt: r.updatedAt
+          }))
         },
         invoices: {
-          total: totalInvoices,
-          pending: pendingInvoices,
-          approved: approvedInvoices
+          summary: {
+            total: totalInvoices,
+            pending: pendingInvoices,
+            approved: approvedInvoices,
+            paid: paidInvoices,
+            partiallyPaid: partiallyPaidInvoices
+          },
+          amounts: {
+            totalSubtotal: Number(invoiceAmounts._sum.subtotal || 0),
+            totalTax: Number(invoiceAmounts._sum.taxAmount || 0),
+            totalAmount: Number(invoiceAmounts._sum.totalAmount || 0),
+            averageAmount: Number(invoiceAmounts._avg.totalAmount || 0),
+            paidAmount: Number(paidInvoicesAmount._sum.totalAmount || 0),
+            pendingPaymentAmount: Number(pendingInvoicesAmount._sum.totalAmount || 0)
+          },
+          byStatus: invoicesByStatus.map(is => ({
+            status: is.status,
+            count: is._count.id,
+            totalAmount: Number(is._sum.totalAmount || 0)
+          })),
+          byPaymentStatus: invoicesByPaymentStatus.map(ps => ({
+            paymentStatus: ps.paymentStatus,
+            count: ps._count.id,
+            totalAmount: Number(ps._sum.totalAmount || 0)
+          })),
+          recent: recentInvoices.map(inv => ({
+            id: inv.id,
+            invoiceNumber: inv.invoiceNumber,
+            status: inv.status,
+            paymentStatus: inv.paymentStatus,
+            subtotal: Number(inv.subtotal),
+            taxAmount: Number(inv.taxAmount),
+            totalAmount: Number(inv.totalAmount),
+            vendor: inv.vendor,
+            currency: inv.currency,
+            approvedBy: inv.approvedBy,
+            invoiceDate: inv.invoiceDate,
+            paymentDate: inv.paymentDate,
+            createdAt: inv.createdAt
+          }))
         },
-        grns: {
-          total: totalGRNs,
-          pending: pendingGRNs
-        }
+        rfqs: {
+          summary: {
+            total: totalRFQs,
+            active: activeRFQs
+          },
+          recent: recentRFQsLogs.map(log => {
+            const newValues = log.newValues as any;
+            return {
+              id: log.entityId,
+              rfqNumber: newValues?.rfqNumber || 'N/A',
+              createdBy: log.user,
+              createdAt: log.createdAt
+            };
+          })
+        },
+        quotations: {
+          summary: {
+            total: totalQuotations,
+            pending: pendingQuotations,
+            accepted: acceptedQuotations,
+            rejected: rejectedQuotations
+          },
+          byStatus: quotationsByStatus.map(qs => ({
+            status: qs.status,
+            count: qs._count.id,
+            totalAmount: Number(qs._sum.totalAmount || 0)
+          })),
+          recent: recentQuotations.map(q => ({
+            id: q.id,
+            quotationNumber: q.quotationNumber,
+            rfqNumber: q.rfqNumber,
+            status: q.status,
+            totalAmount: Number(q.totalAmount),
+            vendor: {
+              name: q.vendorName,
+              email: q.vendorEmail,
+              companyName: q.companyName
+            },
+            submittedAt: q.submittedAt,
+            updatedAt: q.updatedAt
+          }))
+        },
+        payments: {
+          recent: recentPayments.map(p => ({
+            id: p.id,
+            invoiceNumber: p.invoiceNumber,
+            totalAmount: Number(p.totalAmount),
+            vendor: p.vendor,
+            currency: p.currency,
+            paymentStatus: p.paymentStatus,
+            paymentDate: p.paymentDate,
+            paymentReference: p.paymentReference
+          }))
+        },
+        vendors: {
+          topVendors: topVendorsWithDetails
+        },
+        suite02InvesteeDrawdown,
+        lastUpdated: new Date()
       };
     } catch (error) {
       console.error("Error getting procurement dashboard:", error);

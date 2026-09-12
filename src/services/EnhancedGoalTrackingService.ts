@@ -1,6 +1,8 @@
 // @ts-nocheck
 import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
+import { computeAchievementPercent } from "./performanceGoalRollupUtils";
+import { PerformanceGoalService } from "./PerformanceGoalService";
 
 export interface GoalTrackingResult {
   goalId: string;
@@ -57,10 +59,13 @@ export class EnhancedGoalTrackingService {
         goal.targetValue || 0
       );
 
-      // Calculate progress percentage
-      const progressPercentage = goal.targetValue > 0 
-        ? Math.min((currentValue / goal.targetValue) * 100, 100)
-        : 0;
+      const progressPercentage = computeAchievementPercent({
+        currentValue,
+        targetValue: goal.targetValue,
+        targetOperator: goal.targetOperator || ">=",
+        isReverseKpi: goal.isReverseKpi,
+        progressPercentage: goal.progressPercentage
+      });
 
       // Determine status
       let status = "active";
@@ -89,6 +94,7 @@ export class EnhancedGoalTrackingService {
           updatedAt: new Date()
         }
       });
+      await PerformanceGoalService.refreshPerformanceRiskZoneOnGoal(goalId).catch(() => undefined);
 
       console.log(`✅ Goal ${goalId} status updated: ${currentValue}/${goal.targetValue} (${progressPercentage.toFixed(1)}%)`);
 
@@ -735,12 +741,77 @@ export class EnhancedGoalTrackingService {
 
       if (behindGoals.length > 0) {
         console.log(`⚠️ ${behindGoals.length} goals are behind schedule`);
-        // TODO: Send notifications to goal owners and managers
+        const goals = await prisma.performanceGoal.findMany({
+          where: {
+            id: {
+              in: behindGoals.map((goal) => goal.goalId)
+            }
+          },
+          select: {
+            id: true,
+            title: true,
+            assignedToId: true,
+            createdById: true
+          }
+        });
+
+        const entries = goals.flatMap((goal) =>
+          Array.from(new Set([goal.assignedToId, goal.createdById].filter(Boolean))).map((userId) => ({
+            title: "Goal Attention Required",
+            message: `Goal "${goal.title}" is behind schedule and needs attention.`,
+            type: "GOAL_BEHIND",
+            userId,
+            data: {
+              goalId: goal.id,
+              path: `/performance/goals/${goal.id}`
+            },
+            relatedEntity: "PerformanceGoal",
+            relatedEntityId: goal.id
+          }))
+        );
+
+        if (entries.length > 0) {
+          await prisma.notification.createMany({
+            data: entries
+          });
+        }
       }
 
       if (achievedGoals.length > 0) {
         console.log(`🎉 ${achievedGoals.length} goals have been achieved`);
-        // TODO: Send congratulations notifications
+        const goals = await prisma.performanceGoal.findMany({
+          where: {
+            id: {
+              in: achievedGoals.map((goal) => goal.goalId)
+            }
+          },
+          select: {
+            id: true,
+            title: true,
+            assignedToId: true
+          }
+        });
+
+        const entries = goals
+          .filter((goal) => Boolean(goal.assignedToId))
+          .map((goal) => ({
+            title: "Goal Achieved",
+            message: `Congratulations. Goal "${goal.title}" has been achieved.`,
+            type: "GOAL_ACHIEVED",
+            userId: goal.assignedToId,
+            data: {
+              goalId: goal.id,
+              path: `/performance/goals/${goal.id}`
+            },
+            relatedEntity: "PerformanceGoal",
+            relatedEntityId: goal.id
+          }));
+
+        if (entries.length > 0) {
+          await prisma.notification.createMany({
+            data: entries
+          });
+        }
       }
 
     } catch (error) {

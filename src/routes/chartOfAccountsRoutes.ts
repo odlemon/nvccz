@@ -2,11 +2,23 @@
 // routes/chartOfAccountsRoutes.ts
 
 import express from "express";
+import multer from "multer";
 import { ChartOfAccountsController } from "../controllers/ChartOfAccountsController";
 import { authenticate } from "../middleware/authenticate";
-import { authorize } from "../middleware/permissionAuth";
 
 const router = express.Router();
+
+const uploadCoaCsv = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype === "text/csv" || file.originalname.toLowerCase().endsWith(".csv")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only CSV files are allowed"));
+    }
+  },
+});
 
 /**
  * @swagger
@@ -94,7 +106,7 @@ const router = express.Router();
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post("/", authenticate, authorize(["admin"]), ChartOfAccountsController.createChartOfAccounts);
+router.post("/", authenticate, ChartOfAccountsController.createChartOfAccounts);
 
 /**
  * @swagger
@@ -122,6 +134,12 @@ router.post("/", authenticate, authorize(["admin"]), ChartOfAccountsController.c
  *         schema:
  *           type: string
  *         description: Filter by parent account ID
+ *       - in: query
+ *         name: forPosting
+ *         schema:
+ *           type: boolean
+ *           default: false
+ *         description: When true, excludes reporting-only buckets like 1000 Cash and Cash Equivalents from results (use for posting/account pickers).
  *     responses:
  *       200:
  *         description: Chart of accounts retrieved successfully
@@ -362,6 +380,54 @@ router.get("/", authenticate, ChartOfAccountsController.getAllChartOfAccounts);
  */
 router.get("/with-journal-entries", authenticate, ChartOfAccountsController.getAllChartOfAccountsWithJournalEntryLines);
 
+/**
+ * @swagger
+ * /api/accounting/chart-of-accounts/bulk-import:
+ *   post:
+ *     summary: Bulk import chart of accounts from CSV
+ *     description: >
+ *       Upload a CSV; every row is validated (account number range vs type, required fields, duplicates in file,
+ *       existing account numbers, optional parent). If any row fails, nothing is created and a row-by-row report is returned.
+ *       If all rows pass, every account is created in a single database transaction.
+ *     tags: [Accounting - Chart of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       201:
+ *         description: All rows created — data includes createdCount and accounts
+ *       400:
+ *         description: Validation failed — nothing created; data includes rowErrors and reportLines
+ */
+router.post(
+  "/bulk-import",
+  authenticate,
+  (req, res, next) => {
+    uploadCoaCsv.single("file")(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({
+          success: false,
+          message: err.message || "Invalid file upload",
+          timestamp: new Date().toISOString(),
+        });
+      }
+      next();
+    });
+  },
+  ChartOfAccountsController.bulkImportChartOfAccounts
+);
+
 router.get("/:id", authenticate, ChartOfAccountsController.getChartOfAccountsById);
 
 /**
@@ -417,6 +483,10 @@ router.get("/:id", authenticate, ChartOfAccountsController.getChartOfAccountsByI
  *                 type: boolean
  *                 description: Whether the account is active
  *                 example: true
+ *               naturalBalance:
+ *                 type: string
+ *                 enum: [DEBIT, CREDIT]
+ *                 description: Optional; must match the normal balance for the account type or request is rejected
  *     responses:
  *       200:
  *         description: Chart of accounts updated successfully
@@ -452,20 +522,65 @@ router.get("/:id", authenticate, ChartOfAccountsController.getChartOfAccountsByI
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  *       409:
- *         description: Conflict - account code already exists
+ *         description: Conflict - duplicate account number, or cannot reclassify account type / financial statement when journal lines exist
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
+ *       422:
+ *         description: No updatable fields in body
  */
-router.put("/:id", authenticate, authorize(["admin"]), ChartOfAccountsController.updateChartOfAccounts);
+router.put("/:id", authenticate, ChartOfAccountsController.updateChartOfAccounts);
+
+/**
+ * @swagger
+ * /api/accounting/chart-of-accounts/{id}:
+ *   patch:
+ *     summary: Partial update chart of accounts (same rules as PUT)
+ *     description: Same validation and behaviour as PUT; use for partial edits from the UI.
+ *     tags: [Accounting - Chart of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               accountNo: { type: string }
+ *               accountName: { type: string }
+ *               accountType:
+ *                 type: string
+ *                 enum: [Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset, Current Liability, Long-Term Liability, Equity, Revenue, Expense, Income]
+ *               financialStatement:
+ *                 type: string
+ *                 enum: [Balance Sheet, Income Statement, Cash Flow / Tracking, Income Statement / Cash Flow]
+ *               notes: { type: string }
+ *               parentId: { type: string, nullable: true }
+ *               isActive: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: Updated
+ *       400:
+ *         description: Validation error
+ *       409:
+ *         description: Conflict (postings prevent reclassification, or duplicate account number)
+ */
+router.patch("/:id", authenticate, ChartOfAccountsController.updateChartOfAccounts);
 
 /**
  * @swagger
  * /api/accounting/chart-of-accounts/{id}:
  *   delete:
  *     summary: Delete chart of accounts
- *     description: Delete a chart of accounts entry (Admin only)
+ *     description: Delete a chart of accounts entry
  *     tags: [Accounting - Chart of Accounts]
  *     security:
  *       - bearerAuth: []
@@ -502,14 +617,8 @@ router.put("/:id", authenticate, authorize(["admin"]), ChartOfAccountsController
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
- *       403:
- *         description: Forbidden - insufficient permissions
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.delete("/:id", authenticate, authorize(["admin"]), ChartOfAccountsController.deleteChartOfAccounts);
+router.delete("/:id", authenticate, ChartOfAccountsController.deleteChartOfAccounts);
 
 /**
  * @swagger

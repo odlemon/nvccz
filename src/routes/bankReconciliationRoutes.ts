@@ -313,6 +313,30 @@ router.get('/summary',
 
 /**
  * @swagger
+ * /api/accounting/bank-reconciliation/template:
+ *   get:
+ *     summary: Download bank statement CSV template
+ *     description: Returns CSV in standard format (Account Number, Account Currency, Opening/Closing Balance; then Transaction Date, Value Date, Reference, Description, Debit, Credit, Balance).
+ *     tags: [Bank Reconciliation]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: CSV file
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/template',
+  authenticate,
+  BankReconciliationController.getTemplate
+);
+
+/**
+ * @swagger
  * /api/accounting/bank-reconciliation/{id}:
  *   get:
  *     summary: Get reconciliation by ID

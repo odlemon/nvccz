@@ -1,6 +1,25 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from "express";
 import { VendorQuotationService } from "../services/VendorQuotationService";
+import { serializeDecimalsDeep } from "../utils/prismaDecimalJson";
+import { enrichRfqItemsSnapshotForApi } from "../utils/rfqItemInput";
+
+/**
+ * The service throws plain Errors for problems with the request itself — an unknown quotation,
+ * a bad or expired vendor portal token, a quotation already decided — and the error middleware
+ * answers any error without a status as a 500. That told a vendor or the desk the system had
+ * broken when the request was wrong, and buried real failures among them (PROC-FINDING-003).
+ * Database errors keep their 500.
+ */
+function withClientStatus(error: any) {
+  if (!error || error.status || error.statusCode) return error;
+  const msg = String(error.message || "");
+  if (/^PrismaClient/.test(String(error.name || "")) || /prisma\./i.test(msg)) return error;
+  if (/not found/i.test(msg)) error.status = 404;
+  else if (/already been|already (accepted|rejected|submitted)/i.test(msg)) error.status = 409;
+  else if (/token|required|invalid|expired|closed|not invited|does not match|must |not accepting|deadline has passed/i.test(msg)) error.status = 400;
+  return error;
+}
 
 export class VendorQuotationController {
   /**
@@ -9,15 +28,19 @@ export class VendorQuotationController {
    */
   static async createVendorQuotation(req: Request, res: Response, next: NextFunction) {
     try {
-      const quotation = await VendorQuotationService.createVendorQuotation(req.body);
+      const body = { ...req.body };
+      if (!body.vendorPortalToken && body.token) {
+        body.vendorPortalToken = body.token;
+      }
+      const quotation = await VendorQuotationService.createVendorQuotation(body);
 
       res.status(201).json({
         success: true,
         message: "Quotation submitted successfully. We will review your quote and contact you soon.",
-        data: quotation
+        data: serializeDecimalsDeep(quotation),
       });
     } catch (error: any) {
-      next(error);
+      next(withClientStatus(error));
     }
   }
 
@@ -36,16 +59,20 @@ export class VendorQuotationController {
         offset: offset ? parseInt(offset as string) : undefined
       });
 
+      // Ensure each quotation in list includes auto-generated quotationNumber
+      const data = (result.quotations || []).map((q: any) =>
+        serializeDecimalsDeep({ ...q, quotationNumber: q.quotationNumber ?? null })
+      );
       res.json({
         success: true,
         message: "Quotations retrieved successfully",
-        data: result.quotations,
+        data,
         count: result.count,
         limit: result.limit,
         offset: result.offset
       });
     } catch (error: any) {
-      next(error);
+      next(withClientStatus(error));
     }
   }
 
@@ -58,13 +85,17 @@ export class VendorQuotationController {
 
       const quotation = await VendorQuotationService.getQuotationById(id);
 
+      // Ensure auto-generated quotationNumber is always in response
+      const data = quotation
+        ? serializeDecimalsDeep({ ...quotation, quotationNumber: (quotation as any).quotationNumber ?? null })
+        : null;
       res.json({
         success: true,
         message: "Quotation retrieved successfully",
-        data: quotation
+        data
       });
     } catch (error: any) {
-      next(error);
+      next(withClientStatus(error));
     }
   }
 
@@ -75,33 +106,40 @@ export class VendorQuotationController {
     try {
       const { rfqNumber } = req.params;
 
-      const quotations = await VendorQuotationService.getQuotationsByRFQ(rfqNumber);
-
+      const result = await VendorQuotationService.getQuotationsByRFQ(rfqNumber);
+      const quotations = result.quotations || [];
+      const data = quotations.map((q: any) =>
+        serializeDecimalsDeep({ ...q, quotationNumber: q.quotationNumber ?? null })
+      );
+      let rfq = result.rfq ? serializeDecimalsDeep(result.rfq) : null;
+      if (rfq && rfq.itemsSnapshot != null) {
+        rfq = { ...rfq, itemsSnapshot: enrichRfqItemsSnapshotForApi(rfq.itemsSnapshot) };
+      }
       res.json({
         success: true,
         message: "Quotations retrieved successfully",
-        data: quotations,
-        count: quotations.length
+        data,
+        rfq,
+        count: data.length,
       });
     } catch (error: any) {
-      next(error);
+      next(withClientStatus(error));
     }
   }
 
   /**
-   * Accept a vendor quotation (AUTHENTICATED)
-   * This will automatically create an invoice from the quotation
+   * Accept a vendor quotation (AUTHENTICATED) — creates PO by default
    */
   static async acceptQuotation(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { reviewNotes, createPO = true, createInvoice = false } = req.body;
+      const reviewNotes = req.query.reviewNotes as string | undefined;
       const userId = req.user?.id;
 
       if (!userId) {
         return res.status(401).json({
           success: false,
-          message: "User not authenticated"
+          message: "User not authenticated",
         });
       }
 
@@ -110,13 +148,14 @@ export class VendorQuotationController {
         action: "ACCEPT",
         reviewedById: userId,
         reviewNotes,
-        createPO,
-        createInvoice
       });
 
       let message = "Quotation accepted successfully. Vendor has been notified.";
       if (result.purchaseOrder) {
-        message = `Quotation accepted and Purchase Order created successfully (${result.purchaseOrder.poNumber}). Vendor has been notified. Next: Send PO to vendor.`;
+        const sent = result.purchaseOrder.status === "SENT";
+        message = sent
+          ? `Quotation accepted. Purchase order ${result.purchaseOrder.poNumber} created and emailed to the vendor.`
+          : `Quotation accepted and purchase order ${result.purchaseOrder.poNumber} created.`;
       } else if (result.invoice) {
         message = "Quotation accepted and invoice created successfully. Vendor has been notified.";
       }
@@ -124,20 +163,46 @@ export class VendorQuotationController {
       res.json({
         success: true,
         message,
-        data: {
+        data: serializeDecimalsDeep({
           quotation: result.quotation,
           purchaseOrder: result.purchaseOrder,
-          invoice: result.invoice
-        }
+          invoice: result.invoice,
+        }),
       });
     } catch (error: any) {
-      next(error);
+      next(withClientStatus(error));
     }
   }
 
   /**
    * Reject a vendor quotation (AUTHENTICATED)
    */
+  /**
+   * Record the evaluation team's technical score for a bid (PUT /:id/evaluation), 0 to 100.
+   * Only while the bid is still open. A vendor's own declarations never count as this score.
+   */
+  static async scoreQuotation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+      const raw = req.body?.score;
+      if (raw === undefined || raw === null || raw === "" || !Number.isFinite(Number(raw))) {
+        return res.status(400).json({ success: false, message: "score is required, a number from 0 to 100" });
+      }
+      const updated = await VendorQuotationService.recordEvaluation({
+        quotationId: req.params.id,
+        score: Number(raw),
+        notes: typeof req.body?.notes === "string" ? req.body.notes : undefined,
+        scoredById: userId,
+      });
+      res.json({ success: true, message: "Technical score recorded", data: serializeDecimalsDeep(updated) });
+    } catch (error: any) {
+      next(withClientStatus(error));
+    }
+  }
+
   static async rejectQuotation(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
@@ -170,10 +235,10 @@ export class VendorQuotationController {
       res.json({
         success: true,
         message: "Quotation rejected successfully. Vendor has been notified.",
-        data: result.quotation
+        data: serializeDecimalsDeep(result.quotation),
       });
     } catch (error: any) {
-      next(error);
+      next(withClientStatus(error));
     }
   }
 
@@ -200,7 +265,7 @@ export class VendorQuotationController {
         message: "Quotation deleted successfully"
       });
     } catch (error: any) {
-      next(error);
+      next(withClientStatus(error));
     }
   }
 }

@@ -1,9 +1,20 @@
 // @ts-nocheck
 import express from "express";
+import multer from "multer";
 import { PerformanceGoalController } from "../controllers/PerformanceGoalController";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 
 const router = express.Router();
+const READ_KEYS = ["performance.goals.view", "performance.goals.manage"]
+const WRITE_KEYS = ["performance.goals.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024
+  }
+});
 
 /**
  * @swagger
@@ -14,7 +25,6 @@ const router = express.Router();
  *       required:
  *         - title
  *         - type
- *         - category
  *         - startDate
  *         - endDate
  *       properties:
@@ -31,10 +41,9 @@ const router = express.Router();
  *           type: string
  *           enum: [company, department, individual]
  *           description: Goal type
- *         category:
+ *         scorecardPillar:
  *           type: string
- *           enum: [financial, operational, strategic]
- *           description: Goal category
+ *           description: BSC org pillar (Financial, Customer & Market, etc.); company goals require a pillar or a KPI that has one
  *         parentGoalId:
  *           type: string
  *           description: Parent goal ID for hierarchy
@@ -87,7 +96,7 @@ const router = express.Router();
 
 /**
  * @swagger
- * /api/performance/goals:
+ * /performance/goals:
  *   post:
  *     summary: Create a new performance goal
  *     tags: [Performance Goals]
@@ -102,7 +111,6 @@ const router = express.Router();
  *             required:
  *               - title
  *               - type
- *               - category
  *               - startDate
  *               - endDate
  *             properties:
@@ -116,10 +124,9 @@ const router = express.Router();
  *                 type: string
  *                 enum: [company, department, individual]
  *                 description: Goal type
- *               category:
+ *               scorecardPillar:
  *                 type: string
- *                 enum: [financial, operational, strategic]
- *                 description: Goal category
+ *                 description: BSC pillar for company goals; optional for department/individual (can follow backing KPI)
  *               parentGoalId:
  *                 type: string
  *                 description: Parent goal ID for hierarchy
@@ -162,11 +169,11 @@ const router = express.Router();
  *       401:
  *         description: Unauthorized
  */
-router.post("/", authenticate, PerformanceGoalController.createPerformanceGoal);
+router.post("/", authenticate, guard, PerformanceGoalController.createPerformanceGoal);
 
 /**
  * @swagger
- * /api/performance/goals:
+ * /performance/goals:
  *   get:
  *     summary: Get all performance goals
  *     tags: [Performance Goals]
@@ -180,11 +187,10 @@ router.post("/", authenticate, PerformanceGoalController.createPerformanceGoal);
  *           enum: [company, department, individual]
  *         description: Filter by goal type
  *       - in: query
- *         name: category
+ *         name: scorecardPillar
  *         schema:
  *           type: string
- *           enum: [financial, operational, strategic]
- *         description: Filter by goal category
+ *         description: Filter by BSC org pillar (same canonical names as org goals)
  *       - in: query
  *         name: status
  *         schema:
@@ -192,10 +198,20 @@ router.post("/", authenticate, PerformanceGoalController.createPerformanceGoal);
  *           enum: [active, completed, paused, cancelled]
  *         description: Filter by goal status
  *       - in: query
- *         name: departmentId
+ *         name: department
  *         schema:
  *           type: string
- *         description: Filter by department ID
+ *         description: Filter by **department name** (matches `departments.name` / display name; same as `departmentName` in responses)
+ *       - in: query
+ *         name: strategicThemeId
+ *         schema:
+ *           type: string
+ *         description: Filter goals linked to this strategic theme (`performance_strategic_themes.id`)
+ *       - in: query
+ *         name: pillarId
+ *         schema:
+ *           type: string
+ *         description: Filter by scorecard pillar row id (joins to org pillar / weight line)
  *       - in: query
  *         name: assignedToId
  *         schema:
@@ -207,6 +223,11 @@ router.post("/", authenticate, PerformanceGoalController.createPerformanceGoal);
  *           type: string
  *         description: Filter by parent goal ID
  *       - in: query
+ *         name: kpiId
+ *         schema:
+ *           type: string
+ *         description: Filter by associated KPI ID
+ *       - in: query
  *         name: search
  *         schema:
  *           type: string
@@ -217,11 +238,37 @@ router.post("/", authenticate, PerformanceGoalController.createPerformanceGoal);
  *       401:
  *         description: Unauthorized
  */
-router.get("/", authenticate, PerformanceGoalController.getAllPerformanceGoals);
+router.get("/", authenticate, guard, PerformanceGoalController.getAllPerformanceGoals);
 
 /**
  * @swagger
- * /api/performance/goals/statistics:
+ * /performance/goals/by-kpi/{kpiId}:
+ *   get:
+ *     summary: Get performance goals for a KPI
+ *     description: Returns all goals where `performance_goals.kpiId = {kpiId}` (same goal shape as GET /performance/goals)
+ *     tags: [Performance Goals]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: kpiId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: KPI id (kpis.id)
+ *     responses:
+ *       200:
+ *         description: List of performance goals linked to the KPI
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/by-kpi/:kpiId", authenticate, guard, PerformanceGoalController.getGoalsByKpiId);
+
+/**
+ * @swagger
+ * /performance/goals/statistics:
  *   get:
  *     summary: Get performance goal statistics
  *     tags: [Performance Goals]
@@ -233,11 +280,59 @@ router.get("/", authenticate, PerformanceGoalController.getAllPerformanceGoals);
  *       401:
  *         description: Unauthorized
  */
-router.get("/statistics", authenticate, PerformanceGoalController.getPerformanceGoalStatistics);
+router.get("/statistics", authenticate, guard, PerformanceGoalController.getPerformanceGoalStatistics);
 
 /**
  * @swagger
- * /api/performance/goals/{id}:
+ * /performance/goals/{id}/progress:
+ *   put:
+ *     summary: Add progress toward a goal (increment)
+ *     description: |
+ *       Send **`value`** (preferred) or **`currentValue`** (alias): this number is **added** to the goal’s achieved amount
+ *       in the goal’s natural unit (USD, percentage points, counts, etc.). Server reads `targetUnit` and syncs legacy
+ *       `monetaryValueAchieved` / `percentValueAchieved` and recomputes `progressPercentage`. Parent roll-up may complete shortly after the response.
+ *     tags: [Performance Goals]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Performance goal ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               value:
+ *                 type: number
+ *                 description: Amount to add to achieved progress (same unit as target)
+ *                 example: 50000
+ *               currentValue:
+ *                 type: number
+ *                 description: Alias for value (increment)
+ *                 example: 50000
+ *     responses:
+ *       200:
+ *         description: Goal progress updated successfully
+ *       400:
+ *         description: Bad request
+ *       404:
+ *         description: Goal not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.put("/:id/progress", authenticate, guard, PerformanceGoalController.updateGoalProgress);
+router.post("/:id/attachments/base64", authenticate, guard, PerformanceGoalController.uploadGoalAttachmentBase64);
+router.post("/:id/attachments", authenticate, guard, upload.array("attachments", 10), PerformanceGoalController.uploadGoalAttachments);
+
+/**
+ * @swagger
+ * /performance/goals/{id}:
  *   get:
  *     summary: Get performance goal by ID
  *     tags: [Performance Goals]
@@ -258,11 +353,11 @@ router.get("/statistics", authenticate, PerformanceGoalController.getPerformance
  *       401:
  *         description: Unauthorized
  */
-router.get("/:id", authenticate, PerformanceGoalController.getPerformanceGoalById);
+router.get("/:id", authenticate, guard, PerformanceGoalController.getPerformanceGoalById);
 
 /**
  * @swagger
- * /api/performance/goals/{id}:
+ * /performance/goals/{id}:
  *   put:
  *     summary: Update performance goal
  *     tags: [Performance Goals]
@@ -292,10 +387,9 @@ router.get("/:id", authenticate, PerformanceGoalController.getPerformanceGoalByI
  *                 type: string
  *                 enum: [company, department, individual]
  *                 description: Goal type
- *               category:
+ *               scorecardPillar:
  *                 type: string
- *                 enum: [financial, operational, strategic]
- *                 description: Goal category
+ *                 description: BSC org pillar
  *               monetaryValue:
  *                 type: number
  *                 description: Target monetary value
@@ -344,11 +438,13 @@ router.get("/:id", authenticate, PerformanceGoalController.getPerformanceGoalByI
  *       401:
  *         description: Unauthorized
  */
-router.put("/:id", authenticate, PerformanceGoalController.updatePerformanceGoal);
+router.put("/:id", authenticate, guard, PerformanceGoalController.updatePerformanceGoal);
+/** Same handler as PUT — frontend edit forms use PATCH. */
+router.patch("/:id", authenticate, guard, PerformanceGoalController.updatePerformanceGoal);
 
 /**
  * @swagger
- * /api/performance/goals/{id}:
+ * /performance/goals/{id}:
  *   delete:
  *     summary: Delete performance goal
  *     tags: [Performance Goals]
@@ -371,58 +467,7 @@ router.put("/:id", authenticate, PerformanceGoalController.updatePerformanceGoal
  *       401:
  *         description: Unauthorized
  */
-router.delete("/:id", authenticate, PerformanceGoalController.deletePerformanceGoal);
-
-/**
- * @swagger
- * /api/performance/goals/{id}/progress:
- *   put:
- *     summary: Update goal progress with absolute values
- *     tags: [Performance Goals]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: Performance goal ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - currentValue
- *             properties:
- *               currentValue:
- *                 type: number
- *                 description: Current progress value
- *                 example: 1500000
- *     responses:
- *       200:
- *         description: Goal progress updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
- *                 goal:
- *                   $ref: '#/components/schemas/PerformanceGoal'
- *       400:
- *         description: Bad request
- *       404:
- *         description: Goal not found
- *       401:
- *         description: Unauthorized
- */
-router.put("/:id/progress", authenticate, PerformanceGoalController.updateGoalProgress);
+router.delete("/:id", authenticate, guard, PerformanceGoalController.deletePerformanceGoal);
 
 export default router;
 

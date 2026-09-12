@@ -2,6 +2,15 @@
 import { Request, Response } from "express";
 import { PerformanceReviewService } from "../services/PerformanceReviewService";
 import { responseHelper } from "../utils/responseHelper";
+import fs from "fs";
+
+function performanceReviewErrorStatus(message: unknown): number {
+  const m = String(message || "");
+  if (/access denied/i.test(m)) return 403;
+  if (/must be in the same department/i.test(m)) return 403;
+  if (/line manager or HR leadership may finalize/i.test(m)) return 403;
+  return 500;
+}
 
 export class PerformanceReviewController {
   // ===== PERFORMANCE REVIEW CRUD OPERATIONS =====
@@ -20,6 +29,7 @@ export class PerformanceReviewController {
         reviewEndDate,
         dueDate,
         criteria,
+        scores,
         strengths,
         areasForImprovement,
         achievements,
@@ -33,18 +43,27 @@ export class PerformanceReviewController {
         nextReviewDate
       } = req.body;
 
+      const effectiveReviewerId =
+        reviewerId != null && String(reviewerId).trim() !== ""
+          ? String(reviewerId).trim()
+          : req.user?.id;
+      if (!effectiveReviewerId) {
+        return responseHelper.error(res, "Could not determine reviewer (logged-in user missing).", undefined, 401);
+      }
+
       const request = {
         reviewType,
         reviewPeriod,
         title,
         description,
         revieweeId,
-        reviewerId,
+        reviewerId: effectiveReviewerId,
         stakeholderId,
         reviewStartDate,
         reviewEndDate,
         dueDate,
         criteria,
+        scores,
         strengths,
         areasForImprovement,
         achievements,
@@ -58,11 +77,11 @@ export class PerformanceReviewController {
         nextReviewDate
       };
 
-      const review = await PerformanceReviewService.createPerformanceReview(request);
-      
+      const review = await PerformanceReviewService.createPerformanceReview(request, req.user);
+
       return responseHelper.success(res, review, "Performance review created successfully");
     } catch (error) {
-      return responseHelper.error(res, error.message);
+      return responseHelper.error(res, error.message, undefined, performanceReviewErrorStatus(error.message));
     }
   }
 
@@ -101,7 +120,7 @@ export class PerformanceReviewController {
         filters.search = req.query.search as string;
       }
 
-      const result = await PerformanceReviewService.getAllPerformanceReviews(page, limit, filters);
+      const result = await PerformanceReviewService.getAllPerformanceReviews(page, limit, filters, req.user);
       
       return responseHelper.success(res, result, "Performance reviews retrieved successfully");
     } catch (error) {
@@ -113,11 +132,11 @@ export class PerformanceReviewController {
     try {
       const { id } = req.params;
       
-      const review = await PerformanceReviewService.getPerformanceReviewById(id);
-      
+      const review = await PerformanceReviewService.getPerformanceReviewById(id, req.user);
+
       return responseHelper.success(res, review, "Performance review retrieved successfully");
     } catch (error) {
-      return responseHelper.error(res, error.message);
+      return responseHelper.error(res, error.message, undefined, performanceReviewErrorStatus(error.message));
     }
   }
 
@@ -140,6 +159,7 @@ export class PerformanceReviewController {
         criteria,
         scores,
         overallScore,
+        ratingValue,
         rating,
         strengths,
         areasForImprovement,
@@ -170,6 +190,7 @@ export class PerformanceReviewController {
         criteria,
         scores,
         overallScore,
+        ratingValue,
         rating,
         strengths,
         areasForImprovement,
@@ -184,11 +205,11 @@ export class PerformanceReviewController {
         nextReviewDate
       };
 
-      const review = await PerformanceReviewService.updatePerformanceReview(id, request);
-      
+      const review = await PerformanceReviewService.updatePerformanceReview(id, request, req.user);
+
       return responseHelper.success(res, review, "Performance review updated successfully");
     } catch (error) {
-      return responseHelper.error(res, error.message);
+      return responseHelper.error(res, error.message, undefined, performanceReviewErrorStatus(error.message));
     }
   }
 
@@ -196,11 +217,11 @@ export class PerformanceReviewController {
     try {
       const { id } = req.params;
       
-      const result = await PerformanceReviewService.deletePerformanceReview(id);
-      
+      const result = await PerformanceReviewService.deletePerformanceReview(id, req.user);
+
       return responseHelper.success(res, result, "Performance review deleted successfully");
     } catch (error) {
-      return responseHelper.error(res, error.message);
+      return responseHelper.error(res, error.message, undefined, performanceReviewErrorStatus(error.message));
     }
   }
 
@@ -298,6 +319,118 @@ export class PerformanceReviewController {
       return responseHelper.success(res, completionRates, "Performance review completion rates retrieved successfully");
     } catch (error) {
       return responseHelper.error(res, error.message);
+    }
+  }
+
+  static async initiateCycleForAllEmployees(req: Request, res: Response) {
+    try {
+      const data = await PerformanceReviewService.initiateCycleForAllEmployees(req.params.cycleId, req.user.id);
+      return responseHelper.success(
+        res,
+        data,
+        "Review cycle reminders processed (emails sent to eligible reviewees who have not started self-assessment)"
+      );
+    } catch (error) {
+      return responseHelper.error(res, error.message);
+    }
+  }
+
+  static async autopopulateQuantitativeSnapshot(req: Request, res: Response) {
+    try {
+      const data = await PerformanceReviewService.autopopulateQuantitativeSnapshot(req.params.id, req.user);
+      return responseHelper.success(res, data, "Review quantitative snapshot generated successfully");
+    } catch (error) {
+      return responseHelper.error(res, error.message, undefined, performanceReviewErrorStatus(error.message));
+    }
+  }
+
+  static async completePerformanceReviewStage(req: Request, res: Response) {
+    try {
+      const review = await PerformanceReviewService.completeCurrentPerformanceReviewStage(
+        req.params.id,
+        req.user
+      );
+      return responseHelper.success(
+        res,
+        review,
+        "Performance review moved to the next stage"
+      );
+    } catch (error) {
+      return responseHelper.error(res, error.message, undefined, performanceReviewErrorStatus(error.message));
+    }
+  }
+
+  static async finalizePerformanceReview(req: Request, res: Response) {
+    try {
+      const data = await PerformanceReviewService.finalizePerformanceReview(req.params.id, req.user);
+      return responseHelper.success(res, data, "Performance review finalised successfully");
+    } catch (error) {
+      return responseHelper.error(res, error.message, undefined, performanceReviewErrorStatus(error.message));
+    }
+  }
+
+  static async getPerformanceReviewDocument(req: Request, res: Response) {
+    try {
+      const data = await PerformanceReviewService.getPerformanceReviewDocument(req.params.id, req.user);
+      return responseHelper.success(res, data, "Performance review document retrieved successfully");
+    } catch (error) {
+      return responseHelper.error(res, error.message, undefined, performanceReviewErrorStatus(error.message));
+    }
+  }
+
+  static async downloadPerformanceReviewPdf(req: Request, res: Response) {
+    try {
+      const data = await PerformanceReviewService.getPerformanceReviewDocument(req.params.id, req.user);
+      if (!data?.documentPath) {
+        return responseHelper.error(
+          res,
+          "PDF is not available for this review. Finalize the review first.",
+          undefined,
+          400
+        );
+      }
+      if (!fs.existsSync(String(data.documentPath))) {
+        return responseHelper.error(res, "PDF file not found on server storage.", undefined, 404);
+      }
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename=\"performance-review-${req.params.id}.pdf\"`);
+      return fs.createReadStream(String(data.documentPath)).pipe(res);
+    } catch (error: any) {
+      return responseHelper.error(res, error.message, undefined, performanceReviewErrorStatus(error.message));
+    }
+  }
+
+  static async getDepartmentRatingDistribution(req: Request, res: Response) {
+    try {
+      const organizationWide =
+        String(req.query.organizationWide ?? "").toLowerCase() === "true" ||
+        String(req.query.organizationWide ?? "") === "1";
+      const departmentName = String(req.query.departmentName ?? "").trim();
+      if (!organizationWide && !departmentName) {
+        return responseHelper.error(
+          res,
+          "Provide departmentName, or set organizationWide=true for an organisation-wide aggregate.",
+          undefined,
+          400
+        );
+      }
+      const reviewPeriodRaw = req.query.reviewPeriod as string | undefined;
+      const reviewPeriod =
+        reviewPeriodRaw != null && String(reviewPeriodRaw).trim() !== ""
+          ? String(reviewPeriodRaw).trim()
+          : undefined;
+      const data = await PerformanceReviewService.getDepartmentRatingDistribution(
+        organizationWide ? null : departmentName,
+        reviewPeriod,
+        { organizationWide, actor: req.user }
+      );
+      return responseHelper.success(res, data, "Department rating distribution retrieved successfully");
+    } catch (error: any) {
+      const msg = String(error?.message || "");
+      let status = 500;
+      if (/restricted to HR leadership or administrators/i.test(msg)) status = 403;
+      else if (/Authentication required for organization-wide/i.test(msg)) status = 401;
+      return responseHelper.error(res, msg, undefined, status);
     }
   }
 }

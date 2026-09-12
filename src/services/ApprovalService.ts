@@ -1,13 +1,43 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
+import { isModulePrivilegedUser } from "../config/cfoModulePermissions";
+import { persistProcurementEntityRejection } from "../utils/procurementRejectionPersistence";
 import { Department, DepartmentRole } from "./ProcurementService";
+
+const PROCUREMENT_APPROVAL_STAGES = new Set([
+  "PURCHASE_REQUISITION",
+  "PURCHASE_ORDER",
+  "INVOICE",
+  "GRN",
+]);
+
+async function approverCanActOnApproval(
+  tx: any,
+  approval: { approverId: string; request?: { stageType?: string } | null },
+  approverId: string
+): Promise<boolean> {
+  if (approval.approverId === approverId) return true;
+  const approver = await tx.user.findUnique({
+    where: { id: approverId },
+    include: { role: true },
+  });
+  if (!isModulePrivilegedUser(approver)) return false;
+  return PROCUREMENT_APPROVAL_STAGES.has(String(approval.request?.stageType || ""));
+}
 
 export class ApprovalService {
   /**
    * Create approval request and approval records when an entity (requisition, PO, etc.) is submitted
    */
   static async createApprovalRequest(params: {
-    stageType: "PURCHASE_REQUISITION" | "PURCHASE_ORDER" | "INVOICE" | "GRN";
+    stageType:
+      | "PURCHASE_REQUISITION"
+      | "PURCHASE_ORDER"
+      | "INVOICE"
+      | "GRN"
+      | "MASTER_DATA_COA"
+      | "PAYMENT_EXECUTION"
+      | "INVESTMENT_BOOKING";
     entityId: string;
     entityData?: any;
     requestedById: string;
@@ -26,8 +56,13 @@ export class ApprovalService {
       // Get active approval configuration for the specific department
       // Try department-specific config first, then fall back to general config (department = null)
       const config = await prisma.procurementApprovalConfig.findFirst({
-        where: { 
+        where: {
           isActive: true,
+          // Only consider configs that actually have a stage for this stageType — otherwise findFirst
+          // can return an unrelated active config (e.g. one scoped to a different stageType entirely),
+          // whose stages sub-filter below would then come back empty and silently fall through to the
+          // "no stages configured, auto-approve" branch instead of finding the real config.
+          stages: { some: { stageType: params.stageType } },
           OR: [
             { department: params.department as any },  // Department-specific config
             { department: null }                       // General/default config
@@ -160,21 +195,58 @@ export class ApprovalService {
                 console.log(`      - ${u.firstName} ${u.lastName} (${u.email}) [${u.roleCode || 'no roleCode'}]`);
               });
             }
-          } else if (stage.stepType === "DEPARTMENT" && stage.departmentId) {
-            // Get department head/deputy
-            const deptUsers = await tx.user.findMany({
-              where: {
-                departmentId: stage.departmentId,
-                ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {})
-              },
-              select: { id: true }
-            });
-            approverIds = deptUsers.map(u => u.id);
+          } else if (stage.stepType === "DEPARTMENT") {
+            if (stage.departmentId) {
+              const deptUsers = await tx.user.findMany({
+                where: {
+                  departmentId: stage.departmentId,
+                  ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {}),
+                },
+                select: { id: true },
+              });
+              approverIds = deptUsers.map((u) => u.id);
+            } else if (stage.requiredUserDepartment) {
+              const deptUsers = await tx.user.findMany({
+                where: {
+                  userDepartment: stage.requiredUserDepartment,
+                  ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {}),
+                },
+                select: { id: true },
+              });
+              approverIds = deptUsers.map((u) => u.id);
+            }
           } else if (stage.stepType === "AMOUNT_THRESHOLD") {
-            // For amount-based approval, we'll need to dynamically assign based on entity amount
-            // For now, skip this - implement later if needed
-            console.log(`⚠️  AMOUNT_THRESHOLD stage type not yet implemented for stage ${stage.stepNumber}`);
-            continue;
+            let entityAmount = 0;
+            if (params.stageType === "PURCHASE_ORDER") {
+              const po = await tx.purchaseOrder.findUnique({
+                where: { id: params.entityId },
+                select: { totalAmount: true },
+              });
+              entityAmount = po ? Number(po.totalAmount) : 0;
+            } else if (params.stageType === "PURCHASE_REQUISITION") {
+              const pr = await tx.purchaseRequisition.findUnique({
+                where: { id: params.entityId },
+                select: { totalAmount: true },
+              });
+              entityAmount = pr ? Number(pr.totalAmount) : 0;
+            }
+            const threshold =
+              stage.amountThreshold != null ? Number(stage.amountThreshold) : Number.POSITIVE_INFINITY;
+            if (entityAmount <= threshold) {
+              console.log(
+                `   ⏭️  AMOUNT_THRESHOLD: amount ${entityAmount} ≤ ${threshold} — skipping CFO step ${stage.stepNumber}`
+              );
+              continue;
+            }
+            const roleToUse = stage.roleCode || "CFO";
+            const cfoUsers = await tx.user.findMany({
+              where: { roleCode: roleToUse },
+              select: { id: true },
+            });
+            approverIds = cfoUsers.map((u) => u.id);
+            console.log(
+              `   📋 AMOUNT_THRESHOLD: amount ${entityAmount} > ${threshold} — routing to role ${roleToUse} (${approverIds.length} user(s))`
+            );
           }
 
           // Create approval records for each approver
@@ -197,32 +269,30 @@ export class ApprovalService {
         console.log("════════════════════════════════════════════════════════════════");
         console.log("");
 
-        // Send email notifications to first step approvers
-        try {
-          const firstStage = stages.find(s => s.stepNumber === 1);
-          if (firstStage && approvals.length > 0) {
-            // Get first step approvals only
-            const firstStepApprovals = approvals.filter(a => {
-              const approvalStage = stages.find(s => s.id === a.stageId);
-              return approvalStage && approvalStage.stepNumber === 1;
-            });
-
-            if (firstStepApprovals.length > 0) {
-              const { ProcurementApprovalConfigService } = await import('./ProcurementApprovalConfigService');
-              await ProcurementApprovalConfigService.sendApprovalStepNotifications(
-                approvalRequest.id,
-                firstStage,
-                params.stageType
-              );
-            }
-          }
-        } catch (emailError: any) {
-          console.error("⚠️  Error sending initial approval notifications:", emailError.message || emailError);
-          // Don't throw - email failure shouldn't block approval request creation
-        }
-
         return { approvalRequest, approvals };
       });
+
+      // After commit: notify first-step approvers (pending rows visible; sendApprovalStepNotifications reads DB)
+      try {
+        const firstStage = stages.find((s) => s.stepNumber === 1);
+        if (firstStage && result.approvals.length > 0) {
+          const firstStepApprovals = result.approvals.filter((a) => {
+            const approvalStage = stages.find((s) => s.id === a.stageId);
+            return approvalStage && approvalStage.stepNumber === 1;
+          });
+
+          if (firstStepApprovals.length > 0) {
+            const { ProcurementApprovalConfigService } = await import("./ProcurementApprovalConfigService");
+            await ProcurementApprovalConfigService.sendApprovalStepNotifications(
+              result.approvalRequest.id,
+              firstStage,
+              params.stageType
+            );
+          }
+        }
+      } catch (emailError: any) {
+        console.error("⚠️  Error sending initial approval notifications:", emailError.message || emailError);
+      }
 
       return result;
     } catch (error) {
@@ -351,7 +421,7 @@ export class ApprovalService {
           throw new Error("Approval not found");
         }
 
-        if (approval.approverId !== params.approverId) {
+        if (!(await approverCanActOnApproval(tx, approval, params.approverId))) {
           throw new Error("You are not authorized to approve this request");
         }
 
@@ -409,7 +479,13 @@ export class ApprovalService {
           console.log(`✅ All approvals complete - Request ${approval.requestId} marked as APPROVED`);
 
           // Update the entity status based on stageType
-          await this.updateEntityStatusAfterApproval(tx, approval.request.stageType, approval.request.entityId);
+          await this.updateEntityStatusAfterApproval(
+            tx,
+            approval.request.stageType,
+            approval.request.entityId,
+            approval.request.entityData,
+            approval.request.requestedById
+          );
         } else if (allCurrentStepApproved && currentStepNumber < approval.request.totalSteps) {
           // Move to next step
           updatedRequest = await tx.approvalRequest.update({
@@ -427,10 +503,24 @@ export class ApprovalService {
         console.log("════════════════════════════════════════════════════════════════");
         console.log("");
 
-        return { approval: updatedApproval, request: updatedRequest };
+        return {
+          approval: updatedApproval,
+          request: updatedRequest,
+          _stageType: approval.request.stageType,
+          _entityId: approval.request.entityId,
+        };
       });
 
-      return result;
+      if (result.request?.status === "APPROVED" && result._stageType === "GRN" && result._entityId) {
+        const { VendorRatingService } = await import("./VendorRatingService");
+        try {
+          await VendorRatingService.recalculateForGrnEntity(result._entityId);
+        } catch (e) {
+          console.error("VendorRatingService.recalculateForGrnEntity:", e);
+        }
+      }
+
+      return { approval: result.approval, request: result.request };
     } catch (error) {
       console.error("\n════════════════════════════════════════════════════════════════");
       console.error("❌ ERROR APPROVING APPROVAL");
@@ -477,7 +567,7 @@ export class ApprovalService {
           throw new Error("Approval not found");
         }
 
-        if (approval.approverId !== params.approverId) {
+        if (!(await approverCanActOnApproval(tx, approval, params.approverId))) {
           throw new Error("You are not authorized to reject this request");
         }
 
@@ -537,13 +627,62 @@ export class ApprovalService {
   /**
    * Update entity status after approval is complete
    */
-  private static async updateEntityStatusAfterApproval(tx: any, stageType: string, entityId: string) {
+  private static async updateEntityStatusAfterApproval(tx: any, stageType: string, entityId: string, entityData?: any, requestedById?: string) {
     try {
       console.log(`🔄 Updating entity status after approval...`);
       console.log(`   Stage Type: ${stageType}`);
       console.log(`   Entity ID: ${entityId}`);
 
       switch (stageType) {
+        case "PAYMENT_EXECUTION": {
+          // Payables "pay bill" / batch payment execution, gated for non-privileged users at/above
+          // PAYMENT_APPROVAL_THRESHOLD_USD (see PurchaseInvoiceController.payInvoice/payBatch and
+          // PaymentInvestmentApprovalService). Unlike MASTER_DATA_COA, the real executor
+          // (PurchaseInvoiceService.payInvoice/payInvoicesBatch) runs its own cashbook/journal
+          // transaction rather than participating in this `tx` — see PaymentInvestmentApprovalService's
+          // header comment for why. Throwing on failure still rolls back THIS approval transaction, so
+          // a failed payment is never left recorded as an approved request.
+          const { applyApprovedPayment } = await import("./PaymentInvestmentApprovalService");
+          const result = await applyApprovedPayment(entityId, entityData, requestedById);
+          if (!result.ok) {
+            throw new Error(`Failed to execute approved payment for ${entityId}: ${result.message}`);
+          }
+          console.log(`   ✅ Payment for ${entityId} executed per approved request`);
+          break;
+        }
+
+        case "INVESTMENT_BOOKING": {
+          // Short-Term Investment placement, gated for non-privileged users at/above
+          // INVESTMENT_APPROVAL_THRESHOLD_USD. No ShortTermInvestmentInstrument row exists yet at
+          // request time (this gates a CREATE, not an edit of an existing row like
+          // MASTER_DATA_COA/PAYMENT_EXECUTION) — entityId is a synthetic placeholder assigned at
+          // submission time; the real instrument id is only minted here, on approval.
+          const { applyApprovedInvestmentBooking } = await import("./PaymentInvestmentApprovalService");
+          const result = await applyApprovedInvestmentBooking(entityData, requestedById);
+          if (!result.ok) {
+            throw new Error(`Failed to book approved investment for ${entityId}: ${result.message}`);
+          }
+          console.log(`   ✅ Investment booking for ${entityId} completed per approved request (real id: ${result.data?.id})`);
+          break;
+        }
+
+        case "MASTER_DATA_COA": {
+          // Chart of Accounts master-data edit, gated for non-privileged users (see
+          // ChartOfAccountsController.updateChartOfAccounts). The proposed change was stored as JSON
+          // on the ApprovalRequest at submission time — apply it now via the same shared update
+          // function the direct-apply (admin/CFO) path uses, inside this same transaction so the
+          // Approval/ApprovalRequest status change and the actual CoA mutation commit atomically.
+          const { applyChartOfAccountsUpdate } = await import("./ChartOfAccountsUpdateService");
+          const result = await applyChartOfAccountsUpdate(entityId, entityData, tx);
+          if (!result.ok) {
+            throw new Error(
+              `Failed to apply approved Chart of Accounts change for ${entityId}: [${result.status}] ${result.message}`
+            );
+          }
+          console.log(`   ✅ Chart of Accounts ${entityId} updated per approved change`);
+          break;
+        }
+
         case "PURCHASE_REQUISITION":
           await tx.purchaseRequisition.update({
             where: { id: entityId },
@@ -595,39 +734,40 @@ export class ApprovalService {
       console.log(`   Entity ID: ${entityId}`);
 
       switch (stageType) {
+        case "PAYMENT_EXECUTION":
+          // Nothing was ever executed for a pending PAYMENT_EXECUTION request (see
+          // updateEntityStatusAfterApproval) — the bill remains unpaid. Only the
+          // Approval/ApprovalRequest status (already set to REJECTED by the caller) records the outcome.
+          console.log(`   ❌ Payment for ${entityId} rejected — nothing was executed, bill(s) remain unpaid`);
+          break;
+
+        case "INVESTMENT_BOOKING":
+          // Nothing was ever booked for a pending INVESTMENT_BOOKING request — no
+          // ShortTermInvestmentInstrument row was created, nothing to revert.
+          console.log(`   ❌ Investment booking for ${entityId} rejected — nothing was booked`);
+          break;
+
+        case "MASTER_DATA_COA":
+          // Nothing was ever applied to the ChartOfAccounts row for a pending request (see
+          // updateEntityStatusAfterApproval) — the row is left exactly as it was. Only the
+          // Approval/ApprovalRequest status (already set to REJECTED by the caller) records the outcome.
+          console.log(`   ❌ Chart of Accounts change for ${entityId} rejected — no changes were applied, nothing to revert`);
+          break;
+
         case "PURCHASE_REQUISITION":
-          await tx.purchaseRequisition.update({
-            where: { id: entityId },
-            data: { 
-              status: "REJECTED",
-              rejectionReason: reason
-            }
-          });
-          console.log(`   ❌ Purchase Requisition ${entityId} marked as REJECTED`);
-          break;
-
         case "PURCHASE_ORDER":
-          await tx.purchaseOrder.update({
-            where: { id: entityId },
-            data: { status: "REJECTED" }
-          });
-          console.log(`   ❌ Purchase Order ${entityId} marked as REJECTED`);
-          break;
-
         case "INVOICE":
-          await tx.procurementInvoice.update({
-            where: { id: entityId },
-            data: { status: "REJECTED" }
-          });
-          console.log(`   ❌ Procurement Invoice ${entityId} marked as REJECTED`);
-          break;
-
         case "GRN":
-          await tx.goodsReceivedNote.update({
-            where: { id: entityId },
-            data: { status: "REJECTED" }
-          });
-          console.log(`   ❌ Goods Received Note ${entityId} marked as REJECTED`);
+          await persistProcurementEntityRejection(tx, stageType, entityId, reason);
+          if (stageType === "PURCHASE_REQUISITION") {
+            console.log(`   ❌ Purchase Requisition ${entityId} marked as REJECTED`);
+          } else if (stageType === "PURCHASE_ORDER") {
+            console.log(`   ❌ Purchase Order ${entityId} marked as REJECTED`);
+          } else if (stageType === "INVOICE") {
+            console.log(`   ❌ Procurement Invoice ${entityId} marked as REJECTED`);
+          } else {
+            console.log(`   ❌ Goods Received Note ${entityId} marked as REJECTED`);
+          }
           break;
 
         default:

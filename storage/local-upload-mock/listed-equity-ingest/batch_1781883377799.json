@@ -1,0 +1,146 @@
+[
+  {
+    "symbol": "NYA",
+    "exchangeCode": "NYSE",
+    "priceType": "OPEN",
+    "price": 0,
+    "pricedAt": "2026-06-18T20:07:45.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "NYA",
+    "exchangeCode": "NYSE",
+    "priceType": "CLOSE",
+    "price": 23499.74,
+    "pricedAt": "2026-06-18T20:07:45.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "JPM",
+    "exchangeCode": "NYSE",
+    "priceType": "OPEN",
+    "price": 336.95001220703125,
+    "pricedAt": "2026-06-18T20:00:02.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "JPM",
+    "exchangeCode": "NYSE",
+    "priceType": "CLOSE",
+    "price": 325.22,
+    "pricedAt": "2026-06-18T20:00:02.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "BAC",
+    "exchangeCode": "NYSE",
+    "priceType": "OPEN",
+    "price": 57.22999954223633,
+    "pricedAt": "2026-06-18T20:00:03.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "BAC",
+    "exchangeCode": "NYSE",
+    "priceType": "CLOSE",
+    "price": 56.2,
+    "pricedAt": "2026-06-18T20:00:03.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "XOM",
+    "exchangeCode": "NYSE",
+    "priceType": "OPEN",
+    "price": 138.32000732421875,
+    "pricedAt": "2026-06-18T20:01:24.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "XOM",
+    "exchangeCode": "NYSE",
+    "priceType": "CLOSE",
+    "price": 137.81,
+    "pricedAt": "2026-06-18T20:01:24.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "WMT",
+    "exchangeCode": "NYSE",
+    "priceType": "OPEN",
+    "price": 118.18000030517578,
+    "pricedAt": "2026-06-18T20:00:00.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "WMT",
+    "exchangeCode": "NYSE",
+    "priceType": "CLOSE",
+    "price": 117.18,
+    "pricedAt": "2026-06-18T20:00:00.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "JNJ",
+    "exchangeCode": "NYSE",
+    "priceType": "OPEN",
+    "price": 231.77999877929688,
+    "pricedAt": "2026-06-18T20:00:02.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "JNJ",
+    "exchangeCode": "NYSE",
+    "priceType": "CLOSE",
+    "price": 228.39,
+    "pricedAt": "2026-06-18T20:00:02.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "PG",
+    "exchangeCode": "NYSE",
+    "priceType": "OPEN",
+    "price": 150.8699951171875,
+    "pricedAt": "2026-06-18T20:02:25.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "PG",
+    "exchangeCode": "NYSE",
+    "priceType": "CLOSE",
+    "price": 150.38,
+    "pricedAt": "2026-06-18T20:02:25.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "V",
+    "exchangeCode": "NYSE",
+    "priceType": "OPEN",
+    "price": 331,
+    "pricedAt": "2026-06-18T20:00:03.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "V",
+    "exchangeCode": "NYSE",
+    "priceType": "CLOSE",
+    "price": 327.24,
+    "pricedAt": "2026-06-18T20:00:03.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "DIS",
+    "exchangeCode": "NYSE",
+    "priceType": "OPEN",
+    "price": 101.80000305175781,
+    "pricedAt": "2026-06-18T20:01:37.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "DIS",
+    "exchangeCode": "NYSE",
+    "priceType": "CLOSE",
+    "price": 103.89,
+    "pricedAt": "2026-06-18T20:01:37.000Z",
+    "tickFrequency": "DELAYED_15M"
+  }
+]

@@ -35,17 +35,32 @@ export interface TrialBalanceData {
   isCumulative: boolean; // true = cumulative (all entries up to date), false = period-based (specific date range)
   accounts: TrialBalanceAccount[];
   totals: {
+    /** Sum of all debit amounts on lines in scope (gross). Equals totalCredits when books balance. */
     totalDebits: number;
+    /** Sum of all credit amounts on lines in scope (gross). */
     totalCredits: number;
+    /** Sum of per-account net debit column (display). Matches Excel SUM(debitBalance) on returned rows when hideZeroBalances is false or all active accounts included. */
+    netDebitColumnTotal: number;
+    /** Sum of per-account net credit column (display). Equals netDebitColumnTotal when books balance. */
+    netCreditColumnTotal: number;
     isBalanced: boolean;
   };
 }
 
 export class TrialBalanceService {
   /**
-   * Generate trial balance for a date range
+   * Generate trial balance for a date range.
+   * @param hideZeroBalances - When true, omit accounts with no transactions and zero balance (both debit and credit columns zero).
+   * @param includeTransactionDetails - When false, uses a minimal query (no cashbook/invoice/expense/revenue joins) for scale; report generates in under 5s with 10k+ entries.
    */
-  static async generateTrialBalance(date: Date, startDate?: Date, endDate?: Date): Promise<TrialBalanceData> {
+  static async generateTrialBalance(
+    date: Date,
+    startDate?: Date,
+    endDate?: Date,
+    hideZeroBalances?: boolean,
+    includeTransactionDetails: boolean = true,
+    currencyId?: string
+  ): Promise<TrialBalanceData> {
     try {
       // If startDate and endDate are provided, use them; otherwise use date as endDate
       let start: Date;
@@ -72,137 +87,94 @@ export class TrialBalanceService {
         ]
       });
 
-      // Get all journal entry lines with full transaction details for breakdown
-      // Exclude journal entries linked to voided/reversed cashbook entries
-      // Note: We need to include currencyId to filter out null currency entries (matching GL Detail)
-      const journalEntryLinesRaw = await prisma.journalEntryLine.findMany({
-        where: {
-          journalEntry: {
-            transactionDate: {
-              gte: start,
-              lte: end
-            },
-            status: 'POSTED', // Only include POSTED entries (exclude VOID and PENDING)
-            // Exclude journal entries where ANY linked cashbook entry is voided or reversed
-            NOT: {
-              cashbookEntries: {
-                some: {
-                  OR: [
-                    { status: 'VOIDED' },
-                    { reversedAt: { not: null } } // Reversed entries have reversedAt set
-                  ]
-                }
-              }
-            },
-            // Exclude reversal journal entries (those with VR- or REV- prefix) - match Balance Sheet
-            AND: [
-              {
-                referenceNumber: {
-                  not: {
-                    startsWith: 'VR-'
-                  }
-                }
-              },
-              {
-                referenceNumber: {
-                  not: {
-                    startsWith: 'REV-'
-                  }
-                }
-              }
-            ]
-          }
-        },
-        select: {
-          id: true,
-          chartOfAccountId: true,
-          debitAmount: true,
-          creditAmount: true,
-          journalEntry: {
-            select: {
-              id: true,
-              referenceNumber: true,
-              description: true,
-              transactionDate: true,
-              status: true,
-              currencyId: true,
-              cashbookEntries: {
-                include: {
-                  bank: {
-                    select: {
-                      id: true,
-                      name: true,
-                      accountNumber: true
-                    }
-                  },
-                  customer: {
-                    select: {
-                      id: true,
-                      name: true,
-                      email: true
-                    }
-                  },
-                  vendor: {
-                    select: {
-                      id: true,
-                      name: true,
-                      email: true
-                    }
-                  }
-                },
-                take: 1
-              },
-              invoices: {
-                include: {
-                  customer: {
-                    select: {
-                      id: true,
-                      name: true,
-                      email: true
-                    }
-                  }
-                },
-                take: 1
-              },
-              expenses: {
-                include: {
-                  vendor: {
-                    select: {
-                      id: true,
-                      name: true,
-                      email: true
-                    }
-                  },
-                  category: {
-                    select: {
-                      id: true,
-                      name: true
-                    }
-                  }
-                },
-                take: 1
-              },
-              revenues: {
-                include: {
-                  source: {
-                    select: {
-                      id: true,
-                      name: true
-                    }
-                  },
-                  category: {
-                    select: {
-                      id: true,
-                      name: true
-                    }
-                  }
-                },
-                take: 1
+      const lineWhere: any = {
+        journalEntry: {
+          transactionDate: { gte: start, lte: end },
+          status: 'POSTED' as const,
+          ...(currencyId ? { currencyId } : {}),
+          NOT: {
+            cashbookEntries: {
+              some: {
+                OR: [
+                  { status: 'VOIDED' },
+                  { reversedAt: { not: null } }
+                ]
               }
             }
-          }
+          },
+          AND: [
+            { referenceNumber: { not: { startsWith: 'VR-' } } },
+            { referenceNumber: { not: { startsWith: 'REV-' } } }
+          ]
         }
-      });
+      };
+
+      // Lightweight path for scale (12 months, 10k+ entries): no cashbook/invoice/expense/revenue joins
+      const journalEntryLinesRaw = includeTransactionDetails
+        ? await prisma.journalEntryLine.findMany({
+            where: lineWhere,
+            select: {
+              id: true,
+              chartOfAccountId: true,
+              debitAmount: true,
+              creditAmount: true,
+              journalEntry: {
+                select: {
+                  id: true,
+                  referenceNumber: true,
+                  description: true,
+                  transactionDate: true,
+                  status: true,
+                  currencyId: true,
+                  cashbookEntries: {
+                    include: {
+                      bank: { select: { id: true, name: true, accountNumber: true } },
+                      customer: { select: { id: true, name: true, email: true } },
+                      vendor: { select: { id: true, name: true, email: true } }
+                    },
+                    take: 1
+                  },
+                  invoices: {
+                    include: { customer: { select: { id: true, name: true, email: true } } },
+                    take: 1
+                  },
+                  expenses: {
+                    include: {
+                      vendor: { select: { id: true, name: true, email: true } },
+                      category: { select: { id: true, name: true } }
+                    },
+                    take: 1
+                  },
+                  revenues: {
+                    include: {
+                      source: { select: { id: true, name: true } },
+                      category: { select: { id: true, name: true } }
+                    },
+                    take: 1
+                  }
+                }
+              }
+            }
+          })
+        : await prisma.journalEntryLine.findMany({
+            where: lineWhere,
+            select: {
+              id: true,
+              chartOfAccountId: true,
+              debitAmount: true,
+              creditAmount: true,
+              journalEntry: {
+                select: {
+                  id: true,
+                  referenceNumber: true,
+                  description: true,
+                  transactionDate: true,
+                  status: true,
+                  currencyId: true
+                }
+              }
+            }
+          });
 
       // Filter out entries with null currency (matching GL Detail behavior)
       const journalEntryLines = journalEntryLinesRaw.filter(line => line.journalEntry.currencyId !== null);
@@ -376,6 +348,8 @@ export class TrialBalanceService {
       const trialBalanceAccounts: TrialBalanceAccount[] = [];
       let totalDebits = 0;
       let totalCredits = 0;
+      let netDebitColumnTotal = 0;
+      let netCreditColumnTotal = 0;
 
       // Create account map for quick lookup
       const accountMap = new Map(accounts.map(acc => [acc.id, acc]));
@@ -392,8 +366,14 @@ export class TrialBalanceService {
         const displayDebit = netBalance > 0 ? netBalance : 0;
         const displayCredit = netBalance < 0 ? Math.abs(netBalance) : 0;
 
-        // Sort transactions by date
-        const transactions = balances.transactions.sort((a, b) => a.date.localeCompare(b.date));
+        // Sort transaction detail like journal list: **newest business date first**, then stable tie-break.
+        // (Previously: ascending date-only strings, which also hid same-day ordering — looked like "created" order.)
+        const transactions = [...balances.transactions].sort((a, b) => {
+          const ta = new Date(a.journalEntry.transactionDate).getTime();
+          const tb = new Date(b.journalEntry.transactionDate).getTime();
+          if (tb !== ta) return tb - ta;
+          return b.id.localeCompare(a.id);
+        });
 
         trialBalanceAccounts.push({
           accountId: account.id,
@@ -405,10 +385,12 @@ export class TrialBalanceService {
           transactions: transactions
         });
 
-        // IMPORTANT: For totals, sum ALL debits and ALL credits (gross totals), not net balances
-        // This ensures month-end totals match journal entry totals
-        totalDebits += debitBalance;  // Sum of ALL debit amounts
-        totalCredits += creditBalance; // Sum of ALL credit amounts
+        // Gross: sum of line debits / credits in period (matches sum of JE line sides; always equal if posted JEs balance).
+        totalDebits += debitBalance;
+        totalCredits += creditBalance;
+        // Net columns: what each row displays — Excel SUM(debitBalance)/SUM(creditBalance) must match these when summing the same account set.
+        netDebitColumnTotal += displayDebit;
+        netCreditColumnTotal += displayCredit;
       }
 
       // Sort accounts by account type and account number
@@ -419,6 +401,18 @@ export class TrialBalanceService {
         return a.accountNo.localeCompare(b.accountNo);
       });
 
+      // Omit idle accounts only: keep rows that had period activity even if net DR/CR is zero (offsetting entries).
+      const ZERO_TOLERANCE = 0.01;
+      const accountsToReturn =
+        hideZeroBalances === true
+          ? trialBalanceAccounts.filter(
+              (a) =>
+                (a.transactions?.length ?? 0) > 0 ||
+                (a.debitBalance || 0) >= ZERO_TOLERANCE ||
+                (a.creditBalance || 0) >= ZERO_TOLERANCE
+            )
+          : trialBalanceAccounts;
+
       // Determine if this is cumulative or period-based
       const isCumulative = !startDate || !endDate || (startDate.getTime() === new Date(0).getTime());
       
@@ -427,11 +421,13 @@ export class TrialBalanceService {
         startDate: startDate ? startDate.toISOString().split('T')[0] : undefined,
         endDate: endDate ? endDate.toISOString().split('T')[0] : undefined,
         isCumulative, // Indicates if this is cumulative (all entries up to date) or period-based (specific date range)
-        accounts: trialBalanceAccounts,
+        accounts: accountsToReturn,
         totals: {
           totalDebits,
           totalCredits,
-          isBalanced: Math.abs(totalDebits - totalCredits) < 0.01 // Allow for small rounding differences
+          netDebitColumnTotal,
+          netCreditColumnTotal,
+          isBalanced: Math.abs(totalDebits - totalCredits) < 0.0001 // Sub-cent when journals use DECIMAL(15,3)
         }
       };
     } catch (error: any) {
@@ -452,20 +448,24 @@ export class TrialBalanceService {
   /**
    * Get trial balance summary
    */
-  static async getTrialBalanceSummary(date: Date): Promise<{
+  static async getTrialBalanceSummary(date: Date, startDate?: Date, endDate?: Date, currencyId?: string): Promise<{
     totalAccounts: number;
     totalDebits: number;
     totalCredits: number;
+    netDebitColumnTotal: number;
+    netCreditColumnTotal: number;
     isBalanced: boolean;
     balanceDifference: number;
   }> {
     try {
-      const trialBalance = await this.generateTrialBalance(date);
+      const trialBalance = await this.generateTrialBalance(date, startDate, endDate, undefined, true, currencyId);
       
       return {
         totalAccounts: trialBalance.accounts.length,
         totalDebits: trialBalance.totals.totalDebits,
         totalCredits: trialBalance.totals.totalCredits,
+        netDebitColumnTotal: trialBalance.totals.netDebitColumnTotal,
+        netCreditColumnTotal: trialBalance.totals.netCreditColumnTotal,
         isBalanced: trialBalance.totals.isBalanced,
         balanceDifference: Math.abs(trialBalance.totals.totalDebits - trialBalance.totals.totalCredits)
       };
@@ -478,7 +478,7 @@ export class TrialBalanceService {
   /**
    * Get trial balance by account type
    */
-  static async getTrialBalanceByAccountType(date: Date): Promise<{
+  static async getTrialBalanceByAccountType(date: Date, startDate?: Date, endDate?: Date, currencyId?: string): Promise<{
     [accountType: string]: {
       accounts: TrialBalanceAccount[];
       totalDebits: number;
@@ -487,7 +487,7 @@ export class TrialBalanceService {
     };
   }> {
     try {
-      const trialBalance = await this.generateTrialBalance(date);
+      const trialBalance = await this.generateTrialBalance(date, startDate, endDate, undefined, true, currencyId);
       const groupedByType: { [key: string]: any } = {};
 
       for (const account of trialBalance.accounts) {
@@ -503,7 +503,8 @@ export class TrialBalanceService {
         groupedByType[account.accountType].accounts.push(account);
         groupedByType[account.accountType].totalDebits += account.debitBalance;
         groupedByType[account.accountType].totalCredits += account.creditBalance;
-        groupedByType[account.accountType].netBalance += account.netBalance;
+        groupedByType[account.accountType].netBalance +=
+          (account.debitBalance || 0) - (account.creditBalance || 0);
       }
 
       return groupedByType;

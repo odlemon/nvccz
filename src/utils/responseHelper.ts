@@ -30,11 +30,18 @@ export class ResponseHelper {
     })
   }
 
-  static error(res: Response, message: string, error?: string, statusCode = 500): Response {
+  static error(
+    res: Response,
+    message: string,
+    error?: string,
+    statusCode = 500,
+    extra?: { code?: string }
+  ): Response {
     return res.status(statusCode).json({
       success: false,
       message,
-      error,
+      ...(error != null && error !== "" ? { error } : {}),
+      ...(extra?.code ? { code: extra.code } : {}),
       timestamp: new Date().toISOString(),
     })
   }
@@ -89,4 +96,17 @@ export class ResponseHelper {
   static validationError(res: Response, message: string, error?: string): Response {
     return this.error(res, message, error, 422)
   }
+}
+
+/**
+ * Adapter used by several controllers: `success(res, data, message)` argument order.
+ * `ResponseHelper.success` expects `(res, message, data)`.
+ */
+export const responseHelper = {
+  success<T>(res: Response, data: T | undefined, message: string, statusCode = 200): Response {
+    return ResponseHelper.success(res, message, data, statusCode)
+  },
+  error(res: Response, message: string, details?: string, statusCode = 500): Response {
+    return ResponseHelper.error(res, message, details, statusCode)
+  },
 }

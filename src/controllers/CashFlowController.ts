@@ -2,27 +2,46 @@
 import { Request, Response } from "express";
 import CashFlowService from "../services/CashFlowService";
 import { CashFlowParams } from "../services/cashflow/types";
+import { extractPeriodFilter, periodFilterToDateRange } from "../utils/periodFilterHelper";
+import { parseDate } from "../utils/dateHelper";
 
 export class CashFlowController {
   /**
    * Generate cash flow statement for a specific period
+   * Supports period filters (month/quarter/year) via URL query parameters OR legacy date range in request body
    */
   static async generateCashFlowStatement(req: Request, res: Response) {
     try {
-      const { startDate, endDate, currencyId } = req.body;
+      // Try to extract period filter first
+      const periodFilter = extractPeriodFilter(req);
+      
+      let params: CashFlowParams;
+      
+      if (periodFilter) {
+        // Use period filter (month/quarter/year)
+        const dateRange = periodFilterToDateRange(periodFilter);
+        params = {
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          currencyId: dateRange.currencyId
+        };
+      } else {
+        // Fallback to legacy date range format
+        const { startDate, endDate, currencyId } = req.body;
+        
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Either period filter (periodType + periodValue in URL) or date range (startDate + endDate) is required"
+          });
+        }
 
-      if (!startDate || !endDate) {
-        return res.status(400).json({
-          success: false,
-          message: "Start date and end date are required"
-        });
+        params = {
+          startDate: parseDate(startDate),
+          endDate: parseDate(endDate),
+          currencyId
+        };
       }
-
-      const params: CashFlowParams = {
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        currencyId
-      };
 
       const cashFlowStatement = await CashFlowService.generateCashFlowStatement(params);
 
@@ -43,23 +62,40 @@ export class CashFlowController {
 
   /**
    * Get detailed cash flow statement with transaction breakdown
+   * Supports period filters (month/quarter/year) via URL query parameters OR legacy date range in request body
    */
   static async getDetailedCashFlowStatement(req: Request, res: Response) {
     try {
-      const { startDate, endDate, currencyId } = req.body;
+      // Try to extract period filter first
+      const periodFilter = extractPeriodFilter(req);
+      
+      let params: CashFlowParams;
+      
+      if (periodFilter) {
+        // Use period filter (month/quarter/year)
+        const dateRange = periodFilterToDateRange(periodFilter);
+        params = {
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          currencyId: dateRange.currencyId
+        };
+      } else {
+        // Fallback to legacy date range format
+        const { startDate, endDate, currencyId } = req.body;
+        
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Either period filter (periodType + periodValue in URL) or date range (startDate + endDate) is required"
+          });
+        }
 
-      if (!startDate || !endDate) {
-        return res.status(400).json({
-          success: false,
-          message: "Start date and end date are required"
-        });
+        params = {
+          startDate: parseDate(startDate),
+          endDate: parseDate(endDate),
+          currencyId
+        };
       }
-
-      const params: CashFlowParams = {
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        currencyId
-      };
 
       const detailedCashFlowStatement = await CashFlowService.getDetailedCashFlowStatement(params);
 
@@ -80,23 +116,40 @@ export class CashFlowController {
 
   /**
    * Get cash flow statement summary (high-level totals)
+   * Supports period filters (month/quarter/year) via URL query parameters OR legacy date range in request body
    */
   static async getCashFlowStatementSummary(req: Request, res: Response) {
     try {
-      const { startDate, endDate, currencyId } = req.body;
+      // Try to extract period filter first
+      const periodFilter = extractPeriodFilter(req);
+      
+      let params: CashFlowParams;
+      
+      if (periodFilter) {
+        // Use period filter (month/quarter/year)
+        const dateRange = periodFilterToDateRange(periodFilter);
+        params = {
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          currencyId: dateRange.currencyId
+        };
+      } else {
+        // Fallback to legacy date range format
+        const { startDate, endDate, currencyId } = req.body;
+        
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Either period filter (periodType + periodValue in URL) or date range (startDate + endDate) is required"
+          });
+        }
 
-      if (!startDate || !endDate) {
-        return res.status(400).json({
-          success: false,
-          message: "Start date and end date are required"
-        });
+        params = {
+          startDate: parseDate(startDate),
+          endDate: parseDate(endDate),
+          currencyId
+        };
       }
-
-      const params: CashFlowParams = {
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        currencyId
-      };
 
       const summary = await CashFlowService.getCashFlowStatementSummary(params);
 
@@ -140,8 +193,8 @@ export class CashFlowController {
       }
 
       const periodParams: CashFlowParams[] = periods.map(period => ({
-        startDate: new Date(period.startDate),
-        endDate: new Date(period.endDate),
+        startDate: parseDate(period.startDate),
+        endDate: parseDate(period.endDate),
         currencyId: period.currencyId
       }));
 
@@ -164,23 +217,40 @@ export class CashFlowController {
 
   /**
    * Get comprehensive detailed cash flow statement with all transaction details
+   * Supports period filters (month/quarter/year) via URL query parameters OR legacy date range in request body
    */
   static async getComprehensiveDetailedCashFlowStatement(req: Request, res: Response) {
     try {
-      const { startDate, endDate, currencyId } = req.body;
+      // Try to extract period filter first
+      const periodFilter = extractPeriodFilter(req);
+      
+      let params: CashFlowParams;
+      
+      if (periodFilter) {
+        // Use period filter (month/quarter/year)
+        const dateRange = periodFilterToDateRange(periodFilter);
+        params = {
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          currencyId: dateRange.currencyId
+        };
+      } else {
+        // Fallback to legacy date range format
+        const { startDate, endDate, currencyId } = req.body;
+        
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Either period filter (periodType + periodValue in URL) or date range (startDate + endDate) is required"
+          });
+        }
 
-      if (!startDate || !endDate) {
-        return res.status(400).json({
-          success: false,
-          message: "Start date and end date are required"
-        });
+        params = {
+          startDate: parseDate(startDate),
+          endDate: parseDate(endDate),
+          currencyId
+        };
       }
-
-      const params: CashFlowParams = {
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        currencyId
-      };
 
       const comprehensiveCashFlowStatement = await CashFlowService.getComprehensiveDetailedCashFlowStatement(params);
 
@@ -201,24 +271,42 @@ export class CashFlowController {
 
   /**
    * Get cash flow statement by query parameters (for GET requests)
+   * Supports period filters (month/quarter/year) via URL query parameters OR legacy date range
    */
   static async getCashFlowStatementByQuery(req: Request, res: Response) {
     try {
-      const { startDate, endDate, currencyId, type = "summary" } = req.query;
+      // Try to extract period filter first
+      const periodFilter = extractPeriodFilter(req);
+      
+      let params: CashFlowParams;
+      
+      if (periodFilter) {
+        // Use period filter (month/quarter/year)
+        const dateRange = periodFilterToDateRange(periodFilter);
+        params = {
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          currencyId: dateRange.currencyId
+        };
+      } else {
+        // Fallback to legacy date range format
+        const { startDate, endDate, currencyId } = req.query;
 
-      if (!startDate || !endDate) {
-        return res.status(400).json({
-          success: false,
-          message: "Start date and end date are required"
-        });
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Either period filter (periodType + periodValue) or date range (startDate + endDate) is required"
+          });
+        }
+
+        params = {
+          startDate: parseDate(startDate as string),
+          endDate: parseDate(endDate as string),
+          currencyId: currencyId as string
+        };
       }
 
-      const params: CashFlowParams = {
-        startDate: new Date(startDate as string),
-        endDate: new Date(endDate as string),
-        currencyId: currencyId as string
-      };
-
+      const { type = "summary" } = req.query;
       let result;
       switch (type) {
         case "detailed":

@@ -5,6 +5,7 @@ import { createHash } from 'crypto';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import { logger } from '../utils/logger';
+import { collapseDuplicatePublicMediaPath } from './RemoteUploadService';
 
 export interface ApplicationDocumentReference {
   url: string;
@@ -19,7 +20,10 @@ export interface ExtractedDocumentContent extends ApplicationDocumentReference {
   contentHash?: string;
 }
 
+/** Portfolio / shortlisting: keep prompts small. */
 const MAX_CHAR_PER_DOCUMENT = 4000;
+/** Suite 06 vendor invoices: must not truncate before LLM (see VendorInvoiceExtractionService slice). */
+const MAX_CHAR_VENDOR_INVOICE_DEFAULT = 120000;
 
 export class DocumentTextExtractionService {
   /**
@@ -53,6 +57,34 @@ export class DocumentTextExtractionService {
     return results;
   }
 
+  private static maxCharsForDocument(document: ApplicationDocumentReference): number {
+    if (document.type === 'VENDOR_INVOICE') {
+      const n = Number(process.env.VENDOR_INVOICE_EXTRACT_MAX_CHARS);
+      if (Number.isFinite(n) && n > 0) return Math.min(Math.floor(n), 500000);
+      return MAX_CHAR_VENDOR_INVOICE_DEFAULT;
+    }
+    return MAX_CHAR_PER_DOCUMENT;
+  }
+
+  /**
+   * Turn stored URLs into an absolute URL for server-side axios (relative `/api/public-media/...` rows).
+   */
+  static resolveDocumentUrlForFetch(url: string): string {
+    const u = String(url || '').trim();
+    if (!u) throw new Error('Empty document URL');
+    if (/^https?:\/\//i.test(u)) return collapseDuplicatePublicMediaPath(u);
+    let origin =
+      process.env.API_INTERNAL_BASE_URL?.trim() ||
+      process.env.BASE_URL?.trim() ||
+      'http://127.0.0.1:3000';
+    origin = origin.replace(/\/+$/, '');
+    if (/\/api$/i.test(origin)) {
+      origin = origin.replace(/\/api$/i, '');
+    }
+    const path = u.startsWith('/') ? u : `/${u}`;
+    return collapseDuplicatePublicMediaPath(`${origin}${path}`);
+  }
+
   private static async extractSingleDocument(
     document: ApplicationDocumentReference
   ): Promise<ExtractedDocumentContent> {
@@ -60,8 +92,9 @@ export class DocumentTextExtractionService {
     const rawText = await this.extractTextFromBuffer(buffer, document.fileName);
 
     const cleaned = rawText.replace(/\s+/g, ' ').trim();
-    const truncated = cleaned.length > MAX_CHAR_PER_DOCUMENT;
-    const text = truncated ? `${cleaned.substring(0, MAX_CHAR_PER_DOCUMENT)}...` : cleaned;
+    const maxChars = this.maxCharsForDocument(document);
+    const truncated = cleaned.length > maxChars;
+    const text = truncated ? `${cleaned.substring(0, maxChars)}...` : cleaned;
     const contentHash = cleaned ? createHash('sha256').update(cleaned).digest('hex') : undefined;
 
     return {
@@ -73,13 +106,14 @@ export class DocumentTextExtractionService {
   }
 
   private static async downloadDocument(url: string, fileName: string): Promise<Buffer> {
-    const response = await axios.get(url, {
+    const fetchUrl = DocumentTextExtractionService.resolveDocumentUrlForFetch(url);
+    const response = await axios.get(fetchUrl, {
       responseType: 'arraybuffer',
       validateStatus: () => true
     });
 
     logger.info('Document download attempt', {
-      url,
+      url: fetchUrl,
       fileName,
       status: response.status,
       contentType: response.headers['content-type'],

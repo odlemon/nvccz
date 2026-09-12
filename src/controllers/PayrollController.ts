@@ -1,10 +1,23 @@
 // @ts-nocheck
 import { Request, Response } from 'express';
+import { PayrollAuditService } from "../services/payroll/PayrollAuditService";
 import { PrismaClient } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PayrollService } from '../services/PayrollService';
+import { StaffReimbursementVendorService } from '../services/StaffReimbursementVendorService';
 
+import { companyNameFullFromEnv } from '../config/companyDisplay';
 import { prisma } from '../utils/database';
+import { PerformancePayrollBscHookService } from '../services/PerformancePayrollBscHookService';
+import { EmployeeTerminationService } from '../services/EmployeeTerminationService';
+import { parseDate } from '../utils/dateHelper';
+import {
+  formatEmployeeForApi,
+  payrollFormField,
+  resolveEmployeePictureUrl,
+  isEmployeePictureUrlFieldPresent,
+  resolveEmployeePictureUrlFromFormField
+} from '../services/payrollEmployeePictureUpload';
 
 export class PayrollController {
   /**
@@ -12,19 +25,38 @@ export class PayrollController {
    */
   static async createEmployee(req: Request, res: Response) {
     try {
-      const {
-        userId,
-        bankName,
-        branchCode,
-        accountNumber,
-        basicSalary,
-        currencyId,
-        idNumber,
-        nextOfKin,
-        nextOfKinContact,
-        address,
-        pictureUrl
-      } = req.body;
+      const userId = payrollFormField(req, 'userId');
+      const basicSalaryRaw = payrollFormField(req, 'basicSalary');
+      const bankName = payrollFormField(req, 'bankName');
+      const branchCode = payrollFormField(req, 'branchCode');
+      const accountNumber = payrollFormField(req, 'accountNumber');
+      const currencyId = payrollFormField(req, 'currencyId');
+      const idNumber = payrollFormField(req, 'idNumber');
+      const nextOfKin = payrollFormField(req, 'nextOfKin');
+      const nextOfKinContact = payrollFormField(req, 'nextOfKinContact');
+      const address = payrollFormField(req, 'address');
+      const bscNewHireCounterGoalId = payrollFormField(req, 'bscNewHireCounterGoalId');
+
+      if (!userId) {
+        return res.status(400).json({ success: false, message: 'userId is required' });
+      }
+      if (basicSalaryRaw === undefined) {
+        return res.status(400).json({ success: false, message: 'basicSalary is required' });
+      }
+      const basicSalaryNum = parseFloat(basicSalaryRaw);
+      if (!Number.isFinite(basicSalaryNum)) {
+        return res.status(400).json({ success: false, message: 'basicSalary must be a number' });
+      }
+
+      let pictureUrl: string | null = null;
+      try {
+        pictureUrl = await resolveEmployeePictureUrl(req);
+      } catch (uploadErr) {
+        return res.status(400).json({
+          success: false,
+          message: uploadErr instanceof Error ? uploadErr.message : 'Picture upload failed'
+        });
+      }
 
       // Check if user exists
       const user = await prisma.user.findUnique({
@@ -62,6 +94,14 @@ export class PayrollController {
         nextEmployeeNumber = `EMP${nextNumber.toString().padStart(3, '0')}`;
       }
 
+      const actorId = (req as any).user?.id;
+      if (!actorId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized'
+        });
+      }
+
       const employee = await prisma.employee.create({
         data: {
           userId,
@@ -69,7 +109,7 @@ export class PayrollController {
           bankName,
           branchCode,
           accountNumber,
-          basicSalary: parseFloat(basicSalary),
+          basicSalary: basicSalaryNum,
           currencyId,
           idNumber,
           nextOfKin,
@@ -85,10 +125,16 @@ export class PayrollController {
         }
       });
 
+      PerformancePayrollBscHookService.onEmployeeCreated({
+        bscNewHireCounterGoalId:
+          bscNewHireCounterGoalId != null ? String(bscNewHireCounterGoalId).trim() : undefined,
+        createdByUserId: actorId ? String(actorId) : null
+      }).catch((err) => console.warn("[payroll-bsc-hook] new hire KPI skipped:", err?.message || err));
+
       res.status(201).json({
         success: true,
         message: 'Employee created successfully',
-        data: employee
+        data: formatEmployeeForApi(employee)
       });
     } catch (error) {
       console.error('Error creating employee:', error);
@@ -106,18 +152,21 @@ export class PayrollController {
   static async getEmployees(req: Request, res: Response) {
     try {
       const employees = await prisma.employee.findMany({
-        where: { isActive: true },
+        where: { isActive: true, terminated: false },
         include: {
           user: {
             select: { firstName: true, lastName: true, email: true }
           },
-          currency: true
+          currency: true,
+          reimbursementVendor: {
+            select: { id: true, name: true, isActive: true, email: true }
+          }
         }
       });
 
       res.json({
         success: true,
-        data: employees
+        data: employees.map(formatEmployeeForApi)
       });
     } catch (error) {
       console.error('Error getting employees:', error);
@@ -125,6 +174,47 @@ export class PayrollController {
         success: false,
         message: 'Failed to get employees',
         error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Staff reimbursement: linked shell vendor for creditors sub-ledger (cashbook SUPPLIER payment).
+   */
+  static async getEmployeeReimbursementVendor(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const data = await StaffReimbursementVendorService.getReimbursementVendor(id);
+      res.json({ success: true, data });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      if (msg === 'Employee not found') {
+        return res.status(404).json({ success: false, message: msg });
+      }
+      console.error('Error getting reimbursement vendor:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get reimbursement vendor',
+        error: msg
+      });
+    }
+  }
+
+  static async ensureEmployeeReimbursementVendor(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const data = await StaffReimbursementVendorService.ensureReimbursementVendor(id);
+      res.json({ success: true, data });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      if (msg === 'Employee not found') {
+        return res.status(404).json({ success: false, message: msg });
+      }
+      console.error('Error ensuring reimbursement vendor:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to ensure reimbursement vendor',
+        error: msg
       });
     }
   }
@@ -139,7 +229,8 @@ export class PayrollController {
         payPeriod,
         startDate,
         endDate,
-        currencyId
+        currencyId,
+        dualCurrency,
       } = req.body;
 
       const createdById = (req as any).user.id;
@@ -197,6 +288,9 @@ export class PayrollController {
         });
       }
 
+      const { resolvePayrollUsdZigRate } = await import('../services/payroll/PayrollFxService');
+      const fxRateUsdZig = await resolvePayrollUsdZigRate();
+
       const payrollRun = await prisma.payrollRun.create({
         data: {
           name,
@@ -204,7 +298,9 @@ export class PayrollController {
           startDate: startDateObj,
           endDate: endDateObj,
           currencyId,
-          createdById
+          createdById,
+          dualCurrency: Boolean(dualCurrency),
+          fxRateUsdZig,
         },
         include: {
           currency: true,
@@ -214,6 +310,15 @@ export class PayrollController {
         }
       });
 
+      await PayrollAuditService.record({
+        action: 'PAYROLL_RUN_CREATED',
+        eventClass: 'Change',
+        entityType: 'payroll_run',
+        entityId: (payrollRun as any)?.id ?? null,
+        entityLabel: (payrollRun as any)?.name ?? null,
+        detail: `Created payroll run for ${(payrollRun as any)?.payPeriod ?? 'an unnamed period'}`,
+        actor: (req as any).user,
+      });
       res.status(201).json({
         success: true,
         message: 'Payroll run created successfully',
@@ -241,6 +346,15 @@ export class PayrollController {
 
       const payrollRun = await PayrollService.getPayrollRunSummary(payrollRunId);
 
+      await PayrollAuditService.record({
+        action: 'PAYROLL_RUN_PROCESSED',
+        eventClass: 'Change',
+        entityType: 'payroll_run',
+        entityId: payrollRunId,
+        entityLabel: (payrollRun as any)?.name ?? null,
+        detail: `Calculated payroll and generated payslips: gross ${(payrollRun as any)?.totalGrossPay ?? '0'}, net ${(payrollRun as any)?.totalNetPay ?? '0'}`,
+        actor: (req as any).user,
+      });
       res.json({
         success: true,
         message: 'Payroll run processed successfully',
@@ -248,10 +362,13 @@ export class PayrollController {
       });
     } catch (error) {
       console.error('Error processing payroll run:', error);
-      res.status(500).json({
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      const isClientError =
+        /must be approved|not found|Cannot process|pending employee change|Only DRAFT/i.test(message);
+      res.status(isClientError ? 400 : 500).json({
         success: false,
-        message: 'Failed to process payroll run',
-        error: error instanceof Error ? error.message : 'Unknown error'
+        message: isClientError ? message : 'Failed to process payroll run',
+        error: message
       });
     }
   }
@@ -318,6 +435,14 @@ export class PayrollController {
       const { employeeId, payrollRunId } = req.params;
 
       const payslip = await PayrollService.getEmployeePayslip(employeeId, payrollRunId);
+
+      if (!payslip) {
+        return res.json({
+          success: true,
+          message: 'No payslip found for this employee and payroll run',
+          data: null
+        });
+      }
 
       res.json({
         success: true,
@@ -588,6 +713,8 @@ export class PayrollController {
                 select: {
                   id: true,
                   employeeNumber: true,
+                  isActive: true,
+                  terminated: true,
                   user: {
                     select: {
                       firstName: true,
@@ -667,6 +794,8 @@ export class PayrollController {
                 select: {
                   id: true,
                   employeeNumber: true,
+                  isActive: true,
+                  terminated: true,
                   user: {
                     select: {
                       firstName: true,
@@ -748,6 +877,22 @@ export class PayrollController {
           success: false,
           message: 'Cannot assign employees to statutory deductions. Statutory deductions apply to all employees automatically.'
         });
+      }
+
+      for (const employeeId of employeeIds) {
+        const row = await prisma.employee.findUnique({
+          where: { id: employeeId },
+          select: { id: true, employeeNumber: true, terminated: true }
+        });
+        if (!row) {
+          return res.status(400).json({ success: false, message: `Employee not found: ${employeeId}` });
+        }
+        if (row.terminated) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot assign deductions to a terminated employee (${row.employeeNumber || row.id}).`
+          });
+        }
       }
 
       // Create employee deductions
@@ -973,10 +1118,16 @@ export class PayrollController {
           message: 'Employee record not found'
         });
       }
+      if (employee.terminated) {
+        return res.status(403).json({
+          success: false,
+          message: 'This employment has been terminated. Payroll self-service is not available.'
+        });
+      }
 
       res.json({
         success: true,
-        data: employee
+        data: formatEmployeeForApi(employee)
       });
     } catch (error) {
       console.error('Error getting employee payroll info:', error);
@@ -1005,6 +1156,12 @@ export class PayrollController {
         return res.status(404).json({
           success: false,
           message: 'Employee record not found'
+        });
+      }
+      if (employee.terminated) {
+        return res.status(403).json({
+          success: false,
+          message: 'This employment has been terminated. Payslip self-service is not available.'
         });
       }
 
@@ -1077,7 +1234,7 @@ export class PayrollController {
         payrollRun: payslip.payrollRun,
         currency: payslip.currency,
         // Company information
-        companyName: "National Venture Capital Company of Zimbabwe"
+        companyName: companyNameFullFromEnv()
       }));
 
       const total = await prisma.payslip.count({
@@ -1120,6 +1277,12 @@ export class PayrollController {
         return res.status(404).json({
           success: false,
           message: 'Employee record not found'
+        });
+      }
+      if (employee.terminated) {
+        return res.status(403).json({
+          success: false,
+          message: 'This employment has been terminated. Leave self-service is not available.'
         });
       }
 
@@ -1786,9 +1949,59 @@ export class PayrollController {
         where: whereClause
       });
 
+      // Per-currency components, from the legs.
+      //
+      // The module's command centre shows a "USD component" and a "local
+      // component" card for the latest run, and neither figure existed in this
+      // payload. The UI fell back to totalGrossPay for USD -- which is the
+      // COMBINED figure, so it overstated the USD component by the converted
+      // ZiG -- and computed ZiG as gross * fxRate gated on `dualCurrency`, a
+      // flag that is false on every run in this database. So ZiG rendered as 0
+      // while each run carried 155,772.24 ZiG in legs.
+      //
+      // employee_payroll_legs is the only place the real split lives.
+      const runIds = payrollRuns.map((r: any) => r.id);
+      const legTotals: any[] = runIds.length
+        ? await prisma.$queryRawUnsafe(
+            `SELECT ep.payrollRunId AS runId, l.currency_code AS currencyCode,
+                    SUM(l.gross_pay) AS gross, SUM(l.net_pay) AS net,
+                    SUM(l.total_deductions) AS deductions
+               FROM employee_payroll_legs l
+               JOIN employee_payrolls ep ON ep.id = l.employee_payroll_id
+              WHERE ep.payrollRunId IN (${runIds.map(() => '?').join(',')})
+              GROUP BY ep.payrollRunId, l.currency_code`,
+            ...runIds
+          )
+        : [];
+
+      const componentsByRun = new Map<string, Record<string, any>>();
+      for (const row of legTotals) {
+        const forRun = componentsByRun.get(row.runId) || {};
+        forRun[String(row.currencyCode).toUpperCase()] = {
+          gross: Number(row.gross) || 0,
+          net: Number(row.net) || 0,
+          deductions: Number(row.deductions) || 0,
+        };
+        componentsByRun.set(row.runId, forRun);
+      }
+
+      const runsWithComponents = payrollRuns.map((r: any) => {
+        const components = componentsByRun.get(r.id) || {};
+        const currencies = Object.keys(components);
+        return {
+          ...r,
+          currencyComponents: components,
+          // null, not 0, when the run has no legs in that currency at all —
+          // so the UI can say "not recorded" rather than assert a zero.
+          grossUsdComponent: components.USD ? components.USD.gross : null,
+          grossZigComponent: components.ZIG ? components.ZIG.gross : null,
+          isDualCurrency: currencies.length > 1,
+        };
+      });
+
       res.json({
         success: true,
-        data: payrollRuns,
+        data: runsWithComponents,
         pagination: {
           page: Number(page),
           limit: Number(limit),
@@ -1812,25 +2025,105 @@ export class PayrollController {
   static async updateEmployee(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const {
-        bankName,
-        branchCode,
-        accountNumber,
-        basicSalary,
-        currencyId,
-        isActive
-      } = req.body;
+      const bankName = payrollFormField(req, 'bankName');
+      const branchCode = payrollFormField(req, 'branchCode');
+      const accountNumber = payrollFormField(req, 'accountNumber');
+      const basicSalaryRaw = payrollFormField(req, 'basicSalary');
+      const currencyId = payrollFormField(req, 'currencyId');
+      const idNumber = payrollFormField(req, 'idNumber');
+      const nextOfKin = payrollFormField(req, 'nextOfKin');
+      const nextOfKinContact = payrollFormField(req, 'nextOfKinContact');
+      const address = payrollFormField(req, 'address');
+      const isActiveRaw = payrollFormField(req, 'isActive');
+
+      let isActive: boolean | undefined;
+      if (isActiveRaw !== undefined) {
+        const lower = isActiveRaw.toLowerCase();
+        if (lower === 'true' || lower === '1') isActive = true;
+        else if (lower === 'false' || lower === '0') isActive = false;
+        else {
+          return res.status(400).json({
+            success: false,
+            message: 'isActive must be true or false'
+          });
+        }
+      } else if (req.body?.isActive !== undefined && typeof req.body.isActive === 'boolean') {
+        isActive = req.body.isActive;
+      }
+
+      const existing = await prisma.employee.findUnique({ where: { id } });
+      if (!existing) {
+        return res.status(404).json({ success: false, message: 'Employee not found' });
+      }
+      if (existing.terminated) {
+        return res.status(400).json({
+          success: false,
+          message: 'This employee is terminated. Updates are not allowed except through a formal reinstatement process.'
+        });
+      }
+      if (isActive === true) {
+        /* allow */
+      } else if (isActive === false) {
+        const performedBy = (req as any).user;
+        if (!performedBy?.id) {
+          return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+        const out = await EmployeeTerminationService.terminateEmployee({
+          employeeId: id,
+          performedBy,
+          reason: 'Deactivated via employee update (isActive set to false)'
+        });
+        return res.json({
+          success: true,
+          message: 'Employee deactivated; treated as termination (payroll, scorecards, contracts, turnover KPI).',
+          data: formatEmployeeForApi(out.employee)
+        });
+      }
+
+      const hasPictureFile = Boolean((req as { file?: Express.Multer.File }).file?.buffer?.length);
+      let pictureUrl: string | null | undefined;
+      if (hasPictureFile) {
+        try {
+          pictureUrl = await resolveEmployeePictureUrl(req);
+        } catch (uploadErr) {
+          return res.status(400).json({
+            success: false,
+            message: uploadErr instanceof Error ? uploadErr.message : 'Picture upload failed'
+          });
+        }
+      } else if (isEmployeePictureUrlFieldPresent(req)) {
+        // Empty pictureUrl in form-data means user removed the photo.
+        pictureUrl = resolveEmployeePictureUrlFromFormField(req);
+      }
+
+      const data: Record<string, unknown> = {};
+      if (bankName !== undefined) data.bankName = bankName;
+      if (branchCode !== undefined) data.branchCode = branchCode;
+      if (accountNumber !== undefined) data.accountNumber = accountNumber;
+      if (currencyId !== undefined) data.currencyId = currencyId;
+      if (idNumber !== undefined) data.idNumber = idNumber;
+      if (nextOfKin !== undefined) data.nextOfKin = nextOfKin;
+      if (nextOfKinContact !== undefined) data.nextOfKinContact = nextOfKinContact;
+      if (address !== undefined) data.address = address;
+      if (pictureUrl !== undefined) data.pictureUrl = pictureUrl;
+
+      if (basicSalaryRaw !== undefined) {
+        const basicSalaryNum = parseFloat(basicSalaryRaw);
+        if (!Number.isFinite(basicSalaryNum)) {
+          return res.status(400).json({ success: false, message: 'basicSalary must be a number' });
+        }
+        data.basicSalary = basicSalaryNum;
+      } else if (req.body?.basicSalary !== undefined && req.body.basicSalary !== '') {
+        const n = parseFloat(String(req.body.basicSalary));
+        if (!Number.isFinite(n)) {
+          return res.status(400).json({ success: false, message: 'basicSalary must be a number' });
+        }
+        data.basicSalary = n;
+      }
 
       const employee = await prisma.employee.update({
         where: { id },
-        data: {
-          bankName,
-          branchCode,
-          accountNumber,
-          basicSalary: basicSalary ? parseFloat(basicSalary) : undefined,
-          currencyId,
-          isActive: isActive !== undefined ? isActive : undefined
-        },
+        data,
         include: {
           user: {
             select: { firstName: true, lastName: true, email: true }
@@ -1842,7 +2135,7 @@ export class PayrollController {
       res.json({
         success: true,
         message: 'Employee updated successfully',
-        data: employee
+        data: formatEmployeeForApi(employee)
       });
     } catch (error) {
       console.error('Error updating employee:', error);
@@ -1855,39 +2148,77 @@ export class PayrollController {
   }
 
   /**
-   * Delete employee (soft delete - sets isActive to false)
+   * Delete employee (soft delete — same as terminate: off payroll, contracts cancelled, turnover sync)
    */
   static async deleteEmployee(req: Request, res: Response) {
     try {
       const { id } = req.params;
-
-      // Check if employee exists
-      const employee = await prisma.employee.findUnique({
-        where: { id }
-      });
-
-      if (!employee) {
-        return res.status(404).json({
-          success: false,
-          message: 'Employee not found'
-        });
+      const performedBy = (req as any).user;
+      if (!performedBy?.id) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
       }
-
-      // Soft delete by setting isActive to false
-      await prisma.employee.update({
-        where: { id },
-        data: { isActive: false }
+      const out = await EmployeeTerminationService.terminateEmployee({
+        employeeId: id,
+        performedBy,
+        reason: 'Soft delete (legacy DELETE /employees/:id)'
       });
-
       res.json({
         success: true,
-        message: 'Employee deleted successfully (deactivated)'
+        message: 'Employee terminated and removed from active roster',
+        data: { employee: out.employee, performanceContractsCancelled: out.performanceContractsCancelled }
       });
-    } catch (error) {
+    } catch (error: any) {
+      if (String(error?.message || '').includes('not found')) {
+        return res.status(404).json({ success: false, message: 'Employee not found' });
+      }
+      if (String(error?.message || '').includes('already terminated')) {
+        return res.status(400).json({ success: false, message: error.message });
+      }
       console.error('Error deleting employee:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to delete employee',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Terminate employment (FHA / HR). Excludes employee from payroll & scorecard lists; cancels open EMPLOYEE performance contracts; syncs turnover KPIs.
+   */
+  static async terminateEmployee(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body || {};
+      const performedBy = (req as any).user;
+      if (!performedBy?.id) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+      const out = await EmployeeTerminationService.terminateEmployee({
+        employeeId: id,
+        performedBy,
+        reason: reason != null ? String(reason) : null
+      });
+      res.json({
+        success: true,
+        message: 'Employee terminated successfully',
+        data: {
+          employee: out.employee,
+          performanceContractsCancelled: out.performanceContractsCancelled,
+          turnoverKpiSyncAttempts: out.turnoverKpiSyncAttempts
+        }
+      });
+    } catch (error: any) {
+      if (String(error?.message || '').includes('not found')) {
+        return res.status(404).json({ success: false, message: 'Employee not found' });
+      }
+      if (String(error?.message || '').includes('already terminated')) {
+        return res.status(400).json({ success: false, message: error.message });
+      }
+      console.error('Error terminating employee:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to terminate employee',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
@@ -2103,7 +2434,7 @@ export class PayrollController {
       const result = await PayrollService.processPayrollPayment(
         payrollRunId,
         bankId,
-        new Date(paymentDate),
+        parseDate(paymentDate),
         createdById
       );
 

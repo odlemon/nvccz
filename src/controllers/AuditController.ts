@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { ResponseHelper } from "../utils/responseHelper";
+import { parseDate } from "../utils/dateHelper";
 
 export class AuditController {
   /**
@@ -34,8 +35,8 @@ export class AuditController {
 
       if (startDate || endDate) {
         where.createdAt = {};
-        if (startDate) where.createdAt.gte = new Date(startDate);
-        if (endDate) where.createdAt.lte = new Date(endDate);
+        if (startDate) where.createdAt.gte = parseDate(startDate);
+        if (endDate) where.createdAt.lte = parseDate(endDate);
       }
 
       const [logsRaw, total] = await Promise.all([
@@ -53,10 +54,14 @@ export class AuditController {
         prisma.auditLog.count({ where }),
       ]);
 
-      // Remove ipAddress/userAgent if null/empty from response payload
+      // Audit UAT: createdAt as exact ISO-8601 string; stable for clients and compliance tooling
       const logs = logsRaw.map((log: any) => {
-        const { ipAddress, userAgent, ...rest } = log;
-        const out: any = { ...rest };
+        const { ipAddress, userAgent, createdAt, ...rest } = log;
+        const out: any = {
+          ...rest,
+          createdAt:
+            createdAt instanceof Date ? createdAt.toISOString() : new Date(createdAt).toISOString(),
+        };
         if (ipAddress) out.ipAddress = ipAddress;
         if (userAgent) out.userAgent = userAgent;
         return out;

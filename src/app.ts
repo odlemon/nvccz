@@ -1,8 +1,11 @@
 // @ts-nocheck
 import express from "express"
+import { createServer } from "http"
 import cors from "cors"
 import helmet from "helmet"
 import dotenv from "dotenv"
+import compression from "compression"
+import path from "path"
 
 import { errorMiddleware } from "./middleware/error"
 import { prisma, checkDatabaseConnection } from "./utils/database"
@@ -23,6 +26,8 @@ try {
 import authRoutes from "./routes/authRoutes"
 import roleRoutes from "./routes/roleRoutes"
 import userRoutes from "./routes/userRoutes"
+import departmentRoutes from "./routes/departmentRoutes"
+import auditLogRoutes from "./routes/auditLogRoutes"
 import postRoutes from "./routes/postRoutes"
 import newsletterRoutes from "./routes/newsletterRoutes"
 import newsletterSubscriptionRoutes from "./routes/newsletterSubscriptionRoutes"
@@ -30,15 +35,22 @@ import eventRoutes from "./routes/eventRoutes"
 import homepageRoutes from "./routes/homepageRoutes"
 import currencyRoutes from "./routes/currencyRoutes"
 import vendorRoutes from "./routes/vendorRoutes"
+import vendorPublicRegistrationRoutes from "./routes/vendorPublicRegistrationRoutes"
+import publicProcurementRoutes from "./routes/publicProcurementRoutes"
 import expenseCategoryRoutes from "./routes/expenseCategoryRoutes"
 import expenseRoutes from "./routes/expenseRoutes"
 import journalEntryRoutes from "./routes/journalEntryRoutes"
 import chartOfAccountsRoutes from "./routes/chartOfAccountsRoutes"
 import invoiceRoutes from "./routes/invoiceRoutes"
+import purchaseInvoiceRoutes from "./routes/purchaseInvoiceRoutes"
 import customerRoutes from "./routes/customerRoutes"
 import incomeStatementRoutes from "./routes/incomeStatementRoutes"
 import cashFlowRoutes from "./routes/cashFlowRoutes"
 import balanceSheetRoutes from "./routes/balanceSheetRoutes"
+import consolidationRoutes from "./routes/consolidationRoutes"
+import accountingDashboardRoutes from "./routes/accountingDashboardRoutes"
+import shortTermInvestmentRoutes from "./routes/shortTermInvestmentRoutes"
+import accountingPeIntegrationV1Routes from "./routes/accountingPeIntegrationV1Routes"
 import statementOfEquityRoutes from "./routes/statementOfEquityRoutes"
 import revenueRoutes from "./routes/revenueRoutes"
 import revenueSourceRoutes from "./routes/revenueSourceRoutes"
@@ -52,6 +64,8 @@ import transactionReversalRoutes from "./routes/transactionReversalRoutes"
 import cashbookTransferRoutes from "./routes/cashbookTransferRoutes"
 import entryTypeRoutes from "./routes/entryTypeRoutes"
 import trialBalanceRoutes from "./routes/trialBalanceRoutes"
+import fiscalCalendarRoutes from "./routes/fiscalCalendarRoutes"
+import accountingCloseTaskRoutes from "./routes/accountingCloseTaskRoutes"
 import miniKycRoutes from "./routes/miniKycRoutes"
 import companyProfileRoutes from "./routes/companyProfileRoutes"
 import portfolioCompanyRoutes from "./routes/portfolioCompanyRoutes"
@@ -60,17 +74,26 @@ import applicantPortalRoutes from "./routes/applicantPortalRoutes"
 import boardReviewRoutes from "./routes/boardReviewRoutes"
 import termSheetRoutes from "./routes/termSheetRoutes"
 import investmentImplementationRoutes from "./routes/investmentImplementationRoutes"
+import listedEquityMarketDataRoutes from "./routes/listedEquityMarketDataRoutes"
+import listedEquityPortfolioRoutes from "./routes/listedEquityPortfolioRoutes"
+import listedEquityTradeRoutes from "./routes/listedEquityTradeRoutes"
+import investmentOpsRoutes from "./routes/investmentOpsRoutes"
+import investmentMonitoringRoutes from "./routes/investmentMonitoringRoutes"
 import fundRoutes from "./routes/fundRoutes"
+import lpFeesAndDistributionsRoutes from "./routes/lpFeesAndDistributionsRoutes"
 import clientRoutes from "./routes/clientRoutes"
 import targetRoutes from "./routes/targetRoutes"
 import targetTrackingRoutes from "./routes/targetTrackingRoutes"
 import auditRoutes from "./routes/auditRoutes"
+import systemAuditLogRoutes from "./routes/systemAuditLogRoutes"
 import performanceGoalRoutes from "./routes/performanceGoalRoutes"
 import performanceETLRoutes from "./routes/performanceETLRoutes"
 import performanceWorkflowRoutes from "./routes/performanceWorkflowRoutes"
+import performanceDashboardRoutes from "./routes/performanceDashboardRoutes"
 import taskRoutes from "./routes/taskRoutes"
 import kpiRoutes from "./routes/kpiRoutes"
 import hardcodedKPIRoutes from "./routes/hardcodedKPIRoutes"
+import performanceKpiCatalogRoutes from "./routes/performanceKpiCatalogRoutes"
 import activityLogRoutes from "./routes/activityLogRoutes"
 import ceoDashboardRoutes from "./routes/ceoDashboardRoutes"
 import stakeholderRoutes from "./routes/stakeholderRoutes"
@@ -81,30 +104,68 @@ import researchReportRoutes from "./routes/researchReportRoutes"
 import riskAssessmentRoutes from "./routes/riskAssessmentRoutes"
 import budgetManagementRoutes from "./routes/budgetManagementRoutes"
 import portfolioValuationRoutes from "./routes/portfolioValuationRoutes"
+import portfolioDashboardRoutes from "./routes/portfolioDashboardRoutes"
 import exitInterviewRoutes from "./routes/exitInterviewRoutes"
 import enhancedGoalTrackingRoutes from "./routes/enhancedGoalTrackingRoutes"
 import enhancedETLRoutes from "./routes/enhancedETLRoutes"
 import performanceReviewCycleRoutes from "./routes/performanceReviewCycleRoutes"
 import performanceBreakdownRoutes from "./routes/performanceBreakdownRoutes"
 import individualGoalToTaskRoutes from "./routes/individualGoalToTaskRoutes"
+import scorecardPillarRoutes from "./routes/scorecardPillarRoutes"
 import payrollRoutes from "./routes/payrollRoutes"
+import payrollDashboardRoutes from "./routes/payrollDashboardRoutes"
+import payrollComplianceRoutes from "./routes/payrollComplianceRoutes"
+import fundReportingRoutes from "./routes/fundReportingRoutes"
+import fundReportingCronRoutes from "./routes/fundReportingCronRoutes"
+import lpPortalRoutes from "./routes/lpPortalRoutes"
+import lpPortalCronRoutes from "./routes/lpPortalCronRoutes"
+import investmentMemoRoutes from "./routes/investmentMemoRoutes"
+import capTableRoutes from "./routes/capTableRoutes"
+import fundraisingRoutes from "./routes/fundraisingRoutes"
+import investorRoutes from "./routes/investorRoutes"
+import quarterlyStatementRoutes from "./routes/quarterlyStatementRoutes"
+import dealExecutionPackRoutes from "./routes/dealExecutionPackRoutes"
+import taxReturnPackRoutes from "./routes/taxReturnPackRoutes"
+import exchangeRateDisplayRoutes from "./routes/exchangeRateDisplayRoutes"
+import exchangeRateDisplayCronRoutes from "./routes/exchangeRateDisplayCronRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
+import procurementSuite06Routes from "./routes/procurementSuite06Routes"
+import vendorDocumentAttachmentRoutes from "./routes/vendorDocumentAttachmentRoutes"
+import forecastEntityRoutes from "./routes/forecastEntityRoutes"
+import fpaRoutes from "./routes/fpaRoutes"
 import vendorQuotationRoutes from "./routes/vendorQuotationRoutes"
 import approvalWorkflowRoutes from "./routes/approvalWorkflowRoutes"
 import procurementApprovalConfigRoutes from "./routes/procurementApprovalConfigRoutes"
 import approvalRoutes from "./routes/approvalRoutes"
 import inventoryRoutes from "./routes/inventoryRoutes"
 import assetRoutes from "./routes/assetRoutes"
+import cronRoutes from "./routes/cronRoutes"
+import publicReportingTestRoutes from "./routes/publicReportingTestRoutes"
 import creditNoteRoutes from "./routes/creditNoteRoutes"
 import statementRoutes from "./routes/statementRoutes"
 import multiCurrencyRoutes from "./routes/multiCurrencyRoutes"
+import vatRateRoutes from "./routes/vatRateRoutes"
 import hardcodedRoleRoutes from "./routes/hardcodedRoleRoutes"
 import activityRoutes from "./routes/activityRoutes"
 import rollupCalculationRoutes from "./routes/rollupCalculationRoutes"
 import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 import performanceAnalyticsRoutes from "./routes/performanceAnalyticsRoutes"
+import performanceConfigRoutes from "./routes/performanceConfigRoutes"
+import performanceIntegrationRoutes from "./routes/performanceIntegrationRoutes"
+import performanceBscEntryRoutes from "./routes/performanceBscEntryRoutes"
+import bscWorkflowRoutes from "./routes/bscWorkflowRoutes"
+import performanceContractRoutes from "./routes/performanceContractRoutes"
+import performanceCorrectiveActionRoutes from "./routes/performanceCorrectiveActionRoutes"
+import performanceSettingsRoutes from "./routes/performanceSettingsRoutes"
+import performanceAlertRoutes from "./routes/performanceAlertRoutes"
+import performanceDocumentRoutes from "./routes/performanceDocumentRoutes"
+import performanceScorecardEntryRoutes from "./routes/performanceScorecardEntryRoutes"
+import accountingApiRoutes from "./routes/accountingApiRoutes"
 import vatReportRoutes from "./routes/vatReportRoutes"
 import glLedgerDetailRoutes from "./routes/glLedgerDetailRoutes"
+import publicMediaRoutes from "./routes/publicMediaRoutes"
+import publicMediaTestRoutes from "./routes/publicMediaTestRoutes"
+import { initSocketServer } from "./services/RealtimeSocketService"
 
 
 dotenv.config()
@@ -112,14 +173,23 @@ dotenv.config()
 
 
 const app = express()
-const port = process.env.PORT || 3000
+const httpServer = createServer(app)
+const port = envConfig.get("PORT")
 
 // Disable automatic ETag generation so successful JSON responses aren't converted to 304s
 app.set("etag", false)
 
-app.use(helmet({
-  contentSecurityPolicy: false
-}))
+// Public media must run before Helmet/compression so no middleware adds CORP/COOP and PNGs are not gzip-broken.
+app.use("/api/public-media", publicMediaRoutes)
+
+// TODO: tighten CORP/COOP for production once public-media + CDN behavior is settled.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: false,
+    crossOriginOpenerPolicy: false,
+  })
+)
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -127,20 +197,89 @@ app.use(cors({
     
     const allowedOrigins = [
       "https://nvcczz.vercel.app",
-      "https://nvccz-frontend.vercel.app", 
+      "http://app.kyntaro.com",
+      "https://dev.arcus.co.zw",
+      "https://dev-api.arcus.co.zw",
+      "https://app.arcus.co.zw",
+      "https://arcus.co.zw",
+      "https://app.kyntaro.com",
+      "https://nvccz-new-taupe.vercel.app",
+      "http://31.220.82.129",
+      "http://207.180.234.151",
+      "http://207.180.234.151:8080",
+      "http://207.180.234.151:3006",
+      "http://207.180.234.151:3009",
+      "http://kyntaro.com",
+      "https://kyntaro.com",
+      "https://nvccz-frontend.vercel.app",
       "https://arcus-eight.vercel.app",
+      "http://dev.kyntaro.com",
+      "https://dev.kyntaro.com",
       "https://nvccz-new.vercel.app",
       "https://nvcc.vercel.app",
-      "https://nvccz-pi.vercel.app",  // Added Swagger UI origin
+      "https://nvccz-pi.vercel.app",
+      // NVCCZ production portals
+      "https://nvccz.online",
+      "https://lp.nvccz.online",
+      "https://investee.nvccz.online",
+      "https://vendor.nvccz.online",
+      "https://events.nvccz.online",
+      "https://api.nvccz.online",
+      // NVCCZ staff portal (Matanho alias)
+      "https://nvfnvvcz.my.matanho.com",
+      // Arcus dev Matanho domains
+      "https://dev.matanho.com",
+      "https://dev-api.matanho.com",
+      "https://dev.lp.matanho.com",
+      "https://dev.investee.matanho.com",
+      "https://dev.apply.matanho.com",
+      "https://dev.vendor.matanho.com",
+      "https://dev.events.matanho.com",
+      // Localhost / dev
       "http://localhost:3000",
       "http://localhost:3001",
+      "http://localhost:3110",
+      // A second set of portal instances, for running a test pass without disturbing the
+      // default 3001/3110 pair. See scripts/run-portal-dev.mjs --port/--dist.
+      "http://localhost:3201",
+      "http://localhost:3210",
+      "http://localhost:3120",
+      "http://localhost:3130",
+      "http://127.0.0.1:3000",
+      "http://127.0.0.1:3001",
+      "http://127.0.0.1:3110",
+      "http://127.0.0.1:3201",
+      "http://127.0.0.1:3210",
+      "http://127.0.0.1:3120",
+      "http://127.0.0.1:3130",
       "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io",
       "http://yoogo0gw888okwwsgk0s88og.31.220.82.129.sslip.io",
-      "http://rk0kkk0wok0c4c8s48wc04k0.31.220.82.129.sslip.io"
+      "http://rk0kkk0wok0c4c8s48wc04k0.31.220.82.129.sslip.io",
+      "https://demo.31.220.82.129.sslip.io",
+      "https://demo-api.31.220.82.129.sslip.io",
+      "https://demo.arcus.co.zw",
+      "https://demo-api.arcus.co.zw"
     ];
+
+    // Also honor CORS_ORIGINS from env (comma-separated), used on Singapore/VPS deploys
+    const fromEnv = (process.env.CORS_ORIGINS || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const o of fromEnv) {
+      if (!allowedOrigins.includes(o)) allowedOrigins.push(o);
+    }
     
     // Allow all Vercel preview deployments for development
     if (origin && origin.includes('.vercel.app')) {
+      return callback(null, true);
+    }
+
+    // Escape hatch for local work on a port that is not in the list above. Opt-in via
+    // ALLOW_LOOPBACK_CORS=1 rather than keyed off NODE_ENV, because this dev machine's .env pins
+    // NODE_ENV=production and a NODE_ENV-gated branch would be silently dead here. A rejected
+    // origin surfaces in the browser only as "Request failed", with no clue as to the cause.
+    if (origin && process.env.ALLOW_LOOPBACK_CORS === "1" && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
       return callback(null, true);
     }
     
@@ -155,11 +294,80 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Idempotency-Key',
+    'If-Match',
+    'X-Request-Id',
+    'X-Depreciation-Cron-Secret',
+    'X-Reporting-Reminders-Cron-Secret',
+  ],
+  exposedHeaders: ['X-Request-Id', 'ETag'],
   optionsSuccessStatus: 200
 }))
-app.use(express.json())
+const jsonBodyVerify = (req: any, _res: any, buf: Buffer) => {
+  const url = String(req.originalUrl || req.url || "");
+  if (url.includes("/webhooks/")) {
+    req.rawBody = Buffer.from(buf);
+  }
+};
+app.use((req, res, next) => {
+  const url = String(req.originalUrl || req.url || "");
+  const largeBody =
+    req.method === "POST" && /\/api\/investment-ops\/files(\/?$|\?)/.test(url);
+  express.json({
+    limit: largeBody ? "30mb" : "100kb",
+    verify: jsonBodyVerify,
+  })(req, res, next);
+});
 app.use(express.urlencoded({ extended: true }))
+
+// BigInt-safe JSON responses. mysql2 returns BigInt for BIGINT/DECIMAL columns,
+// which JSON.stringify cannot serialize ("Do not know how to serialize a BigInt").
+// In-range values become Number (keeps amounts numeric); out-of-range (e.g. big
+// unsigned IDs) become String. Applied globally so every endpoint is covered.
+const bigIntJsonReplacer = (_key, value) => {
+  if (typeof value === "bigint") {
+    return value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER)
+      ? Number(value)
+      : value.toString();
+  }
+  return value;
+};
+app.use((req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = (body) => originalJson(JSON.parse(JSON.stringify(body, bigIntJsonReplacer)));
+  next();
+});
+// Legacy local uploads. New media uploads use `/api/public-media/...` via `RemoteUploadService`.
+app.use(
+  "/api/uploads",
+  express.static(path.join(process.cwd(), "uploads"), {
+    etag: true,
+    maxAge: process.env.NODE_ENV === "production" ? "7d" : "0"
+  })
+)
+app.use(
+  compression({
+    threshold: 1024,
+    filter: (req, res) => {
+      if (req.headers["x-no-compression"]) return false
+      return compression.filter(req, res)
+    },
+  })
+)
+
+const enablePublicMediaTest =
+  process.env.ALLOW_PUBLIC_MEDIA_TEST_UPLOAD === "true" ||
+  process.env.NODE_ENV === "development" ||
+  process.env.npm_lifecycle_event === "dev";
+if (enablePublicMediaTest) {
+  app.use("/api/dev/public-media-test", publicMediaTestRoutes);
+}
 
 // Disallow intermediate caching for API responses to keep freshness predictable
 app.use((req, res, next) => {
@@ -175,6 +383,13 @@ let lastHealthCheckStatus = true;
 app.use(async (req, res, next) => {
   // Skip health checks for OPTIONS requests and when explicit bypass flag is set
   if (req.method === "OPTIONS" || process.env.SKIP_REQUEST_HEALTH_CHECK === "true") {
+    return next();
+  }
+  // Static-ish media proxy + dev upload smoke test (no DB)
+  if (
+    req.path.startsWith("/api/public-media") ||
+    req.path.startsWith("/api/dev/public-media-test")
+  ) {
     return next();
   }
 
@@ -230,7 +445,12 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // FASTEST FIX - Pure HTML with CDN resources (no swagger-ui-express)
-app.get('/api-docs', (req, res) => {
+const docsHandler = (req, res) => {
+  const { resolveSwaggerServersForRequest } = require("./config/swagger-servers");
+  const specForDocs = {
+    ...specs,
+    servers: resolveSwaggerServersForRequest(req),
+  };
   res.setHeader('Content-Type', 'text/html');
   res.send(`
     <!DOCTYPE html>
@@ -265,8 +485,9 @@ app.get('/api-docs', (req, res) => {
       <script src="https://unpkg.com/swagger-ui-dist@5.27.1/swagger-ui-standalone-preset.js"></script>
       <script>
         window.onload = function() {
-          const ui = SwaggerUIBundle({
-            spec: ${JSON.stringify(specs)},
+          let ui;
+          ui = SwaggerUIBundle({
+            spec: ${JSON.stringify(specForDocs)},
             dom_id: '#swagger-ui',
             deepLinking: true,
             presets: [
@@ -286,19 +507,42 @@ app.get('/api-docs', (req, res) => {
             defaultModelExpandDepth: 1,
             tryItOutEnabled: true,
             supportedSubmitMethods: ['get', 'post', 'put', 'delete', 'patch'],
-            validatorUrl: null
+            validatorUrl: null,
+            responseInterceptor: function(response) {
+              try {
+                var url = (response && response.url) ? String(response.url) : '';
+                if (url.indexOf('/auth/login') !== -1 && response.status >= 200 && response.status < 300) {
+                  var payload = response.obj;
+                  if (!payload && response.text) {
+                    payload = JSON.parse(response.text);
+                  }
+                  if (payload && payload.token && ui && ui.preauthorizeApiKey) {
+                    ui.preauthorizeApiKey('bearerAuth', payload.token);
+                  }
+                }
+              } catch (e) { /* ignore parse errors */ }
+              return response;
+            }
           });
+          window.ui = ui;
         };
       </script>
     </body>
     </html>
   `);
-});
+};
+
+app.get('/api-docs', docsHandler);
+app.get('/docs', docsHandler);
+
+// Bump this string when you deploy — curl /test-api or /health to confirm prod picked up the build.
+const DEPLOY_MARKER = "NVCCZ deploy marker — swagger Forecasting + PDF protected modules — 2026-06-15";
 
 // Test endpoint to verify API is working
 app.get('/test-api', (req, res) => {
   res.json({
     message: 'API is working',
+    customText: DEPLOY_MARKER,
     timestamp: new Date().toISOString(),
     swaggerUrl: '/api-docs'
   });
@@ -308,6 +552,7 @@ app.get('/test-api', (req, res) => {
 app.get("/health", (req, res) => {
   res.status(200).json({
     status: "OK",
+    customText: DEPLOY_MARKER,
     timestamp: new Date().toISOString(),
     environment: envConfig.get("NODE_ENV"),
     database: "connected", // Prisma handles connection status
@@ -338,6 +583,10 @@ app.get("/test-db", async (req, res) => {
   }
 })
 
+// Cron / automation (no JWT — use route-specific secrets)
+app.use("/api/cron", cronRoutes)
+app.use("/api/public/reporting", publicReportingTestRoutes)
+
 // Auth routes
 app.use("/api/auth", authRoutes)
 
@@ -350,12 +599,22 @@ app.use("/api/hardcoded-roles", hardcodedRoleRoutes)
 // User management routes
 app.use("/api/users", userRoutes)
 
+// Org departments (id + name for FP&A budget owners, etc.)
+app.use("/api/departments", departmentRoutes)
+
+// Audit logs (admin only)
+app.use("/api/audit-logs", auditLogRoutes)
+
 // Homepage features routes
 app.use("/api/posts", postRoutes)
 app.use("/api/newsletters", newsletterRoutes)
 app.use("/api/newsletter", newsletterSubscriptionRoutes)
 app.use("/api/events", eventRoutes)
 app.use("/api/homepage", homepageRoutes)
+
+// Public vendor self-registration (no JWT)
+app.use("/api/public", vendorPublicRegistrationRoutes)
+app.use("/api/public", publicProcurementRoutes)
 
 // Accounting module routes
 app.use("/api/accounting/currencies", currencyRoutes)
@@ -365,10 +624,15 @@ app.use("/api/accounting/expenses", expenseRoutes)
 app.use("/api/accounting/journal-entries", journalEntryRoutes)
 app.use("/api/accounting/chart-of-accounts", chartOfAccountsRoutes)
 app.use("/api/accounting/invoices", invoiceRoutes)
+app.use("/api/accounting/purchase-invoices", purchaseInvoiceRoutes)
 app.use("/api/accounting/customers", customerRoutes)
 app.use("/api/accounting/income-statement", incomeStatementRoutes)
 app.use("/api/accounting/cash-flow", cashFlowRoutes)
 app.use("/api/accounting/balance-sheet", balanceSheetRoutes)
+app.use("/api/accounting/consolidation", consolidationRoutes)
+app.use("/api/accounting/dashboard", accountingDashboardRoutes)
+app.use("/api/accounting/short-term-investments", shortTermInvestmentRoutes)
+app.use("/api/accounting/v1", accountingPeIntegrationV1Routes)
 app.use("/api/accounting/statement-of-equity", statementOfEquityRoutes)
 app.use("/api/accounting/revenues", revenueRoutes)
 app.use("/api/accounting/revenue-sources", revenueSourceRoutes)
@@ -393,12 +657,23 @@ app.use("/api/cashbook", cashbookRoutes)
 import contraEntryRoutes from "./routes/contraEntryRoutes"
 import batchImportExportRoutes from "./routes/batchImportExportRoutes"
 import periodLockoutRoutes from "./routes/periodLockoutRoutes"
+import recurringJournalRoutes from "./routes/recurringJournalRoutes"
+import projectRoutes from "./routes/projectRoutes"
+import timesheetRoutes from "./routes/timesheetRoutes"
+import accountingDocumentRoutes from "./routes/accountingDocumentRoutes"
 
 // Register new cashbook routes (must be BEFORE general /api/cashbook route)
 app.use("/api/cashbook/contra", contraEntryRoutes)
 app.use("/api/cashbook/entry-types", entryTypeRoutes)
 app.use("/api/cashbook/periods", periodLockoutRoutes)
 app.use("/api/accounting/trial-balance", trialBalanceRoutes)
+app.use("/api/accounting/fiscal-calendar", fiscalCalendarRoutes)
+app.use("/api/accounting/close-tasks", accountingCloseTaskRoutes)
+app.use("/api/accounting/recurring-journal-templates", recurringJournalRoutes)
+app.use("/api/accounting/projects", projectRoutes)
+app.use("/api/accounting/timesheets", timesheetRoutes)
+app.use("/api/accounting/documents", accountingDocumentRoutes)
+app.use("/accounting/api", accountingApiRoutes)
 
 // Mini-KYC routes
 app.use("/api/mini-kyc", miniKycRoutes)
@@ -421,9 +696,20 @@ app.use("/api/term-sheets", termSheetRoutes)
 
 // Investment Implementation routes
 app.use("/api/investment-implementations", investmentImplementationRoutes)
+// Listed equity market terminal — literal paths before PE parametric routes
+app.use("/api/investment-ops", investmentOpsRoutes)
+app.use("/api/investments/market-data", listedEquityMarketDataRoutes)
+app.use("/api/investments/portfolio", listedEquityPortfolioRoutes)
+app.use("/api/investments/trades", listedEquityTradeRoutes)
+// Portfolio monitoring: investments/{id}/valuations & exit (spec §2.4)
+app.use("/api/investments", investmentMonitoringRoutes)
 
 // Fund Management routes
 app.use("/api/funds", fundRoutes)
+
+// LP Fees & Distributions (fee policy, management fees, distributions). Mounted on the same prefix
+// since paths are scoped under `/:fundId/...`; siblings to Capital Calls inside fundRoutes.
+app.use("/api/funds", lpFeesAndDistributionsRoutes)
 
 // Client Management routes
 app.use("/api/clients", clientRoutes)
@@ -436,19 +722,34 @@ app.use("/api/target-tracking", targetTrackingRoutes)
 
 // Audit logs
 app.use("/api/audit-logs", auditRoutes)
+// System audit log (activity log: login, record creation, report export with user and IP)
+app.use("/api/system-audit-log", systemAuditLogRoutes)
 
 // Performance Management routes
 app.use("/api/performance/goals", performanceGoalRoutes)
 app.use("/api/performance/etl", performanceETLRoutes)
+app.use("/api/performance/dashboard", performanceDashboardRoutes)
 app.use("/api/performance/workflow", performanceWorkflowRoutes)
 app.use("/api/tasks", taskRoutes)
 app.use("/api/activities", activityRoutes)
 app.use("/api/kpis", kpiRoutes)
 app.use("/api/performance/kpis", hardcodedKPIRoutes)
+app.use("/api/performance/kpis", performanceKpiCatalogRoutes)
+app.use("/api/performance/scorecard-pillars", scorecardPillarRoutes)
 app.use("/api/activity-logs", activityLogRoutes)
 app.use("/api/performance/rollup", rollupCalculationRoutes)
 app.use("/api/performance/scorecards", performanceScorecardRoutes)
 app.use("/api/performance/analytics", performanceAnalyticsRoutes)
+app.use("/api/performance/config", performanceConfigRoutes)
+app.use("/api/performance/integration", performanceIntegrationRoutes)
+app.use("/api/performance/bsc-entry", performanceBscEntryRoutes)
+app.use("/api/performance/bsc-workflow", bscWorkflowRoutes)
+app.use("/api/performance/contracts", performanceContractRoutes)
+app.use("/api/performance/corrective-actions", performanceCorrectiveActionRoutes)
+app.use("/api/performance/settings", performanceSettingsRoutes)
+app.use("/api/performance/alerts", performanceAlertRoutes)
+app.use("/api/performance/documents", performanceDocumentRoutes)
+app.use("/api/performance/scorecard-entries", performanceScorecardEntryRoutes)
 
 // CEO Dashboard routes
 app.use("/api/ceo-dashboard", ceoDashboardRoutes)
@@ -476,6 +777,7 @@ app.use("/api/budget-management", budgetManagementRoutes)
 
 // Portfolio Valuation routes
 app.use("/api/portfolio-valuations", portfolioValuationRoutes)
+app.use("/api/portfolio/dashboard", portfolioDashboardRoutes)
 
 // Exit Interview routes
 app.use("/api/exit-interviews", exitInterviewRoutes)
@@ -488,9 +790,41 @@ app.use("/api/performance/individual-goals", individualGoalToTaskRoutes)
 
 // Payroll Management routes
 app.use("/api/payroll", payrollRoutes)
+app.use("/api/payroll/compliance", payrollComplianceRoutes)
+app.use("/api/payroll/dashboard", payrollDashboardRoutes)
 
-// Procurement Management routes
+// Fund Performance Reporting
+app.use("/api/fund-reporting", fundReportingRoutes)
+app.use("/api/cron/fund-reporting", fundReportingCronRoutes)
+
+// LP Portal
+app.use("/api/lp-portal", lpPortalRoutes)
+app.use("/api/cron/lp-portal", lpPortalCronRoutes)
+
+// Investment Memo Editing
+app.use("/api/investment-memos", investmentMemoRoutes)
+app.use("/api/cap-table", capTableRoutes)
+app.use("/api/fundraising", fundraisingRoutes)
+app.use("/api/investors", investorRoutes)
+app.use("/api/quarterly-statements", quarterlyStatementRoutes)
+app.use("/api/deal-execution-packs", dealExecutionPackRoutes)
+app.use("/api/tax-return-packs", taxReturnPackRoutes)
+
+// Street Exchange Rate Display
+app.use("/api/exchange-rate-display", exchangeRateDisplayRoutes)
+app.use("/api/cron/exchange-rate-display", exchangeRateDisplayCronRoutes)
+
+// Procurement Management routes — specific sub-routers BEFORE generic /procurement (which applies authenticate globally)
+app.use("/api/procurement/document-attachments", vendorDocumentAttachmentRoutes)
+app.use("/api/procurement/suite06", procurementSuite06Routes)
 app.use("/api/procurement", procurementRoutes)
+
+// Forecast entities (Tax Return Pack + FP&A dimension)
+app.use("/api/forecast-entities", forecastEntityRoutes)
+app.use("/api/v1/forecast-entities", forecastEntityRoutes)
+
+// FP&A Planning, Budgeting, Forecasting
+app.use("/api/v1/fpa", fpaRoutes)
 
 // Vendor Quotation routes (some are public/unauthenticated)
 app.use("/api/vendor-quotations", vendorQuotationRoutes)
@@ -518,6 +852,7 @@ app.use("/api/accounting/statements", statementRoutes)
 
 // Multi-Currency routes
 app.use("/api/accounting/multi-currency", multiCurrencyRoutes)
+app.use("/api/accounting/vat-rates", vatRateRoutes)
 
 
 
@@ -552,7 +887,9 @@ const startServer = async (): Promise<void> => {
       throw new Error("Failed to connect to database after 3 attempts");
     }
 
-    app.listen(port, '0.0.0.0', () => {
+    initSocketServer(httpServer)
+
+    httpServer.listen(port, '0.0.0.0', () => {
       logger.info(`🚀 Server running on port ${port}`, {
         environment: envConfig.get("NODE_ENV"),
         port: port,

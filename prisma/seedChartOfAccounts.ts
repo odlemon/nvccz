@@ -121,10 +121,31 @@ async function seedChartOfAccounts() {
       }
     });
 
-    // Fixed Assets
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "1520",
+        accountName: "Delivery Van",
+        accountType: "Fixed Asset",
+        financialStatement: "Balance Sheet",
+        notes: "Delivery van asset. Natural balance: Debit. Increases must be Debit."
+      }
+    });
+
+    // Bank (1100) - for revenue receipting and bank register
     await prisma.chartOfAccounts.create({
       data: {
         accountNo: "1100",
+        accountName: "Bank",
+        accountType: "Current Asset",
+        financialStatement: "Balance Sheet",
+        notes: "Main bank account for receipts and payments"
+      }
+    });
+
+    // Fixed Assets - Office Equipment (1510, was 1100)
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "1510",
         accountName: "Office Equipment",
         accountType: "Fixed Asset",
         financialStatement: "Balance Sheet",
@@ -405,6 +426,16 @@ async function seedChartOfAccounts() {
         accountType: "Expense",
         financialStatement: "Income Statement",
         notes: "Miscellaneous operating costs"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "5095",
+        accountName: "Depreciation Expense",
+        accountType: "Expense",
+        financialStatement: "Income Statement",
+        notes: "Depreciation of fixed assets for the period"
       }
     });
 

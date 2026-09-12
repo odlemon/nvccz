@@ -18,6 +18,8 @@ export interface VATReportResult {
     total: number;
     transactionCount: number;
     transactions: Array<{
+      journalEntryLineId?: string;
+      journalEntryId?: string;
       id: string;
       date: string;
       reference: string;
@@ -25,12 +27,19 @@ export interface VATReportResult {
       amount: number;
       vatAmount: number;
       type: string;
+      invoiceId?: string;
+      invoiceNumber?: string;
+      creditNoteId?: string;
+      creditNoteNumber?: string;
+      customerName?: string | null;
     }>;
   };
   outputTax: {
     total: number;
     transactionCount: number;
     transactions: Array<{
+      journalEntryLineId?: string;
+      journalEntryId?: string;
       id: string;
       date: string;
       reference: string;
@@ -38,6 +47,11 @@ export interface VATReportResult {
       amount: number;
       vatAmount: number;
       type: string;
+      invoiceId?: string;
+      invoiceNumber?: string;
+      creditNoteId?: string;
+      creditNoteNumber?: string;
+      customerName?: string | null;
     }>;
   };
   summary: {
@@ -73,30 +87,22 @@ export class VATReportService {
       console.log(`   VAT Input Account: ${vatInputAccount.accountName} (${vatInputAccount.accountNo})`);
       console.log(`   VAT Output Account: ${vatOutputAccount.accountName} (${vatOutputAccount.accountNo})`);
 
-      // Query journal entry lines with VAT amounts in the date range
-      // Input Tax: VAT Input account (debits) - claimable VAT on purchases/payments
-      // Output Tax: VAT Output account (credits) - payable VAT on sales/receipts
-      // Include both POSTED and PENDING entries (invoices create journal entries as PENDING)
+      // All lines hitting VAT Input / VAT Output in the period (not only lines with vatAmount set).
+      // Output liability movement = credit − debit on 2100 (invoice/receipt credit VAT; credit note debits 2100).
+      // Input recoverable movement = debit − credit on 2110.
+      // Include both POSTED and PENDING entries (invoices often create journal entries as PENDING).
       const journalEntryLines = await prisma.journalEntryLine.findMany({
         where: {
-          vatAmount: {
-            gt: 0
-          },
+          chartOfAccountId: { in: [vatInputAccount.id, vatOutputAccount.id] },
           journalEntry: {
             transactionDate: {
               gte: startDate,
               lte: endDate
             },
             status: {
-              in: ['POSTED', 'PENDING'] // Include both POSTED and PENDING entries
+              in: ['POSTED', 'PENDING']
             },
             ...(currencyId ? { currencyId } : {})
-          },
-          chartOfAccount: {
-            OR: [
-              { id: vatInputAccount.id },
-              { id: vatOutputAccount.id }
-            ]
           }
         },
         include: {
@@ -115,7 +121,19 @@ export class VATReportService {
                 select: {
                   id: true,
                   invoiceNumber: true,
-                  description: true
+                  description: true,
+                  customerId: true,
+                  totalAmount: true,
+                  customer: { select: { name: true } }
+                }
+              },
+              creditNotes: {
+                select: {
+                  id: true,
+                  creditNoteNumber: true,
+                  reason: true,
+                  customerId: true,
+                  customer: { select: { name: true } }
                 }
               },
               expenses: {
@@ -135,11 +153,10 @@ export class VATReportService {
           },
           chartOfAccount: true
         },
-        orderBy: {
-          journalEntry: {
-            transactionDate: 'asc'
-          }
-        }
+        orderBy: [
+          { journalEntry: { transactionDate: 'asc' } },
+          { id: 'asc' }
+        ]
       });
 
       console.log(`   Found ${journalEntryLines.length} journal entry lines with VAT`);
@@ -150,17 +167,33 @@ export class VATReportService {
 
       for (const line of journalEntryLines) {
         const je = line.journalEntry;
-        const vatAmount = Number(line.vatAmount || 0);
-        
-        if (vatAmount <= 0) continue;
+        const cr = Number(line.creditAmount ?? 0);
+        const dr = Number(line.debitAmount ?? 0);
+
+        let signedVat = 0;
+        if (line.chartOfAccountId === vatOutputAccount.id) {
+          signedVat = cr - dr;
+        } else if (line.chartOfAccountId === vatInputAccount.id) {
+          signedVat = dr - cr;
+        } else {
+          continue;
+        }
+
+        if (Math.abs(signedVat) < 0.01) continue;
 
         // Determine transaction details
         let transactionType = 'Manual Entry';
         let reference = je.referenceNumber;
         let description = je.description;
+        let sourceDocumentAmount: number | undefined;
 
-        // Try to get more details from linked transactions
-        if (je.cashbookEntries && je.cashbookEntries.length > 0) {
+        if (je.creditNotes && je.creditNotes.length > 0) {
+          const cn = je.creditNotes[0];
+          transactionType = 'Credit Note';
+          reference = cn.creditNoteNumber || je.referenceNumber;
+          description = cn.reason || je.description;
+          sourceDocumentAmount = Number(je.totalAmount);
+        } else if (je.cashbookEntries && je.cashbookEntries.length > 0) {
           const cb = je.cashbookEntries[0];
           transactionType = cb.type === 'RECEIPT' ? 'Receipt' : 'Payment';
           reference = cb.reference || je.referenceNumber;
@@ -170,6 +203,7 @@ export class VATReportService {
           transactionType = 'Invoice';
           reference = inv.invoiceNumber || je.referenceNumber;
           description = inv.description || je.description;
+          sourceDocumentAmount = Number(inv.totalAmount);
         } else if (je.expenses && je.expenses.length > 0) {
           const exp = je.expenses[0];
           transactionType = 'Expense';
@@ -182,22 +216,32 @@ export class VATReportService {
           description = rev.description || je.description;
         }
 
-        const transaction = {
-          id: je.id,
+        const transaction: any = {
+          journalEntryLineId: line.id,
+          journalEntryId: je.id,
+          id: line.id,
           date: je.transactionDate.toISOString().split('T')[0],
-          reference: reference,
-          description: description,
-          amount: Number(je.totalAmount),
-          vatAmount: vatAmount,
+          reference,
+          description,
+          amount: sourceDocumentAmount ?? Number(je.totalAmount),
+          /** Signed: output + increases VAT payable, − reduces (e.g. credit note); input + increases claimable VAT */
+          vatAmount: signedVat,
           type: transactionType
         };
+        if (transactionType === 'Invoice' && je.invoices?.[0]) {
+          transaction.invoiceId = je.invoices[0].id;
+          transaction.invoiceNumber = je.invoices[0].invoiceNumber;
+          transaction.customerName = (je.invoices[0] as any).customer?.name ?? null;
+        }
+        if (transactionType === 'Credit Note' && je.creditNotes?.[0]) {
+          transaction.creditNoteId = je.creditNotes[0].id;
+          transaction.creditNoteNumber = je.creditNotes[0].creditNoteNumber;
+          transaction.customerName = (je.creditNotes[0] as any).customer?.name ?? null;
+        }
 
-        // Input Tax: VAT Input account (typically debited on payments/purchases)
         if (line.chartOfAccountId === vatInputAccount.id) {
           inputTaxTransactions.push(transaction);
-        }
-        // Output Tax: VAT Output account (typically credited on receipts/sales)
-        else if (line.chartOfAccountId === vatOutputAccount.id) {
+        } else if (line.chartOfAccountId === vatOutputAccount.id) {
           outputTaxTransactions.push(transaction);
         }
       }
@@ -249,9 +293,11 @@ export class VATReportService {
   }
 
   /**
-   * Get VAT Input account (typically 2110)
+   * Get VAT Input account (typically 2110).
+   * Public (not private) so TaxReturnPackVatCompileService can resolve the exact same account
+   * this report aggregated against, instead of re-deriving the lookup independently.
    */
-  private static async getVATInputAccount() {
+  static async getVATInputAccount() {
     const account = await prisma.chartOfAccounts.findFirst({
       where: {
         OR: [
@@ -270,9 +316,11 @@ export class VATReportService {
   }
 
   /**
-   * Get VAT Output account (typically 2100)
+   * Get VAT Output account (typically 2100).
+   * Public (not private) so TaxReturnPackVatCompileService can resolve the exact same account
+   * this report aggregated against, instead of re-deriving the lookup independently.
    */
-  private static async getVATOutputAccount() {
+  static async getVATOutputAccount() {
     const account = await prisma.chartOfAccounts.findFirst({
       where: {
         OR: [
@@ -301,6 +349,57 @@ export class VATReportService {
     if (month >= 4 && month <= 6) return `Q2 ${year}`;
     if (month >= 7 && month <= 9) return `Q3 ${year}`;
     return `Q4 ${year}`;
+  }
+
+  /**
+   * VAT Output Audit Trail: line-by-line list of every transaction (especially invoices) that contributed to VAT Output.
+   * Used when user clicks on the VAT Output total in the VAT Return report.
+   */
+  static async getVATOutputAuditTrail(params: VATReportParams): Promise<{
+    period: { startDate: string; endDate: string; quarter: string };
+    /** Net output VAT for the period (sum of signed line amounts; matches VAT report output total). */
+    totalOutputTax: number;
+    lines: Array<{
+      id: string;
+      journalEntryLineId: string;
+      journalEntryId: string;
+      date: string;
+      reference: string;
+      description: string;
+      amount: number;
+      /** Signed: positive increases VAT payable, negative reduces (e.g. credit note to 2100). */
+      vatAmount: number;
+      type: string;
+      invoiceId?: string;
+      invoiceNumber?: string;
+      creditNoteId?: string;
+      creditNoteNumber?: string;
+      customerName?: string | null;
+    }>;
+  }> {
+    const report = await this.generateVATReport(params);
+    const outputTax = report.outputTax;
+    const lines = (outputTax.transactions || []).map((t: any) => ({
+      id: t.id,
+      journalEntryLineId: t.journalEntryLineId ?? t.id,
+      journalEntryId: t.journalEntryId,
+      date: t.date,
+      reference: t.reference,
+      description: t.description,
+      amount: t.amount,
+      vatAmount: t.vatAmount,
+      type: t.type,
+      invoiceId: t.invoiceId,
+      invoiceNumber: t.invoiceNumber ?? (t.type === 'Invoice' ? t.reference : undefined),
+      creditNoteId: t.creditNoteId,
+      creditNoteNumber: t.creditNoteNumber,
+      customerName: t.customerName ?? null
+    }));
+    return {
+      period: report.period,
+      totalOutputTax: outputTax.total,
+      lines
+    };
   }
 
   /**

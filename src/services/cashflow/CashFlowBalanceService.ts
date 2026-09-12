@@ -2,6 +2,8 @@
 import { PrismaClient } from "@prisma/client";
 import { Decimal } from "decimal.js";
 import { prisma } from "../../utils/database";
+import { buildJournalEntryWhereForGlReporting } from "../../utils/journalEntryReportingFilter";
+import { BalanceSheetService } from "../BalanceSheetService";
 import { CashFlowAccount, CashFlowTransaction } from "./types";
 
 export class CashFlowBalanceService {
@@ -172,7 +174,11 @@ export class CashFlowBalanceService {
 
     // Calculate net amounts based on account type and sort transactions
     for (const account of accountBalances.values()) {
-      if (account.accountType === "Asset") {
+      if (account.accountType === "Asset" || 
+          account.accountType === "Fixed Asset" || 
+          account.accountType === "Long-Term Asset" || 
+          account.accountType === "Non-Current Asset" ||
+          account.accountType === "Current Asset") {
         // Asset accounts: Debits increase, Credits decrease
         account.netAmount = account.totalDebits - account.totalCredits;
       } else if (account.accountType === "Liability" || account.accountType === "Equity") {
@@ -194,24 +200,11 @@ export class CashFlowBalanceService {
   }
 
   /**
-   * Get cash balances for beginning and end of period
-   * 
-   * According to accounting standards (IFRS/GAAP), Cash and Cash Equivalents includes:
-   * - Physical cash (petty cash)
-   * - Bank accounts (checking, savings, money market accounts)
-   * - Short-term, highly liquid investments (3 months or less)
-   * 
-   * This method includes:
-   * 1. All bank accounts (via Bank.glAccountId)
-   * 2. Accounts with "Cash" in the name
-   * 3. Accounts with "Bank" in the name
-   * 4. Current Asset accounts that are cash-related (typically 10xx range)
+   * Beginning / ending cash for the statement — same GL accounts and rules as
+   * BalanceSheetService cash & equivalents (active Balance Sheet COA rows only).
    */
   static async getCashBalances(startDate: Date, endDate: Date, currencyId: string): Promise<{ beginning: number; ending: number }> {
-    // Get all cash and cash equivalent accounts
-    const cashAccountIds = new Set<string>();
-
-    // 1. Get all bank accounts and their GL accounts
+    // Same universe + rules as BalanceSheetService "Cash and Cash Equivalents" (Balance Sheet COA rows only).
     const banks = await prisma.bank.findMany({
       where: {
         isActive: true,
@@ -224,62 +217,29 @@ export class CashFlowBalanceService {
       }
     });
 
+    const bankGLAccountIds = new Set<string>();
     for (const bank of banks) {
       if (bank.glAccount) {
-        cashAccountIds.add(bank.glAccount.id);
+        bankGLAccountIds.add(bank.glAccount.id);
       }
     }
 
-    // 2. Get accounts with "Cash" in the name (includes "Cash and Cash Equivalents", "Petty Cash", etc.)
-    const cashNamedAccounts = await prisma.chartOfAccounts.findMany({
+    const bsAccounts = await prisma.chartOfAccounts.findMany({
       where: {
-        accountName: {
-          contains: "Cash"
-        },
+        financialStatement: { in: ["Balance Sheet", "Balance sheet"] },
         isActive: true
       },
-      select: { id: true }
+      select: {
+        id: true,
+        accountNo: true,
+        accountName: true,
+        accountType: true
+      }
     });
 
-    for (const account of cashNamedAccounts) {
-      cashAccountIds.add(account.id);
-    }
-
-    // 3. Get accounts with "Bank" in the name (in case some bank accounts aren't linked via Bank model)
-    const bankNamedAccounts = await prisma.chartOfAccounts.findMany({
-      where: {
-        accountName: {
-          contains: "Bank"
-        },
-        isActive: true
-      },
-      select: { id: true }
-    });
-
-    for (const account of bankNamedAccounts) {
-      cashAccountIds.add(account.id);
-    }
-
-    // 4. Get Current Asset accounts that are cash-related (typically account numbers 1000-1099)
-    // These are cash, bank accounts, and cash equivalents
-    const cashRelatedAccounts = await prisma.chartOfAccounts.findMany({
-      where: {
-        accountType: "Current Asset",
-        accountNo: {
-          gte: "1000",
-          lt: "1100" // Account numbers 1000-1099 are typically cash/bank accounts
-        },
-        isActive: true
-      },
-      select: { id: true }
-    });
-
-    for (const account of cashRelatedAccounts) {
-      cashAccountIds.add(account.id);
-    }
-
-    // Convert Set to Array for processing
-    const cashAccountIdsArray = Array.from(cashAccountIds);
+    const cashAccountIdsArray = bsAccounts
+      .filter((a) => BalanceSheetService.isCashOrBankEquivalentForReporting(a, bankGLAccountIds))
+      .map((a) => a.id);
 
     if (cashAccountIdsArray.length === 0) {
       console.warn("⚠️  No cash and cash equivalent accounts found. Cash flow statement may be inaccurate.");
@@ -299,82 +259,16 @@ export class CashFlowBalanceService {
         where: {
           chartOfAccountId: accountId,
           journalEntry: {
-            transactionDate: {
-              lt: startDate
-            },
-            status: "POSTED",
-            currencyId,
-            // Exclude journal entries where ANY linked cashbook entry is voided or reversed
-            NOT: {
-              cashbookEntries: {
-                some: {
-                  OR: [
-                    { status: 'VOIDED' },
-                    { reversedAt: { not: null } }
-                  ]
-                }
-              }
-            },
-            // Exclude reversal journal entries
-            AND: [
-              {
-                referenceNumber: {
-                  not: {
-                    startsWith: 'VR-'
-                  }
-                }
-              },
-              {
-                referenceNumber: {
-                  not: {
-                    startsWith: 'REV-'
-                  }
-                }
-              }
-            ]
+            is: buildJournalEntryWhereForGlReporting({ lt: startDate }, currencyId)
           }
         }
       });
 
-      // Get ending balance (all transactions up to end date)
-      // Exclude journal entries linked to voided/reversed cashbook entries
       const endingTransactions = await prisma.journalEntryLine.findMany({
         where: {
           chartOfAccountId: accountId,
           journalEntry: {
-            transactionDate: {
-              lte: endDate
-            },
-            status: "POSTED",
-            currencyId,
-            // Exclude journal entries where ANY linked cashbook entry is voided or reversed
-            NOT: {
-              cashbookEntries: {
-                some: {
-                  OR: [
-                    { status: 'VOIDED' },
-                    { reversedAt: { not: null } }
-                  ]
-                }
-              }
-            },
-            // Exclude reversal journal entries
-            AND: [
-              {
-                referenceNumber: {
-                  not: {
-                    startsWith: 'VR-'
-                  }
-                }
-              },
-              {
-                referenceNumber: {
-                  not: {
-                    startsWith: 'REV-'
-                  }
-                }
-              }
-            ]
+            is: buildJournalEntryWhereForGlReporting({ lte: endDate }, currencyId)
           }
         }
       });

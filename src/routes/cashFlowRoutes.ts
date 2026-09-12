@@ -8,30 +8,60 @@ const router = Router();
 
 /**
  * @swagger
- * /api/accounting/cash-flow/generate:
+ * /accounting/cash-flow/generate:
  *   post:
  *     summary: Generate cash flow statement for a specific period
+ *     description: |
+ *       Supports period filters (month/quarter/year) via URL query parameters OR legacy date range in request body.
+ *       
+ *       **Period Filter Examples:**
+ *       - Month: `?periodType=month&periodValue=2025-01`
+ *       - Quarter: `?periodType=quarter&periodValue=2025-Q1`
+ *       - Year: `?periodType=year&periodValue=2025`
  *     tags: [Accounting - Cash Flow]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: periodType
+ *         schema:
+ *           type: string
+ *           enum: [month, quarter, year]
+ *         description: Period type filter (use with periodValue). Options: month, quarter, year
+ *         example: month
+ *       - in: query
+ *         name: periodValue
+ *         schema:
+ *           type: string
+ *         description: |
+ *           Period value matching periodType:
+ *           - month: "2025-01" (YYYY-MM)
+ *           - quarter: "2025-Q1" or "2025-1" (YYYY-QN or YYYY-N)
+ *           - year: "2025" (YYYY)
+ *         example: "2025-01"
+ *       - in: query
+ *         name: currencyId
+ *         schema:
+ *           type: string
+ *         description: Currency ID (optional, uses default if not provided)
  *     requestBody:
- *       required: true
+ *       required: false
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - startDate
- *               - endDate
+ *             description: Legacy date range format (use if period filters not provided)
  *             properties:
  *               startDate:
  *                 type: string
  *                 format: date
- *                 description: Start date of the period
+ *                 description: Start date of the period (YYYY-MM-DD)
+ *                 example: "2025-01-01"
  *               endDate:
  *                 type: string
  *                 format: date
- *                 description: End date of the period
+ *                 description: End date of the period (YYYY-MM-DD)
+ *                 example: "2025-01-31"
  *               currencyId:
  *                 type: string
  *                 description: Currency ID (optional, uses default if not provided)
@@ -49,28 +79,49 @@ router.post("/generate", authenticate, authorize(["admin", "accountant"]), CashF
 
 /**
  * @swagger
- * /api/accounting/cash-flow/detailed:
+ * /accounting/cash-flow/detailed:
  *   post:
  *     summary: Get detailed cash flow statement with transaction breakdown
+ *     description: |
+ *       Supports period filters (month/quarter/year) via URL query parameters OR legacy date range in request body.
  *     tags: [Accounting - Cash Flow]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: periodType
+ *         schema:
+ *           type: string
+ *           enum: [month, quarter, year]
+ *         description: Period type filter (use with periodValue)
+ *         example: month
+ *       - in: query
+ *         name: periodValue
+ *         schema:
+ *           type: string
+ *         description: Period value (month: "2025-01", quarter: "2025-Q1", year: "2025")
+ *         example: "2025-01"
+ *       - in: query
+ *         name: currencyId
+ *         schema:
+ *           type: string
+ *         description: Currency ID (optional)
  *     requestBody:
- *       required: true
+ *       required: false
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - startDate
- *               - endDate
+ *             description: Legacy date range format (use if period filters not provided)
  *             properties:
  *               startDate:
  *                 type: string
  *                 format: date
+ *                 example: "2025-01-01"
  *               endDate:
  *                 type: string
  *                 format: date
+ *                 example: "2025-01-31"
  *               currencyId:
  *                 type: string
  *     responses:
@@ -87,28 +138,49 @@ router.post("/detailed", authenticate, authorize(["admin", "accountant"]), CashF
 
 /**
  * @swagger
- * /api/accounting/cash-flow/summary:
+ * /accounting/cash-flow/summary:
  *   post:
  *     summary: Get cash flow statement summary (high-level totals)
+ *     description: |
+ *       Supports period filters (month/quarter/year) via URL query parameters OR legacy date range in request body.
  *     tags: [Accounting - Cash Flow]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: periodType
+ *         schema:
+ *           type: string
+ *           enum: [month, quarter, year]
+ *         description: Period type filter (use with periodValue)
+ *         example: month
+ *       - in: query
+ *         name: periodValue
+ *         schema:
+ *           type: string
+ *         description: Period value (month: "2025-01", quarter: "2025-Q1", year: "2025")
+ *         example: "2025-01"
+ *       - in: query
+ *         name: currencyId
+ *         schema:
+ *           type: string
+ *         description: Currency ID (optional)
  *     requestBody:
- *       required: true
+ *       required: false
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - startDate
- *               - endDate
+ *             description: Legacy date range format (use if period filters not provided)
  *             properties:
  *               startDate:
  *                 type: string
  *                 format: date
+ *                 example: "2025-01-01"
  *               endDate:
  *                 type: string
  *                 format: date
+ *                 example: "2025-01-31"
  *               currencyId:
  *                 type: string
  *     responses:
@@ -125,28 +197,49 @@ router.post("/summary", authenticate, authorize(["admin", "accountant"]), CashFl
 
 /**
  * @swagger
- * /api/accounting/cash-flow/comprehensive:
+ * /accounting/cash-flow/comprehensive:
  *   post:
  *     summary: Get comprehensive detailed cash flow statement with all transaction details
+ *     description: |
+ *       Supports period filters (month/quarter/year) via URL query parameters OR legacy date range in request body.
  *     tags: [Accounting - Cash Flow]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: periodType
+ *         schema:
+ *           type: string
+ *           enum: [month, quarter, year]
+ *         description: Period type filter (use with periodValue)
+ *         example: month
+ *       - in: query
+ *         name: periodValue
+ *         schema:
+ *           type: string
+ *         description: Period value (month: "2025-01", quarter: "2025-Q1", year: "2025")
+ *         example: "2025-01"
+ *       - in: query
+ *         name: currencyId
+ *         schema:
+ *           type: string
+ *         description: Currency ID (optional)
  *     requestBody:
- *       required: true
+ *       required: false
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - startDate
- *               - endDate
+ *             description: Legacy date range format (use if period filters not provided)
  *             properties:
  *               startDate:
  *                 type: string
  *                 format: date
+ *                 example: "2025-01-01"
  *               endDate:
  *                 type: string
  *                 format: date
+ *                 example: "2025-01-31"
  *               currencyId:
  *                 type: string
  *     responses:
@@ -209,27 +302,51 @@ router.post("/comparative", authenticate, authorize(["admin", "accountant"]), Ca
 
 /**
  * @swagger
- * /api/accounting/cash-flow:
+ * /accounting/cash-flow:
  *   get:
  *     summary: Get cash flow statement by query parameters
+ *     description: |
+ *       Supports period filters (month/quarter/year) via URL query parameters OR legacy date range.
+ *       
+ *       **Period Filter Examples:**
+ *       - Month: `?periodType=month&periodValue=2025-01&type=detailed`
+ *       - Quarter: `?periodType=quarter&periodValue=2025-Q1&type=summary`
+ *       - Year: `?periodType=year&periodValue=2025`
  *     tags: [Accounting - Cash Flow]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
+ *         name: periodType
+ *         schema:
+ *           type: string
+ *           enum: [month, quarter, year]
+ *         description: Period type filter (use with periodValue). Options: month, quarter, year
+ *         example: month
+ *       - in: query
+ *         name: periodValue
+ *         schema:
+ *           type: string
+ *         description: |
+ *           Period value matching periodType:
+ *           - month: "2025-01" (YYYY-MM)
+ *           - quarter: "2025-Q1" or "2025-1" (YYYY-QN or YYYY-N)
+ *           - year: "2025" (YYYY)
+ *         example: "2025-01"
+ *       - in: query
  *         name: startDate
- *         required: true
  *         schema:
  *           type: string
  *           format: date
- *         description: Start date of the period
+ *         description: Start date of the period (legacy format - use if period filters not provided)
+ *         example: "2025-01-01"
  *       - in: query
  *         name: endDate
- *         required: true
  *         schema:
  *           type: string
  *           format: date
- *         description: End date of the period
+ *         description: End date of the period (legacy format - use if period filters not provided)
+ *         example: "2025-01-31"
  *       - in: query
  *         name: currencyId
  *         schema:

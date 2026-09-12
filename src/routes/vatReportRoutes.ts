@@ -155,5 +155,46 @@ router.use(authenticate);
  */
 router.get("/report", VATReportController.generateVATReport);
 
+/**
+ * @swagger
+ * /api/vat/report/output-tax-audit:
+ *   get:
+ *     summary: VAT Output audit trail (drill-down from VAT Return)
+ *     description: |
+ *       Line-by-line list of every journal line that hit VAT Output (2100) in the period: sales invoices,
+ *       cash receipts with VAT, credit notes (negative vatAmount), manual entries, etc.
+ *       `totalOutputTax` matches `data.outputTax.total` from GET /api/vat/report for the same dates.
+ *       Use the same `startDate`, `endDate`, and optional `currencyId` as the VAT report.
+ *     tags: [VAT Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: endDate
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: currencyId
+ *         required: false
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Audit trail rows for VAT Output
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/report/output-tax-audit", VATReportController.getVATOutputAuditTrail);
+
 export default router;
 

@@ -1,0 +1,67 @@
+[
+  {
+    "id": "cmi1oxjcp000tun28nhqrkibk",
+    "grnId": "cmi1oxjcp000run28obirgsrj",
+    "purchaseOrderItemId": "cmi1ox814000lun28n7uth8og",
+    "quantityOrdered": "0",
+    "quantityReceived": "95",
+    "quantityAccepted": "90",
+    "quantityRejected": "5",
+    "qualityStatus": "PASSED",
+    "qualityNotes": "5 units damaged in transit - complete flow test",
+    "createdAt": "2025-11-16T12:27:13.848Z",
+    "updatedAt": "2025-11-16T12:27:13.848Z"
+  },
+  {
+    "id": "cmi1oz3f5001sun28ipaxkgy4",
+    "grnId": "cmi1oz3f4001qun28fkiotr5b",
+    "purchaseOrderItemId": "cmi1oyufn001kun28frai5r5k",
+    "quantityOrdered": "0",
+    "quantityReceived": "95",
+    "quantityAccepted": "90",
+    "quantityRejected": "5",
+    "qualityStatus": "PASSED",
+    "qualityNotes": "5 units damaged in transit - complete flow test",
+    "createdAt": "2025-11-16T12:28:26.513Z",
+    "updatedAt": "2025-11-16T12:28:26.513Z"
+  },
+  {
+    "id": "cmi1p20p0000tun7gemxetm9m",
+    "grnId": "cmi1p20p0000run7gei2ntt7n",
+    "purchaseOrderItemId": "cmi1p1pcb000lun7geifuxh71",
+    "quantityOrdered": "0",
+    "quantityReceived": "95",
+    "quantityAccepted": "90",
+    "quantityRejected": "5",
+    "qualityStatus": "PASSED",
+    "qualityNotes": "5 units damaged in transit - complete flow test",
+    "createdAt": "2025-11-16T12:30:42.947Z",
+    "updatedAt": "2025-11-16T12:30:42.947Z"
+  },
+  {
+    "id": "cmi1p3eym001wun7ggiisvdt1",
+    "grnId": "cmi1p3eyl001uun7g74nj2t23",
+    "purchaseOrderItemId": "cmi1p35zj001oun7gx4te6zkn",
+    "quantityOrdered": "0",
+    "quantityReceived": "95",
+    "quantityAccepted": "90",
+    "quantityRejected": "5",
+    "qualityStatus": "PASSED",
+    "qualityNotes": "5 units damaged in transit - complete flow test",
+    "createdAt": "2025-11-16T12:31:48.093Z",
+    "updatedAt": "2025-11-16T12:31:48.093Z"
+  },
+  {
+    "id": "cmi1p4lys002zun7g3emeddbd",
+    "grnId": "cmi1p4lys002xun7gy0fbpfpa",
+    "purchaseOrderItemId": "cmi1p4d5a002run7gv1exocli",
+    "quantityOrdered": "0",
+    "quantityReceived": "95",
+    "quantityAccepted": "90",
+    "quantityRejected": "5",
+    "qualityStatus": "PASSED",
+    "qualityNotes": "5 units damaged in transit - complete flow test",
+    "createdAt": "2025-11-16T12:32:43.828Z",
+    "updatedAt": "2025-11-16T12:32:43.828Z"
+  }
+]

@@ -1,0 +1,42 @@
+[
+  {
+    "id": "cmilnc6t00001jo04wjxznfga",
+    "eventId": "cmiliswzv0001l804q64g8rdu",
+    "guestId": null,
+    "rating": 5,
+    "overallSatisfaction": 5,
+    "contentQuality": 4,
+    "venueQuality": 5,
+    "foodQuality": 4,
+    "organization": 5,
+    "positiveAspects": "Great speakers and networking opportunities",
+    "areasForImprovement": "Better signage for breakout sessions",
+    "suggestions": "Consider longer breaks between sessions",
+    "wouldAttendAgain": true,
+    "wouldRecommend": true,
+    "additionalComments": "Overall excellent event!",
+    "anonymous": false,
+    "createdAt": "2025-11-30T11:38:01.716Z",
+    "updatedAt": "2025-11-30T11:38:01.716Z"
+  },
+  {
+    "id": "cmiprxkkw001kgp04qp2zr49n",
+    "eventId": "cmiliswzv0001l804q64g8rdu",
+    "guestId": null,
+    "rating": 5,
+    "overallSatisfaction": 5,
+    "contentQuality": 4,
+    "venueQuality": 5,
+    "foodQuality": 4,
+    "organization": 5,
+    "positiveAspects": "Great speakers and networking opportunities",
+    "areasForImprovement": "Better signage for breakout sessions",
+    "suggestions": "Consider longer breaks between sessions",
+    "wouldAttendAgain": true,
+    "wouldRecommend": true,
+    "additionalComments": "Overall excellent event!",
+    "anonymous": false,
+    "createdAt": "2025-12-03T08:57:42.512Z",
+    "updatedAt": "2025-12-03T08:57:42.512Z"
+  }
+]

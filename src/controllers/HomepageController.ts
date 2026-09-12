@@ -2,6 +2,10 @@
 import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
+import { emitToUser } from "../services/RealtimeSocketService";
+import { mergeTaskNotificationData } from "../utils/taskNotificationDeepLink";
+import { PerformanceConfigService } from "../services/PerformanceConfigService";
+import { eventWithValidAuthorWhere } from "../utils/eventQuerySupport";
 
 // Helper function to get relative time
 function getTimeAgo(date: Date): string {
@@ -83,7 +87,8 @@ export const homepageController = {
         newsletters,
         upcomingEvents,
         allEvents,
-        onlineUsers
+        onlineUsers,
+        strategicAlignment
       ] = await Promise.all([
         // Get active posts (not expired) with pagination
         prisma.post.findMany({
@@ -142,7 +147,8 @@ export const homepageController = {
         prisma.event.findMany({
           where: {
             isActive: true,
-            startDate: { gte: new Date() }
+            startDate: { gte: new Date() },
+            ...eventWithValidAuthorWhere,
           },
           include: {
             author: {
@@ -160,7 +166,7 @@ export const homepageController = {
 
         // Get all active events (regardless of date) with pagination
         prisma.event.findMany({
-          where: { isActive: true },
+          where: { isActive: true, ...eventWithValidAuthorWhere },
           include: {
             author: {
               select: {
@@ -190,7 +196,17 @@ export const homepageController = {
             lastSeen: true
           },
           orderBy: { lastSeen: 'desc' }
-        })
+        }),
+
+        PerformanceConfigService.getPillarConfig().catch(() => ({
+          strategyId: null,
+          strategyTitle: null,
+          periodStart: null,
+          periodEnd: null,
+          visionStatement: null,
+          pillars: [],
+          strategyDocumentUrl: null
+        }))
       ]);
 
       // Calculate summary statistics
@@ -219,6 +235,15 @@ export const homepageController = {
             all: allEvents
           },
           onlineUsers,
+          strategicAlignment: {
+            visionStatement: strategicAlignment.visionStatement,
+            strategyId: strategicAlignment.strategyId,
+            strategyTitle: strategicAlignment.strategyTitle,
+            periodStart: strategicAlignment.periodStart,
+            periodEnd: strategicAlignment.periodEnd,
+            pillars: strategicAlignment.pillars,
+            strategyDocumentUrl: strategicAlignment.strategyDocumentUrl
+          },
           summary,
           pagination: {
             hasMore: nextCursor !== null,
@@ -315,16 +340,22 @@ export const homepageController = {
       console.log(`📈 Total notifications: ${totalCount}, Unread: ${unreadCount}`);
 
       // Format notifications with better structure
-      const formattedNotifications = notifications.map(notification => ({
+      const formattedNotifications = notifications.map((notification) => ({
         id: notification.id,
         title: notification.title,
         message: notification.message,
         type: notification.type,
         isRead: notification.isRead,
-        data: notification.data,
+        data: mergeTaskNotificationData(
+          notification.type,
+          notification.data,
+          notification.relatedEntity,
+          notification.relatedEntityId
+        ),
+        relatedEntity: notification.relatedEntity,
+        relatedEntityId: notification.relatedEntityId,
         createdAt: notification.createdAt,
         updatedAt: notification.updatedAt,
-        // Add relative time for better UX
         timeAgo: getTimeAgo(notification.createdAt)
       }));
 
@@ -376,9 +407,16 @@ export const homepageController = {
         data: { isRead: true }
       });
 
+      const unread = await prisma.notification.count({
+        where: { userId, isRead: false }
+      });
+      emitToUser(userId, "notification_read", { id });
+      emitToUser(userId, "notification_unread_count", { unread });
+
       res.status(200).json({
         success: true,
-        message: "Notification marked as read"
+        message: "Notification marked as read",
+        unread
       });
     } catch (error: any) {
       console.error("Error marking notification as read:", error);
@@ -402,9 +440,13 @@ export const homepageController = {
         data: { isRead: true }
       });
 
+      emitToUser(userId, "notification_read_all", { success: true });
+      emitToUser(userId, "notification_unread_count", { unread: 0 });
+
       res.status(200).json({
         success: true,
-        message: "All notifications marked as read"
+        message: "All notifications marked as read",
+        unread: 0
       });
     } catch (error: any) {
       console.error("Error marking all notifications as read:", error);

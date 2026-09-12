@@ -5,6 +5,7 @@
 import { Request, Response } from "express";
 import { ResponseHelper } from "../utils/responseHelper";
 import DiscountService from "../services/DiscountService";
+import { parseDate } from "../utils/dateHelper";
 
 interface AuthRequest extends Request {
   user?: {
@@ -41,7 +42,7 @@ export default class DiscountController {
         entityType: entityType as 'CUSTOMER' | 'SUPPLIER',
         entityId,
         amount: parseFloat(amount),
-        transactionDate: new Date(transactionDate)
+        transactionDate: parseDate(transactionDate)
       });
       
       return ResponseHelper.success(res, 'Discount calculated successfully', {

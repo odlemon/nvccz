@@ -8,11 +8,14 @@ const router = express.Router();
 
 /**
  * @swagger
- * /api/clients:
+ * /clients:
  *   post:
- *     summary: Create a new client (investor) with optional investment commitment
- *     description: Create a new client who can invest in funds. Investment commitment is created automatically if fund details are provided.
- *     tags: [Client Management]
+ *     summary: "0a. Create LP (client) + optional fund commitment — prerequisite for capital calls"
+ *     description: >
+ *       **Capital calls need** at least one **ACTIVE** or **PENDING** `investment_commitment` on the fund (single currency across eligible commitments).
+ *       Pass `fund_id`, `amount`, `effective_date` (and `currency`) to create the LP and a **PENDING** commitment in one step.
+ *       Requires **admin** JWT. Body accepts **snake_case** (`legal_name`) or **camelCase** (`legalName`) per `ClientController`.
+ *     tags: [Capital Calls (LP drawdowns), Client Management]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -22,7 +25,6 @@ const router = express.Router();
  *           schema:
  *             type: object
  *             required:
- *               - investor_id
  *               - type
  *               - legal_name
  *               - email
@@ -30,8 +32,8 @@ const router = express.Router();
  *             properties:
  *               investor_id:
  *                 type: string
- *                 description: External investor ID (e.g., "inv_001")
- *                 example: "inv_001"
+ *                 description: Optional external reference. If omitted, the server assigns the next partner number **`EXT_PAR_0001`**, **`EXT_PAR_0002`**, … (zero-padded, unique).
+ *                 example: "EXT_PAR_0042"
  *               type:
  *                 type: string
  *                 enum: [individual, institutional]
@@ -39,53 +41,52 @@ const router = express.Router();
  *                 example: "individual"
  *               legal_name:
  *                 type: string
- *                 description: Full legal name of the investor
+ *                 description: Full legal name of the LP (notice emails use this)
  *                 example: "Jamie Patel"
  *               email:
  *                 type: string
  *                 format: email
- *                 description: Email address
- *                 example: "jamie@example.com"
+ *                 description: Unique; used for capital call notices
+ *                 example: "jamie.patel.lp@example.com"
  *               country:
  *                 type: string
- *                 description: Country of residence
- *                 example: "US"
+ *                 description: ISO country / jurisdiction (e.g. ZW, US)
+ *                 example: "ZW"
  *               phone:
  *                 type: string
  *                 description: Phone number
- *                 example: "+1-555-123-4567"
+ *                 example: "+263771234567"
  *               address:
  *                 type: string
  *                 description: Physical address
- *                 example: "123 Main St, New York, NY 10001"
+ *                 example: "15 Samora Machel Ave, Harare"
  *               tax_id:
  *                 type: string
  *                 description: Tax identification number
- *                 example: "123-45-6789"
+ *                 example: "63-1234567-Z"
  *               status:
  *                 type: string
  *                 enum: [ACTIVE, INACTIVE, SUSPENDED]
  *                 default: ACTIVE
  *                 description: Client status
- *               # Investment Commitment Fields (optional)
  *               fund_id:
  *                 type: string
- *                 description: Fund ID for investment commitment
- *                 example: "fund_abc123"
+ *                 description: Fund ID — when set with amount + effective_date, creates **PENDING** commitment (fund must be OPEN; amount within min/max and remaining)
+ *                 example: "cmjfpk2g0000lktwmt25ni8p8"
  *               amount:
  *                 type: number
- *                 description: Investment amount (required if fund_id provided)
- *                 example: 100000
+ *                 description: Commitment face amount (required when fund_id is set)
+ *                 example: 50000
  *               currency:
  *                 type: string
  *                 default: USD
- *                 description: Currency code
+ *                 description: Commitment currency — all eligible commitments on a fund must share one code for a capital call
  *                 example: "USD"
  *               effective_date:
  *                 type: string
  *                 format: date
- *                 description: When the commitment becomes effective (required if fund_id provided)
- *                 example: "2025-09-03"
+ *                 description: Commitment effective date (required when fund_id is set)
+ *                 example: "2026-04-10"
  *               e_sign:
  *                 type: object
  *                 description: Electronic signature data
@@ -103,6 +104,26 @@ const router = express.Router();
  *               notes:
  *                 type: string
  *                 description: Additional notes
+ *           examples:
+ *             lpWithZimFundCommitment:
+ *               summary: New LP with 50k USD commitment (ZimFund)
+ *               value:
+ *                 type: "individual"
+ *                 legal_name: "Jamie Patel"
+ *                 email: "jamie.patel.lp@example.com"
+ *                 country: "ZW"
+ *                 phone: "+263771234567"
+ *                 fund_id: "cmjfpk2g0000lktwmt25ni8p8"
+ *                 amount: 50000
+ *                 currency: "USD"
+ *                 effective_date: "2026-04-10"
+ *             lpOnlyNoCommitment:
+ *               summary: LP only — add commitment later via PUT /clients/{id}
+ *               value:
+ *                 type: "individual"
+ *                 legal_name: "Rudo Moyo"
+ *                 email: "rudo.moyo.lp@example.com"
+ *                 country: "ZW"
  *     responses:
  *       201:
  *         description: Client created successfully with investment commitment
@@ -175,7 +196,7 @@ router.post("/", authenticate, authorize(["admin"]), ClientController.createClie
 
 /**
  * @swagger
- * /api/clients:
+ * /clients:
  *   get:
  *     summary: Get all clients with filtering
  *     description: Retrieve all clients with pagination and filtering options
@@ -265,7 +286,7 @@ router.get("/", authenticate, authorize(["admin", "fund_manager"]), ClientContro
 
 /**
  * @swagger
- * /api/clients/statistics:
+ * /clients/statistics:
  *   get:
  *     summary: Get client statistics
  *     description: Get comprehensive statistics about clients and their investments
@@ -303,7 +324,7 @@ router.get("/statistics", authenticate, authorize(["admin", "fund_manager"]), Cl
 
 /**
  * @swagger
- * /api/clients/{id}:
+ * /clients/{id}:
  *   get:
  *     summary: Get client by ID
  *     description: Retrieve a specific client with their investment commitments
@@ -327,7 +348,7 @@ router.get("/:id", authenticate, authorize(["admin", "fund_manager"]), ClientCon
 
 /**
  * @swagger
- * /api/clients/investor/{investorId}:
+ * /clients/investor/{investorId}:
  *   get:
  *     summary: Get client by investor ID
  *     description: Retrieve a client by their external investor ID
@@ -351,11 +372,14 @@ router.get("/investor/:investorId", authenticate, authorize(["admin", "fund_mana
 
 /**
  * @swagger
- * /api/clients/{id}:
+ * /clients/{id}:
  *   put:
- *     summary: Update client details with optional investment commitment
- *     description: Update client information and optionally update/create investment commitment
- *     tags: [Client Management]
+ *     summary: "0b. Add or update fund commitment on an existing LP — prerequisite for capital calls"
+ *     description: >
+ *       Use when the client already exists without a commitment for this fund. Sending `fund_id`, `amount`,
+ *       and `effective_date` **creates** a new **PENDING** commitment (or updates if same client+fund already exists).
+ *       Requires **admin** JWT.
+ *     tags: [Capital Calls (LP drawdowns), Client Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -364,7 +388,8 @@ router.get("/investor/:investorId", authenticate, authorize(["admin", "fund_mana
  *         required: true
  *         schema:
  *           type: string
- *         description: Client ID
+ *           example: "cmnsk42b50000unukxntnpkov"
+ *         description: Client primary key (`data.id` from POST /clients; resolves to `{server}/clients/{id}`)
  *     requestBody:
  *       required: true
  *       content:
@@ -374,18 +399,24 @@ router.get("/investor/:investorId", authenticate, authorize(["admin", "fund_mana
  *             properties:
  *               investor_id:
  *                 type: string
+ *                 description: Optional — change external partner id (normally leave unset; created clients already have `EXT_PAR_*`).
+ *                 example: "EXT_PAR_0042"
  *               type:
  *                 type: string
  *                 enum: [individual, institutional]
  *               legal_name:
  *                 type: string
+ *                 example: "Jamie Patel"
  *               email:
  *                 type: string
  *                 format: email
+ *                 example: "jamie.patel.lp@example.com"
  *               country:
  *                 type: string
+ *                 example: "ZW"
  *               phone:
  *                 type: string
+ *                 example: "+263771234567"
  *               address:
  *                 type: string
  *               tax_id:
@@ -393,27 +424,36 @@ router.get("/investor/:investorId", authenticate, authorize(["admin", "fund_mana
  *               status:
  *                 type: string
  *                 enum: [ACTIVE, INACTIVE, SUSPENDED]
- *               # Investment Commitment Fields (optional)
  *               fund_id:
  *                 type: string
- *                 description: Fund ID for investment commitment
+ *                 description: Target fund for the commitment
+ *                 example: "cmjfpk2g0000lktwmt25ni8p8"
  *               amount:
  *                 type: number
- *                 description: Investment amount (required if fund_id provided)
+ *                 description: Required when fund_id is set
+ *                 example: 50000
  *               currency:
  *                 type: string
  *                 default: USD
- *                 description: Currency code
+ *                 example: "USD"
  *               effective_date:
  *                 type: string
  *                 format: date
- *                 description: When the commitment becomes effective (required if fund_id provided)
+ *                 example: "2026-04-10"
  *               e_sign:
  *                 type: object
  *                 description: Electronic signature data
  *               notes:
  *                 type: string
  *                 description: Additional notes
+ *           examples:
+ *             addCommitmentToExistingLp:
+ *               summary: Add ZimFund commitment to existing client
+ *               value:
+ *                 fund_id: "cmjfpk2g0000lktwmt25ni8p8"
+ *                 amount: 50000
+ *                 currency: "USD"
+ *                 effective_date: "2026-04-10"
  *     responses:
  *       200:
  *         description: Client updated successfully
@@ -422,11 +462,12 @@ router.get("/investor/:investorId", authenticate, authorize(["admin", "fund_mana
  *       409:
  *         description: Conflict - duplicate investor ID or email
  */
+router.put("/:id/link-user", authenticate, authorize(["admin", "fund_manager"]), ClientController.linkUser);
 router.put("/:id", authenticate, authorize(["admin"]), ClientController.updateClient);
 
 /**
  * @swagger
- * /api/clients/{id}:
+ * /clients/{id}:
  *   delete:
  *     summary: Delete client
  *     description: Delete a client (only if no active investment commitments)

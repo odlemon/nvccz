@@ -6,6 +6,10 @@ import { ResponseHelper } from '../utils/responseHelper';
 import { logger } from '../utils/logger';
 import { FirebaseStorageService } from '../services/FirebaseStorageService';
 import { prisma } from '../utils/database';
+import { parseDate } from "../utils/dateHelper";
+import { userCanAccessApplication } from "../utils/applicationFundAccess";
+import { RBZ_EXCHANGE_CONTROL_DOCUMENT_TYPE } from "../config/applicationStatutoryCompliance";
+import { DealCollaborationService } from "../services/DealCollaborationService";
 
 export class ApplicationController {
   /**
@@ -13,10 +17,22 @@ export class ApplicationController {
    * Supports both multipart/form-data (with files) and application/json (with document URLs)
    */
   static async createApplication(req: Request, res: Response): Promise<void> {
+    // Declare files outside try block so it's accessible in catch
+    let files: Express.Multer.File[] = [];
+    let isMultipart = false;
+
     try {
-      // Handle both multipart/form-data (with files) and application/json
-      const files = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['files'] || [];
-      const isMultipart = files.length > 0;
+      try {
+        if (req.files) {
+          const filesObj = req.files as { [fieldname: string]: Express.Multer.File[] };
+          files = filesObj.files || [];
+        }
+        isMultipart = files.length > 0;
+      } catch (filesError: any) {
+        logger.warn("Error extracting files from request", { error: filesError.message });
+        files = [];
+        isMultipart = false;
+      }
 
       let {
         applicantName,
@@ -30,8 +46,10 @@ export class ApplicationController {
         foundingDate,
         requestedAmount,
         fundId,
+        source,
         documents,
-        documentTypes
+        documentTypes,
+        applicationFormData,
       } = req.body;
 
       // Validate required fields
@@ -75,24 +93,23 @@ export class ApplicationController {
       }> = [];
 
       if (isMultipart && files.length > 0) {
-        // Parse documentTypes if it's a string (JSON)
         let docTypes: string[] = [];
         if (documentTypes) {
           try {
-            docTypes = typeof documentTypes === 'string' ? JSON.parse(documentTypes) : documentTypes;
+            docTypes =
+              typeof documentTypes === "string" ? JSON.parse(documentTypes) : documentTypes;
           } catch (e) {
             ResponseHelper.error(res, "Invalid documentTypes format. Expected JSON array.", undefined, 400);
             return;
           }
         }
 
-        // If documentTypes not provided or doesn't match, auto-detect from filenames
         if (docTypes.length !== files.length) {
-          logger.info('Auto-detecting document types from filenames', {
+          logger.info("Auto-detecting document types from filenames", {
             filesCount: files.length,
             docTypesCount: docTypes.length
           });
-          
+
           docTypes = files.map(file => {
             const fileName = file.originalname.toUpperCase();
             // Auto-detect document type from filename
@@ -120,21 +137,46 @@ export class ApplicationController {
           const file = files[i];
           const documentType = docTypes[i] || 'OTHER';
 
-          // Upload to Firebase
-          const { filePath, downloadURL } = await FirebaseStorageService.uploadApplicationDocument(
-            file.buffer,
-            file.originalname,
-            tempApplicationId,
-            documentType
-          );
+          try {
+            logger.info(`Uploading document ${i + 1}/${files.length}: ${file.originalname}`, {
+              fileName: file.originalname,
+              fileSize: file.size,
+              documentType: documentType
+            });
 
-          processedDocuments.push({
-            documentType: documentType,
-            fileName: file.originalname,
-            fileUrl: downloadURL,
-            fileSize: file.size,
-            isRequired: ['BUSINESS_PLAN', 'PROOF_OF_CONCEPT', 'MARKET_RESEARCH', 'PROJECTED_CASH_FLOWS'].includes(documentType)
-          });
+            // Upload to Firebase
+            const { filePath, downloadURL } = await FirebaseStorageService.uploadApplicationDocument(
+              file.buffer,
+              file.originalname,
+              tempApplicationId,
+              documentType
+            );
+
+            logger.info(`✅ Successfully uploaded document ${i + 1}/${files.length}`, {
+              fileName: file.originalname,
+              downloadURL: downloadURL
+            });
+
+            processedDocuments.push({
+              documentType: documentType,
+              fileName: file.originalname,
+              fileUrl: downloadURL,
+              fileSize: file.size,
+              isRequired: ['BUSINESS_PLAN', 'PROOF_OF_CONCEPT', 'MARKET_RESEARCH', 'PROJECTED_CASH_FLOWS'].includes(documentType)
+            });
+          } catch (uploadError: any) {
+            logger.error(`❌ Failed to upload document ${i + 1}/${files.length}`, {
+              fileName: file.originalname,
+              fileSize: file.size,
+              documentType: documentType,
+              error: uploadError.message,
+              stack: uploadError.stack
+            });
+            
+            // Provide detailed error message
+            const errorMessage = uploadError.message || 'Unknown upload error';
+            throw new Error(`Failed to upload document "${file.originalname}" (${i + 1} of ${files.length}): ${errorMessage}`);
+          }
         }
       } else if (documents && Array.isArray(documents)) {
         // Use provided document URLs (from JSON request)
@@ -142,6 +184,19 @@ export class ApplicationController {
       } else {
         ResponseHelper.error(res, "Either files must be uploaded or documents array must be provided", undefined, 400);
         return;
+      }
+
+      let parsedFormData: Record<string, unknown> | null = null;
+      if (applicationFormData != null) {
+        try {
+          parsedFormData =
+            typeof applicationFormData === "string"
+              ? JSON.parse(applicationFormData)
+              : applicationFormData;
+        } catch {
+          ResponseHelper.error(res, "Invalid applicationFormData JSON", undefined, 400);
+          return;
+        }
       }
 
       const applicationParams: CreateApplicationRequest = {
@@ -153,9 +208,11 @@ export class ApplicationController {
         businessDescription,
         industry,
         businessStage,
-        foundingDate: foundingDate ? new Date(foundingDate) : undefined,
+        foundingDate: foundingDate ? parseDate(foundingDate) : undefined,
         requestedAmount: Number(requestedAmount),
         fundId,
+        source,
+        applicationFormData: parsedFormData,
         documents: processedDocuments
       };
 
@@ -165,47 +222,67 @@ export class ApplicationController {
       // (The upload already happened with temp ID, but files are linked to application now)
       // Note: Firebase paths are already set, so this is fine
 
-      // Send application received email notification
-      try {
-        await EmailNotificationService.sendApplicationReceivedEmail({
-          applicantName: application.applicantName,
-          applicantEmail: application.applicantEmail,
-          businessName: application.businessName,
+      // Respond immediately — email + AI shortlisting must not block the applicant UI
+      // (DeepSeek + document extraction can take 1–2+ minutes).
+      void ApplicationController.runPostCreateSideEffects(application).catch((sideEffectError: any) => {
+        logger.error("Post-create side effects failed", {
           applicationId: application.id,
-          currentStage: application.currentStage
+          error: sideEffectError?.message || String(sideEffectError),
         });
-        logger.info("Application received email sent successfully", {
-          applicationId: application.id,
-          applicantEmail: application.applicantEmail
-        });
-      } catch (emailError) {
-        logger.error("Failed to send application received email", {
-          applicationId: application.id,
-          error: emailError.message
-        });
-        // Don't fail the application creation if email fails
-      }
-
-      logger.info("Application created - starting shortlisting pipeline", {
-        applicationId: application.id,
-        businessName: application.businessName,
-        applicantEmail: application.applicantEmail
       });
-
-      try {
-        await ApplicationController.startShortlisting(application.id);
-      } catch (shortlistingError: any) {
-        logger.error("Failed to process shortlisting after creation", {
-          applicationId: application.id,
-          error: shortlistingError.message
-        });
-      }
 
       ResponseHelper.success(res, "Application created successfully", application, 201);
     } catch (error: any) {
-      logger.error("Error creating application", { error: error.message });
-      ResponseHelper.error(res, `Failed to create application: ${error.message}`, undefined, 500);
+      const fileCount = files ? files.length : 0;
+      const hasFiles = isMultipart || false;
+
+      logger.error("❌ Error creating application", {
+        error: error?.message,
+        stack: error?.stack,
+        applicantEmail: req.body?.applicantEmail,
+        businessName: req.body?.businessName,
+        fileCount,
+        hasFiles,
+        errorName: error?.name,
+        errorCode: error?.code
+      });
+
+      const msg =
+        typeof error?.message === "string" && error.message.trim()
+          ? error.message.trim()
+          : "An unexpected error occurred";
+
+      const statusCode = ApplicationController.resolveCreateApplicationErrorStatus(error, msg);
+      ResponseHelper.error(res, msg, msg, statusCode);
     }
+  }
+
+  /** Maps thrown errors to HTTP status; response body uses the real `message` (no generic wrapper). */
+  private static resolveCreateApplicationErrorStatus(err: any, msg: string): number {
+    if (err?.name === "ReferenceError") {
+      return 500;
+    }
+    if (err?.code === "P2002") {
+      return 409;
+    }
+    const clientError =
+      msg.includes("Missing required fields") ||
+      msg.includes("Missing required documents") ||
+      msg.includes("At least one document is required") ||
+      msg.includes("Requested amount must be greater than zero") ||
+      msg.includes("Invalid email format") ||
+      msg.includes("already applied for investment") ||
+      msg.includes("already linked to an internal user account") ||
+      msg.includes("Fund not found") ||
+      msg.includes("Fund is not accepting applications") ||
+      msg.includes("Invalid documentTypes format") ||
+      msg.includes("Failed to upload document") ||
+      msg.includes("Either files must be uploaded") ||
+      msg.includes("This email already applied");
+    if (clientError) {
+      return 400;
+    }
+    return 500;
   }
 
   /**
@@ -342,7 +419,33 @@ export class ApplicationController {
         return;
       }
 
-      const application = await ApplicationService.getApplicationById(id);
+      const gate = await prisma.application.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          fundId: true,
+          assignedAnalystId: true,
+          dueDiligenceReview: { select: { reviewerId: true } }
+        }
+      });
+
+      if (!gate) {
+        ResponseHelper.error(res, "Application not found", undefined, 404);
+        return;
+      }
+
+      const user = (req as any).user;
+      if (!(await userCanAccessApplication(user, gate))) {
+        ResponseHelper.error(res, "Forbidden: you cannot access this deal", undefined, 403);
+        return;
+      }
+
+      const light =
+        req.query.light === "true" ||
+        req.query.light === "1" ||
+        String(req.query.light || "").toLowerCase() === "yes";
+
+      const application = await ApplicationService.getApplicationById(id, { light });
 
       if (!application) {
         ResponseHelper.error(res, "Application not found", undefined, 404);
@@ -399,7 +502,7 @@ export class ApplicationController {
         businessDescription: updateData.businessDescription,
         industry: updateData.industry,
         businessStage: updateData.businessStage,
-        foundingDate: updateData.foundingDate ? new Date(updateData.foundingDate) : undefined,
+        foundingDate: updateData.foundingDate ? parseDate(updateData.foundingDate) : undefined,
         requestedAmount: updateData.requestedAmount ? Number(updateData.requestedAmount) : undefined,
         fundId: updateData.fundId
       };
@@ -445,6 +548,45 @@ export class ApplicationController {
   }
 
   /**
+   * Request clarification from applicant (sends real email)
+   */
+  static async requestClarification(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { subject, message, recipientEmail } = req.body || {};
+      if (!id) {
+        ResponseHelper.error(res, "Application ID is required", undefined, 400);
+        return;
+      }
+      const user = (req as any).user;
+      const result = await ApplicationService.requestClarification(id, {
+        subject: String(subject || ""),
+        message: String(message || ""),
+        recipientEmail: recipientEmail ? String(recipientEmail) : undefined,
+        requestedByUserId: user?.id,
+        requestedByName:
+          [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim() ||
+          user?.email ||
+          undefined,
+      });
+      logger.info("Clarification request sent", {
+        applicationId: id,
+        recipientEmail: result.recipientEmail,
+        requestedBy: user?.id,
+      });
+      ResponseHelper.success(res, "Clarification request sent", result);
+    } catch (error: any) {
+      logger.error("Error requesting clarification", { error: error.message });
+      const status = /not found/i.test(error.message)
+        ? 404
+        : /required|recipient/i.test(error.message)
+          ? 400
+          : 500;
+      ResponseHelper.error(res, `Failed to request clarification: ${error.message}`, undefined, status);
+    }
+  }
+
+  /**
    * Change application stage (PROTECTED - admin/fund manager access)
    */
   static async changeApplicationStage(req: Request, res: Response): Promise<void> {
@@ -462,7 +604,12 @@ export class ApplicationController {
         return;
       }
 
-      const application = await ApplicationService.changeApplicationStage(id, newStage, notes);
+      const application = await ApplicationService.changeApplicationStage(
+        id,
+        newStage,
+        notes,
+        (req as any).user?.id
+      );
 
       logger.info("Application stage changed", {
         applicationId: application.id,
@@ -475,6 +622,376 @@ export class ApplicationController {
     } catch (error: any) {
       logger.error("Error changing application stage", { error: error.message });
       ResponseHelper.error(res, `Failed to change application stage: ${error.message}`, undefined, 500);
+    }
+  }
+
+  /**
+   * Legal/compliance — KYC + RBZ document gate for fund disbursement (statutory guardrail).
+   */
+  static async assignLeadAnalyst(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const analystUserId = req.body?.analystUserId;
+      const actorId = (req as any).user?.id;
+
+      if (!id || !analystUserId || !actorId) {
+        ResponseHelper.error(res, "Application id, analystUserId, and authentication are required", undefined, 400);
+        return;
+      }
+
+      const application = await ApplicationService.assignLeadAnalyst(id, analystUserId, actorId);
+
+      const an = application.assignedAnalyst;
+      if (an?.email) {
+        void EmailNotificationService.sendLeadAnalystAssignedEmail({
+          analystName: `${an.firstName} ${an.lastName}`.trim() || "Analyst",
+          analystEmail: an.email,
+          businessName: application.businessName,
+          dealReference: application.dealReference ?? null
+        });
+      }
+
+      ResponseHelper.success(res, "Lead analyst assigned", application);
+    } catch (error: any) {
+      logger.error("assignLeadAnalyst", { error: error.message });
+      const msg = error.message || "Failed to assign analyst";
+      let status = 400;
+      if (
+        msg.includes("Application not found") ||
+        msg.includes("Analyst user not found") ||
+        msg.includes("Actor not found")
+      ) {
+        status = 404;
+      } else if (msg.includes("Only fund managers or executives")) {
+        status = 403;
+      }
+      ResponseHelper.error(res, msg, undefined, status);
+    }
+  }
+
+  static async recordAnalystScreeningScore(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const score = req.body?.score;
+      const actorId = (req as any).user?.id;
+
+      if (!id || actorId == null) {
+        ResponseHelper.error(res, "Application id and authentication are required", undefined, 400);
+        return;
+      }
+
+      if (typeof score !== "number") {
+        ResponseHelper.error(res, "score (number 0-100) is required", undefined, 400);
+        return;
+      }
+
+      const application = await ApplicationService.recordAnalystScreeningScore(id, actorId, score);
+      ResponseHelper.success(res, "Screening score recorded", application);
+    } catch (error: any) {
+      logger.error("recordAnalystScreeningScore", { error: error.message });
+      const msg = error.message || "Failed to record screening score";
+      let status = 500;
+      if (msg.includes("not found")) {
+        status = 404;
+      } else if (msg.includes("Only the assigned lead analyst")) {
+        status = 403;
+      } else if (
+        msg.includes("Assign a lead analyst before") ||
+        msg.includes("SCREENING stage") ||
+        msg.includes("score must be a number")
+      ) {
+        status = 400;
+      }
+      ResponseHelper.error(res, msg, undefined, status);
+    }
+  }
+
+  /**
+   * RBZ Exchange Control approval upload: multipart/form-data, `:id` = application id, field `file`.
+   * UAT: any authenticated user (Legal/Compliance role check disabled for testing).
+   */
+  static async uploadRbzExchangeControlDocument(req: Request, res: Response): Promise<void> {
+    try {
+      const id = String(req.params.id || "").trim();
+      const file = req.file as Express.Multer.File | undefined;
+
+      if (!id) {
+        ResponseHelper.error(res, "Application ID is required", undefined, 400);
+        return;
+      }
+      if (!file) {
+        ResponseHelper.error(
+          res,
+          "file is required (multipart/form-data, field name: file)",
+          undefined,
+          400
+        );
+        return;
+      }
+
+      const { downloadURL } = await FirebaseStorageService.uploadApplicationDocument(
+        file.buffer,
+        file.originalname,
+        id,
+        RBZ_EXCHANGE_CONTROL_DOCUMENT_TYPE
+      );
+
+      const document = await ApplicationService.replaceRbzExchangeControlDocument(id, {
+        fileName: file.originalname,
+        fileUrl: downloadURL,
+        fileSize: file.size
+      });
+
+      ResponseHelper.success(
+        res,
+        "RBZ Exchange Control document uploaded",
+        {
+          applicationId: id,
+          document: {
+            id: document.id,
+            documentType: document.documentType,
+            fileName: document.fileName,
+            fileUrl: document.fileUrl,
+            fileSize: document.fileSize
+          }
+        },
+        201
+      );
+    } catch (error: any) {
+      logger.error("Error uploading RBZ Exchange Control document", { error: error.message });
+      const msg = error.message || "Failed to upload document";
+      const notFound = msg.includes("Application not found");
+      ResponseHelper.error(res, msg, undefined, notFound ? 404 : 500);
+    }
+  }
+
+  static async updateStatutoryCompliance(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const kycVerified = req.body?.kycVerified;
+
+      if (!id) {
+        ResponseHelper.error(res, "Application ID is required", undefined, 400);
+        return;
+      }
+
+      if (typeof kycVerified !== "boolean") {
+        ResponseHelper.error(res, "kycVerified (boolean) is required", undefined, 400);
+        return;
+      }
+
+      const application = await ApplicationService.updateStatutoryCompliance(id, kycVerified);
+      ResponseHelper.success(res, "Statutory compliance updated", application);
+    } catch (error: any) {
+      logger.error("Error updating statutory compliance", { error: error.message });
+      const msg = error.message || "Failed to update statutory compliance";
+      const isValidation =
+        msg.includes("RBZ Exchange Control") || msg.includes("Application not found");
+      ResponseHelper.error(
+        res,
+        msg,
+        undefined,
+        isValidation ? (msg.includes("not found") ? 404 : 400) : 500
+      );
+    }
+  }
+
+  /** Portfolio deal collaboration — mirrors task `GET /api/tasks/:id/messages` shape. */
+  static async getDealCollaborationMessages(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const userId = (req as any).user?.id;
+      if (!id?.trim() || !userId) {
+        return res.status(400).json({ success: false, message: "Application ID required" });
+      }
+      const messages = await DealCollaborationService.listMessages(id.trim(), userId);
+      return res.status(200).json({
+        success: true,
+        messages,
+        realtime: {
+          subscribeEvent: "deal_collaboration_message",
+          roomPattern: `deal:${id.trim()}`
+        }
+      });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /** JSON-only deal message (no attachments). Same persistence + Socket.IO as multipart `.../collaboration/comments`. */
+  static async createDealCollaborationMessage(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const userId = (req as any).user?.id;
+      const { content, mentionUserIds: rawMentions } = req.body || {};
+      const mentionUserIds = Array.isArray(rawMentions)
+        ? rawMentions
+        : rawMentions != null && rawMentions !== ""
+          ? [String(rawMentions)]
+          : [];
+
+      if (!id?.trim() || !userId) {
+        return res.status(400).json({ success: false, message: "Application ID required" });
+      }
+
+      const data = await DealCollaborationService.createMessage({
+        applicationId: id.trim(),
+        actorId: userId,
+        content: String(content || ""),
+        mentionUserIds,
+        files: []
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: "Deal collaboration message sent successfully",
+        data,
+        realtime: {
+          event: "deal_collaboration_message",
+          room: `deal:${id.trim()}`,
+          hint: "Subscribe via Socket.IO after emit join_deal { applicationId }"
+        }
+      });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /** Multipart deal comment with optional attachments (mirrors `POST /api/tasks/:id/comments`). */
+  static async createDealCollaborationComment(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const userId = (req as any).user?.id;
+      if (!id?.trim() || !userId) {
+        return res.status(400).json({ success: false, message: "Application ID required" });
+      }
+
+      const mentionUserIds = Array.isArray(req.body.mentionUserIds)
+        ? req.body.mentionUserIds
+        : typeof req.body.mentionUserIds === "string"
+          ? JSON.parse(req.body.mentionUserIds)
+          : [];
+
+      const comment = await DealCollaborationService.createMessage({
+        applicationId: id.trim(),
+        actorId: userId,
+        content: req.body.content,
+        mentionUserIds,
+        files: Array.isArray(req.files) ? req.files : []
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: "Deal collaboration comment created successfully",
+        comment,
+        realtime: {
+          event: "deal_collaboration_message",
+          room: `deal:${id.trim()}`
+        }
+      });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  static async deleteDealCollaborationMessage(req: Request, res: Response): Promise<void> {
+    try {
+      const { id, msgId } = req.params;
+      const userId = (req as any).user?.id;
+      if (!id?.trim() || !msgId || !userId) {
+        return res.status(400).json({ success: false, message: "Application ID and message ID required" });
+      }
+
+      const result = await DealCollaborationService.deleteMessage(id.trim(), msgId, userId);
+
+      return res.status(200).json({
+        success: true,
+        message: "Deal collaboration message deleted successfully",
+        result,
+        realtime: {
+          events: ["deal_collaboration_message", "deal_comment_deleted"],
+          roomPattern: `deal:${id.trim()}`,
+          hint: "Payload includes isDeleted: true; remove row from UI by id"
+        }
+      });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /** Single message row (mirrors `GET /api/tasks/:id/chats/:msgId`). */
+  static async getDealCollaborationChatMessage(req: Request, res: Response): Promise<void> {
+    try {
+      const { id, msgId } = req.params;
+      const userId = (req as any).user?.id;
+      if (!id?.trim() || !msgId || !userId) {
+        return res.status(400).json({ success: false, message: "Application ID and message ID required" });
+      }
+      const message = await DealCollaborationService.getChatMessage(id.trim(), msgId, userId);
+      return res.status(200).json({ success: true, message });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  static async getDealCollaborationMentionSuggestions(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const userId = (req as any).user?.id;
+      const q = req.query.q as string | undefined;
+      if (!id?.trim() || !userId) {
+        return res.status(400).json({ success: false, message: "Application ID required" });
+      }
+      const users = await DealCollaborationService.getMentionSuggestions(id.trim(), userId, q);
+      return res.status(200).json({ success: true, users });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Email + AI shortlisting after create. Always run in the background — never await
+   * from the HTTP create handler (applicant submit must stay fast).
+   */
+  private static async runPostCreateSideEffects(application: {
+    id: string;
+    applicantName: string;
+    applicantEmail: string;
+    businessName: string;
+    currentStage: string;
+  }): Promise<void> {
+    try {
+      await EmailNotificationService.sendApplicationReceivedEmail({
+        applicantName: application.applicantName,
+        applicantEmail: application.applicantEmail,
+        businessName: application.businessName,
+        applicationId: application.id,
+        currentStage: application.currentStage,
+      });
+      logger.info("Application received email sent successfully", {
+        applicationId: application.id,
+        applicantEmail: application.applicantEmail,
+      });
+    } catch (emailError: any) {
+      logger.error("Failed to send application received email", {
+        applicationId: application.id,
+        error: emailError?.message || String(emailError),
+      });
+    }
+
+    logger.info("Application created - starting shortlisting pipeline (background)", {
+      applicationId: application.id,
+      businessName: application.businessName,
+      applicantEmail: application.applicantEmail,
+    });
+
+    try {
+      await ApplicationController.startShortlisting(application.id);
+    } catch (shortlistingError: any) {
+      logger.error("Failed to process shortlisting after creation", {
+        applicationId: application.id,
+        error: shortlistingError?.message || String(shortlistingError),
+      });
     }
   }
 
@@ -518,10 +1035,10 @@ export class ApplicationController {
         return;
       }
 
-      if (application.currentStage !== "PENDING_SHORTLISTING") {
+      if (application.currentStage !== "SCREENING_PENDING") {
         ResponseHelper.error(
           res,
-          `Application is currently in ${application.currentStage}. Only applications pending shortlisting can be processed.`,
+          `Application is currently in ${application.currentStage}. Only applications in SCREENING_PENDING can be processed.`,
           undefined,
           400
         );
@@ -566,11 +1083,16 @@ export class ApplicationController {
         limit: limitParam,
         stage,
         fundId,
-        paginate: paginateParam
+        paginate: paginateParam,
+        light: lightParam
       } = req.query;
 
       const paginationExplicit = typeof paginateParam !== 'undefined' || typeof pageParam !== 'undefined' || typeof limitParam !== 'undefined';
       const paginate = paginationExplicit ? paginateParam !== 'false' && paginateParam !== '0' : false;
+      const light =
+        lightParam === 'true' ||
+        lightParam === '1' ||
+        String(lightParam || '').toLowerCase() === 'yes';
 
       const page = paginate ? Number(pageParam ?? 1) : undefined;
       const limit = paginate ? Number(limitParam ?? 10) : undefined;
@@ -580,7 +1102,8 @@ export class ApplicationController {
         limit,
         stage as string,
         fundId as string,
-        paginate
+        paginate,
+        light
       );
 
       logger.info("Applications retrieved successfully", {
@@ -620,6 +1143,36 @@ export class ApplicationController {
     } catch (error: any) {
       logger.error("Error deleting application", { error: error.message });
       ResponseHelper.error(res, `Failed to delete application: ${error.message}`, undefined, 500);
+    }
+  }
+
+  /**
+   * Get applications below threshold (PROTECTED - admin/fund manager access)
+   * Returns both REJECTED and BELOW_THRESHOLD applications
+   */
+  static async getBelowThresholdApplications(req: Request, res: Response): Promise<void> {
+    try {
+      const page = req.query.page ? parseInt(req.query.page as string) : 1;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+
+      const result = await ApplicationService.getAllApplications(
+        page,
+        limit,
+        ["REJECTED", "REJECTED_SCREENING", "AUTO_REJECTED", "BELOW_THRESHOLD"],
+        undefined,
+        true
+      );
+
+      logger.info("Below threshold applications retrieved", {
+        count: result.applications.length,
+        total: result.total,
+        requestedBy: (req as any).user?.id
+      });
+
+      ResponseHelper.success(res, "Below threshold applications retrieved successfully", result);
+    } catch (error: any) {
+      logger.error("Error getting below threshold applications", { error: error.message });
+      ResponseHelper.error(res, `Failed to get below threshold applications: ${error.message}`, undefined, 500);
     }
   }
 

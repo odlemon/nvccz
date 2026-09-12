@@ -1,0 +1,2742 @@
+[
+  {
+    "id": "cmi0cr8600003uns836dq5g0v",
+    "transactionDate": "2025-11-15T13:58:31.861Z",
+    "referenceNumber": "CB-EBOXAP65",
+    "description": "Bank Receipt: Customer Payment - Invoice #INV-001",
+    "totalAmount": "5000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T13:58:37.848Z",
+    "updatedAt": "2025-11-19T02:45:55.914Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0cr9a80005uns8tdd9ic5g",
+        "journalEntryId": "cmi0cr8600003uns836dq5g0v",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "5000",
+        "creditAmount": "0",
+        "description": "Bank receipt: Customer Payment - Invoice #INV-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T13:58:39.296Z"
+      },
+      {
+        "id": "cmi0crb200007uns83mmhkx5g",
+        "journalEntryId": "cmi0cr8600003uns836dq5g0v",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "0",
+        "creditAmount": "5000",
+        "description": "Receipt from: Customer Payment - Invoice #INV-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T13:58:41.592Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0crk7h000duns8aci1w8b2",
+    "transactionDate": "2025-11-15T13:58:49.924Z",
+    "referenceNumber": "CB-8EGJEI1Z",
+    "description": "Bank Receipt: Miscellaneous Income - Service Fee",
+    "totalAmount": "1000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T13:58:53.454Z",
+    "updatedAt": "2025-11-19T02:45:57.799Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0crky6000funs8l52sgd1r",
+        "journalEntryId": "cmi0crk7h000duns8aci1w8b2",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "1000",
+        "creditAmount": "0",
+        "description": "Bank receipt: Miscellaneous Income - Service Fee",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T13:58:54.415Z"
+      },
+      {
+        "id": "cmi0crm0u000huns865dcz34z",
+        "journalEntryId": "cmi0crk7h000duns8aci1w8b2",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "0",
+        "creditAmount": "1000",
+        "description": "Receipt from: Miscellaneous Income - Service Fee",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T13:58:55.806Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0crq4f000juns8nespknqj",
+    "transactionDate": "2025-11-15T13:59:00.361Z",
+    "referenceNumber": "JE-ACC-001",
+    "description": "Accrued Revenue Recognition",
+    "totalAmount": "3000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "PENDING",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T13:59:01.119Z",
+    "updatedAt": "2025-11-15T13:59:01.119Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0crqu9000luns8zxbb104q",
+        "journalEntryId": "cmi0crq4f000juns8nespknqj",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "3000",
+        "creditAmount": "0",
+        "description": "Cash received for future services",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T13:59:02.047Z"
+      },
+      {
+        "id": "cmi0crrky000nuns86q32owtg",
+        "journalEntryId": "cmi0crq4f000juns8nespknqj",
+        "chartOfAccountId": "cmh3c1toy000dunxkn03z31zv",
+        "debitAmount": "0",
+        "creditAmount": "3000",
+        "description": "Revenue recognized",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T13:59:03.008Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0crt3p000puns8k9wx4ito",
+    "transactionDate": "2025-11-15T13:59:04.484Z",
+    "referenceNumber": "JE-ACC-002",
+    "description": "Accrued Expense - Utilities",
+    "totalAmount": "1500",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "PENDING",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T13:59:04.981Z",
+    "updatedAt": "2025-11-15T13:59:04.981Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0crtu7000runs81ath6ocq",
+        "journalEntryId": "cmi0crt3p000puns8k9wx4ito",
+        "chartOfAccountId": "cmhyk8kbq000dunmsghum03aw",
+        "debitAmount": "1500",
+        "creditAmount": "0",
+        "description": "Utilities expense accrued",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T13:59:05.933Z"
+      },
+      {
+        "id": "cmi0crukz000tuns8fpwpo48y",
+        "journalEntryId": "cmi0crt3p000puns8k9wx4ito",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "0",
+        "creditAmount": "1500",
+        "description": "Accounts payable",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T13:59:06.897Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0crwfp000vuns8ls8gmioc",
+    "transactionDate": "2025-11-15T13:59:08.757Z",
+    "referenceNumber": "JE-TRF-001",
+    "description": "Inventory Purchase - Cash",
+    "totalAmount": "2000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "PENDING",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T13:59:09.301Z",
+    "updatedAt": "2025-11-15T13:59:09.301Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0crxba000xuns8qc3t213l",
+        "journalEntryId": "cmi0crwfp000vuns8ls8gmioc",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "2000",
+        "creditAmount": "0",
+        "description": "Inventory purchased",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T13:59:10.433Z"
+      },
+      {
+        "id": "cmi0cry5u000zuns8rv25guyv",
+        "journalEntryId": "cmi0crwfp000vuns8ls8gmioc",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "0",
+        "creditAmount": "2000",
+        "description": "Cash paid for inventory",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T13:59:11.536Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0ctxr20003unwo2x2waxfy",
+    "transactionDate": "2025-11-15T14:00:39.207Z",
+    "referenceNumber": "CB-WW3XJF0I",
+    "description": "Bank Receipt: Customer Payment - Invoice #INV-001",
+    "totalAmount": "5000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:00:44.318Z",
+    "updatedAt": "2025-11-19T02:45:59.178Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0ctyzw0005unwow1f08pin",
+        "journalEntryId": "cmi0ctxr20003unwo2x2waxfy",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "5000",
+        "creditAmount": "0",
+        "description": "Bank receipt: Customer Payment - Invoice #INV-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:00:45.665Z"
+      },
+      {
+        "id": "cmi0cu0gj0007unwo9ypsekx3",
+        "journalEntryId": "cmi0ctxr20003unwo2x2waxfy",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "0",
+        "creditAmount": "5000",
+        "description": "Receipt from: Customer Payment - Invoice #INV-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:00:47.827Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0cu91q000dunwo83bgzosh",
+    "transactionDate": "2025-11-15T14:00:55.632Z",
+    "referenceNumber": "CB-75HDNFYX",
+    "description": "Bank Receipt: Miscellaneous Income - Service Fee",
+    "totalAmount": "1000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:00:58.958Z",
+    "updatedAt": "2025-11-19T02:46:00.438Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0cu9s4000funwo455qr91i",
+        "journalEntryId": "cmi0cu91q000dunwo83bgzosh",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "1000",
+        "creditAmount": "0",
+        "description": "Bank receipt: Miscellaneous Income - Service Fee",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:00:59.908Z"
+      },
+      {
+        "id": "cmi0cuav9000hunwo4dg5r9wc",
+        "journalEntryId": "cmi0cu91q000dunwo83bgzosh",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "0",
+        "creditAmount": "1000",
+        "description": "Receipt from: Miscellaneous Income - Service Fee",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:01:01.091Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0cw7ee000runwo7d3a2kup",
+    "transactionDate": "2025-11-15T14:02:26.806Z",
+    "referenceNumber": "CB-HAOS8HXX",
+    "description": "Bank Receipt: Customer Payment - Invoice #INV-001",
+    "totalAmount": "5000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:02:30.134Z",
+    "updatedAt": "2025-11-19T02:46:01.811Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0cw840000tunwoqcru3ycf",
+        "journalEntryId": "cmi0cw7ee000runwo7d3a2kup",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "5000",
+        "creditAmount": "0",
+        "description": "Bank receipt: Customer Payment - Invoice #INV-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:02:31.057Z"
+      },
+      {
+        "id": "cmi0cw913000vunwoqm5lq1gh",
+        "journalEntryId": "cmi0cw7ee000runwo7d3a2kup",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "0",
+        "creditAmount": "5000",
+        "description": "Receipt from: Customer Payment - Invoice #INV-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:02:32.248Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0cwh7i0011unwoyuvv9krs",
+    "transactionDate": "2025-11-15T14:02:39.016Z",
+    "referenceNumber": "CB-SN0FNVTU",
+    "description": "Bank Receipt: Miscellaneous Income - Service Fee",
+    "totalAmount": "1000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:02:42.846Z",
+    "updatedAt": "2025-11-19T02:46:02.947Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0cwi220013unwol4whxo1m",
+        "journalEntryId": "cmi0cwh7i0011unwoyuvv9krs",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "1000",
+        "creditAmount": "0",
+        "description": "Bank receipt: Miscellaneous Income - Service Fee",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:02:43.947Z"
+      },
+      {
+        "id": "cmi0cwiyv0015unwoss3q0uve",
+        "journalEntryId": "cmi0cwh7i0011unwoyuvv9krs",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "0",
+        "creditAmount": "1000",
+        "description": "Receipt from: Miscellaneous Income - Service Fee",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:02:45.127Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0dt5nh0003un00d9v5ooi8",
+    "transactionDate": "2025-01-15T00:00:00.000Z",
+    "referenceNumber": "CB-INYATSTA",
+    "description": "Bank Receipt: Management Fees - Q1 2025",
+    "totalAmount": "10000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:28:07.517Z",
+    "updatedAt": "2025-11-19T02:46:04.151Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0dt6rz0005un00y8m11gz5",
+        "journalEntryId": "cmi0dt5nh0003un00d9v5ooi8",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "10000",
+        "creditAmount": "0",
+        "description": "Bank receipt: Management Fees - Q1 2025",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:28:08.976Z"
+      },
+      {
+        "id": "cmi0dt7wf0007un00hcs4kh26",
+        "journalEntryId": "cmi0dt5nh0003un00d9v5ooi8",
+        "chartOfAccountId": "cmh3c1toy000dunxkn03z31zv",
+        "debitAmount": "0",
+        "creditAmount": "10000",
+        "description": "Receipt from: Management Fees - Q1 2025",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:28:10.431Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0dteh5000bun00c0ol88qb",
+    "transactionDate": "2025-02-10T00:00:00.000Z",
+    "referenceNumber": "CB-ZWDVCKDL",
+    "description": "Bank Receipt: Consulting Services Revenue",
+    "totalAmount": "7500",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:28:18.953Z",
+    "updatedAt": "2025-11-19T02:46:05.369Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0dtf6o000dun00sh41yre5",
+        "journalEntryId": "cmi0dteh5000bun00c0ol88qb",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "7500",
+        "creditAmount": "0",
+        "description": "Bank receipt: Consulting Services Revenue",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:28:19.872Z"
+      },
+      {
+        "id": "cmi0dtfx2000fun00q209qol3",
+        "journalEntryId": "cmi0dteh5000bun00c0ol88qb",
+        "chartOfAccountId": "cmh3c1toy000dunxkn03z31zv",
+        "debitAmount": "0",
+        "creditAmount": "7500",
+        "description": "Receipt from: Consulting Services Revenue",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:28:20.823Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0dtl33000jun00vgzmza4w",
+    "transactionDate": "2025-03-20T00:00:00.000Z",
+    "referenceNumber": "CB-P2HN25TL",
+    "description": "Bank Receipt: Investment Advisory Fees",
+    "totalAmount": "15000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:28:27.519Z",
+    "updatedAt": "2025-11-19T02:46:06.646Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0dtls9000lun00juvxs0fg",
+        "journalEntryId": "cmi0dtl33000jun00vgzmza4w",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "15000",
+        "creditAmount": "0",
+        "description": "Bank receipt: Investment Advisory Fees",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:28:28.425Z"
+      },
+      {
+        "id": "cmi0dtmi6000nun00beoh5c81",
+        "journalEntryId": "cmi0dtl33000jun00vgzmza4w",
+        "chartOfAccountId": "cmh3c1toy000dunxkn03z31zv",
+        "debitAmount": "0",
+        "creditAmount": "15000",
+        "description": "Receipt from: Investment Advisory Fees",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:28:29.358Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0dtrve000run00ibcdv5ca",
+    "transactionDate": "2025-01-05T00:00:00.000Z",
+    "referenceNumber": "CB-VTJDOZ39",
+    "description": "Bank Payment: Office Rent Payment",
+    "totalAmount": "2000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:28:36.314Z",
+    "updatedAt": "2025-11-19T02:46:07.795Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0dtskn000tun0054paq5pg",
+        "journalEntryId": "cmi0dtrve000run00ibcdv5ca",
+        "chartOfAccountId": "cmh3c1y3d000hunxkhw0e4ugk",
+        "debitAmount": "2000",
+        "creditAmount": "0",
+        "description": "Payment to: Office Rent Payment",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:28:37.223Z"
+      },
+      {
+        "id": "cmi0dtt9y000vun009tlsxqh8",
+        "journalEntryId": "cmi0dtrve000run00ibcdv5ca",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "0",
+        "creditAmount": "2000",
+        "description": "Bank payment: Office Rent Payment",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:28:38.135Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0dtyr6000zun00v9hsbl0l",
+    "transactionDate": "2025-02-05T00:00:00.000Z",
+    "referenceNumber": "CB-M3OGJLA8",
+    "description": "Bank Payment: Utilities Payment",
+    "totalAmount": "500",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:28:45.234Z",
+    "updatedAt": "2025-11-19T02:46:09.764Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0dtzhk0011un00g90xc4vf",
+        "journalEntryId": "cmi0dtyr6000zun00v9hsbl0l",
+        "chartOfAccountId": "cmh3c1y3d000hunxkhw0e4ugk",
+        "debitAmount": "500",
+        "creditAmount": "0",
+        "description": "Payment to: Utilities Payment",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:28:46.184Z"
+      },
+      {
+        "id": "cmi0du08e0013un00a4ldqyve",
+        "journalEntryId": "cmi0dtyr6000zun00v9hsbl0l",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "0",
+        "creditAmount": "500",
+        "description": "Bank payment: Utilities Payment",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:28:47.150Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0du69x0017un00msi5ygor",
+    "transactionDate": "2025-03-10T00:00:00.000Z",
+    "referenceNumber": "CB-3MPT63QI",
+    "description": "Bank Payment: Marketing Expenses",
+    "totalAmount": "3000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:28:54.980Z",
+    "updatedAt": "2025-11-19T02:46:11.439Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0du70b0019un00z6g3k57f",
+        "journalEntryId": "cmi0du69x0017un00msi5ygor",
+        "chartOfAccountId": "cmh3c1y3d000hunxkhw0e4ugk",
+        "debitAmount": "3000",
+        "creditAmount": "0",
+        "description": "Payment to: Marketing Expenses",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:28:55.931Z"
+      },
+      {
+        "id": "cmi0du7s1001bun00a142nw0n",
+        "journalEntryId": "cmi0du69x0017un00msi5ygor",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "0",
+        "creditAmount": "3000",
+        "description": "Bank payment: Marketing Expenses",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:28:56.929Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0dueyp001fun006255063z",
+    "transactionDate": "2025-01-20T00:00:00.000Z",
+    "referenceNumber": "JE-1763216946240-705",
+    "description": "Invoice: Management Fees Invoice - Client A",
+    "totalAmount": "13740",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "PENDING",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:29:06.242Z",
+    "updatedAt": "2025-11-15T14:29:06.242Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0duh0r001jun004iys235r",
+        "journalEntryId": "cmi0dueyp001fun006255063z",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "13740",
+        "creditAmount": "0",
+        "description": "Invoice: Management Fees Invoice - Client A",
+        "vatAmount": "0",
+        "createdAt": "2025-11-15T14:29:08.907Z"
+      },
+      {
+        "id": "cmi0dui1s001lun009degeuh7",
+        "journalEntryId": "cmi0dueyp001fun006255063z",
+        "chartOfAccountId": "cmh3c1toy000dunxkn03z31zv",
+        "debitAmount": "0",
+        "creditAmount": "12000",
+        "description": "Invoice: Management Fees Invoice - Client A",
+        "vatAmount": "0",
+        "createdAt": "2025-11-15T14:29:10.240Z"
+      },
+      {
+        "id": "cmi0duiqe001nun00af10nglu",
+        "journalEntryId": "cmi0dueyp001fun006255063z",
+        "chartOfAccountId": "cmh5u11iv0000unrorrlao9vo",
+        "debitAmount": "0",
+        "creditAmount": "1740",
+        "description": "VAT Output: Management Fees Invoice - Client A",
+        "vatAmount": "1740",
+        "createdAt": "2025-11-15T14:29:11.126Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0dupv4001tun002g1m8qf6",
+    "transactionDate": "2025-02-15T00:00:00.000Z",
+    "referenceNumber": "JE-1763216960367-704",
+    "description": "Invoice: Consulting Services Invoice - Client B",
+    "totalAmount": "9732.5",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "PENDING",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:29:20.369Z",
+    "updatedAt": "2025-11-15T14:29:20.369Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0duroe001xun00pm4qfw3y",
+        "journalEntryId": "cmi0dupv4001tun002g1m8qf6",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "9732.5",
+        "creditAmount": "0",
+        "description": "Invoice: Consulting Services Invoice - Client B",
+        "vatAmount": "0",
+        "createdAt": "2025-11-15T14:29:22.719Z"
+      },
+      {
+        "id": "cmi0dusm6001zun004zxgc8lk",
+        "journalEntryId": "cmi0dupv4001tun002g1m8qf6",
+        "chartOfAccountId": "cmh3c1toy000dunxkn03z31zv",
+        "debitAmount": "0",
+        "creditAmount": "8500",
+        "description": "Invoice: Consulting Services Invoice - Client B",
+        "vatAmount": "0",
+        "createdAt": "2025-11-15T14:29:23.934Z"
+      },
+      {
+        "id": "cmi0dutcu0021un007jvj1eni",
+        "journalEntryId": "cmi0dupv4001tun002g1m8qf6",
+        "chartOfAccountId": "cmh5u11iv0000unrorrlao9vo",
+        "debitAmount": "0",
+        "creditAmount": "1232.5",
+        "description": "VAT Output: Consulting Services Invoice - Client B",
+        "vatAmount": "1232.5",
+        "createdAt": "2025-11-15T14:29:24.894Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0dv3k70028un00docgzilq",
+    "transactionDate": "2025-01-31T00:00:00.000Z",
+    "referenceNumber": "JE-1763216978118-857",
+    "description": "Expense: Salaries and Wages - January 2025",
+    "totalAmount": "9160",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "PENDING",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:29:38.119Z",
+    "updatedAt": "2025-11-15T14:29:38.119Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0dv5tt002cun00ar8imoxk",
+        "journalEntryId": "cmi0dv3k70028un00docgzilq",
+        "chartOfAccountId": "cmh3c20ac000junxkr6yvvp3z",
+        "debitAmount": "8000",
+        "creditAmount": "0",
+        "description": "Expense: Salaries and Wages - January 2025",
+        "vatAmount": "0",
+        "createdAt": "2025-11-15T14:29:41.057Z"
+      },
+      {
+        "id": "cmi0dv6vt002eun00y2vbjndd",
+        "journalEntryId": "cmi0dv3k70028un00docgzilq",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "1160",
+        "creditAmount": "0",
+        "description": "VAT Input: Salaries and Wages - January 2025",
+        "vatAmount": "1160",
+        "createdAt": "2025-11-15T14:29:42.426Z"
+      },
+      {
+        "id": "cmi0dv7ol002gun0060iia5j2",
+        "journalEntryId": "cmi0dv3k70028un00docgzilq",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "0",
+        "creditAmount": "9160",
+        "description": "Cash and Cash Equivalents: Salaries and Wages - January 2025",
+        "vatAmount": "0",
+        "createdAt": "2025-11-15T14:29:43.461Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0dvho2002nun00e8oc2r10",
+    "transactionDate": "2025-02-20T00:00:00.000Z",
+    "referenceNumber": "JE-1763216996396-813",
+    "description": "Expense: Travel and Accommodation - Business Trip",
+    "totalAmount": "1717.5",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "PENDING",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:29:56.403Z",
+    "updatedAt": "2025-11-15T14:29:56.403Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0dvj14002run009yjrjqar",
+        "journalEntryId": "cmi0dvho2002nun00e8oc2r10",
+        "chartOfAccountId": "cmh3c24xe000nunxkra8jtwv7",
+        "debitAmount": "1500",
+        "creditAmount": "0",
+        "description": "Expense: Travel and Accommodation - Business Trip",
+        "vatAmount": "0",
+        "createdAt": "2025-11-15T14:29:58.168Z"
+      },
+      {
+        "id": "cmi0dvjpx002tun00om8mwtyn",
+        "journalEntryId": "cmi0dvho2002nun00e8oc2r10",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "217.5",
+        "creditAmount": "0",
+        "description": "VAT Input: Travel and Accommodation - Business Trip",
+        "vatAmount": "217.5",
+        "createdAt": "2025-11-15T14:29:59.061Z"
+      },
+      {
+        "id": "cmi0dvkf1002vun00695my718",
+        "journalEntryId": "cmi0dvho2002nun00e8oc2r10",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "0",
+        "creditAmount": "1717.5",
+        "description": "Cash and Cash Equivalents: Travel and Accommodation - Business Trip",
+        "vatAmount": "0",
+        "createdAt": "2025-11-15T14:29:59.966Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0dvyci0035un00hslz1six",
+    "transactionDate": "2025-03-15T00:00:00.000Z",
+    "referenceNumber": "JE-1763217018016-130",
+    "description": "Expense: Branding and Marketing Campaign",
+    "totalAmount": "4580",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "PENDING",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:30:18.018Z",
+    "updatedAt": "2025-11-15T14:30:18.018Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0dw0n40039un00h36ulcff",
+        "journalEntryId": "cmi0dvyci0035un00hslz1six",
+        "chartOfAccountId": "cmh3c23u3000munxk0gwmdm94",
+        "debitAmount": "4000",
+        "creditAmount": "0",
+        "description": "Expense: Branding and Marketing Campaign",
+        "vatAmount": "0",
+        "createdAt": "2025-11-15T14:30:20.992Z"
+      },
+      {
+        "id": "cmi0dw2p9003bun00te69fuo2",
+        "journalEntryId": "cmi0dvyci0035un00hslz1six",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "580",
+        "creditAmount": "0",
+        "description": "VAT Input: Branding and Marketing Campaign",
+        "vatAmount": "580",
+        "createdAt": "2025-11-15T14:30:23.446Z"
+      },
+      {
+        "id": "cmi0dw3i1003dun005xp3tl1f",
+        "journalEntryId": "cmi0dvyci0035un00hslz1six",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "0",
+        "creditAmount": "4580",
+        "description": "Cash and Cash Equivalents: Branding and Marketing Campaign",
+        "vatAmount": "0",
+        "createdAt": "2025-11-15T14:30:24.698Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0eddxc0001un5s8bhqarpu",
+    "transactionDate": "2025-11-15T14:43:51.356Z",
+    "referenceNumber": "CORR-CB-EBOXAP65",
+    "description": "CORRECTION: Move Customer Payment - Invoice #INV-001 from A/R to Revenue",
+    "totalAmount": "5000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:43:51.360Z",
+    "updatedAt": "2025-11-15T14:43:51.360Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0edf0n0003un5sfnd2o0bh",
+        "journalEntryId": "cmi0eddxc0001un5s8bhqarpu",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "5000",
+        "creditAmount": "0",
+        "description": "CORRECTION: Reverse incorrect A/R credit for Customer Payment - Invoice #INV-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:43:52.775Z"
+      },
+      {
+        "id": "cmi0edg2t0005un5skonemd6q",
+        "journalEntryId": "cmi0eddxc0001un5s8bhqarpu",
+        "chartOfAccountId": "cmh3c1toy000dunxkn03z31zv",
+        "debitAmount": "0",
+        "creditAmount": "5000",
+        "description": "CORRECTION: Credit Revenue for Customer Payment - Invoice #INV-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:43:54.149Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0edh5h0007un5sqw5ulpsb",
+    "transactionDate": "2025-11-15T14:43:55.538Z",
+    "referenceNumber": "CORR-CB-8EGJEI1Z",
+    "description": "CORRECTION: Move Miscellaneous Income - Service Fee from A/R to Revenue",
+    "totalAmount": "1000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:43:55.541Z",
+    "updatedAt": "2025-11-15T14:43:55.541Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0edhvc0009un5si0uze7fm",
+        "journalEntryId": "cmi0edh5h0007un5sqw5ulpsb",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "1000",
+        "creditAmount": "0",
+        "description": "CORRECTION: Reverse incorrect A/R credit for Miscellaneous Income - Service Fee",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:43:56.473Z"
+      },
+      {
+        "id": "cmi0edind000bun5s1es6cp1t",
+        "journalEntryId": "cmi0edh5h0007un5sqw5ulpsb",
+        "chartOfAccountId": "cmh3c1toy000dunxkn03z31zv",
+        "debitAmount": "0",
+        "creditAmount": "1000",
+        "description": "CORRECTION: Credit Revenue for Miscellaneous Income - Service Fee",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:43:57.481Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0edn3w000dun5sebuny5j5",
+    "transactionDate": "2025-11-15T14:44:02.416Z",
+    "referenceNumber": "CORR-CB-WW3XJF0I",
+    "description": "CORRECTION: Move Customer Payment - Invoice #INV-001 from A/R to Revenue",
+    "totalAmount": "5000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:44:02.418Z",
+    "updatedAt": "2025-11-15T14:44:02.418Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0edo5w000fun5s9sedvrct",
+        "journalEntryId": "cmi0edn3w000dun5sebuny5j5",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "5000",
+        "creditAmount": "0",
+        "description": "CORRECTION: Reverse incorrect A/R credit for Customer Payment - Invoice #INV-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:44:04.628Z"
+      },
+      {
+        "id": "cmi0edp74000hun5s75256yyi",
+        "journalEntryId": "cmi0edn3w000dun5sebuny5j5",
+        "chartOfAccountId": "cmh3c1toy000dunxkn03z31zv",
+        "debitAmount": "0",
+        "creditAmount": "5000",
+        "description": "CORRECTION: Credit Revenue for Customer Payment - Invoice #INV-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:44:05.968Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0edrdx000jun5stuaihwwp",
+    "transactionDate": "2025-11-15T14:44:08.803Z",
+    "referenceNumber": "CORR-CB-75HDNFYX",
+    "description": "CORRECTION: Move Miscellaneous Income - Service Fee from A/R to Revenue",
+    "totalAmount": "1000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:44:08.805Z",
+    "updatedAt": "2025-11-15T14:44:08.805Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0edsnj000lun5s1zq0v0v7",
+        "journalEntryId": "cmi0edrdx000jun5stuaihwwp",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "1000",
+        "creditAmount": "0",
+        "description": "CORRECTION: Reverse incorrect A/R credit for Miscellaneous Income - Service Fee",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:44:10.447Z"
+      },
+      {
+        "id": "cmi0edtfa000nun5shrmf37by",
+        "journalEntryId": "cmi0edrdx000jun5stuaihwwp",
+        "chartOfAccountId": "cmh3c1toy000dunxkn03z31zv",
+        "debitAmount": "0",
+        "creditAmount": "1000",
+        "description": "CORRECTION: Credit Revenue for Miscellaneous Income - Service Fee",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:44:11.446Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0edvhh000pun5sp25n3x9z",
+    "transactionDate": "2025-11-15T14:44:14.115Z",
+    "referenceNumber": "CORR-CB-HAOS8HXX",
+    "description": "CORRECTION: Move Customer Payment - Invoice #INV-001 from A/R to Revenue",
+    "totalAmount": "5000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:44:14.117Z",
+    "updatedAt": "2025-11-15T14:44:14.117Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0edwn2000run5suzaf96a4",
+        "journalEntryId": "cmi0edvhh000pun5sp25n3x9z",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "5000",
+        "creditAmount": "0",
+        "description": "CORRECTION: Reverse incorrect A/R credit for Customer Payment - Invoice #INV-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:44:15.615Z"
+      },
+      {
+        "id": "cmi0edyle000tun5sjy5dsswu",
+        "journalEntryId": "cmi0edvhh000pun5sp25n3x9z",
+        "chartOfAccountId": "cmh3c1toy000dunxkn03z31zv",
+        "debitAmount": "0",
+        "creditAmount": "5000",
+        "description": "CORRECTION: Credit Revenue for Customer Payment - Invoice #INV-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:44:18.147Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi0ee3d0000vun5s1gs5vq3t",
+    "transactionDate": "2025-11-15T14:44:24.323Z",
+    "referenceNumber": "CORR-CB-SN0FNVTU",
+    "description": "CORRECTION: Move Miscellaneous Income - Service Fee from A/R to Revenue",
+    "totalAmount": "1000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T14:44:24.324Z",
+    "updatedAt": "2025-11-15T14:44:24.324Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi0ee47c000xun5ssvpkist0",
+        "journalEntryId": "cmi0ee3d0000vun5s1gs5vq3t",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "1000",
+        "creditAmount": "0",
+        "description": "CORRECTION: Reverse incorrect A/R credit for Miscellaneous Income - Service Fee",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:44:25.417Z"
+      },
+      {
+        "id": "cmi0ee4zx000zun5s0cj3m665",
+        "journalEntryId": "cmi0ee3d0000vun5s1gs5vq3t",
+        "chartOfAccountId": "cmh3c1toy000dunxkn03z31zv",
+        "debitAmount": "0",
+        "creditAmount": "1000",
+        "description": "CORRECTION: Credit Revenue for Miscellaneous Income - Service Fee",
+        "vatAmount": null,
+        "createdAt": "2025-11-15T14:44:26.445Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi1njzl8002hunaoze7mlqgl",
+    "transactionDate": "2025-11-16T11:48:39.647Z",
+    "referenceNumber": "JE-1763293722089-247",
+    "description": "Expense: Purchase Invoice: PI-1763293711266-299 - ABC Supplies Ltd",
+    "totalAmount": "3850",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "PENDING",
+    "createdById": "cmi1gixxs0005unm8q6mgy9gn",
+    "createdAt": "2025-11-16T11:48:42.092Z",
+    "updatedAt": "2025-11-16T11:48:42.092Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi1nk14d002lunaoiq0ddbf1",
+        "journalEntryId": "cmi1njzl8002hunaoze7mlqgl",
+        "chartOfAccountId": "cmh3c1wzl000gunxkonvxbzmg",
+        "debitAmount": "3850",
+        "creditAmount": "0",
+        "description": "Expense: Purchase Invoice: PI-1763293711266-299 - ABC Supplies Ltd",
+        "vatAmount": "0",
+        "createdAt": "2025-11-16T11:48:44.077Z"
+      },
+      {
+        "id": "cmi1nk20o002nunaovxahfjw4",
+        "journalEntryId": "cmi1njzl8002hunaoze7mlqgl",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "0",
+        "creditAmount": "3850",
+        "description": "Accounts Payable: Purchase Invoice: PI-1763293711266-299 - ABC Supplies Ltd",
+        "vatAmount": "0",
+        "createdAt": "2025-11-16T11:48:45.240Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi1nk2xo002punaogzo5iyk2",
+    "transactionDate": "2025-11-16T11:48:39.647Z",
+    "referenceNumber": "VENDOR-PAY-PI-1763293711266-299",
+    "description": "Payment to ABC Supplies Ltd for Purchase Invoice PI-1763293711266-299",
+    "totalAmount": "3850",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmi1gixxs0005unm8q6mgy9gn",
+    "createdAt": "2025-11-16T11:48:46.428Z",
+    "updatedAt": "2025-11-16T11:48:46.428Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi1nk44k002tunaop7ccu3pi",
+        "journalEntryId": "cmi1nk2xo002punaogzo5iyk2",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "3850",
+        "creditAmount": "0",
+        "description": "Clear liability: Payment to ABC Supplies Ltd for Purchase Invoice PI-1763293711266-299",
+        "vatAmount": "0",
+        "createdAt": "2025-11-16T11:48:47.972Z"
+      },
+      {
+        "id": "cmi1nk4px002vunao3g35051z",
+        "journalEntryId": "cmi1nk2xo002punaogzo5iyk2",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "0",
+        "creditAmount": "3850",
+        "description": "Payment via Cash and Cash Equivalents - Ref: BANK-TXN-1763293719647",
+        "vatAmount": "0",
+        "createdAt": "2025-11-16T11:48:48.741Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi1p4zcl003aun7g181pqxd5",
+    "transactionDate": "2025-11-16T12:32:57.994Z",
+    "referenceNumber": "JE-1763296381172-324",
+    "description": "Expense: Purchase Invoice: INV-1763296369011-469 - ABC Supplies Ltd",
+    "totalAmount": "4140",
+    "currencyId": "default-currency",
+    "status": "PENDING",
+    "createdById": "cmi1giv140001unm8e66xumx6",
+    "createdAt": "2025-11-16T12:33:01.173Z",
+    "updatedAt": "2025-11-16T12:33:01.173Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi1p50va003eun7gfneg1rzx",
+        "journalEntryId": "cmi1p4zcl003aun7g181pqxd5",
+        "chartOfAccountId": "cmh3c1wzl000gunxkonvxbzmg",
+        "debitAmount": "3600",
+        "creditAmount": "0",
+        "description": "Expense: Purchase Invoice: INV-1763296369011-469 - ABC Supplies Ltd",
+        "vatAmount": "0",
+        "createdAt": "2025-11-16T12:33:03.142Z"
+      },
+      {
+        "id": "cmi1p51s5003gun7g1hgqvjjj",
+        "journalEntryId": "cmi1p4zcl003aun7g181pqxd5",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "540",
+        "creditAmount": "0",
+        "description": "VAT Input: Purchase Invoice: INV-1763296369011-469 - ABC Supplies Ltd",
+        "vatAmount": "540",
+        "createdAt": "2025-11-16T12:33:04.326Z"
+      },
+      {
+        "id": "cmi1p52dy003iun7g55h058ot",
+        "journalEntryId": "cmi1p4zcl003aun7g181pqxd5",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "0",
+        "creditAmount": "4140",
+        "description": "Accounts Payable: Purchase Invoice: INV-1763296369011-469 - ABC Supplies Ltd",
+        "vatAmount": "0",
+        "createdAt": "2025-11-16T12:33:05.111Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi1p53bo003kun7g3i3jgdwy",
+    "transactionDate": "2025-11-16T12:32:57.994Z",
+    "referenceNumber": "VENDOR-PAY-INV-1763296369011-469",
+    "description": "Payment to ABC Supplies Ltd for Purchase Invoice INV-1763296369011-469",
+    "totalAmount": "4140",
+    "currencyId": "default-currency",
+    "status": "POSTED",
+    "createdById": "cmi1giv140001unm8e66xumx6",
+    "createdAt": "2025-11-16T12:33:06.324Z",
+    "updatedAt": "2025-11-16T12:33:06.324Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi1p54jr003oun7gdg7qdjgk",
+        "journalEntryId": "cmi1p53bo003kun7g3i3jgdwy",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "4140",
+        "creditAmount": "0",
+        "description": "Clear liability: Payment to ABC Supplies Ltd for Purchase Invoice INV-1763296369011-469",
+        "vatAmount": "0",
+        "createdAt": "2025-11-16T12:33:07.911Z"
+      },
+      {
+        "id": "cmi1p555t003qun7glvs2drqw",
+        "journalEntryId": "cmi1p53bo003kun7g3i3jgdwy",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "0",
+        "creditAmount": "4140",
+        "description": "Payment via Cash and Cash Equivalents - Ref: PAY-1763296377994",
+        "vatAmount": "0",
+        "createdAt": "2025-11-16T12:33:08.705Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi2vlrja0003kz041innxnmz",
+    "transactionDate": "2025-11-17T00:00:00.000Z",
+    "referenceNumber": "CB-UD3VBGNO",
+    "description": "Bank Receipt: food",
+    "totalAmount": "20",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "VOID",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T08:21:48.070Z",
+    "updatedAt": "2025-11-19T02:46:12.864Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi2vlrz00005kz043do3h1qr",
+        "journalEntryId": "cmi2vlrja0003kz041innxnmz",
+        "chartOfAccountId": "cmh3c1hla0003unxk69gwl2qg",
+        "debitAmount": "20",
+        "creditAmount": "0",
+        "description": "Bank receipt: food",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T08:21:48.637Z"
+      },
+      {
+        "id": "cmi2vlseq0007kz04l03w0lzk",
+        "journalEntryId": "cmi2vlrja0003kz041innxnmz",
+        "chartOfAccountId": "cmh3c1hla0003unxk69gwl2qg",
+        "debitAmount": "0",
+        "creditAmount": "20",
+        "description": "Receipt from: food",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T08:21:49.203Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi2vmixb0001jr04j16y1jiy",
+    "transactionDate": "2025-11-17T08:22:23.566Z",
+    "referenceNumber": "VR-CB-UD3VBGNO",
+    "description": "REVERSAL of Journal Entry CB-UD3VBGNO: Bank Receipt: food",
+    "totalAmount": "20",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T08:22:23.567Z",
+    "updatedAt": "2025-11-19T02:46:14.109Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi2vmjd70003jr04wqeu2hi0",
+        "journalEntryId": "cmi2vmixb0001jr04j16y1jiy",
+        "chartOfAccountId": "cmh3c1hla0003unxk69gwl2qg",
+        "debitAmount": "0",
+        "creditAmount": "20",
+        "description": "REVERSAL: Bank receipt: food",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T08:22:24.139Z"
+      },
+      {
+        "id": "cmi2vmjt30005jr046ueemfy6",
+        "journalEntryId": "cmi2vmixb0001jr04j16y1jiy",
+        "chartOfAccountId": "cmh3c1hla0003unxk69gwl2qg",
+        "debitAmount": "20",
+        "creditAmount": "0",
+        "description": "REVERSAL: Receipt from: food",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T08:22:24.711Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi2vofv30003l804mml2zmh5",
+    "transactionDate": "2025-11-17T00:00:00.000Z",
+    "referenceNumber": "CB-SLNEHT7U",
+    "description": "Bank Receipt: food",
+    "totalAmount": "20",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T08:23:52.911Z",
+    "updatedAt": "2025-11-19T02:46:15.297Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi2vogb10005l8047ueh3klh",
+        "journalEntryId": "cmi2vofv30003l804mml2zmh5",
+        "chartOfAccountId": "cmh3c1hla0003unxk69gwl2qg",
+        "debitAmount": "20",
+        "creditAmount": "0",
+        "description": "Bank receipt: food",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T08:23:53.486Z"
+      },
+      {
+        "id": "cmi2vogwb0007l804is8xwleo",
+        "journalEntryId": "cmi2vofv30003l804mml2zmh5",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "0",
+        "creditAmount": "17",
+        "description": "Receipt from: food",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T08:23:54.252Z"
+      },
+      {
+        "id": "cmi2vohcb0009l8043hvj4ctd",
+        "journalEntryId": "cmi2vofv30003l804mml2zmh5",
+        "chartOfAccountId": "cmh5u11iv0000unrorrlao9vo",
+        "debitAmount": "0",
+        "creditAmount": "3",
+        "description": "VAT Output: food",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T08:23:54.827Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi2xncz70001l1041okrj1es",
+    "transactionDate": "2025-11-17T09:19:01.367Z",
+    "referenceNumber": "JE-1763371141746-610",
+    "description": "Payment: Payment for invoice: INV-2025-002",
+    "totalAmount": "9732.5",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "PENDING",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T09:19:01.747Z",
+    "updatedAt": "2025-11-17T09:19:01.747Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi2xndez0003l104b68v5r3g",
+        "journalEntryId": "cmi2xncz70001l1041okrj1es",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "9732.5",
+        "creditAmount": "0",
+        "description": "Payment: Payment for invoice: INV-2025-002",
+        "vatAmount": "0",
+        "createdAt": "2025-11-17T09:19:02.315Z"
+      },
+      {
+        "id": "cmi2xndup0005l104wn4y1gqr",
+        "journalEntryId": "cmi2xncz70001l1041okrj1es",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "0",
+        "creditAmount": "9732.5",
+        "description": "Payment: Payment for invoice: INV-2025-002",
+        "vatAmount": "0",
+        "createdAt": "2025-11-17T09:19:02.881Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi2zaccb0001l804v2n0iq9x",
+    "transactionDate": "2025-11-17T00:00:00.000Z",
+    "referenceNumber": "JE-202511-462794",
+    "description": "Fixes",
+    "totalAmount": "1000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T10:04:53.628Z",
+    "updatedAt": "2025-11-17T10:05:34.992Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi2zacs30003l804clymzriq",
+        "journalEntryId": "cmi2zaccb0001l804v2n0iq9x",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "1000",
+        "creditAmount": "0",
+        "description": "payable accounts",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T10:04:54.194Z"
+      },
+      {
+        "id": "cmi2zad7s0005l804tvnyggd9",
+        "journalEntryId": "cmi2zaccb0001l804v2n0iq9x",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "0",
+        "creditAmount": "1000",
+        "description": "cash",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T10:04:54.760Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi32tr8f0003jv04bssyh3qq",
+    "transactionDate": "2025-11-17T00:00:00.000Z",
+    "referenceNumber": "CB-JAD1YTU2",
+    "description": "Bank Receipt: Test",
+    "totalAmount": "300",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T11:43:58.239Z",
+    "updatedAt": "2025-11-19T02:46:16.504Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi32tro40005jv04rhuxfbiu",
+        "journalEntryId": "cmi32tr8f0003jv04bssyh3qq",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "300",
+        "creditAmount": "0",
+        "description": "Bank receipt: Test",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T11:43:58.805Z"
+      },
+      {
+        "id": "cmi32ts920007jv040amk1s46",
+        "journalEntryId": "cmi32tr8f0003jv04bssyh3qq",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "0",
+        "creditAmount": "255",
+        "description": "Receipt from: Test",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T11:43:59.559Z"
+      },
+      {
+        "id": "cmi32tsot0009jv04tsyxej4u",
+        "journalEntryId": "cmi32tr8f0003jv04bssyh3qq",
+        "chartOfAccountId": "cmh5u11iv0000unrorrlao9vo",
+        "debitAmount": "0",
+        "creditAmount": "45",
+        "description": "VAT Output: Test",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T11:44:00.126Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi34uu2u000pl404k57vnt52",
+    "transactionDate": "2025-11-17T00:00:00.000Z",
+    "referenceNumber": "ASSET-23933",
+    "description": "Asset acquisition: HP ",
+    "totalAmount": "500",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T12:40:47.815Z",
+    "updatedAt": "2025-11-17T12:40:47.815Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi34uuit000rl404rr5f38sf",
+        "journalEntryId": "cmi34uu2u000pl404k57vnt52",
+        "chartOfAccountId": "cmh3c1iok0004unxkw3l3xh96",
+        "debitAmount": "500",
+        "creditAmount": "0",
+        "description": "Asset acquisition: HP ",
+        "vatAmount": "0",
+        "createdAt": "2025-11-17T12:40:48.389Z"
+      },
+      {
+        "id": "cmi34uv43000tl404eq2sgnar",
+        "journalEntryId": "cmi34uu2u000pl404k57vnt52",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "0",
+        "creditAmount": "500",
+        "description": "Cash payment for asset: HP ",
+        "vatAmount": "0",
+        "createdAt": "2025-11-17T12:40:49.156Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi3557hw000xjs04dcn52kd9",
+    "transactionDate": "2025-11-14T00:00:00.000Z",
+    "referenceNumber": "CB-3CR1LGRO",
+    "description": "Bank Receipt: Customer Payment - Invoice #INV-001",
+    "totalAmount": "1500",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T12:48:51.665Z",
+    "updatedAt": "2025-11-19T02:46:17.672Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi3557yj000zjs04lts8809b",
+        "journalEntryId": "cmi3557hw000xjs04dcn52kd9",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "1500",
+        "creditAmount": "0",
+        "description": "Bank receipt: Customer Payment - Invoice #INV-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:48:52.364Z"
+      },
+      {
+        "id": "cmi3558kq0011js04f77rjqok",
+        "journalEntryId": "cmi3557hw000xjs04dcn52kd9",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "0",
+        "creditAmount": "1500",
+        "description": "Receipt from: Customer Payment - Invoice #INV-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:48:53.162Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi355a9o0013js04sca3qnqq",
+    "transactionDate": "2025-11-14T00:00:00.000Z",
+    "referenceNumber": "CB-56766204",
+    "description": "Bank Payment: GL Receipt - Share Capital",
+    "totalAmount": "5000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T12:48:55.357Z",
+    "updatedAt": "2025-11-19T02:46:18.911Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi355akt0015js043xwszryg",
+        "journalEntryId": "cmi355a9o0013js04sca3qnqq",
+        "chartOfAccountId": "cmh3c1pjh000aunxk58631u2t",
+        "debitAmount": "5000",
+        "creditAmount": "0",
+        "description": "Payment to: GL Receipt - Share Capital",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:48:55.757Z"
+      },
+      {
+        "id": "cmi355avx0017js04wpu9jq3l",
+        "journalEntryId": "cmi355a9o0013js04sca3qnqq",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "0",
+        "creditAmount": "5000",
+        "description": "Bank payment: GL Receipt - Share Capital",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:48:56.157Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi355c1k0019js04o2gtx459",
+    "transactionDate": "2025-11-14T00:00:00.000Z",
+    "referenceNumber": "CB-4XNI6CYJ",
+    "description": "Bank Payment: GL Payment - Rent",
+    "totalAmount": "1200",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T12:48:57.656Z",
+    "updatedAt": "2025-11-19T02:46:20.220Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi355cco001bjs040wa9n54i",
+        "journalEntryId": "cmi355c1k0019js04o2gtx459",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "1200",
+        "creditAmount": "0",
+        "description": "Payment to: GL Payment - Rent",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:48:58.057Z"
+      },
+      {
+        "id": "cmi355cns001djs04v459pp6r",
+        "journalEntryId": "cmi355c1k0019js04o2gtx459",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "0",
+        "creditAmount": "1200",
+        "description": "Bank payment: GL Payment - Rent",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:48:58.457Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi355dtf001fjs041ocdb3ur",
+    "transactionDate": "2025-11-14T00:00:00.000Z",
+    "referenceNumber": "CB-IIV80MJ6",
+    "description": "Bank Receipt: Customer Payment - Invoice #INV-002",
+    "totalAmount": "2200",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T12:48:59.956Z",
+    "updatedAt": "2025-11-19T02:46:21.590Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi355e4k001hjs046p8o6wgm",
+        "journalEntryId": "cmi355dtf001fjs041ocdb3ur",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "2200",
+        "creditAmount": "0",
+        "description": "Bank receipt: Customer Payment - Invoice #INV-002",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:49:00.357Z"
+      },
+      {
+        "id": "cmi355eik001jjs049edc8w1q",
+        "journalEntryId": "cmi355dtf001fjs041ocdb3ur",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "0",
+        "creditAmount": "2200",
+        "description": "Receipt from: Customer Payment - Invoice #INV-002",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:49:00.861Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi355fo9001ljs04yliwejwo",
+    "transactionDate": "2025-11-14T00:00:00.000Z",
+    "referenceNumber": "CB-4WSVGOZJ",
+    "description": "Bank Receipt: Customer Payment - Invoice #INV-003",
+    "totalAmount": "8500.75",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T12:49:02.361Z",
+    "updatedAt": "2025-11-19T02:46:23.192Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi355fze001njs04c1zjul8y",
+        "journalEntryId": "cmi355fo9001ljs04yliwejwo",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "8500.75",
+        "creditAmount": "0",
+        "description": "Bank receipt: Customer Payment - Invoice #INV-003",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:49:02.762Z"
+      },
+      {
+        "id": "cmi355gdb001pjs04zqml0h24",
+        "journalEntryId": "cmi355fo9001ljs04yliwejwo",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "0",
+        "creditAmount": "8500.75",
+        "description": "Receipt from: Customer Payment - Invoice #INV-003",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:49:03.263Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi355hj0001rjs042fza7zs5",
+    "transactionDate": "2025-11-14T00:00:00.000Z",
+    "referenceNumber": "CB-3PX20FDF",
+    "description": "Bank Payment: GL Receipt - Loan Received",
+    "totalAmount": "15000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T12:49:04.764Z",
+    "updatedAt": "2025-11-19T02:46:24.355Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi355hu5001tjs04c6adk27d",
+        "journalEntryId": "cmi355hj0001rjs042fza7zs5",
+        "chartOfAccountId": "cmh3c1pjh000aunxk58631u2t",
+        "debitAmount": "15000",
+        "creditAmount": "0",
+        "description": "Payment to: GL Receipt - Loan Received",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:49:05.165Z"
+      },
+      {
+        "id": "cmi355i59001vjs0409y8wrlf",
+        "journalEntryId": "cmi355hj0001rjs042fza7zs5",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "0",
+        "creditAmount": "15000",
+        "description": "Bank payment: GL Receipt - Loan Received",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:49:05.566Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi355jdo001xjs04tz9ejbmo",
+    "transactionDate": "2025-11-14T00:00:00.000Z",
+    "referenceNumber": "CB-IFYX38JX",
+    "description": "Bank Receipt: Customer Payment - Invoice #INV-004",
+    "totalAmount": "6750",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T12:49:07.165Z",
+    "updatedAt": "2025-11-19T02:46:25.567Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi355jos001zjs04de76n368",
+        "journalEntryId": "cmi355jdo001xjs04tz9ejbmo",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "6750",
+        "creditAmount": "0",
+        "description": "Bank receipt: Customer Payment - Invoice #INV-004",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:49:07.565Z"
+      },
+      {
+        "id": "cmi355k2p0021js04ckpths16",
+        "journalEntryId": "cmi355jdo001xjs04tz9ejbmo",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "0",
+        "creditAmount": "6750",
+        "description": "Receipt from: Customer Payment - Invoice #INV-004",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:49:08.066Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi355l8c0023js04nxpeepad",
+    "transactionDate": "2025-11-14T00:00:00.000Z",
+    "referenceNumber": "CB-76UW450N",
+    "description": "Bank Payment: GL Payment - Salaries",
+    "totalAmount": "12500",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T12:49:09.565Z",
+    "updatedAt": "2025-11-19T02:46:27.052Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi355ljh0025js049fvdf26y",
+        "journalEntryId": "cmi355l8c0023js04nxpeepad",
+        "chartOfAccountId": "cmhkhebv60008unf07fr14ts4",
+        "debitAmount": "12500",
+        "creditAmount": "0",
+        "description": "Payment to: GL Payment - Salaries",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:49:09.965Z"
+      },
+      {
+        "id": "cmi355lum0027js04artodrx3",
+        "journalEntryId": "cmi355l8c0023js04nxpeepad",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "0",
+        "creditAmount": "12500",
+        "description": "Bank payment: GL Payment - Salaries",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:49:10.366Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi355n090029js0432g2uy2f",
+    "transactionDate": "2025-11-14T00:00:00.000Z",
+    "referenceNumber": "CB-A25O7OY2",
+    "description": "Bank Receipt: Customer Payment - Invoice #INV-005",
+    "totalAmount": "950.25",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T12:49:11.866Z",
+    "updatedAt": "2025-11-19T02:46:28.439Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi355nbe002bjs04zuuwi7am",
+        "journalEntryId": "cmi355n090029js0432g2uy2f",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "950.25",
+        "creditAmount": "0",
+        "description": "Bank receipt: Customer Payment - Invoice #INV-005",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:49:12.266Z"
+      },
+      {
+        "id": "cmi355npa002djs04y4p7vxb2",
+        "journalEntryId": "cmi355n090029js0432g2uy2f",
+        "chartOfAccountId": "cmh3c1js20005unxkedzvrnex",
+        "debitAmount": "0",
+        "creditAmount": "950.25",
+        "description": "Receipt from: Customer Payment - Invoice #INV-005",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:49:12.767Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi355ouy002fjs04v0n4nug9",
+    "transactionDate": "2025-11-14T00:00:00.000Z",
+    "referenceNumber": "CB-6HUNHAGV",
+    "description": "Bank Payment: GL Receipt - Interest Income",
+    "totalAmount": "250.5",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-17T12:49:14.266Z",
+    "updatedAt": "2025-11-19T02:46:29.638Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi355p62002hjs045jbycyhg",
+        "journalEntryId": "cmi355ouy002fjs04v0n4nug9",
+        "chartOfAccountId": "cmh3c1slm000cunxkoexpcrn8",
+        "debitAmount": "250.5",
+        "creditAmount": "0",
+        "description": "Payment to: GL Receipt - Interest Income",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:49:14.667Z"
+      },
+      {
+        "id": "cmi355ph7002jjs047xp4v55f",
+        "journalEntryId": "cmi355ouy002fjs04v0n4nug9",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "0",
+        "creditAmount": "250.5",
+        "description": "Bank payment: GL Receipt - Interest Income",
+        "vatAmount": null,
+        "createdAt": "2025-11-17T12:49:15.067Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi49rg13000cuni0p8d2y9vt",
+    "transactionDate": "2025-11-18T07:45:33.000Z",
+    "referenceNumber": "PINV-CREDIT-PINV-2025-001",
+    "description": "Purchase Invoice - ABC Supplies Ltd - PINV-2025-001",
+    "totalAmount": "3220",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-18T07:45:53.894Z",
+    "updatedAt": "2025-11-18T07:45:53.894Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi49rg13000euni0yiygo6j0",
+        "journalEntryId": "cmi49rg13000cuni0p8d2y9vt",
+        "chartOfAccountId": "cmh3c1wzl000gunxkonvxbzmg",
+        "debitAmount": "2800",
+        "creditAmount": "0",
+        "description": "Expense - Updated: Test Purchase Invoice - Office Supplies and Equipment",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T07:45:53.894Z"
+      },
+      {
+        "id": "cmi49rg13000funi03spgx9e5",
+        "journalEntryId": "cmi49rg13000cuni0p8d2y9vt",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "420",
+        "creditAmount": "0",
+        "description": "VAT Input - PINV-2025-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T07:45:53.894Z"
+      },
+      {
+        "id": "cmi49rg13000guni0qzxzi003",
+        "journalEntryId": "cmi49rg13000cuni0p8d2y9vt",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "0",
+        "creditAmount": "3220",
+        "description": "Accounts Payable - ABC Supplies Ltd - PINV-2025-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T07:45:53.894Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi49rqrx000muni0ko4ptd6w",
+    "transactionDate": "2025-11-18T07:46:02.060Z",
+    "referenceNumber": "CB-AN406QXX",
+    "description": "Bank Payment: Payment for Purchase Invoice PINV-2025-001 - ABC Supplies Ltd",
+    "totalAmount": "3220",
+    "currencyId": "cmh3byol60001una4029pus8w",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-18T07:46:07.822Z",
+    "updatedAt": "2025-11-19T02:46:31.039Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi49rrdl000ouni06fo2w8e6",
+        "journalEntryId": "cmi49rqrx000muni0ko4ptd6w",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "3220",
+        "creditAmount": "0",
+        "description": "Payment to: Payment for Purchase Invoice PINV-2025-001 - ABC Supplies Ltd",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T07:46:08.602Z"
+      },
+      {
+        "id": "cmi49rsaa000quni0voqfjh02",
+        "journalEntryId": "cmi49rqrx000muni0ko4ptd6w",
+        "chartOfAccountId": "cmh3c1iok0004unxkw3l3xh96",
+        "debitAmount": "0",
+        "creditAmount": "3220",
+        "description": "Bank payment: Payment for Purchase Invoice PINV-2025-001 - ABC Supplies Ltd",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T07:46:09.778Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi49u15z0015uni0opkrjvdt",
+    "transactionDate": "2025-11-18T07:47:39.000Z",
+    "referenceNumber": "PINV-CREDIT-PINV-2025-002",
+    "description": "Purchase Invoice - ABC Supplies Ltd - PINV-2025-002",
+    "totalAmount": "3220",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-18T07:47:54.599Z",
+    "updatedAt": "2025-11-18T07:47:54.599Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi49u15z0017uni01von32fa",
+        "journalEntryId": "cmi49u15z0015uni0opkrjvdt",
+        "chartOfAccountId": "cmh3c1wzl000gunxkonvxbzmg",
+        "debitAmount": "2800",
+        "creditAmount": "0",
+        "description": "Expense - Updated: Test Purchase Invoice - Office Supplies and Equipment",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T07:47:54.599Z"
+      },
+      {
+        "id": "cmi49u15z0018uni0y11qtz0d",
+        "journalEntryId": "cmi49u15z0015uni0opkrjvdt",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "420",
+        "creditAmount": "0",
+        "description": "VAT Input - PINV-2025-002",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T07:47:54.599Z"
+      },
+      {
+        "id": "cmi49u15z0019uni0avr5jbvx",
+        "journalEntryId": "cmi49u15z0015uni0opkrjvdt",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "0",
+        "creditAmount": "3220",
+        "description": "Accounts Payable - ABC Supplies Ltd - PINV-2025-002",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T07:47:54.599Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi49ub99001funi0xd34rrq8",
+    "transactionDate": "2025-11-18T07:48:02.536Z",
+    "referenceNumber": "CB-B2LQ3WFO",
+    "description": "Bank Payment: Payment for Purchase Invoice PINV-2025-002 - ABC Supplies Ltd",
+    "totalAmount": "3220",
+    "currencyId": "cmh3byol60001una4029pus8w",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-18T07:48:07.677Z",
+    "updatedAt": "2025-11-19T02:46:32.269Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi49ubut001huni0eerciy4f",
+        "journalEntryId": "cmi49ub99001funi0xd34rrq8",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "3220",
+        "creditAmount": "0",
+        "description": "Payment to: Payment for Purchase Invoice PINV-2025-002 - ABC Supplies Ltd",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T07:48:08.453Z"
+      },
+      {
+        "id": "cmi49ucr6001juni00a46r0gb",
+        "journalEntryId": "cmi49ub99001funi0xd34rrq8",
+        "chartOfAccountId": "cmh3c1iok0004unxkw3l3xh96",
+        "debitAmount": "0",
+        "creditAmount": "3220",
+        "description": "Bank payment: Payment for Purchase Invoice PINV-2025-002 - ABC Supplies Ltd",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T07:48:09.618Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi4bxc2z0006unx8o2qoky8u",
+    "transactionDate": "2025-11-18T08:46:18.000Z",
+    "referenceNumber": "PINV-BANK-PINV-2025-003",
+    "description": "Purchase Invoice - ABC Supplies Ltd - PINV-2025-003",
+    "totalAmount": "1150",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-18T08:46:27.947Z",
+    "updatedAt": "2025-11-18T08:46:27.947Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi4bxc2z0008unx8vxy1m29j",
+        "journalEntryId": "cmi4bxc2z0006unx8o2qoky8u",
+        "chartOfAccountId": "cmh3c1wzl000gunxkonvxbzmg",
+        "debitAmount": "1000",
+        "creditAmount": "0",
+        "description": "Expense - Test Invoice BANK-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:46:27.947Z"
+      },
+      {
+        "id": "cmi4bxc2z0009unx88xm6ef9g",
+        "journalEntryId": "cmi4bxc2z0006unx8o2qoky8u",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "150",
+        "creditAmount": "0",
+        "description": "VAT Input - PINV-2025-003",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:46:27.947Z"
+      },
+      {
+        "id": "cmi4bxc2z000aunx8k7c5nlzm",
+        "journalEntryId": "cmi4bxc2z0006unx8o2qoky8u",
+        "chartOfAccountId": "cmh3c1iok0004unxkw3l3xh96",
+        "debitAmount": "0",
+        "creditAmount": "1150",
+        "description": "Office Equipment - ABC Supplies Ltd - PINV-2025-003",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:46:27.947Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi4bxnpd000junx8q2wg2n22",
+    "transactionDate": "2025-11-18T08:46:37.000Z",
+    "referenceNumber": "PINV-CASH-PINV-2025-004",
+    "description": "Purchase Invoice - ABC Supplies Ltd - PINV-2025-004",
+    "totalAmount": "1150",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-18T08:46:43.010Z",
+    "updatedAt": "2025-11-18T08:46:43.010Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi4bxnpe000lunx8thq7euuo",
+        "journalEntryId": "cmi4bxnpd000junx8q2wg2n22",
+        "chartOfAccountId": "cmh3c1wzl000gunxkonvxbzmg",
+        "debitAmount": "1000",
+        "creditAmount": "0",
+        "description": "Expense - Test Invoice CASH-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:46:43.010Z"
+      },
+      {
+        "id": "cmi4bxnpe000munx8blrq7ob8",
+        "journalEntryId": "cmi4bxnpd000junx8q2wg2n22",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "150",
+        "creditAmount": "0",
+        "description": "VAT Input - PINV-2025-004",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:46:43.010Z"
+      },
+      {
+        "id": "cmi4bxnpe000nunx85qtw5ek8",
+        "journalEntryId": "cmi4bxnpd000junx8q2wg2n22",
+        "chartOfAccountId": "cmh3c1hla0003unxk69gwl2qg",
+        "debitAmount": "0",
+        "creditAmount": "1150",
+        "description": "Petty Cash - ABC Supplies Ltd - PINV-2025-004",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:46:43.010Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi4bxvxy000wunx8ucoqrb52",
+    "transactionDate": "2025-11-18T08:46:48.000Z",
+    "referenceNumber": "PINV-CREDIT-PINV-2025-005",
+    "description": "Purchase Invoice - ABC Supplies Ltd - PINV-2025-005",
+    "totalAmount": "1150",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-18T08:46:53.686Z",
+    "updatedAt": "2025-11-18T08:46:53.686Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi4bxvxz000yunx8kunu24h3",
+        "journalEntryId": "cmi4bxvxy000wunx8ucoqrb52",
+        "chartOfAccountId": "cmh3c1wzl000gunxkonvxbzmg",
+        "debitAmount": "1000",
+        "creditAmount": "0",
+        "description": "Expense - Test Invoice CREDIT-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:46:53.686Z"
+      },
+      {
+        "id": "cmi4bxvxz000zunx8vraxg6yo",
+        "journalEntryId": "cmi4bxvxy000wunx8ucoqrb52",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "150",
+        "creditAmount": "0",
+        "description": "VAT Input - PINV-2025-005",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:46:53.686Z"
+      },
+      {
+        "id": "cmi4bxvxz0010unx8c1d5jmb5",
+        "journalEntryId": "cmi4bxvxy000wunx8ucoqrb52",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "0",
+        "creditAmount": "1150",
+        "description": "Accounts Payable - ABC Supplies Ltd - PINV-2025-005",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:46:53.686Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi4by4f20019unx8ekgcdrsn",
+    "transactionDate": "2025-11-18T08:47:00.000Z",
+    "referenceNumber": "PINV-CREDIT-PINV-2025-006",
+    "description": "Purchase Invoice - ABC Supplies Ltd - PINV-2025-006",
+    "totalAmount": "1150",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-18T08:47:04.670Z",
+    "updatedAt": "2025-11-18T08:47:04.670Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi4by4f2001bunx82r72nyse",
+        "journalEntryId": "cmi4by4f20019unx8ekgcdrsn",
+        "chartOfAccountId": "cmh3c1wzl000gunxkonvxbzmg",
+        "debitAmount": "1000",
+        "creditAmount": "0",
+        "description": "Expense - Test Invoice CREDIT-BANK-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:47:04.670Z"
+      },
+      {
+        "id": "cmi4by4f2001cunx80q3tcd1s",
+        "journalEntryId": "cmi4by4f20019unx8ekgcdrsn",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "150",
+        "creditAmount": "0",
+        "description": "VAT Input - PINV-2025-006",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:47:04.670Z"
+      },
+      {
+        "id": "cmi4by4f2001dunx8mi8x7jus",
+        "journalEntryId": "cmi4by4f20019unx8ekgcdrsn",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "0",
+        "creditAmount": "1150",
+        "description": "Accounts Payable - ABC Supplies Ltd - PINV-2025-006",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:47:04.670Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi4byaqq001junx8qfi0bu6h",
+    "transactionDate": "2025-11-18T08:47:08.280Z",
+    "referenceNumber": "CB-OV5TE9VW",
+    "description": "Bank Payment: Payment for Purchase Invoice PINV-2025-006 - ABC Supplies Ltd",
+    "totalAmount": "1150",
+    "currencyId": "cmh3byol60001una4029pus8w",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-18T08:47:12.866Z",
+    "updatedAt": "2025-11-19T02:46:33.763Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi4bybct001lunx8nn641x1k",
+        "journalEntryId": "cmi4byaqq001junx8qfi0bu6h",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "1150",
+        "creditAmount": "0",
+        "description": "Payment to: Payment for Purchase Invoice PINV-2025-006 - ABC Supplies Ltd",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:47:13.661Z"
+      },
+      {
+        "id": "cmi4byc9k001nunx8rbwdt1r0",
+        "journalEntryId": "cmi4byaqq001junx8qfi0bu6h",
+        "chartOfAccountId": "cmh3c1iok0004unxkw3l3xh96",
+        "debitAmount": "0",
+        "creditAmount": "1150",
+        "description": "Bank payment: Payment for Purchase Invoice PINV-2025-006 - ABC Supplies Ltd",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:47:14.840Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi4byqbw001wunx8x31pdaqj",
+    "transactionDate": "2025-11-18T08:47:27.000Z",
+    "referenceNumber": "PINV-CREDIT-PINV-2025-007",
+    "description": "Purchase Invoice - ABC Supplies Ltd - PINV-2025-007",
+    "totalAmount": "1150",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-18T08:47:33.069Z",
+    "updatedAt": "2025-11-18T08:47:33.069Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi4byqbw001yunx81p6qc1sr",
+        "journalEntryId": "cmi4byqbw001wunx8x31pdaqj",
+        "chartOfAccountId": "cmh3c1wzl000gunxkonvxbzmg",
+        "debitAmount": "1000",
+        "creditAmount": "0",
+        "description": "Expense - Test Invoice CREDIT-CASH-001",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:47:33.069Z"
+      },
+      {
+        "id": "cmi4byqbw001zunx897wtqgvz",
+        "journalEntryId": "cmi4byqbw001wunx8x31pdaqj",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "150",
+        "creditAmount": "0",
+        "description": "VAT Input - PINV-2025-007",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:47:33.069Z"
+      },
+      {
+        "id": "cmi4byqbw0020unx8f5c446oo",
+        "journalEntryId": "cmi4byqbw001wunx8x31pdaqj",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "0",
+        "creditAmount": "1150",
+        "description": "Accounts Payable - ABC Supplies Ltd - PINV-2025-007",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:47:33.069Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi4byw490026unx8ekiuzp24",
+    "transactionDate": "2025-11-18T08:47:36.601Z",
+    "referenceNumber": "CB-AQGTEUMW",
+    "description": "Bank Payment: Payment for Purchase Invoice PINV-2025-007 - ABC Supplies Ltd",
+    "totalAmount": "1150",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-18T08:47:40.569Z",
+    "updatedAt": "2025-11-19T02:46:34.968Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi4bywpr0028unx80zg1gc1s",
+        "journalEntryId": "cmi4byw490026unx8ekiuzp24",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "1150",
+        "creditAmount": "0",
+        "description": "Payment to: Payment for Purchase Invoice PINV-2025-007 - ABC Supplies Ltd",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:47:41.343Z"
+      },
+      {
+        "id": "cmi4byxbh002aunx88vialrgg",
+        "journalEntryId": "cmi4byw490026unx8ekiuzp24",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "0",
+        "creditAmount": "1150",
+        "description": "Bank payment: Payment for Purchase Invoice PINV-2025-007 - ABC Supplies Ltd",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T08:47:42.125Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi4e7sm70005l204oq2dfcqd",
+    "transactionDate": "2025-11-18T00:00:00.000Z",
+    "referenceNumber": "CB-ZEAY2C7Y",
+    "description": "Bank Payment: Fund Disbursement - Brighter Days - $40,000",
+    "totalAmount": "40000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhna8vux0003ih045jy1oyhr",
+    "createdAt": "2025-11-18T09:50:35.168Z",
+    "updatedAt": "2025-11-19T02:36:29.911Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi4e7t2r0007l204lwqpyv50",
+        "journalEntryId": "cmi4e7sm70005l204oq2dfcqd",
+        "chartOfAccountId": "cmhn68vq90000unckhv9j4vf4",
+        "debitAmount": "40000",
+        "creditAmount": "0",
+        "description": "Payment to: Fund Disbursement - Brighter Days - $40,000",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T09:50:35.764Z"
+      },
+      {
+        "id": "cmi4e7tjb0009l204atdb64d8",
+        "journalEntryId": "cmi4e7sm70005l204oq2dfcqd",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "0",
+        "creditAmount": "40000",
+        "description": "Bank payment: Fund Disbursement - Brighter Days - $40,000",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T09:50:36.359Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi4ekftd0001kw04uxm1ohb9",
+    "transactionDate": "2025-01-15T00:00:00.000Z",
+    "referenceNumber": "PINV-CREDIT-PINV-2025-008",
+    "description": "Purchase Invoice - ABC Supplies Ltd - PINV-2025-008",
+    "totalAmount": "8625",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-18T10:00:25.105Z",
+    "updatedAt": "2025-11-18T10:00:25.105Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi4ekftd0003kw044o20i2x9",
+        "journalEntryId": "cmi4ekftd0001kw04uxm1ohb9",
+        "chartOfAccountId": "cmh3c1y3d000hunxkhw0e4ugk",
+        "debitAmount": "7500",
+        "creditAmount": "0",
+        "description": "Expense - Office Supplies Purchase",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T10:00:25.105Z"
+      },
+      {
+        "id": "cmi4ekftd0004kw04sm8evqpj",
+        "journalEntryId": "cmi4ekftd0001kw04uxm1ohb9",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "1125",
+        "creditAmount": "0",
+        "description": "VAT Input - PINV-2025-008",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T10:00:25.105Z"
+      },
+      {
+        "id": "cmi4ekftd0005kw04dnpqnup7",
+        "journalEntryId": "cmi4ekftd0001kw04uxm1ohb9",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "0",
+        "creditAmount": "8625",
+        "description": "Accounts Payable - ABC Supplies Ltd - PINV-2025-008",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T10:00:25.105Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi4f2n2c0003l704rsj5o6sa",
+    "transactionDate": "2025-01-20T00:00:00.000Z",
+    "referenceNumber": "CB-SFEANVKK",
+    "description": "Bank Payment: Payment for Purchase Invoice PINV-2025-008 - ABC Supplies Ltd",
+    "totalAmount": "8625",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-18T10:14:34.308Z",
+    "updatedAt": "2025-11-19T02:46:36.149Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi4f2nj40005l704n1gtwban",
+        "journalEntryId": "cmi4f2n2c0003l704rsj5o6sa",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "8625",
+        "creditAmount": "0",
+        "description": "Payment to: Payment for Purchase Invoice PINV-2025-008 - ABC Supplies Ltd",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T10:14:34.912Z"
+      },
+      {
+        "id": "cmi4f2nzv0007l704i7y4nocl",
+        "journalEntryId": "cmi4f2n2c0003l704rsj5o6sa",
+        "chartOfAccountId": "cmhylibkh000zuny0n2lfylxg",
+        "debitAmount": "0",
+        "creditAmount": "8625",
+        "description": "Bank payment: Payment for Purchase Invoice PINV-2025-008 - ABC Supplies Ltd",
+        "vatAmount": null,
+        "createdAt": "2025-11-18T10:14:35.516Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi5ty7nl0007k104d5sreteb",
+    "transactionDate": "2025-11-19T00:00:00.000Z",
+    "referenceNumber": "CB-YS7O4CB3",
+    "description": "Bank Payment: Fund Disbursement - Express Expresso - $30,000",
+    "totalAmount": "30000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhna8vux0003ih045jy1oyhr",
+    "createdAt": "2025-11-19T09:58:48.129Z",
+    "updatedAt": "2025-11-19T09:58:51.410Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi5ty8460009k104ch9uad22",
+        "journalEntryId": "cmi5ty7nl0007k104d5sreteb",
+        "chartOfAccountId": "cmhn68vq90000unckhv9j4vf4",
+        "debitAmount": "30000",
+        "creditAmount": "0",
+        "description": "Payment to: Fund Disbursement - Express Expresso - $30,000",
+        "vatAmount": null,
+        "createdAt": "2025-11-19T09:58:48.726Z"
+      },
+      {
+        "id": "cmi5ty8kq000bk104ch9ogir2",
+        "journalEntryId": "cmi5ty7nl0007k104d5sreteb",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "0",
+        "creditAmount": "30000",
+        "description": "Bank payment: Fund Disbursement - Express Expresso - $30,000",
+        "vatAmount": null,
+        "createdAt": "2025-11-19T09:58:49.323Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi7hsrj00009kz04scztwwq4",
+    "transactionDate": "2025-01-15T00:00:00.000Z",
+    "referenceNumber": "CB-9NEPRLBD",
+    "description": "Bank Payment: Fund Disbursement - LY - $5,000",
+    "totalAmount": "5000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmi79ai1m0008jx0445tsb81a",
+    "createdAt": "2025-11-20T13:54:10.908Z",
+    "updatedAt": "2025-11-20T13:54:14.035Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi7hsryt000bkz04jd5mckr1",
+        "journalEntryId": "cmi7hsrj00009kz04scztwwq4",
+        "chartOfAccountId": "cmhn68vq90000unckhv9j4vf4",
+        "debitAmount": "5000",
+        "creditAmount": "0",
+        "description": "Payment to: Fund Disbursement - LY - $5,000",
+        "vatAmount": null,
+        "createdAt": "2025-11-20T13:54:11.477Z"
+      },
+      {
+        "id": "cmi7hssel000dkz044i406kjm",
+        "journalEntryId": "cmi7hsrj00009kz04scztwwq4",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "0",
+        "creditAmount": "5000",
+        "description": "Bank payment: Fund Disbursement - LY - $5,000",
+        "vatAmount": null,
+        "createdAt": "2025-11-20T13:54:12.046Z"
+      }
+    ]
+  },
+  {
+    "id": "cmi8e5a240005jm0460cx14sf",
+    "transactionDate": "2025-11-21T04:58:50.602Z",
+    "referenceNumber": "CB-7160YQPX",
+    "description": "Bank Payment: Fund Disbursement - LY - $3,290",
+    "totalAmount": "3290",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-21T04:59:42.509Z",
+    "updatedAt": "2025-11-21T04:59:45.622Z",
+    "journalEntryLines": [
+      {
+        "id": "cmi8e5ahv0007jm04tp6yv8k0",
+        "journalEntryId": "cmi8e5a240005jm0460cx14sf",
+        "chartOfAccountId": "cmhn68vq90000unckhv9j4vf4",
+        "debitAmount": "3290",
+        "creditAmount": "0",
+        "description": "Payment to: Fund Disbursement - LY - $3,290",
+        "vatAmount": null,
+        "createdAt": "2025-11-21T04:59:43.075Z"
+      },
+      {
+        "id": "cmi8e5axm0009jm04t4p7tdaa",
+        "journalEntryId": "cmi8e5a240005jm0460cx14sf",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "0",
+        "creditAmount": "3290",
+        "description": "Bank payment: Fund Disbursement - LY - $3,290",
+        "vatAmount": null,
+        "createdAt": "2025-11-21T04:59:43.642Z"
+      }
+    ]
+  },
+  {
+    "id": "cmift4ldt000djr04c91dv4j3",
+    "transactionDate": "2027-01-30T22:00:00.000Z",
+    "referenceNumber": "PAYROLL-JANUARY-2027",
+    "description": "Payroll Journal - Gross Pay: January 2027 payrun (January 2027)",
+    "totalAmount": "2000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-26T09:33:28.001Z",
+    "updatedAt": "2025-11-26T09:33:28.001Z",
+    "journalEntryLines": [
+      {
+        "id": "cmift4ltn000fjr04tjiu3nk9",
+        "journalEntryId": "cmift4ldt000djr04c91dv4j3",
+        "chartOfAccountId": "cmh3c1y3d000hunxkhw0e4ugk",
+        "debitAmount": "2000",
+        "creditAmount": "0",
+        "description": "Gross Pay Expense: January 2027",
+        "vatAmount": "0",
+        "createdAt": "2025-11-26T09:33:28.572Z"
+      },
+      {
+        "id": "cmift4m9j000hjr0473s4lnms",
+        "journalEntryId": "cmift4ldt000djr04c91dv4j3",
+        "chartOfAccountId": "cmhkhebv60008unf07fr14ts4",
+        "debitAmount": "0",
+        "creditAmount": "2000",
+        "description": "Net Wages Payable: January 2027",
+        "vatAmount": "0",
+        "createdAt": "2025-11-26T09:33:29.143Z"
+      }
+    ]
+  },
+  {
+    "id": "cmik2sil30001jj046b91mrqa",
+    "transactionDate": "2025-10-14T10:00:00.000Z",
+    "referenceNumber": "EXP-1764407705366-INV-1764400678118-25",
+    "description": "Expense: Purchase Invoice: INV-1764400678118-255 - Vexima Games Ltd",
+    "totalAmount": "9228.7",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "PENDING",
+    "createdById": "cmi1giv140001unm8e66xumx6",
+    "createdAt": "2025-11-29T09:15:05.367Z",
+    "updatedAt": "2025-11-29T09:15:05.367Z",
+    "journalEntryLines": [
+      {
+        "id": "cmik2sjgs0005jj046vbof5r3",
+        "journalEntryId": "cmik2sil30001jj046b91mrqa",
+        "chartOfAccountId": "cmh3c1wzl000gunxkonvxbzmg",
+        "debitAmount": "8060",
+        "creditAmount": "0",
+        "description": "Expense: Purchase Invoice: INV-1764400678118-255 - Vexima Games Ltd",
+        "vatAmount": "0",
+        "createdAt": "2025-11-29T09:15:06.508Z"
+      },
+      {
+        "id": "cmik2sjwj0007jj04jf0svuha",
+        "journalEntryId": "cmik2sil30001jj046b91mrqa",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "1168.7",
+        "creditAmount": "0",
+        "description": "VAT Input: Purchase Invoice: INV-1764400678118-255 - Vexima Games Ltd",
+        "vatAmount": "1168.7",
+        "createdAt": "2025-11-29T09:15:07.075Z"
+      },
+      {
+        "id": "cmik2sk710009jj041tcyb4ss",
+        "journalEntryId": "cmik2sil30001jj046b91mrqa",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "0",
+        "creditAmount": "9228.7",
+        "description": "Accounts Payable: Purchase Invoice: INV-1764400678118-255 - Vexima Games Ltd",
+        "vatAmount": "0",
+        "createdAt": "2025-11-29T09:15:07.453Z"
+      }
+    ]
+  },
+  {
+    "id": "cmik2skpj000bjj045kol4vsa",
+    "transactionDate": "2025-10-14T10:00:00.000Z",
+    "referenceNumber": "VENDOR-PAY-1764407708118-INV-1764400678118-25",
+    "description": "Payment to Vexima Games Ltd for Purchase Invoice INV-1764400678118-255",
+    "totalAmount": "5725",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmi1giv140001unm8e66xumx6",
+    "createdAt": "2025-11-29T09:15:08.120Z",
+    "updatedAt": "2025-11-29T09:15:08.120Z",
+    "journalEntryLines": [
+      {
+        "id": "cmik2slan000fjj041nq2xu5z",
+        "journalEntryId": "cmik2skpj000bjj045kol4vsa",
+        "chartOfAccountId": "cmh3c1lz10007unxk517i1ffj",
+        "debitAmount": "5725",
+        "creditAmount": "0",
+        "description": "Clear liability: Payment to Vexima Games Ltd for Purchase Invoice INV-1764400678118-255",
+        "vatAmount": "0",
+        "createdAt": "2025-11-29T09:15:08.879Z"
+      },
+      {
+        "id": "cmik2sll6000hjj04plt138tn",
+        "journalEntryId": "cmik2skpj000bjj045kol4vsa",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "0",
+        "creditAmount": "5725",
+        "description": "Payment via Main Bank Account - USD - Ref: TXN-12345-2025",
+        "vatAmount": "0",
+        "createdAt": "2025-11-29T09:15:09.258Z"
+      }
+    ]
+  },
+  {
+    "id": "cmilm24nn0001la04yuhz197u",
+    "transactionDate": "2025-11-30T11:02:12.754Z",
+    "referenceNumber": "BUDGET-cmiliswzv0001l804q64g8rdu-1764500532754",
+    "description": "Event Budget Allocation: Updated Event Title",
+    "totalAmount": "48000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmi1giv140001unm8e66xumx6",
+    "createdAt": "2025-11-30T11:02:12.755Z",
+    "updatedAt": "2025-11-30T11:02:12.755Z",
+    "journalEntryLines": [
+      {
+        "id": "cmilm258x0003la04l4pxzc4v",
+        "journalEntryId": "cmilm24nn0001la04yuhz197u",
+        "chartOfAccountId": "cmilltw880000unhguuarlys9",
+        "debitAmount": "48000",
+        "creditAmount": "0",
+        "description": "Event Budget Allocation: Updated Event Title",
+        "vatAmount": "0",
+        "createdAt": "2025-11-30T11:02:13.521Z"
+      },
+      {
+        "id": "cmilm25rj0005la04yrtrxxgj",
+        "journalEntryId": "cmilm24nn0001la04yuhz197u",
+        "chartOfAccountId": "cmilltxdg0001unhgre7k7g1s",
+        "debitAmount": "0",
+        "creditAmount": "48000",
+        "description": "Budget allocation from cash/bank for event: Updated Event Title",
+        "vatAmount": "0",
+        "createdAt": "2025-11-30T11:02:14.191Z"
+      }
+    ]
+  },
+  {
+    "id": "cmilmt72b0003l8043yjm13me",
+    "transactionDate": "2025-12-15T12:00:00.000Z",
+    "referenceNumber": "EXP-1764501795586-REC-001",
+    "description": "Expense: Event Expense: Catering services for lunch (Event: Updated Event Title)",
+    "totalAmount": "5725",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "PENDING",
+    "createdById": "cmi1giv140001unm8e66xumx6",
+    "createdAt": "2025-11-30T11:23:15.587Z",
+    "updatedAt": "2025-11-30T11:23:15.587Z",
+    "journalEntryLines": [
+      {
+        "id": "cmilmt7ze0007l804a4x34p48",
+        "journalEntryId": "cmilmt72b0003l8043yjm13me",
+        "chartOfAccountId": "cmh3c1wzl000gunxkonvxbzmg",
+        "debitAmount": "5000",
+        "creditAmount": "0",
+        "description": "Expense: Event Expense: Catering services for lunch (Event: Updated Event Title)",
+        "vatAmount": "0",
+        "createdAt": "2025-11-30T11:23:16.778Z"
+      },
+      {
+        "id": "cmilmt8fw0009l804v0hymidi",
+        "journalEntryId": "cmilmt72b0003l8043yjm13me",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "725",
+        "creditAmount": "0",
+        "description": "VAT Input: Event Expense: Catering services for lunch (Event: Updated Event Title)",
+        "vatAmount": "725",
+        "createdAt": "2025-11-30T11:23:17.372Z"
+      },
+      {
+        "id": "cmilmt8qy000bl8048bz30i0i",
+        "journalEntryId": "cmilmt72b0003l8043yjm13me",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "0",
+        "creditAmount": "5725",
+        "description": "Cash and Cash Equivalents: Event Expense: Catering services for lunch (Event: Updated Event Title)",
+        "vatAmount": "0",
+        "createdAt": "2025-11-30T11:23:17.770Z"
+      }
+    ]
+  },
+  {
+    "id": "cminb9r0y0003l104nb8yls23",
+    "transactionDate": "2025-12-30T00:00:00.000Z",
+    "referenceNumber": "CB-G9MCZ4JV",
+    "description": "Bank Payment: Fund Disbursement - Rug Tufting - $1,000",
+    "totalAmount": "1000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhoseslf0001i904af133qul",
+    "createdAt": "2025-12-01T15:35:44.914Z",
+    "updatedAt": "2025-12-01T15:35:48.196Z",
+    "journalEntryLines": [
+      {
+        "id": "cminb9rhi0005l104fm2p2xbh",
+        "journalEntryId": "cminb9r0y0003l104nb8yls23",
+        "chartOfAccountId": "cmhn68vq90000unckhv9j4vf4",
+        "debitAmount": "1000",
+        "creditAmount": "0",
+        "description": "Payment to: Fund Disbursement - Rug Tufting - $1,000",
+        "vatAmount": null,
+        "createdAt": "2025-12-01T15:35:45.510Z"
+      },
+      {
+        "id": "cminb9ry40007l1046fixrt6e",
+        "journalEntryId": "cminb9r0y0003l104nb8yls23",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "0",
+        "creditAmount": "1000",
+        "description": "Bank payment: Fund Disbursement - Rug Tufting - $1,000",
+        "vatAmount": null,
+        "createdAt": "2025-12-01T15:35:46.109Z"
+      }
+    ]
+  },
+  {
+    "id": "cmio8mym90003ld04pmlpgt1q",
+    "transactionDate": "2025-12-27T00:00:00.000Z",
+    "referenceNumber": "CB-IJ243756",
+    "description": "Bank Payment: Fund Disbursement - Rug Tufting - $500",
+    "totalAmount": "500",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhoseslf0001i904af133qul",
+    "createdAt": "2025-12-02T07:09:48.610Z",
+    "updatedAt": "2025-12-02T07:09:51.816Z",
+    "journalEntryLines": [
+      {
+        "id": "cmio8mz200005ld04ryjp0cy0",
+        "journalEntryId": "cmio8mym90003ld04pmlpgt1q",
+        "chartOfAccountId": "cmhn68vq90000unckhv9j4vf4",
+        "debitAmount": "500",
+        "creditAmount": "0",
+        "description": "Payment to: Fund Disbursement - Rug Tufting - $500",
+        "vatAmount": null,
+        "createdAt": "2025-12-02T07:09:49.176Z"
+      },
+      {
+        "id": "cmio8mzhq0007ld04hf9noeue",
+        "journalEntryId": "cmio8mym90003ld04pmlpgt1q",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "0",
+        "creditAmount": "500",
+        "description": "Bank payment: Fund Disbursement - Rug Tufting - $500",
+        "vatAmount": null,
+        "createdAt": "2025-12-02T07:09:49.742Z"
+      }
+    ]
+  },
+  {
+    "id": "cmio9360m0003l80480bbmna5",
+    "transactionDate": "2025-12-08T00:00:00.000Z",
+    "referenceNumber": "CB-RRQWTY9L",
+    "description": "Bank Payment: Fund Disbursement - Rug Tufting - $1,300",
+    "totalAmount": "1300",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhoseslf0001i904af133qul",
+    "createdAt": "2025-12-02T07:22:24.695Z",
+    "updatedAt": "2025-12-02T07:22:28.053Z",
+    "journalEntryLines": [
+      {
+        "id": "cmio936h30005l804x5cfa3co",
+        "journalEntryId": "cmio9360m0003l80480bbmna5",
+        "chartOfAccountId": "cmhn68vq90000unckhv9j4vf4",
+        "debitAmount": "1300",
+        "creditAmount": "0",
+        "description": "Payment to: Fund Disbursement - Rug Tufting - $1,300",
+        "vatAmount": null,
+        "createdAt": "2025-12-02T07:22:25.287Z"
+      },
+      {
+        "id": "cmio936xk0007l804k869w3n4",
+        "journalEntryId": "cmio9360m0003l80480bbmna5",
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": "0",
+        "creditAmount": "1300",
+        "description": "Bank payment: Fund Disbursement - Rug Tufting - $1,300",
+        "vatAmount": null,
+        "createdAt": "2025-12-02T07:22:25.880Z"
+      }
+    ]
+  },
+  {
+    "id": "cmipruzop000oic04oimi4fyr",
+    "transactionDate": "2025-12-03T08:55:42.120Z",
+    "referenceNumber": "BUDGET-cmiliswzv0001l804q64g8rdu-1764752142120",
+    "description": "Event Budget Allocation: Updated Event Title",
+    "totalAmount": "48000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmift25x80007jr041ckgb7ed",
+    "createdAt": "2025-12-03T08:55:42.121Z",
+    "updatedAt": "2025-12-03T08:55:42.121Z",
+    "journalEntryLines": [
+      {
+        "id": "cmiprv0b2000qic04ug8b4sn4",
+        "journalEntryId": "cmipruzop000oic04oimi4fyr",
+        "chartOfAccountId": "cmilltw880000unhguuarlys9",
+        "debitAmount": "48000",
+        "creditAmount": "0",
+        "description": "Event Budget Allocation: Updated Event Title",
+        "vatAmount": "0",
+        "createdAt": "2025-12-03T08:55:42.926Z"
+      },
+      {
+        "id": "cmiprv0ul000sic040gn3xlrj",
+        "journalEntryId": "cmipruzop000oic04oimi4fyr",
+        "chartOfAccountId": "cmilltxdg0001unhgre7k7g1s",
+        "debitAmount": "0",
+        "creditAmount": "48000",
+        "description": "Budget allocation from cash/bank for event: Updated Event Title",
+        "vatAmount": "0",
+        "createdAt": "2025-12-03T08:55:43.629Z"
+      }
+    ]
+  },
+  {
+    "id": "cmiprvq70000wic04xrcd4n5w",
+    "transactionDate": "2024-12-15T12:00:00.000Z",
+    "referenceNumber": "EXP-1764752176475-REC-001",
+    "description": "Expense: Event Expense: Catering services for lunch (Event: Updated Event Title)",
+    "totalAmount": "5725",
+    "currencyId": "currency-id",
+    "status": "PENDING",
+    "createdById": "cmift25x80007jr041ckgb7ed",
+    "createdAt": "2025-12-03T08:56:16.476Z",
+    "updatedAt": "2025-12-03T08:56:16.476Z",
+    "journalEntryLines": [
+      {
+        "id": "cmiprvr2z0010ic044f2z5n1j",
+        "journalEntryId": "cmiprvq70000wic04xrcd4n5w",
+        "chartOfAccountId": "cmh3c1wzl000gunxkonvxbzmg",
+        "debitAmount": "5000",
+        "creditAmount": "0",
+        "description": "Expense: Event Expense: Catering services for lunch (Event: Updated Event Title)",
+        "vatAmount": "0",
+        "createdAt": "2025-12-03T08:56:17.627Z"
+      },
+      {
+        "id": "cmiprvriy0012ic04e6e89crq",
+        "journalEntryId": "cmiprvq70000wic04xrcd4n5w",
+        "chartOfAccountId": "cmh5u139h0001unro3sjon4m1",
+        "debitAmount": "725",
+        "creditAmount": "0",
+        "description": "VAT Input: Event Expense: Catering services for lunch (Event: Updated Event Title)",
+        "vatAmount": "725",
+        "createdAt": "2025-12-03T08:56:18.202Z"
+      },
+      {
+        "id": "cmiprvrtn0014ic04hlqnnvwe",
+        "journalEntryId": "cmiprvq70000wic04xrcd4n5w",
+        "chartOfAccountId": "cmh3c1dq80000unxkthh69y9g",
+        "debitAmount": "0",
+        "creditAmount": "5725",
+        "description": "Cash and Cash Equivalents: Event Expense: Catering services for lunch (Event: Updated Event Title)",
+        "vatAmount": "0",
+        "createdAt": "2025-12-03T08:56:18.587Z"
+      }
+    ]
+  },
+  {
+    "id": "cmipz86wk0003jm04xfrhr73w",
+    "transactionDate": "2025-12-03T12:21:55.315Z",
+    "referenceNumber": "BUDGET-cmiliswzv0001l804q64g8rdu-1764764515315",
+    "description": "Event Budget Allocation: Updated Event Title",
+    "totalAmount": "30500",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "status": "POSTED",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-12-03T12:21:55.316Z",
+    "updatedAt": "2025-12-03T12:21:55.316Z",
+    "journalEntryLines": [
+      {
+        "id": "cmipz87j30005jm04s1okbwq5",
+        "journalEntryId": "cmipz86wk0003jm04xfrhr73w",
+        "chartOfAccountId": "cmilltw880000unhguuarlys9",
+        "debitAmount": "30500",
+        "creditAmount": "0",
+        "description": "Event Budget Allocation: Updated Event Title",
+        "vatAmount": "0",
+        "createdAt": "2025-12-03T12:21:56.127Z"
+      },
+      {
+        "id": "cmipz882t0007jm04fw7fac6e",
+        "journalEntryId": "cmipz86wk0003jm04xfrhr73w",
+        "chartOfAccountId": "cmilltxdg0001unhgre7k7g1s",
+        "debitAmount": "0",
+        "creditAmount": "30500",
+        "description": "Budget allocation from cash/bank for event: Updated Event Title",
+        "vatAmount": "0",
+        "createdAt": "2025-12-03T12:21:56.837Z"
+      }
+    ]
+  }
+]

@@ -5,6 +5,9 @@
 import { PrismaClient, Decimal } from '@prisma/client';
 import { prisma } from '../utils/database';
 import ControlAccountIntegrationService from './ControlAccountIntegrationService';
+import VATService from './VATService';
+import { createJournalEntryWithAuditSequence } from './AuditTrailSequenceService';
+import PeriodLockService from './PeriodLockService';
 
 export interface CreateCashReceiptParams {
   bankId: string;
@@ -16,7 +19,7 @@ export interface CreateCashReceiptParams {
   glAccountId?: string;      // For GL transactions
   customerId?: string;       // For Customer transactions
   vendorId?: string;        // For Vendor transactions
-  vatCode?: string;         // 15%, 0%, EXEMPT
+  vatCode?: string;         // 15% / 15.5% (standard 15.5%), 0%, EXEMPT
   projectCode?: string;
   discount?: number;
   createdById: string;
@@ -32,10 +35,21 @@ export interface CreateCashPaymentParams {
   glAccountId?: string;      // For GL transactions
   customerId?: string;       // For Customer transactions
   vendorId?: string;        // For Vendor transactions
-  vatCode?: string;         // 15%, 0%, EXEMPT
+  vatCode?: string;         // 15% / 15.5% (standard 15.5%), 0%, EXEMPT
   projectCode?: string;
   discount?: number;
   createdById: string;
+  /** Skip VATService.refreshActiveVatRate (e.g. fund disbursement GL payment, no VAT). */
+  skipVatRateRefresh?: boolean;
+  /** Row from prisma.bank.findUnique/include — skips duplicate bank load. */
+  preloadedBank?: {
+    id: string;
+    glAccountId?: string | null;
+    glAccount?: { id: string } | null;
+    currency: { id: string };
+  } | null;
+  /** Journal header description; avoids a second prisma.journalEntry.update after post. */
+  journalHeaderDescription?: string;
 }
 
 export interface CashbookResult {
@@ -63,22 +77,39 @@ export class CashbookService {
   static async createCashReceipt(params: CreateCashReceiptParams): Promise<CashbookResult> {
     try {
       console.log(`💰 Creating Cash Receipt: ${params.description} - $${params.amount}`);
-      
-      // 1. Validate bank account
-      const bank = await prisma.bank.findUnique({
-        where: { id: params.bankId },
-        include: { glAccount: true, currency: true }
-      });
-      
+
+      const [, bank] = await Promise.all([
+        VATService.refreshActiveVatRate().catch(() => undefined),
+        prisma.bank.findUnique({
+          where: { id: params.bankId },
+          include: { glAccount: true, currency: true },
+        }),
+      ]);
+
       if (!bank) {
         throw new Error(`Bank account not found: ${params.bankId}`);
       }
-      
-      // 2. Validate counterparty
+
       const counterparty = await this.validateCounterparty(params);
+
+      const lockCtx = {
+        accountingDate: params.transactionDate,
+        userId: params.createdById,
+        source: 'API' as const,
+      };
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: 'BANK',
+        ...lockCtx,
+        actionType: 'CREATE_CASH_RECEIPT',
+      });
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: 'GL',
+        ...lockCtx,
+        actionType: 'CREATE_CASH_RECEIPT',
+      });
       
-      // 3. Calculate VAT
-      const vatRate = params.vatCode === '15%' ? 0.15 : 0;
+      // 3. Calculate VAT (standard code 15% / 15.5% → 15.5%)
+      const vatRate = VATService.standardRateFromVatCode(params.vatCode);
       const vatAmount = params.amount * vatRate;
       const netAmount = params.amount - vatAmount;
       
@@ -104,11 +135,16 @@ export class CashbookService {
       
       // 5. Create journal entry for double-entry accounting
       // Pass VAT information to createJournalEntry
-      const journalEntry = await this.createJournalEntry(transaction, params.createdById, {
-        vatCode: params.vatCode,
-        vatAmount: vatAmount,
-        netAmount: netAmount
-      });
+      const journalEntry = await this.createJournalEntry(
+        transaction,
+        params.createdById,
+        {
+          vatCode: params.vatCode,
+          vatAmount: vatAmount,
+          netAmount: netAmount,
+        },
+        bank
+      );
       
       // 6. Update transaction with journal entry reference
       const updatedTransaction = await prisma.cashbookEntry.update({
@@ -142,7 +178,8 @@ export class CashbookService {
         journalEntry,
         controlAccountResult,
         success: true,
-        message: 'Cash receipt created and posted successfully'
+        message:
+          'Cash receipt created; journal entry posted to the general ledger (Dr bank, Cr contra per counterparty).',
       };
       
     } catch (error: any) {
@@ -162,22 +199,41 @@ export class CashbookService {
   static async createCashPayment(params: CreateCashPaymentParams): Promise<CashbookResult> {
     try {
       console.log(`💸 Creating Cash Payment: ${params.description} - $${params.amount}`);
-      
-      // 1. Validate bank account
-      const bank = await prisma.bank.findUnique({
-        where: { id: params.bankId },
-        include: { glAccount: true, currency: true }
-      });
-      
+
+      const refreshVat = params.skipVatRateRefresh
+        ? Promise.resolve(undefined)
+        : VATService.refreshActiveVatRate().catch(() => undefined);
+
+      const loadBank = params.preloadedBank
+        ? Promise.resolve(params.preloadedBank)
+        : prisma.bank.findUnique({
+            where: { id: params.bankId },
+            include: { glAccount: true, currency: true },
+          });
+
+      const [, bank] = await Promise.all([refreshVat, loadBank]);
+
       if (!bank) {
         throw new Error(`Bank account not found: ${params.bankId}`);
       }
-      
-      // 2. Validate counterparty
+
+      const bankGlId = bank.glAccountId ?? bank.glAccount?.id;
+      if (!bankGlId) {
+        throw new Error(`Bank has no GL account linked: ${params.bankId}`);
+      }
+
       const counterparty = await this.validateCounterparty(params);
+
+      const lockCtx = {
+        accountingDate: params.transactionDate,
+        userId: params.createdById,
+        source: 'API' as const,
+        actionType: 'CREATE_CASH_PAYMENT',
+      };
+      await PeriodLockService.assertBankAndGlOpenForCashbookPayment(lockCtx);
       
-      // 3. Calculate VAT
-      const vatRate = params.vatCode === '15%' ? 0.15 : 0;
+      // 3. Calculate VAT (standard code 15% / 15.5% → 15.5%)
+      const vatRate = VATService.standardRateFromVatCode(params.vatCode);
       const vatAmount = params.amount * vatRate;
       const netAmount = params.amount - vatAmount;
       
@@ -204,6 +260,7 @@ export class CashbookService {
       // 5. For SUPPLIER and CUSTOMER payments, keep as PENDING to allow allocations before posting
       // GL payments can be auto-posted if needed
       let updatedTransaction;
+      let postedJournalFromCreate: any = null;
       if (params.counterpartyType === 'SUPPLIER' || params.counterpartyType === 'CUSTOMER') {
         // Keep payment as PENDING - user must allocate and post manually
         updatedTransaction = transaction;
@@ -211,14 +268,21 @@ export class CashbookService {
       } else {
         // For GL payments, auto-post as before
         // Pass VAT information to createJournalEntry
-        const vatRate = params.vatCode === '15%' ? 0.15 : 0;
+        const vatRate = VATService.standardRateFromVatCode(params.vatCode);
         const vatAmount = params.amount * vatRate;
         const netAmount = params.amount - vatAmount;
-        const journalEntry = await this.createJournalEntry(transaction, params.createdById, {
-          vatCode: params.vatCode,
-          vatAmount: vatAmount,
-          netAmount: netAmount
-        });
+        const journalEntry = await this.createJournalEntry(
+          transaction,
+          params.createdById,
+          {
+            vatCode: params.vatCode,
+            vatAmount: vatAmount,
+            netAmount: netAmount,
+          },
+          { ...bank, glAccountId: bankGlId },
+          params.journalHeaderDescription
+        );
+        postedJournalFromCreate = journalEntry;
         updatedTransaction = await prisma.cashbookEntry.update({
           where: { id: transaction.id },
           data: { 
@@ -248,12 +312,13 @@ export class CashbookService {
       
       return {
         transaction: updatedTransaction,
-        journalEntry: updatedTransaction.status === 'POSTED' ? await prisma.journalEntry.findUnique({ where: { id: updatedTransaction.journalEntryId } }) : null,
+        journalEntry: postedJournalFromCreate,
         controlAccountResult,
         success: true,
-        message: updatedTransaction.status === 'POSTED' 
-          ? 'Cash payment created and posted successfully'
-          : 'Cash payment created successfully - allocate to invoices and post when ready'
+        message:
+          updatedTransaction.status === 'POSTED'
+            ? 'Cash payment created; journal entry posted to the general ledger (Dr expense/AP, Cr bank).'
+            : 'Cash payment created — allocate to invoices and post when ready (journal on post).',
       };
       
     } catch (error: any) {
@@ -279,12 +344,12 @@ export class CashbookService {
         where: { id: transactionId },
         include: {
           bank: {
-            include: { glAccount: true }
+            include: { glAccount: true, currency: true },
           },
           glAccount: true,
           customer: true,
-          vendor: true
-        }
+          vendor: true,
+        },
       });
       
       // Fetch allocations separately (they're linked via PaymentAllocation model)
@@ -303,6 +368,22 @@ export class CashbookService {
       if (transaction.status === 'POSTED') {
         throw new Error('Transaction already posted');
       }
+
+      const postLockCtx = {
+        accountingDate: transaction.transactionDate,
+        userId,
+        source: 'API' as const,
+      };
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: 'BANK',
+        ...postLockCtx,
+        actionType: 'POST_CASHBOOK',
+      });
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: 'GL',
+        ...postLockCtx,
+        actionType: 'POST_CASHBOOK',
+      });
       
       // 2. Validate multi-line allocation for PAYMENT transactions
       // For SUPPLIER and CUSTOMER payments, ensure all allocations sum to the payment amount
@@ -325,7 +406,12 @@ export class CashbookService {
       }
       
       // 3. Create journal entry
-      const journalEntry = await this.createJournalEntry(transaction, userId);
+      const journalEntry = await this.createJournalEntry(
+        transaction,
+        userId,
+        undefined,
+        transaction.bank ?? undefined
+      );
       
       // 4. Update transaction status
       await prisma.cashbookEntry.update({
@@ -542,6 +628,7 @@ export class CashbookService {
    */
   static async getCashbookEntries(filters: {
     bankId?: string;
+    currencyId?: string;
     transactionType?: string;
     status?: string;
     dateFrom?: Date;
@@ -558,6 +645,9 @@ export class CashbookService {
       where.originalTransactionId = null;
       
       if (filters.bankId) where.bankId = filters.bankId;
+      if (filters.currencyId) {
+        where.bank = { currencyId: filters.currencyId };
+      }
       if (filters.transactionType) where.transactionType = filters.transactionType;
       if (filters.status) where.status = filters.status;
       if (filters.dateFrom || filters.dateTo) {
@@ -598,9 +688,132 @@ export class CashbookService {
       throw error;
     }
   }
-  
+
+  /**
+   * Ensure ZiG (or ZWG) currency exists and there is an active cashbook bank in that currency.
+   * Ensures the bank has its own dedicated GL account (1000 is reporting-only).
+   */
+  static async ensureZigCashbookBank(): Promise<{
+    bank: any;
+    created: boolean;
+    glAccountNo: string;
+    currencyCode: string;
+  }> {
+    let zig =
+      (await prisma.currency.findFirst({ where: { code: 'ZIG', isActive: true } })) ||
+      (await prisma.currency.findFirst({ where: { code: 'ZWG', isActive: true } })) ||
+      (await prisma.currency.findFirst({ where: { code: 'ZIG' } })) ||
+      (await prisma.currency.findFirst({ where: { code: 'ZWG' } }));
+    if (!zig) {
+      zig = await prisma.currency.create({
+        data: {
+          code: 'ZIG',
+          name: 'Zimbabwe Gold',
+          symbol: 'ZIG',
+          isActive: true,
+          isDefault: false,
+        },
+      });
+    } else if (!zig.isActive) {
+      zig = await prisma.currency.update({
+        where: { id: zig.id },
+        data: { isActive: true },
+      });
+    }
+
+    let bank = await prisma.bank.findFirst({
+      where: { currencyId: zig.id, isActive: true },
+      orderBy: { createdAt: 'asc' },
+      include: { glAccount: true, currency: true },
+    });
+
+    if (bank) {
+      return {
+        bank,
+        created: false,
+        glAccountNo: bank.glAccount?.accountNo ?? '',
+        currencyCode: zig.code,
+      };
+    }
+
+    // Create a dedicated bank GL (reporting bucket 1000 is not a posting account).
+    const bankGlNo = `11${String(Date.now()).slice(-4)}`;
+    const createdGl = await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: bankGlNo,
+        accountName: `Bank - Operating Account - ${zig.code}`,
+        accountType: 'Current Asset',
+        naturalBalance: 'DEBIT',
+        financialStatement: 'Balance Sheet',
+        isActive: true,
+        notes: `Auto-created bank GL account for ZiG/ZWG cashbook bank`,
+      },
+    });
+
+    const accountNumber = `ZIG-CB-${Date.now()}`;
+    bank = await prisma.bank.create({
+      data: {
+        name: 'Operating Account - ZiG',
+        accountNumber,
+        currencyId: zig.id,
+        glAccountId: createdGl.id,
+        isActive: true,
+      },
+      include: { glAccount: true, currency: true },
+    });
+
+    return {
+      bank,
+      created: true,
+      glAccountNo: createdGl.accountNo,
+      currencyCode: zig.code,
+    };
+  }
+
+  /**
+   * GL **4000** for revenue receipting (e.g. consulting). Creates account if missing.
+   */
+  static async ensureConsultingIncomeAccount4000(): Promise<any> {
+    let coa = await prisma.chartOfAccounts.findFirst({
+      where: { accountNo: '4000', isActive: true },
+    });
+    if (!coa) {
+      coa = await prisma.chartOfAccounts.create({
+        data: {
+          accountNo: '4000',
+          accountName: 'Consulting Services',
+          accountType: 'Revenue',
+          financialStatement: 'Income Statement',
+          isActive: true,
+        },
+      });
+    }
+    return coa;
+  }
+
+  /**
+   * GL **5200** for utilities / electricity expense payments from cashbook. Creates account if missing.
+   */
+  static async ensureElectricityExpenseAccount5200(): Promise<any> {
+    let coa = await prisma.chartOfAccounts.findFirst({
+      where: { accountNo: '5200', isActive: true },
+    });
+    if (!coa) {
+      coa = await prisma.chartOfAccounts.create({
+        data: {
+          accountNo: '5200',
+          accountName: 'Electricity',
+          accountType: 'Expense',
+          financialStatement: 'Income Statement',
+          isActive: true,
+        },
+      });
+    }
+    return coa;
+  }
+
   // Private helper methods
-  
+
   private static async validateCounterparty(params: any): Promise<any> {
     let counterparty = null;
     
@@ -614,6 +827,11 @@ export class CashbookService {
         });
         if (!counterparty) {
           throw new Error(`GL account not found: ${params.glAccountId}`);
+        }
+        if (counterparty.accountNo === '1000') {
+          throw new Error(
+            'Cash and Cash Equivalents (1000) is a reporting bucket and cannot be used as a posting account. Select a specific bank/cash GL (or a revenue/expense account) instead.'
+          );
         }
         break;
         
@@ -647,29 +865,44 @@ export class CashbookService {
   
   
   
-  private static async createJournalEntry(transaction: any, userId: string, vatInfo?: { vatCode?: string; vatAmount: number; netAmount: number }): Promise<any> {
+  private static async createJournalEntry(
+    transaction: any,
+    userId: string,
+    vatInfo?: { vatCode?: string; vatAmount: number; netAmount: number },
+    preloadedBank?: { currency?: { id: string } | null; glAccountId?: string | null; glAccount?: { id: string } | null } | null,
+    journalHeaderDescription?: string | null
+  ): Promise<any> {
     const referenceNumber = `CB-${transaction.id.substring(transaction.id.length - 8).toUpperCase()}`;
-    
-    // Fetch bank details with currency
-    const bank = await prisma.bank.findUnique({
-      where: { id: transaction.bankId },
-      include: { currency: true }
-    });
-    
-    if (!bank) {
+
+    let bank = preloadedBank;
+    if (!bank?.currency?.id) {
+      bank = await prisma.bank.findUnique({
+        where: { id: transaction.bankId },
+        include: { currency: true, glAccount: true },
+      });
+    }
+
+    if (!bank?.currency?.id) {
       throw new Error('Bank account not found');
     }
+
+    const bankGlId = bank.glAccountId ?? bank.glAccount?.id;
+    if (!bankGlId) {
+      throw new Error('Bank GL account not configured');
+    }
     
-    const journalEntry = await prisma.journalEntry.create({
-      data: {
-        transactionDate: transaction.transactionDate,
-        referenceNumber,
-        description: `Cashbook ${transaction.type}: ${transaction.description}`,
-        totalAmount: transaction.amount,
-        currencyId: bank.currency.id,
-        status: 'POSTED',
-        createdById: userId
-      }
+    const transactionTypeLabel = transaction.type === 'RECEIPT' ? 'Receipt' : 'Payment';
+    const headerDesc =
+      journalHeaderDescription?.trim() ||
+      `Bank ${transactionTypeLabel}: ${transaction.description}`;
+    const journalEntry = await createJournalEntryWithAuditSequence({
+      transactionDate: transaction.transactionDate,
+      referenceNumber,
+      description: headerDesc,
+      totalAmount: transaction.amount,
+      currencyId: bank.currency.id,
+      status: 'POSTED',
+      createdById: userId
     });
     
     // Create journal entry lines for double-entry accounting
@@ -680,7 +913,7 @@ export class CashbookService {
       await prisma.journalEntryLine.create({
         data: {
           journalEntryId: journalEntry.id,
-          chartOfAccountId: bank.glAccountId,
+          chartOfAccountId: bankGlId,
           debitAmount: transaction.amount,
           creditAmount: new Decimal(0),
           description: `Bank receipt: ${transaction.description}`
@@ -932,7 +1165,7 @@ export class CashbookService {
         await prisma.journalEntryLine.create({
           data: {
             journalEntryId: journalEntry.id,
-            chartOfAccountId: bank.glAccountId,
+            chartOfAccountId: bankGlId,
             debitAmount: new Decimal(0),
             creditAmount: transaction.amount,
             description: `Bank payment: ${transaction.description}`
@@ -964,55 +1197,77 @@ export class CashbookService {
         const debitAmount = vatInfo && vatInfo.vatAmount > 0.01 
           ? new Decimal(vatInfo.netAmount) 
           : transaction.amount;
-        
-        // 1. Debit Expense/GL Account (net amount if VAT, full amount if no VAT)
-        await prisma.journalEntryLine.create({
-          data: {
-            journalEntryId: journalEntry.id,
-            chartOfAccountId: contraAccountId,
-            debitAmount: debitAmount,
-            creditAmount: new Decimal(0),
-            description: `Payment to: ${transaction.description}`
-          }
-        });
-        
-        // 2. Debit VAT Input Account (if VAT applicable)
-        if (vatInfo && vatInfo.vatAmount > 0.01) {
-          const vatInputAccount = await prisma.chartOfAccounts.findFirst({
-            where: {
-              OR: [
-                { accountNo: '2110' }, // VAT Input
-                { accountName: { contains: 'VAT Input' }, accountType: 'Current Asset' }
-              ],
-              isActive: true
-            }
-          });
-          
-          if (vatInputAccount) {
-            await prisma.journalEntryLine.create({
+
+        const hasVatSplit = Boolean(vatInfo && vatInfo.vatAmount > 0.01);
+
+        if (!hasVatSplit && transaction.counterpartyType === 'GL' && transaction.glAccountId) {
+          await Promise.all([
+            prisma.journalEntryLine.create({
               data: {
                 journalEntryId: journalEntry.id,
-                chartOfAccountId: vatInputAccount.id,
-                debitAmount: new Decimal(vatInfo.vatAmount),
+                chartOfAccountId: contraAccountId,
+                debitAmount,
                 creditAmount: new Decimal(0),
-                description: `VAT Input: ${transaction.description}`
+                description: `Payment to: ${transaction.description}`
+              }
+            }),
+            prisma.journalEntryLine.create({
+              data: {
+                journalEntryId: journalEntry.id,
+                chartOfAccountId: bankGlId,
+                debitAmount: new Decimal(0),
+                creditAmount: transaction.amount,
+                description: `Bank payment: ${transaction.description}`
+              }
+            })
+          ]);
+        } else {
+          await prisma.journalEntryLine.create({
+            data: {
+              journalEntryId: journalEntry.id,
+              chartOfAccountId: contraAccountId,
+              debitAmount: debitAmount,
+              creditAmount: new Decimal(0),
+              description: `Payment to: ${transaction.description}`
+            }
+          });
+
+          if (hasVatSplit) {
+            const vatInputAccount = await prisma.chartOfAccounts.findFirst({
+              where: {
+                OR: [
+                  { accountNo: '2110' },
+                  { accountName: { contains: 'VAT Input' }, accountType: 'Current Asset' }
+                ],
+                isActive: true
               }
             });
-          } else {
-            console.warn('⚠️  VAT Input account not found - VAT amount will not be recorded separately');
+
+            if (vatInputAccount) {
+              await prisma.journalEntryLine.create({
+                data: {
+                  journalEntryId: journalEntry.id,
+                  chartOfAccountId: vatInputAccount.id,
+                  debitAmount: new Decimal(vatInfo!.vatAmount),
+                  creditAmount: new Decimal(0),
+                  description: `VAT Input: ${transaction.description}`
+                }
+              });
+            } else {
+              console.warn('⚠️  VAT Input account not found - VAT amount will not be recorded separately');
+            }
           }
+
+          await prisma.journalEntryLine.create({
+            data: {
+              journalEntryId: journalEntry.id,
+              chartOfAccountId: bankGlId,
+              debitAmount: new Decimal(0),
+              creditAmount: transaction.amount,
+              description: `Bank payment: ${transaction.description}`
+            }
+          });
         }
-        
-        // 3. Credit Bank Account (full amount including VAT)
-        await prisma.journalEntryLine.create({
-          data: {
-            journalEntryId: journalEntry.id,
-            chartOfAccountId: bank.glAccountId,
-            debitAmount: new Decimal(0),
-            creditAmount: transaction.amount,
-            description: `Bank payment: ${transaction.description}`
-          }
-        });
       }
     }
     
@@ -1049,22 +1304,49 @@ export class CashbookService {
     name: string;
     accountNumber: string;
     currencyId: string;
-    glAccountId: string;
+    /** When omitted, uses configured Cash and Cash Equivalents CoA. */
+    glAccountId?: string;
     bankCode?: string;
     branchCode?: string;
+    swiftCode?: string;
     isActive?: boolean;
   }) {
     const {
       name,
       accountNumber,
       currencyId,
-      glAccountId,
       bankCode,
       branchCode,
+      swiftCode,
       isActive = true
     } = params;
+    let { glAccountId } = params;
 
-    // Validate that the GL account exists and is a bank account type
+    if (!glAccountId) {
+      // Default: create a dedicated bank GL account (Cash & Cash Equivalents is a reporting bucket).
+      const bankGlNo = `11${String(Date.now()).slice(-4)}`;
+      const created = await prisma.chartOfAccounts.create({
+        data: {
+          accountNo: bankGlNo,
+          accountName: `Bank - ${name}`,
+          accountType: 'Current Asset',
+          naturalBalance: 'DEBIT',
+          financialStatement: 'Balance Sheet',
+          isActive: true,
+          notes: `Auto-created bank GL account for bank ${accountNumber}`,
+        },
+      });
+      glAccountId = created.id;
+    }
+    // Enforce uniqueness: a bank GL account should not be shared by multiple banks.
+    const existingLink = await prisma.bank.findFirst({
+      where: { glAccountId, isActive: true },
+      select: { id: true, name: true },
+    });
+    if (existingLink) {
+      throw new Error(`GL account is already linked to another bank (${existingLink.name}). Each bank must have its own GL account.`);
+    }
+
     const glAccount = await prisma.chartOfAccounts.findUnique({
       where: { id: glAccountId }
     });
@@ -1077,7 +1359,6 @@ export class CashbookService {
       throw new Error('GL account must be an asset type for bank accounts');
     }
 
-    // Validate currency exists
     const currency = await prisma.currency.findUnique({
       where: { id: currencyId }
     });
@@ -1086,7 +1367,6 @@ export class CashbookService {
       throw new Error('Currency not found');
     }
 
-    // Check for duplicate account number
     const existingBank = await prisma.bank.findFirst({
       where: { accountNumber }
     });
@@ -1095,22 +1375,14 @@ export class CashbookService {
       throw new Error('Bank account with this account number already exists');
     }
 
-    // Check if GL account is already used by another bank
-    const existingBankWithGL = await prisma.bank.findFirst({
-      where: { glAccountId }
-    });
-
-    if (existingBankWithGL) {
-      throw new Error(`GL account is already associated with bank account "${existingBankWithGL.name}". Each GL account can only be linked to one bank account.`);
-    }
-
-    // Create the bank account
     const bank = await prisma.bank.create({
       data: {
         name,
         accountNumber,
         currencyId,
         glAccountId,
+        branchCode: (branchCode ?? "").trim(),
+        swiftCode: (swiftCode ?? "").trim(),
         isActive
       },
       include: {
@@ -1119,6 +1391,111 @@ export class CashbookService {
       }
     });
 
+    return bank;
+  }
+
+  /**
+   * Update Bank Account
+   */
+  static async updateBank(
+    bankId: string,
+    params: {
+      name?: string;
+      accountNumber?: string;
+      currencyId?: string;
+      glAccountId?: string;
+      branchCode?: string | null;
+      swiftCode?: string | null;
+      isActive?: boolean;
+    }
+  ) {
+    const existing = await prisma.bank.findUnique({
+      where: { id: bankId },
+      include: { glAccount: true, currency: true }
+    });
+    if (!existing) {
+      throw new Error('Bank account not found');
+    }
+
+    const { name, accountNumber, currencyId, glAccountId, branchCode, swiftCode, isActive } =
+      params;
+
+    if (accountNumber !== undefined) {
+      const duplicate = await prisma.bank.findFirst({
+        where: { accountNumber, id: { not: bankId } }
+      });
+      if (duplicate) {
+        throw new Error('Bank account with this account number already exists');
+      }
+    }
+
+    if (glAccountId !== undefined) {
+      const existingLink = await prisma.bank.findFirst({
+        where: { glAccountId, id: { not: bankId }, isActive: true },
+        select: { id: true, name: true },
+      });
+      if (existingLink) {
+        throw new Error(`GL account is already linked to another bank (${existingLink.name}). Each bank must have its own GL account.`);
+      }
+      const glAccount = await prisma.chartOfAccounts.findUnique({
+        where: { id: glAccountId }
+      });
+      if (!glAccount) {
+        throw new Error('GL account not found');
+      }
+      if (!['Current Asset', 'Fixed Asset'].includes(glAccount.accountType)) {
+        throw new Error('GL account must be an asset type for bank accounts');
+      }
+    }
+
+    if (currencyId !== undefined) {
+      const currency = await prisma.currency.findUnique({
+        where: { id: currencyId }
+      });
+      if (!currency) {
+        throw new Error('Currency not found');
+      }
+    }
+
+    const data: Record<string, unknown> = {};
+    if (name !== undefined) data.name = name;
+    if (accountNumber !== undefined) data.accountNumber = accountNumber;
+    if (currencyId !== undefined) data.currencyId = currencyId;
+    if (glAccountId !== undefined) data.glAccountId = glAccountId;
+    if (isActive !== undefined) data.isActive = isActive;
+    if (branchCode !== undefined) data.branchCode = String(branchCode).trim();
+    if (swiftCode !== undefined) data.swiftCode = String(swiftCode).trim();
+
+    const bank = await prisma.bank.update({
+      where: { id: bankId },
+      data,
+      include: {
+        currency: true,
+        glAccount: true
+      }
+    });
+    return bank;
+  }
+
+  /**
+   * Soft delete bank account (sets isActive: false).
+   * Keeps `glAccountId` (Cash and Cash Equivalents) so historical references and validation remain valid.
+   */
+  static async softDeleteBank(bankId: string) {
+    const existing = await prisma.bank.findUnique({
+      where: { id: bankId }
+    });
+    if (!existing) {
+      throw new Error('Bank account not found');
+    }
+    const bank = await prisma.bank.update({
+      where: { id: bankId },
+      data: { isActive: false },
+      include: {
+        currency: true,
+        glAccount: true
+      }
+    });
     return bank;
   }
 }

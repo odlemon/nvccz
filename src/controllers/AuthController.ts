@@ -4,14 +4,50 @@ import { Request, Response, NextFunction } from "express";
 import { PrismaClient } from "@prisma/client";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import { prisma } from "../utils/database";
 import AuditService from "../services/AuditService";
+import { ShortTermInvestmentService } from "../services/ShortTermInvestmentService";
+import { AccountingGoalSyncService } from "../services/AccountingGoalSyncService";
+import { logger } from "../utils/logger";
+import { emailTransport, getFromAddress } from "../config/email.config";
+import { companyNameShortFromEnv } from "../config/companyDisplay";
+import { LpPortalMfaService } from "../services/lpPortal/LpPortalMfaService";
+import {
+  assertPortalLoginAllowed,
+  normalizeAuthPortal,
+  type AuthPortal,
+} from "../utils/portalAuth";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
+
+function signUserJwt(
+  user: any,
+  roleDisplay: string | null,
+  roleCodeEffective: string | null,
+  portal: AuthPortal = "staff"
+) {
+  return jwt.sign(
+    {
+      userId: user.id,
+      roleId: user.roleId,
+      roleName: roleDisplay,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      department: user.userDepartment,
+      roleCode: roleCodeEffective,
+      tokenVersion: user.tokenVersion ?? 0,
+      aud: portal,
+    },
+    JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+}
 
 export class AuthController {
   async login(req: Request, res: Response, next: NextFunction) {
     try {
-      const { email, password } = req.body;
+      const { email, password, portal: portalRaw } = req.body;
       
       if (!email || !password) {
         return res.status(400).json({ 
@@ -20,6 +56,7 @@ export class AuthController {
         });
       }
 
+      const portal = normalizeAuthPortal(portalRaw);
       const normalizedEmail = email.trim().toLowerCase();
       
       const user = await prisma.user.findUnique({
@@ -30,9 +67,11 @@ export class AuthController {
           firstName: true,
           lastName: true,
           password: true,
+          mustChangePassword: true,
           userDepartment: true,
           roleCode: true,
           roleId: true,
+          tokenVersion: true,
           role: {
             select: {
               name: true
@@ -56,16 +95,34 @@ export class AuthController {
         });
       }
 
-      const token = jwt.sign({
-        userId: user.id,
-        roleId: user.roleId,
-        roleName: user.roleCode,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        department: user.userDepartment,
-        roleCode: user.roleCode
-      }, JWT_SECRET, { expiresIn: "7d" });
+      const roleNameFromDb = user.role?.name ? String(user.role.name).trim() : null;
+      const roleCodeEffective =
+        (user.roleCode && String(user.roleCode).trim()) || roleNameFromDb || null;
+      const roleDisplay = roleNameFromDb || roleCodeEffective;
+
+      const portalCheck = await assertPortalLoginAllowed(portal, user, normalizedEmail);
+      if (!portalCheck.ok) {
+        return res.status(403).json({ success: false, message: portalCheck.message });
+      }
+
+      const requiresMfa = portal === "lp" && (await LpPortalMfaService.userRequiresMfaAtLogin(user.id));
+      if (requiresMfa) {
+        const mfaPendingToken = await LpPortalMfaService.createPendingToken(user.id);
+        return res.status(200).json({
+          success: true,
+          message: "MFA verification required",
+          mfaRequired: true,
+          mfaPendingToken,
+          user: {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+          },
+        });
+      }
+
+      const token = signUserJwt(user, roleDisplay, roleCodeEffective, portal);
 
       // Check if user is an applicant (applicants don't have roles - identified by having an application)
       const application = await prisma.application.findFirst({
@@ -87,7 +144,19 @@ export class AuthController {
       });
       const passwordChanged = !!passwordChangeLog;
 
-      return res.status(200).json({
+      // System audit log: LOGIN with user and IP
+      const ipAddress = (req as any).ip || req.headers["x-forwarded-for"] || (req as any).socket?.remoteAddress || null;
+      const userAgent = (req.headers["user-agent"] as string) || null;
+      await AuditService.log({
+        userId: user.id,
+        action: "LOGIN",
+        entityType: "User",
+        entityId: user.id,
+        ipAddress: typeof ipAddress === "string" ? ipAddress : (Array.isArray(ipAddress) ? ipAddress[0] : String(ipAddress ?? "")),
+        userAgent,
+      });
+
+      res.status(200).json({
         success: true,
         message: "Logged in successfully",
         token,
@@ -97,11 +166,34 @@ export class AuthController {
           firstName: user.firstName,
           lastName: user.lastName,
           department: user.userDepartment,
-          role: user.roleCode,
+          role: roleDisplay,
+          roleName: roleNameFromDb,
+          roleCode: user.roleCode ?? null,
+          roleId: user.roleId,
           isApplicant: isApplicant,
-          passwordChanged: passwordChanged // Flag to indicate if user has changed password from initial email
+          passwordChanged: passwordChanged, // Flag to indicate if user has changed password from initial email
+          // Explicit requirement, as opposed to `passwordChanged` which is inferred from audit
+          // history. Set when we issued the password ourselves — an invited LP is emailed a
+          // temporary one — and cleared the moment they choose their own. The portal uses this to
+          // force the change before anything else is reachable.
+          mustChangePassword: !!user.mustChangePassword
         }
       });
+
+      if (!isApplicant) {
+        setImmediate(() => {
+          logger.info("Auth login trigger: background sync requested", {
+            userId: user.id,
+            email: user.email,
+          });
+          void Promise.all([
+            ShortTermInvestmentService.maybeRunDailyAccrualAfterLogin(user.id),
+            AccountingGoalSyncService.maybeRunAfterLogin(user.id),
+          ]);
+        });
+      }
+
+      return;
     } catch (error) {
       next(error);
     }
@@ -161,11 +253,14 @@ export class AuthController {
       // Hash new password
       const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-      // Update password
+      // Update password and invalidate existing JWTs
       await prisma.user.update({
         where: { id: userId },
         data: {
-          password: hashedPassword
+          password: hashedPassword,
+          // The user has now chosen their own password, so any requirement we imposed is met.
+          mustChangePassword: false,
+          tokenVersion: { increment: 1 },
         }
       });
 
@@ -187,6 +282,253 @@ export class AuthController {
       return res.status(200).json({
         success: true,
         message: "Password changed successfully"
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Request password reset - public endpoint
+   * Sends a password reset email with a secure token link
+   */
+  async forgotPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          message: "Email is required"
+        });
+      }
+
+      const normalizedEmail = email.trim().toLowerCase();
+      console.log(`[Forgot Password] Request received for email: ${normalizedEmail}`);
+
+      const user = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+        select: { id: true, email: true, firstName: true, lastName: true }
+      });
+
+      // For security, always return success, even if user doesn't exist
+      if (!user) {
+        console.log(`[Forgot Password] User not found for email: ${normalizedEmail}`);
+        return res.status(200).json({
+          success: true,
+          message: "If an account with that email exists, a password reset link has been sent"
+        });
+      }
+
+      console.log(`[Forgot Password] User found: ${user.id} - ${user.email}`);
+
+      // Invalidate any existing tokens for this user
+      await prisma.passwordResetToken.updateMany({
+        where: {
+          userId: user.id,
+          usedAt: null,
+          expiresAt: {
+            gt: new Date()
+          }
+        },
+        data: {
+          usedAt: new Date()
+        }
+      });
+
+      // Generate secure token
+      const rawToken = crypto.randomBytes(32).toString("hex");
+      const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+      await prisma.passwordResetToken.create({
+        data: {
+          userId: user.id,
+          tokenHash,
+          expiresAt
+        }
+      });
+
+      console.log(`[Forgot Password] Reset token created for user: ${user.id}`);
+
+      const frontendUrl = process.env.FRONTEND_URL || "http://app.kyntaro.com";
+      const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}`;
+
+      const from = getFromAddress("it");
+      const shortName = companyNameShortFromEnv();
+      const subject = `Reset your ${shortName} account password`;
+      const html = `
+        <h1>Reset Your Password</h1>
+        <p>Hi ${user.firstName || "there"},</p>
+        <p>We received a request to reset the password for your ${shortName} account.</p>
+        <p>If you made this request, click the button below to reset your password:</p>
+        <p>
+          <a href="${resetUrl}" style="display:inline-block;padding:10px 20px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:4px;">
+            Reset Password
+          </a>
+        </p>
+        <p>If the button doesn't work, copy and paste this link into your browser:</p>
+        <p>${resetUrl}</p>
+        <p>This link will expire in 1 hour. If you did not request a password reset, you can safely ignore this email.</p>
+        <p>Best regards,<br/>${shortName} IT Team</p>
+      `;
+
+      const mailOptions = {
+        from: `"${from.name}" <${from.address}>`,
+        to: user.email, // Simplified - just use email address
+        subject,
+        html
+      };
+
+      console.log(`[Forgot Password] Attempting to send email to: ${user.email}`);
+      console.log(`[Forgot Password] From: "${from.name}" <${from.address}>`);
+
+      try {
+        const emailResult = await emailTransport.sendMail(mailOptions);
+        console.log(`[Forgot Password] ✅ Email sent successfully!`);
+        console.log(`[Forgot Password] Message ID: ${emailResult.messageId}`);
+        console.log(`[Forgot Password] Response: ${JSON.stringify(emailResult.response)}`);
+      } catch (emailError: any) {
+        console.error(`[Forgot Password] ❌ Error sending email:`, emailError);
+        console.error(`[Forgot Password] Error details:`, {
+          message: emailError.message,
+          code: emailError.code,
+          command: emailError.command,
+          response: emailError.response,
+          responseCode: emailError.responseCode
+        });
+        // Still return success to user for security, but log the error
+        // The token is already created, so they can request again if needed
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "If an account with that email exists, a password reset link has been sent"
+      });
+    } catch (error: any) {
+      console.error(`[Forgot Password] ❌ Unexpected error:`, error);
+      console.error(`[Forgot Password] Error stack:`, error.stack);
+      next(error);
+    }
+  }
+
+  /**
+   * Reset password using token - public endpoint
+   */
+  async resetPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { token, newPassword } = req.body;
+
+      if (!token || !newPassword) {
+        return res.status(400).json({
+          success: false,
+          message: "Token and new password are required"
+        });
+      }
+
+      if (newPassword.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: "New password must be at least 6 characters long"
+        });
+      }
+
+      const normalizeIncomingToken = (value: unknown): string => {
+        let t = String(value ?? "").trim();
+        if (!t) return "";
+
+        // Handle clients that paste the full reset URL into the token field.
+        // Example: https://app.example.com/reset-password?token=abc123
+        try {
+          if (/^https?:\/\//i.test(t)) {
+            const u = new URL(t);
+            const fromUrl = u.searchParams.get("token");
+            if (fromUrl) {
+              t = fromUrl.trim();
+            }
+          }
+        } catch {
+          // ignore URL parse failures
+        }
+
+        // Handle clients that paste "token=abc123" or "?token=abc123"
+        const match = t.match(/(?:^|\?|&|\s)token=([a-f0-9]+)/i);
+        if (match?.[1]) {
+          t = match[1].trim();
+        }
+
+        // Handle accidental "Bearer ..." prefix
+        t = t.replace(/^bearer\s+/i, "").trim();
+        return t;
+      };
+
+      const normalizedToken = normalizeIncomingToken(token);
+      if (!normalizedToken) {
+        return res.status(400).json({
+          success: false,
+          message: "Token and new password are required"
+        });
+      }
+
+      // Both the raw token we generate (32 random bytes encoded as hex) and its SHA256 hash are 64-hex strings.
+      // So we cannot reliably tell which one we received. Support both:
+      // - tokenHash stored in DB equals sha256(rawToken)
+      // - some clients may mistakenly send tokenHash directly
+      const normalizedTokenLower = normalizedToken.toLowerCase();
+      const sha256OfIncoming = crypto.createHash("sha256").update(normalizedTokenLower).digest("hex");
+
+      const resetRecord = await prisma.passwordResetToken.findFirst({
+        where: {
+          tokenHash: {
+            in: [sha256OfIncoming, normalizedTokenLower]
+          },
+          usedAt: null,
+          expiresAt: {
+            gt: new Date()
+          }
+        }
+      });
+
+      if (!resetRecord) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or expired reset token"
+        });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: resetRecord.userId },
+        select: { id: true }
+      });
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found"
+        });
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: user.id },
+          data: {
+            password: hashedPassword,
+            mustChangePassword: false,
+            tokenVersion: { increment: 1 },
+          }
+        }),
+        prisma.passwordResetToken.update({
+          where: { id: resetRecord.id },
+          data: { usedAt: new Date() }
+        })
+      ]);
+
+      return res.status(200).json({
+        success: true,
+        message: "Password has been reset successfully"
       });
     } catch (error) {
       next(error);
@@ -225,6 +567,74 @@ export class AuthController {
           lastName: user.lastName,
           department: user.userDepartment,
           role: user.roleCode
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async mfaEnroll(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const email = (req as any).user.email;
+      const data = await LpPortalMfaService.startEnrollment(userId, email);
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async mfaConfirmEnrollment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id;
+      const { token } = req.body;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      if (!token) return res.status(400).json({ success: false, message: "token is required" });
+      const data = await LpPortalMfaService.confirmEnrollment(userId, String(token));
+      res.json({ success: true, data });
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ success: false, message: error.message });
+    }
+  }
+
+  async mfaVerifyLogin(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { mfaPendingToken, token } = req.body;
+      if (!mfaPendingToken || !token) {
+        return res.status(400).json({ success: false, message: "mfaPendingToken and token are required" });
+      }
+      const userId = await LpPortalMfaService.consumePendingToken(String(mfaPendingToken));
+      if (!userId) return res.status(401).json({ success: false, message: "Invalid or expired MFA session" });
+
+      const ok = await LpPortalMfaService.verifyTotp(userId, String(token));
+      if (!ok) return res.status(401).json({ success: false, message: "Invalid TOTP code" });
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { role: true },
+      });
+      if (!user) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+      const roleNameFromDb = user.role?.name ? String(user.role.name).trim() : null;
+      const roleCodeEffective =
+        (user.roleCode && String(user.roleCode).trim()) || roleNameFromDb || null;
+      const roleDisplay = roleNameFromDb || roleCodeEffective;
+      const jwtToken = signUserJwt(user, roleDisplay, roleCodeEffective, "lp");
+
+      res.json({
+        success: true,
+        message: "Logged in successfully",
+        token: jwtToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          department: user.userDepartment,
+          role: roleDisplay,
+          roleCode: user.roleCode ?? null,
         },
       });
     } catch (error) {

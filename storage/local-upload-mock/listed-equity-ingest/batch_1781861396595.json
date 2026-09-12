@@ -1,0 +1,146 @@
+[
+  {
+    "symbol": "IXIC",
+    "exchangeCode": "NASDAQ",
+    "priceType": "OPEN",
+    "price": 0,
+    "pricedAt": "2026-06-18T20:02:00.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "IXIC",
+    "exchangeCode": "NASDAQ",
+    "priceType": "CLOSE",
+    "price": 26517.94,
+    "pricedAt": "2026-06-18T20:02:00.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "AAPL",
+    "exchangeCode": "NASDAQ",
+    "priceType": "OPEN",
+    "price": 298.44000244140625,
+    "pricedAt": "2026-06-18T20:00:01.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "AAPL",
+    "exchangeCode": "NASDAQ",
+    "priceType": "CLOSE",
+    "price": 298.01,
+    "pricedAt": "2026-06-18T20:00:01.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "MSFT",
+    "exchangeCode": "NASDAQ",
+    "priceType": "OPEN",
+    "price": 377.9150085449219,
+    "pricedAt": "2026-06-18T20:00:01.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "MSFT",
+    "exchangeCode": "NASDAQ",
+    "priceType": "CLOSE",
+    "price": 379.4,
+    "pricedAt": "2026-06-18T20:00:01.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "NVDA",
+    "exchangeCode": "NASDAQ",
+    "priceType": "OPEN",
+    "price": 207.27499389648438,
+    "pricedAt": "2026-06-18T20:00:00.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "NVDA",
+    "exchangeCode": "NASDAQ",
+    "priceType": "CLOSE",
+    "price": 210.69,
+    "pricedAt": "2026-06-18T20:00:00.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "TSLA",
+    "exchangeCode": "NASDAQ",
+    "priceType": "OPEN",
+    "price": 398.0849914550781,
+    "pricedAt": "2026-06-18T20:00:01.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "TSLA",
+    "exchangeCode": "NASDAQ",
+    "priceType": "CLOSE",
+    "price": 400.49,
+    "pricedAt": "2026-06-18T20:00:01.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "META",
+    "exchangeCode": "NASDAQ",
+    "priceType": "OPEN",
+    "price": 572.9550170898438,
+    "pricedAt": "2026-06-18T20:00:01.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "META",
+    "exchangeCode": "NASDAQ",
+    "priceType": "CLOSE",
+    "price": 577.22,
+    "pricedAt": "2026-06-18T20:00:01.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "AMZN",
+    "exchangeCode": "NASDAQ",
+    "priceType": "OPEN",
+    "price": 240.22000122070312,
+    "pricedAt": "2026-06-18T20:00:01.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "AMZN",
+    "exchangeCode": "NASDAQ",
+    "priceType": "CLOSE",
+    "price": 244.39,
+    "pricedAt": "2026-06-18T20:00:01.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "GOOGL",
+    "exchangeCode": "NASDAQ",
+    "priceType": "OPEN",
+    "price": 365.75,
+    "pricedAt": "2026-06-18T20:00:02.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "GOOGL",
+    "exchangeCode": "NASDAQ",
+    "priceType": "CLOSE",
+    "price": 368.03,
+    "pricedAt": "2026-06-18T20:00:02.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "AMD",
+    "exchangeCode": "NASDAQ",
+    "priceType": "OPEN",
+    "price": 532.39501953125,
+    "pricedAt": "2026-06-18T20:00:01.000Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "AMD",
+    "exchangeCode": "NASDAQ",
+    "priceType": "CLOSE",
+    "price": 537.37,
+    "pricedAt": "2026-06-18T20:00:01.000Z",
+    "tickFrequency": "DELAYED_15M"
+  }
+]

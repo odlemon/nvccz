@@ -2,7 +2,38 @@
 import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
-import { uploadToS3 } from "../utils/awsS3";
+import { normalizeNewsletterContent } from "../utils/newsletterContent";
+import { remoteUploadService, rewritePublicMediaUrl } from "../services/RemoteUploadService";
+import {
+  getNewsletterRecipientConfig,
+  listNewsletterBaseAudienceUsers,
+  resolveNewsletterRecipients,
+  saveNewsletterRecipientConfig,
+} from "../utils/newsletterInternalRecipients";
+import { EmailNotificationService } from "../services/EmailNotificationService";
+
+const NEWSLETTER_UPLOAD_TYPE = "newsletters";
+
+async function uploadNewsletterCoverImage(file: Express.Multer.File): Promise<string> {
+  const upload = await remoteUploadService.uploadSingleFile(
+    {
+      buffer: file.buffer,
+      originalname: file.originalname || "newsletter-cover.jpg",
+      mimetype: file.mimetype || "image/jpeg",
+    },
+    NEWSLETTER_UPLOAD_TYPE
+  );
+
+  return upload.downloadURL;
+}
+
+function withPublicNewsletterImageUrl<T extends { imageUrl?: string | null }>(newsletter: T): T {
+  if (!newsletter?.imageUrl) return newsletter;
+  return {
+    ...newsletter,
+    imageUrl: rewritePublicMediaUrl(newsletter.imageUrl) || newsletter.imageUrl,
+  };
+}
 
 export const newsletterController = {
   // Create a new newsletter
@@ -10,7 +41,11 @@ export const newsletterController = {
     try {
       const { title, content } = req.body;
       const authorId = req.user.id;
+      const normalizedTitle = String(title ?? "").trim();
       let imageUrl: string | undefined;
+
+      const coverFile = req.file;
+      let coverSnapshotForEmail: Buffer | undefined;
 
       // Update user's last seen
       await prisma.user.update({
@@ -19,31 +54,38 @@ export const newsletterController = {
       });
 
       // Validation
-      if (!title || !content) {
+      if (!normalizedTitle || !content) {
         res.status(400).json({
           success: false,
           message: "Title and content are required"
         });
         return;
       }
+      const normalized = normalizeNewsletterContent(content);
+      if (!normalized.text) {
+        return res.status(400).json({
+          success: false,
+          message: "Newsletter content cannot be empty"
+        });
+      }
 
-      // Handle image upload if present
-      if (req.file) {
+      // Handle cover image (`image` field in multipart/form-data)
+      if (coverFile?.buffer?.length) {
         try {
-          const key = `newsletters/${Date.now()}-${req.file.originalname}`;
-          imageUrl = await uploadToS3(req.file.buffer, key, req.file.mimetype);
+          imageUrl = await uploadNewsletterCoverImage(coverFile);
+          coverSnapshotForEmail = Buffer.from(coverFile.buffer);
         } catch (uploadError) {
           console.error("Error uploading image:", uploadError);
           res.status(500).json({
             success: false,
-            message: "Error uploading image"
+            message: uploadError instanceof Error ? uploadError.message : "Error uploading image"
           });
           return;
         }
       }
 
       const newsletter = await prisma.newsletter.create({
-        data: { title, content, authorId, imageUrl },
+        data: { title: normalizedTitle, content: normalized.html, authorId, imageUrl },
         include: {
           author: {
             select: {
@@ -56,31 +98,162 @@ export const newsletterController = {
         }
       });
 
-      // Create notifications for all users
-      const allUsers = await prisma.user.findMany({
-        where: { id: { not: authorId } }
-      });
+      // Staff / internal users only — not investees (portfolio portal) or LPs / applicant role.
+      // Apply newsletter include/exclude overrides from saved config.
+      const resolved = await resolveNewsletterRecipients(authorId);
+      const recipientUsers = resolved.userRecipients;
 
-      const notifications = allUsers.map(user => ({
+      const notifications = recipientUsers.map((user) => ({
         title: `New Newsletter: ${title}`,
         message: `A new newsletter has been published by ${req.user.firstName} ${req.user.lastName}`,
-        type: 'newsletter',
+        type: "newsletter",
         userId: user.id,
-        data: { newsletterId: newsletter.id, authorId }
+        data: { newsletterId: newsletter.id, authorId },
       }));
 
-      await prisma.notification.createMany({ data: notifications });
+      if (notifications.length > 0) {
+        await prisma.notification.createMany({ data: notifications });
+      }
+
+      const authorDisplayName = `${req.user.firstName ?? ""} ${req.user.lastName ?? ""}`.trim();
+
+      // SMTP per recipient can exceed API SLA (e.g. 5s); send after response returns.
+      setImmediate(() => {
+        void EmailNotificationService.broadcastInternalNewsletterEmails({
+          recipients: [
+            ...recipientUsers,
+            ...resolved.extraEmailRecipients.map((email) => ({
+              email,
+              firstName: null,
+              lastName: null,
+            })),
+          ],
+          title: normalizedTitle,
+          content: normalized.html,
+          imageUrl: rewritePublicMediaUrl(newsletter.imageUrl) ?? undefined,
+          coverImageFromUpload:
+            coverSnapshotForEmail?.length ? {
+              content: coverSnapshotForEmail,
+              contentType: coverFile?.mimetype || "image/jpeg",
+              filename: coverFile?.originalname
+            }
+            : undefined,
+          authorDisplayName: authorDisplayName || "Author",
+        })
+          .then((emailResult) => {
+            console.log(
+              `[newsletter ${newsletter.id}] emails: ${emailResult.succeeded}/${emailResult.attempted} sent`
+            );
+            if (emailResult.failed.length > 0) {
+              console.warn(`[newsletter ${newsletter.id}] email failures:`, emailResult.failed);
+            }
+          })
+          .catch((err) => {
+            console.error(`[newsletter ${newsletter.id}] broadcastInternalNewsletterEmails:`, err);
+          });
+      });
 
       res.status(201).json({
         success: true,
         message: "Newsletter created successfully",
-        data: newsletter
+        data: withPublicNewsletterImageUrl(newsletter),
+        distribution: {
+          recipientUserCount: recipientUsers.length,
+          extraEmailRecipientCount: resolved.extraEmailRecipients.length,
+          notificationsCreated: notifications.length,
+          emailsQueued: recipientUsers.length + resolved.extraEmailRecipients.length,
+          emailDispatch: "background",
+        },
       });
     } catch (error: any) {
       console.error("Error creating newsletter:", error);
       res.status(500).json({
         success: false,
         message: "Internal server error"
+      });
+    }
+  },
+
+  // Get newsletter audience config (eligible users + include/exclude settings)
+  async getRecipientConfig(req: AuthRequest, res: Response) {
+    try {
+      const [users, config] = await Promise.all([
+        listNewsletterBaseAudienceUsers(),
+        getNewsletterRecipientConfig(),
+      ]);
+      const hasWhitelist = config.includeUserIds.length > 0;
+      const selectedUserIds = new Set(
+        users
+          .map((u) => u.id)
+          .filter((id) => (hasWhitelist ? config.includeUserIds.includes(id) : true))
+          .filter((id) => !config.excludeUserIds.includes(id))
+      );
+
+      res.status(200).json({
+        success: true,
+        data: {
+          users: users.map((u) => ({
+            id: u.id,
+            firstName: u.firstName,
+            lastName: u.lastName,
+            email: u.email,
+            roleName: u.role?.name ?? null,
+            selected: selectedUserIds.has(u.id),
+            excluded: config.excludeUserIds.includes(u.id),
+          })),
+          config,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error getting newsletter recipient config:", error);
+      res.status(500).json({
+        success: false,
+        message: error?.message || "Internal server error",
+      });
+    }
+  },
+
+  // Save newsletter audience include/exclude settings
+  async saveRecipientConfig(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+      const { includeUserIds, excludeUserIds, includeEmails, excludeEmails } = req.body || {};
+      const config = await saveNewsletterRecipientConfig(userId, {
+        includeUserIds,
+        excludeUserIds,
+        includeEmails,
+        excludeEmails,
+      });
+      const users = await listNewsletterBaseAudienceUsers();
+      const hasWhitelist = config.includeUserIds.length > 0;
+      const selectedInternalUsers = users.filter((u) =>
+        (hasWhitelist ? config.includeUserIds.includes(u.id) : true) &&
+        !config.excludeUserIds.includes(u.id)
+      );
+      const totalEmailsSelected = selectedInternalUsers.length + config.includeEmails.length;
+
+      res.status(200).json({
+        success: true,
+        message: "Newsletter recipient config saved successfully",
+        data: {
+          config,
+          summary: {
+            eligibleInternalUsers: users.length,
+            selectedInternalUsers: selectedInternalUsers.length,
+            excludedUsers: config.excludeUserIds.length,
+            extraIncludedEmails: config.includeEmails.length,
+            totalEmailsSelected,
+          },
+        },
+      });
+    } catch (error: any) {
+      console.error("Error saving newsletter recipient config:", error);
+      res.status(400).json({
+        success: false,
+        message: error?.message || "Failed to save newsletter recipient config",
       });
     }
   },
@@ -105,7 +278,7 @@ export const newsletterController = {
 
       res.status(200).json({
         success: true,
-        data: newsletters
+        data: newsletters.map(withPublicNewsletterImageUrl)
       });
     } catch (error: any) {
       console.error("Error fetching newsletters:", error);
@@ -145,7 +318,7 @@ export const newsletterController = {
 
       res.status(200).json({
         success: true,
-        data: newsletter
+        data: withPublicNewsletterImageUrl(newsletter)
       });
     } catch (error: any) {
       console.error("Error fetching newsletter:", error);
@@ -162,7 +335,10 @@ export const newsletterController = {
       const { id } = req.params;
       const { title, content } = req.body;
       const userId = req.user.id;
+      const normalizedTitle = String(title ?? "").trim();
       let imageUrl: string | undefined;
+
+      const coverFile = req.file;
 
       const existingNewsletter = await prisma.newsletter.findUnique({
         where: { id }
@@ -184,30 +360,36 @@ export const newsletterController = {
         return;
       }
 
-      if (!title || !content) {
+      if (!normalizedTitle || !content) {
         res.status(400).json({
           success: false,
           message: "Title and content are required"
         });
         return;
       }
+      const normalized = normalizeNewsletterContent(content);
+      if (!normalized.text) {
+        return res.status(400).json({
+          success: false,
+          message: "Newsletter content cannot be empty"
+        });
+      }
 
-      // Handle image upload if present
-      if (req.file) {
+      // Handle cover image (`image` field in multipart/form-data)
+      if (coverFile?.buffer?.length) {
         try {
-          const key = `newsletters/${Date.now()}-${req.file.originalname}`;
-          imageUrl = await uploadToS3(req.file.buffer, key, req.file.mimetype);
+          imageUrl = await uploadNewsletterCoverImage(coverFile);
         } catch (uploadError) {
           console.error("Error uploading image:", uploadError);
           res.status(500).json({
             success: false,
-            message: "Error uploading image"
+            message: uploadError instanceof Error ? uploadError.message : "Error uploading image"
           });
           return;
         }
       }
 
-      const updateData: any = { title, content };
+      const updateData: any = { title: normalizedTitle, content: normalized.html };
       if (imageUrl) {
         updateData.imageUrl = imageUrl;
       }
@@ -230,7 +412,7 @@ export const newsletterController = {
       res.status(200).json({
         success: true,
         message: "Newsletter updated successfully",
-        data: updatedNewsletter
+        data: withPublicNewsletterImageUrl(updatedNewsletter)
       });
     } catch (error: any) {
       console.error("Error updating newsletter:", error);

@@ -18,7 +18,13 @@ const router = express.Router();
  *           properties:
  *             totalAUM:
  *               type: number
- *               description: Total Assets Under Management
+ *               description: Sum of fund committed capital (`fund.totalAmount`); not mark-to-market NAV
+ *             holdingsAUM:
+ *               type: number
+ *               description: Portfolio holdings value (FMV + realized); use for AUM tiles. Excludes pipeline/requests.
+ *             holdingsCompanyCount:
+ *               type: integer
+ *               description: Active portfolio companies (breadth)
  *             totalFunds:
  *               type: integer
  *               description: Total number of funds

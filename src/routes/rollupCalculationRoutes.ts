@@ -1,12 +1,17 @@
 // @ts-nocheck
 import express from "express";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 import { RollupCalculationController } from "../controllers/RollupCalculationController";
 
 const router = express.Router();
+const READ_KEYS = ["performance.rollup.view", "performance.rollup.manage"]
+const WRITE_KEYS = ["performance.rollup.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 // All routes require authentication
 router.use(authenticate);
+router.use(guard);
 
 /**
  * @swagger
@@ -52,6 +57,10 @@ router.use(authenticate);
  *                           type: string
  *                         category:
  *                           type: string
+ *                         targetUnit:
+ *                           type: string
+ *                           nullable: true
+ *                           description: Unit for target/current (e.g. USD, %, ZiG m) — same as GET /performance/goals/{id}
  *                         targetValue:
  *                           type: string
  *                         currentValue:

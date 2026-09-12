@@ -64,7 +64,7 @@ export const HARDCODED_KPIS: HardcodedKPI[] = [
     department: "Finance",
     description: "Net cash flow from operations",
     accountType: "Asset",
-    accountNumber: "1000", // Cash and Cash Equivalents
+    // Cash & Cash Equivalents is a reporting bucket (sum of bank/cash accounts), not a single posting account.
     journalEntryType: "Debit",
     isFinancial: true
   },
@@ -122,7 +122,7 @@ export const HARDCODED_KPIS: HardcodedKPI[] = [
     department: "Finance",
     description: "Ending cash balance for the period",
     accountType: "Asset",
-    accountNumber: "1000", // Cash and Cash Equivalents
+    // Reporting-only KPI (computed from cash/bank balances); do not bind to a single GL account number.
     journalEntryType: "Debit",
     isFinancial: true
   },
@@ -279,7 +279,7 @@ export const HARDCODED_KPIS: HardcodedKPI[] = [
     department: "Procurement",
     description: "Total payments made to suppliers",
     accountType: "Asset",
-    accountNumber: "1000", // Cash and Cash Equivalents
+    // Reporting-only metric: payments reduce cash/bank balances across multiple accounts.
     journalEntryType: "Credit",
     isFinancial: true
   },
@@ -333,6 +333,18 @@ export const HARDCODED_KPIS: HardcodedKPI[] = [
     accountNumber: "5090", // Other Operating Expenses
     journalEntryType: "Debit",
     isFinancial: true
+  },
+
+  // ===== MARKETING DEPARTMENT (VC company — accounting-driven metrics) =====
+  {
+    code: "VC_CUSTOMER_ACQUISITION_COST",
+    name: "Customer Acquisition Cost",
+    department: "Marketing",
+    description:
+      "Blended all-time VC company CAC: cumulative marketing-classified expense (USD) divided by active customer count. Synced from Customers + Expenses.",
+    accountType: "Expense",
+    journalEntryType: "Debit",
+    isFinancial: false
   }
 ];
 

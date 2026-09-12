@@ -2,8 +2,13 @@
 import { PrismaClient, CreditNote } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../utils/database';
+import { prismaInvoiceSnapshotSelect } from '../config/accountingSnapshotResponseSelect';
 import { JournalEntryService } from './JournalEntryService';
 import AuditService from './AuditService';
+import {
+  assignNextAuditIdAndCreateJournal,
+  createJournalEntryWithAuditSequence,
+} from './AuditTrailSequenceService';
 
 export interface CreateCreditNoteParams {
   customerId?: string;
@@ -108,12 +113,25 @@ export class CreditNoteService {
         }
       }
 
+      const netDec = new Decimal(amount);
+      const vatDec = new Decimal(vatAmount);
+      const totalDec = new Decimal(totalAmount);
+      if (netDec.lt(0) || vatDec.lt(0) || totalDec.lt(0)) {
+        throw new Error('Credit note amounts cannot be negative');
+      }
+      if (netDec.plus(vatDec).minus(totalDec).abs().gt(0.02)) {
+        throw new Error(
+          `totalAmount (${totalDec.toFixed(2)}) must equal amount + vatAmount (${netDec.plus(vatDec).toFixed(2)})`
+        );
+      }
+
       // Generate credit note number
       const creditNoteNumber = await this.generateCreditNoteNumber();
 
       // Wrap credit note and journal entry creation in a transaction
       // This ensures atomicity - either both succeed or both fail
-      const creditNote = await prisma.$transaction(async (tx) => {
+      const creditNote = await prisma.$transaction(
+        async (tx) => {
         // Create the credit note
         const newCreditNote = await tx.creditNote.create({
           data: {
@@ -140,7 +158,8 @@ export class CreditNoteService {
               select: {
                 id: true,
                 invoiceNumber: true,
-                totalAmount: true
+                totalAmount: true,
+                ...prismaInvoiceSnapshotSelect
               }
             },
             currency: {
@@ -164,8 +183,48 @@ export class CreditNoteService {
         // Create credit note journal entry within the same transaction
         await this.createCreditNoteJournalEntryInTransaction(tx, newCreditNote, createdById);
 
-        return newCreditNote;
-      });
+        const withJe = await tx.creditNote.findUnique({
+          where: { id: newCreditNote.id },
+          include: {
+            customer: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            },
+            originalInvoice: {
+              select: {
+                id: true,
+                invoiceNumber: true,
+                totalAmount: true,
+                ...prismaInvoiceSnapshotSelect
+              }
+            },
+            currency: {
+              select: {
+                id: true,
+                code: true,
+                symbol: true
+              }
+            },
+            createdBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            }
+          }
+        });
+        if (!withJe) {
+          throw new Error("Credit note missing after journal link");
+        }
+        return withJe;
+      },
+        { maxWait: 10000, timeout: 30000 }
+      );
 
       // Audit log (outside transaction as it's not critical)
       await AuditService.log({
@@ -214,68 +273,57 @@ export class CreditNoteService {
    */
   private static async createCreditNoteJournalEntry(creditNote: CreditNote, createdById: string): Promise<void> {
     try {
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: new Date(),
-          referenceNumber: creditNote.creditNoteNumber,
-          description: `Credit note: ${creditNote.creditNoteNumber}`,
-          totalAmount: creditNote.totalAmount,
-          currencyId: creditNote.currencyId,
-          status: 'POSTED',
-          createdById
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate: new Date(),
+        referenceNumber: creditNote.creditNoteNumber,
+        description: `Credit note: ${creditNote.creditNoteNumber}`,
+        totalAmount: creditNote.totalAmount,
+        currencyId: creditNote.currencyId,
+        status: 'POSTED',
+        createdById,
       });
 
-      // Get accounts receivable account
-      const accountsReceivableAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          accountName: { contains: 'Accounts Receivable' },
-          isActive: true
-        }
-      });
+      const { ar, revenue, vatOutput } = await this.resolveCreditNoteGlAccounts(prisma);
 
-      if (!accountsReceivableAccount) {
-        throw new Error('Accounts Receivable account not found');
-      }
-
-      // Get sales/revenue account (use first available revenue account)
-      const salesAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          accountType: 'Revenue',
-          isActive: true
-        }
-      });
-
-      if (!salesAccount) {
-        throw new Error('Revenue account not found');
-      }
-
-      // Create journal entry lines
-      // Dr Accounts Receivable (reduce receivable)
       await prisma.journalEntryLine.create({
         data: {
           journalEntryId: journalEntry.id,
-          chartOfAccountId: accountsReceivableAccount.id,
+          chartOfAccountId: ar.id,
           debitAmount: new Decimal(0),
           creditAmount: creditNote.totalAmount,
-          description: `Credit note: ${creditNote.creditNoteNumber}`,
+          description: `Credit note — reduce receivable: ${creditNote.creditNoteNumber}`,
           vatAmount: new Decimal(0)
         }
       });
 
-      // Cr Sales (reduce sales)
       await prisma.journalEntryLine.create({
         data: {
           journalEntryId: journalEntry.id,
-          chartOfAccountId: salesAccount.id,
-          debitAmount: creditNote.totalAmount,
+          chartOfAccountId: revenue.id,
+          debitAmount: creditNote.amount,
           creditAmount: new Decimal(0),
-          description: `Credit note: ${creditNote.creditNoteNumber}`,
+          description: `Credit note — reduce sales: ${creditNote.creditNoteNumber}`,
           vatAmount: new Decimal(0)
         }
       });
 
-      // Update credit note with journal entry reference
+      const vatNum = new Decimal(creditNote.vatAmount);
+      if (vatNum.gt(0.005)) {
+        if (!vatOutput) {
+          throw new Error('VAT Output account not found; required when vatAmount > 0');
+        }
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: vatOutput.id,
+            debitAmount: vatNum,
+            creditAmount: new Decimal(0),
+            description: `Credit note — reduce VAT output: ${creditNote.creditNoteNumber}`,
+            vatAmount: vatNum
+          }
+        });
+      }
+
       await prisma.creditNote.update({
         where: { id: creditNote.id },
         data: { journalEntryId: journalEntry.id }
@@ -287,78 +335,118 @@ export class CreditNoteService {
   }
 
   /**
+   * AR, sales revenue, VAT output — same resolution as sales invoice JE (via prisma or transaction client).
+   */
+  private static async resolveCreditNoteGlAccounts(db: any): Promise<{
+    ar: { id: string };
+    revenue: { id: string };
+    vatOutput: { id: string } | null;
+  }> {
+    const ar = await db.chartOfAccounts.findFirst({
+      where: {
+        isActive: true,
+        OR: [
+          { accountNo: '1200' },
+          { accountType: 'Current Asset', accountName: { contains: 'Accounts Receivable' } }
+        ]
+      }
+    });
+    if (!ar) {
+      throw new Error(
+        'Accounts Receivable not found (e.g. 1200). Please configure chart of accounts.'
+      );
+    }
+
+    let revenue = await db.chartOfAccounts.findFirst({
+      where: {
+        isActive: true,
+        accountType: 'Revenue',
+        accountName: { contains: 'Management Fees' }
+      }
+    });
+    if (!revenue) {
+      revenue = await db.chartOfAccounts.findFirst({
+        where: { isActive: true, accountType: 'Revenue' },
+        orderBy: { accountNo: 'asc' }
+      });
+    }
+    if (!revenue) {
+      throw new Error('Revenue account not found. Please configure chart of accounts.');
+    }
+
+    const vatOutput = await db.chartOfAccounts.findFirst({
+      where: {
+        isActive: true,
+        accountType: 'Current Liability',
+        accountName: { contains: 'VAT Output' }
+      }
+    });
+
+    return { ar, revenue, vatOutput };
+  }
+
+  /**
    * Create credit note journal entry within a transaction
    * This ensures atomicity with the credit note creation
+   * Dr Revenue (net), Dr VAT Output (if any), Cr Accounts Receivable (gross) — reversal of sale.
    */
   private static async createCreditNoteJournalEntryInTransaction(
-    tx: any, 
-    creditNote: CreditNote, 
+    tx: any,
+    creditNote: CreditNote,
     createdById: string
   ): Promise<void> {
     try {
-      // Get accounts receivable account
-      const accountsReceivableAccount = await tx.chartOfAccounts.findFirst({
-        where: {
-          accountName: { contains: 'Accounts Receivable' },
-          isActive: true
-        }
+      const { ar, revenue, vatOutput } = await this.resolveCreditNoteGlAccounts(tx);
+
+      const journalEntry = await assignNextAuditIdAndCreateJournal(tx, {
+        transactionDate: new Date(),
+        referenceNumber: creditNote.creditNoteNumber,
+        description: `Credit note: ${creditNote.creditNoteNumber}`,
+        totalAmount: creditNote.totalAmount,
+        currencyId: creditNote.currencyId,
+        status: 'POSTED',
+        createdById,
       });
 
-      if (!accountsReceivableAccount) {
-        throw new Error('Accounts Receivable account not found. Please ensure chart of accounts is properly configured.');
-      }
-
-      // Get sales/revenue account (use first available revenue account)
-      const salesAccount = await tx.chartOfAccounts.findFirst({
-        where: {
-          accountType: 'Revenue',
-          isActive: true
-        }
-      });
-
-      if (!salesAccount) {
-        throw new Error('Revenue account not found. Please ensure chart of accounts is properly configured.');
-      }
-
-      // Create journal entry
-      const journalEntry = await tx.journalEntry.create({
-        data: {
-          transactionDate: new Date(),
-          referenceNumber: creditNote.creditNoteNumber,
-          description: `Credit note: ${creditNote.creditNoteNumber}`,
-          totalAmount: creditNote.totalAmount,
-          currencyId: creditNote.currencyId,
-          status: 'POSTED',
-          createdById
-        }
-      });
-
-      // Create journal entry lines
-      // Cr Accounts Receivable (reduce receivable)
       await tx.journalEntryLine.create({
         data: {
           journalEntryId: journalEntry.id,
-          chartOfAccountId: accountsReceivableAccount.id,
+          chartOfAccountId: ar.id,
           debitAmount: new Decimal(0),
           creditAmount: creditNote.totalAmount,
-          description: `Credit note: ${creditNote.creditNoteNumber}`,
+          description: `Credit note — reduce receivable: ${creditNote.creditNoteNumber}`,
           vatAmount: new Decimal(0)
         }
       });
 
-      // Dr Sales/Revenue (reduce revenue)
       await tx.journalEntryLine.create({
         data: {
           journalEntryId: journalEntry.id,
-          chartOfAccountId: salesAccount.id,
-          debitAmount: creditNote.totalAmount,
+          chartOfAccountId: revenue.id,
+          debitAmount: creditNote.amount,
           creditAmount: new Decimal(0),
-          description: `Credit note: ${creditNote.creditNoteNumber}`,
+          description: `Credit note — reduce sales: ${creditNote.creditNoteNumber}`,
           vatAmount: new Decimal(0)
         }
       });
 
-      // Update credit note with journal entry reference
+      const vatNum = new Decimal(creditNote.vatAmount);
+      if (vatNum.gt(0.005)) {
+        if (!vatOutput) {
+          throw new Error('VAT Output account not found; required when vatAmount > 0');
+        }
+        await tx.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: vatOutput.id,
+            debitAmount: vatNum,
+            creditAmount: new Decimal(0),
+            description: `Credit note — reduce VAT output: ${creditNote.creditNoteNumber}`,
+            vatAmount: vatNum
+          }
+        });
+      }
+
       await tx.creditNote.update({
         where: { id: creditNote.id },
         data: { journalEntryId: journalEntry.id }
@@ -555,7 +643,8 @@ export class CreditNoteService {
               select: {
                 id: true,
                 invoiceNumber: true,
-                totalAmount: true
+                totalAmount: true,
+                ...prismaInvoiceSnapshotSelect
               }
             },
             currency: {
@@ -612,7 +701,8 @@ export class CreditNoteService {
             select: {
               id: true,
               invoiceNumber: true,
-              totalAmount: true
+              totalAmount: true,
+              ...prismaInvoiceSnapshotSelect
             }
           },
           currency: {
@@ -685,7 +775,8 @@ export class CreditNoteService {
             select: {
               id: true,
               invoiceNumber: true,
-              totalAmount: true
+              totalAmount: true,
+              ...prismaInvoiceSnapshotSelect
             }
           },
           currency: {
@@ -755,7 +846,8 @@ export class CreditNoteService {
             select: {
               id: true,
               invoiceNumber: true,
-              totalAmount: true
+              totalAmount: true,
+              ...prismaInvoiceSnapshotSelect
             }
           },
           currency: {

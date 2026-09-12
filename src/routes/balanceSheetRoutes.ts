@@ -14,6 +14,15 @@ const router = Router();
  *     tags: [Accounting - Balance Sheet]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: hideZeroBalances
+ *         required: false
+ *         schema:
+ *           type: string
+ *           enum: ["true", "false", "1", "0"]
+ *         description: Filter — omit idle zero-balance accounts from lists (true or 1). Totals unchanged.
+ *         example: "true"
  *     requestBody:
  *       required: true
  *       content:
@@ -119,6 +128,11 @@ router.post("/generate", authenticate, authorize(["admin", "accountant"]), Balan
  *           type: string
  *         description: Currency ID (optional)
  *         example: "USD"
+ *       - in: query
+ *         name: hideZeroBalances
+ *         schema:
+ *           type: boolean
+ *         description: Omit idle zero-balance accounts from lists (totals unchanged). Use true or 1.
  *     responses:
  *       200:
  *         description: Balance sheet retrieved successfully
@@ -130,6 +144,116 @@ router.post("/generate", authenticate, authorize(["admin", "accountant"]), Balan
  *         description: Internal server error
  */
 router.get("/", authenticate, authorize(["admin", "accountant"]), BalanceSheetController.getBalanceSheetByQuery);
+
+/**
+ * @swagger
+ * /api/accounting/balance-sheet/consolidated:
+ *   post:
+ *     summary: Generate consolidated balance sheet (all currencies converted to one target currency)
+ *     description: |
+ *       Fetches ALL journal entries regardless of currency, converts every amount to the target
+ *       consolidation currency using the exchange rate as of the report date, and aggregates them.
+ *       Each account line includes a `currencyBreakdown` array showing sourceAmount, conversionRate
+ *       and consolidatedAmount per original currency.
+ *     tags: [Accounting - Balance Sheet]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: hideZeroBalances
+ *         required: false
+ *         schema:
+ *           type: string
+ *           enum: ["true", "false", "1", "0"]
+ *         description: Omit idle zero-balance accounts
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - asOfDate
+ *               - consolidationCurrencyId
+ *             properties:
+ *               asOfDate:
+ *                 type: string
+ *                 format: date
+ *                 description: As-of date for the balance sheet
+ *                 example: "2026-03-31"
+ *               consolidationCurrencyId:
+ *                 type: string
+ *                 description: ID of the target currency to consolidate into
+ *                 example: "clxabc123usd"
+ *               startDate:
+ *                 type: string
+ *                 format: date
+ *                 description: Optional start date (if both startDate & endDate provided, restricts range)
+ *                 example: "2025-01-01"
+ *               endDate:
+ *                 type: string
+ *                 format: date
+ *                 description: Optional end date
+ *                 example: "2026-03-31"
+ *     responses:
+ *       200:
+ *         description: Consolidated balance sheet generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     asOfDate:
+ *                       type: string
+ *                       format: date
+ *                     consolidationCurrency:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         code:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                     exchangeRates:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           currencyId:
+ *                             type: string
+ *                           currencyCode:
+ *                             type: string
+ *                           rate:
+ *                             type: number
+ *                     assets:
+ *                       type: object
+ *                     liabilities:
+ *                       type: object
+ *                     equity:
+ *                       type: object
+ *                     totalLiabilitiesAndEquity:
+ *                       type: number
+ *                     isBalanced:
+ *                       type: boolean
+ *                     difference:
+ *                       type: number
+ *       400:
+ *         description: Bad request - missing consolidationCurrencyId or dates
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.post("/consolidated", authenticate, authorize(["admin", "accountant"]), BalanceSheetController.generateConsolidatedBalanceSheet);
 
 export default router;
 

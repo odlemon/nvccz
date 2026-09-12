@@ -1,6 +1,37 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from "express";
-import { AuthRequest } from "./authenticate";
+import { userHasEffectivePermission } from "../config/cfoModulePermissions";
+import { AuthRequest, authorize } from "./authenticate";
+import { isExternalPortalUser } from "../utils/portalAuth";
+
+export { authorize };
+
+/**
+ * Refuses accounts that belong to an external portal (investee, applicant, LP).
+ *
+ * `authenticate` only proves a token is valid, not that its holder is one of
+ * our own staff. userRoutes applied nothing else, so an INVESTEE account that
+ * reached the staff portal could list every user and create new ones. Use this
+ * on any route whose data is internal but whose audience is "all staff", where
+ * a specific permission would be too narrow -- assignment pickers and directory
+ * lookups being the usual case.
+ */
+export function requireInternalStaffUser() {
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
+      return;
+    }
+    if (isExternalPortalUser(req.user)) {
+      res.status(403).json({
+        success: false,
+        message: "This account is not authorized for staff resources.",
+      });
+      return;
+    }
+    next();
+  };
+}
 
 export function requirePermission(permissionName: string) {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
@@ -12,22 +43,7 @@ export function requirePermission(permissionName: string) {
       return;
     }
 
-    const userPermissions = req.user.role.permissions;
-    
-    if (!userPermissions || !Array.isArray(userPermissions)) {
-      res.status(403).json({ 
-        success: false,
-        message: "No permissions found" 
-      });
-      return;
-    }
-
-    const hasPermission = userPermissions.some(
-      (permission: any) => 
-        permission.name === permissionName && permission.value === true
-    );
-
-    if (!hasPermission) {
+    if (!userHasEffectivePermission(req.user, permissionName)) {
       res.status(403).json({ 
         success: false,
         message: `Insufficient permissions. Required: ${permissionName}` 
@@ -49,21 +65,8 @@ export function requireAnyPermission(permissionNames: string[]) {
       return;
     }
 
-    const userPermissions = req.user.role.permissions;
-    
-    if (!userPermissions || !Array.isArray(userPermissions)) {
-      res.status(403).json({ 
-        success: false,
-        message: "No permissions found" 
-      });
-      return;
-    }
-
-    const hasAnyPermission = permissionNames.some(permissionName =>
-      userPermissions.some(
-        (permission: any) => 
-          permission.name === permissionName && permission.value === true
-      )
+    const hasAnyPermission = permissionNames.some((permissionName) =>
+      userHasEffectivePermission(req.user, permissionName)
     );
 
     if (!hasAnyPermission) {
@@ -88,41 +91,14 @@ export function requireAllPermissions(permissionNames: string[]) {
       return;
     }
 
-    const userPermissions = req.user.role.permissions;
-    
-    if (!userPermissions || !Array.isArray(userPermissions)) {
-      res.status(403).json({ 
-        success: false,
-        message: "No permissions found" 
-      });
-      return;
-    }
-
-    const hasAllPermissions = permissionNames.every(permissionName =>
-      userPermissions.some(
-        (permission: any) => 
-          permission.name === permissionName && permission.value === true
-      )
+    const hasAllPermissions = permissionNames.every((permissionName) =>
+      userHasEffectivePermission(req.user, permissionName)
     );
 
     if (!hasAllPermissions) {
       res.status(403).json({ 
         success: false,
         message: `Insufficient permissions. Required all: ${permissionNames.join(', ')}` 
-      });
-      return;
-    }
-
-    next();
-  };
-}
-
-export function authorize(_roles: string[]) {
-  return (req: AuthRequest, res: Response, next: NextFunction): void => {
-    if (!req.user) {
-      res.status(401).json({
-        success: false,
-        message: "Unauthorized"
       });
       return;
     }
@@ -156,4 +132,16 @@ export function requireApplicantRole() {
 
     next();
   };
-} 
+}
+
+/** Merge role permissions with employee compliance blocks (cert expiry revocations). */
+export async function getEffectivePermissionsForUser(
+  userId: string,
+  rolePermissions: Array<{ name: string; value: boolean }>
+): Promise<Array<{ name: string; value: boolean }>> {
+  const { CompliancePermissionService, filterPermissionsByCompliance } = await import(
+    "../services/payroll/CompliancePermissionService"
+  );
+  const blocked = await CompliancePermissionService.getBlockedPermissionsForUser(userId);
+  return filterPermissionsByCompliance(rolePermissions || [], blocked);
+}

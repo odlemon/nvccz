@@ -2,7 +2,7 @@ import { prisma } from '../src/utils/database';
 
 async function main() {
   const rows: any[] = await prisma.$queryRawUnsafe(
-    `SELECT id, portfolioCompanyId, previousAmount, newAmount, difference, valuationDate, notes, createdAt
+    `SELECT id, portfolioCompanyId, previousAmount, newAmount, difference, valuationDate, notes, journalEntryId, createdAt
        FROM portfolio_company_valuations
       ORDER BY createdAt DESC`
   );

@@ -1,0 +1,11 @@
+accountNo,accountName,accountType,financialStatement,notes
+52801,UAT Bulk Import Pass 01,Expense,Income Statement,Created by POST /bulk-import when validation passes
+52802,UAT Bulk Import Pass 02,Expense,Income Statement,
+52803,UAT Bulk Import Pass 03,Expense,Income Statement,
+52804,UAT Bulk Import Pass 04,Expense,Income Statement,
+52805,UAT Bulk Import Pass 05,Expense,Income Statement,
+52806,UAT Bulk Import Pass 06,Expense,Income Statement,
+52807,UAT Bulk Import Pass 07,Expense,Income Statement,
+52808,UAT Bulk Import Pass 08,Expense,Income Statement,
+52809,UAT Bulk Import Pass 09,Expense,Income Statement,
+52810,UAT Bulk Import Pass 10,Expense,Income Statement,

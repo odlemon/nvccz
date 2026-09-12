@@ -1,6 +1,7 @@
 //@ts-nocheck
 import { Request, Response } from 'express';
 import { FundService } from '../services/FundService';
+import { FirebaseStorageService } from '../services/FirebaseStorageService';
 
 export class FundController {
   /**
@@ -17,7 +18,10 @@ export class FundController {
         focusIndustries,
         applicationStart,
         applicationEnd,
-        status
+        status,
+        managementFeeRate,
+        carryRate,
+        hurdleRate
       } = req.body;
 
       const createdById = (req as any).user.id; // Get user ID from authenticated request
@@ -32,7 +36,10 @@ export class FundController {
         applicationStart: new Date(applicationStart),
         applicationEnd: new Date(applicationEnd),
         status,
-        createdById
+        createdById,
+        managementFeeRate,
+        carryRate,
+        hurdleRate
       });
 
       res.status(201).json({
@@ -90,6 +97,67 @@ export class FundController {
         success: false,
         message: error.message
       });
+    }
+  }
+
+  /**
+   * List a fund's recorded performance snapshots (NAV/called/distributed over time)
+   */
+  static async getPerformanceSnapshots(req: Request, res: Response) {
+    try {
+      const { fundId } = req.params;
+      const snapshots = await FundService.listPerformanceSnapshots(fundId);
+      res.status(200).json({ success: true, data: snapshots });
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * List a fund's documents (Portfolio Funds detail — Documents tab)
+   */
+  static async listDocuments(req: Request, res: Response) {
+    try {
+      const { fundId } = req.params;
+      const documents = await FundService.listFundDocuments(fundId);
+      res.status(200).json({ success: true, data: documents });
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Upload a document to a fund
+   */
+  static async uploadDocument(req: Request, res: Response) {
+    try {
+      const { fundId } = req.params;
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ success: false, message: 'No file uploaded' });
+        return;
+      }
+      const category = req.body.category || 'General';
+      const { filePath, downloadURL } = await FirebaseStorageService.uploadFundDocument(
+        file.buffer,
+        file.originalname,
+        fundId,
+        category
+      );
+      const uploadedById = (req as any).user?.id;
+      const document = await FundService.createFundDocument({
+        fundId,
+        name: file.originalname,
+        category,
+        fileUrl: downloadURL,
+        storagePath: filePath,
+        mimeType: file.mimetype,
+        fileSizeBytes: file.size,
+        uploadedById,
+      });
+      res.status(201).json({ success: true, data: document, message: 'Document uploaded successfully' });
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
     }
   }
 

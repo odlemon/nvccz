@@ -1,9 +1,13 @@
 // @ts-nocheck
-import { PrismaClient } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../utils/database";
 
+/** Partner / LP external reference: `EXT_PAR_0001`, `EXT_PAR_0002`, … (zero-padded, min width 4). */
+const PARTNER_ID_PREFIX = "EXT_PAR_";
+
 export interface CreateClientRequest {
-  investorId: string;
+  /** Optional override. When omitted, the server assigns the next `EXT_PAR_####` partner number (capital-call LPs). */
+  investorId?: string;
   type: string; // "individual" or "institutional"
   legalName: string;
   email: string;
@@ -42,16 +46,42 @@ export interface UpdateClientRequest {
 
 
 export class ClientService {
+  /**
+   * Next sequential partner investor id (`EXT_PAR_0001` …) scoped to existing `EXT_PAR_*` rows.
+   * Call only inside a transaction so allocation stays near the insert (reduces race window).
+   */
+  static async allocateNextPartnerInvestorId(tx: Prisma.TransactionClient): Promise<string> {
+    const rows = await tx.client.findMany({
+      where: { investorId: { startsWith: PARTNER_ID_PREFIX } },
+      select: { investorId: true }
+    });
+    let maxNum = 0;
+    for (const { investorId } of rows) {
+      const m = new RegExp(`^${PARTNER_ID_PREFIX}(\\d+)$`).exec(String(investorId).trim());
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (!Number.isNaN(n)) maxNum = Math.max(maxNum, n);
+      }
+    }
+    const next = maxNum + 1;
+    return `${PARTNER_ID_PREFIX}${String(next).padStart(4, "0")}`;
+  }
+
   // Create a new client with optional investment commitment
   static async createClient(request: CreateClientRequest) {
     try {
-      // Check if investor ID already exists
-      const existingClient = await prisma.client.findUnique({
-        where: { investorId: request.investorId }
-      });
+      const providedInvestorId =
+        request.investorId != null && String(request.investorId).trim() !== ""
+          ? String(request.investorId).trim()
+          : null;
 
-      if (existingClient) {
-        throw new Error("Client with this investor ID already exists");
+      if (providedInvestorId) {
+        const existingClient = await prisma.client.findUnique({
+          where: { investorId: providedInvestorId },
+        });
+        if (existingClient) {
+          throw new Error("Client with this investor ID already exists");
+        }
       }
 
       // Check if email already exists
@@ -100,13 +130,16 @@ export class ClientService {
 
       // Create client and investment commitment in a transaction with timeout
       const result = await prisma.$transaction(async (tx) => {
+        const investorId =
+          providedInvestorId ?? (await ClientService.allocateNextPartnerInvestorId(tx));
+
         // Determine client status: if creating with commitments, must be ACTIVE
         const clientStatus = request.fundId ? "ACTIVE" : (request.status || "ACTIVE");
         
         // Create the client
         const client = await tx.client.create({
           data: {
-            investorId: request.investorId,
+            investorId,
             type: request.type,
             legalName: request.legalName,
             email: request.email,
@@ -498,6 +531,41 @@ export class ClientService {
     }
   }
 
+  static async linkPortalUser(clientId: string, userId: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId }, include: { role: true } });
+    if (!user) throw new Error("User not found");
+    const existing = await prisma.client.findUnique({ where: { userId } });
+    if (existing && existing.id !== clientId) {
+      throw new Error("User is already linked to another client");
+    }
+    const client = await prisma.client.findUnique({ where: { id: clientId } });
+    if (!client) throw new Error("Client not found");
+    const userEmail = String(user.email).trim().toLowerCase();
+    const clientEmail = String(client.email).trim().toLowerCase();
+    if (userEmail !== clientEmail) {
+      throw new Error("User email must match client email before linking portal access");
+    }
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.client.update({
+        where: { id: clientId },
+        data: { userId },
+      });
+      const existing = await tx.lpUserRelation.findUnique({
+        where: { userId_clientId: { userId, clientId } },
+      });
+      if (existing) {
+        await tx.lpUserRelation.update({
+          where: { id: existing.id },
+          data: { isActive: true, lpRole: "VIEWER", revokedAt: null },
+        });
+      } else {
+        await tx.lpUserRelation.create({
+          data: { userId, clientId, lpRole: "VIEWER" },
+        });
+      }
+      return updated;
+    });
+  }
 
   // Get client statistics
   static async getClientStatistics() {

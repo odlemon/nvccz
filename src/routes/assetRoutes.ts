@@ -5,7 +5,10 @@ import { authenticate } from '../middleware/authenticate';
 
 const router = express.Router();
 
-// Apply authentication middleware to all routes
+// Cron: must be registered BEFORE authenticate() — no JWT (shared secret only).
+router.post('/depreciation/cron/monthly', AssetController.postMonthlyDepreciationCron);
+
+// Apply authentication middleware to all other routes
 router.use(authenticate);
 
 /**
@@ -88,6 +91,38 @@ router.post('/', AssetController.createAsset);
  *         description: Unauthorized
  */
 router.get('/', AssetController.getAssets);
+
+/**
+ * @swagger
+ * /accounting/assets/register:
+ *   get:
+ *     summary: Get asset register (active in-use assets)
+ *     tags: [Asset Management]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Asset register data
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/register', AssetController.getAssetRegister);
+
+/**
+ * @swagger
+ * /accounting/assets/depreciation-schedule:
+ *   get:
+ *     summary: Get depreciation schedule (alias)
+ *     tags: [Asset Management]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Depreciation schedule
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/depreciation-schedule', AssetController.getDepreciationSchedule);
 
 /**
  * @swagger
@@ -184,6 +219,86 @@ router.put('/:id', AssetController.updateAsset);
  *         description: Unauthorized
  */
 router.delete('/:id', AssetController.deleteAsset);
+
+/**
+ * @swagger
+ * /accounting/assets/{assetId}/depreciation/backfill:
+ *   post:
+ *     summary: Calculate + post depreciation for a date range
+ *     description: |
+ *       Walks month-by-month from `startDate` (or purchase date if omitted) through `endDate`,
+ *       calculating and posting depreciation for each due period.
+ *       Already-processed months are silently skipped (idempotent).
+ *     tags: [Asset Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: assetId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Asset ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [endDate]
+ *             properties:
+ *               startDate:
+ *                 type: string
+ *                 format: date
+ *                 example: "2024-08-01"
+ *                 description: Start of range (defaults to asset purchase date if omitted)
+ *               endDate:
+ *                 type: string
+ *                 format: date
+ *                 example: "2026-03-31"
+ *                 description: End of range (inclusive)
+ *               autoPost:
+ *                 type: boolean
+ *                 default: true
+ *                 description: Automatically post journal entries after calculating
+ *     responses:
+ *       200:
+ *         description: Backfill completed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     periodsAttempted:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["2024-08", "2024-09", "2024-10"]
+ *                     created:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     posted:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     skipped:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     errors:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ */
+router.post('/:assetId/depreciation/backfill', AssetController.backfillDepreciation);
+router.post('/:id/depreciation/backfill', AssetController.backfillDepreciation);
 
 /**
  * @swagger
@@ -365,22 +480,6 @@ router.post('/:id/dispose', AssetController.disposeAsset); // Alias for requirem
 
 /**
  * @swagger
- * /accounting/assets/register:
- *   get:
- *     summary: Get asset register
- *     tags: [Asset Management]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Asset register data
- *       401:
- *         description: Unauthorized
- */
-router.get('/register', AssetController.getAssetRegister); // Alias for requirements
-
-/**
- * @swagger
  * /accounting/assets/{assetId}/depreciation-schedule:
  *   get:
  *     summary: Get depreciation schedule for an asset
@@ -402,22 +501,6 @@ router.get('/register', AssetController.getAssetRegister); // Alias for requirem
  *         description: Unauthorized
  */
 router.get('/:assetId/depreciation-schedule', AssetController.getDepreciationSchedule);
-
-/**
- * @swagger
- * /accounting/assets/depreciation-schedule:
- *   get:
- *     summary: Get depreciation schedule (alias)
- *     tags: [Asset Management]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Depreciation schedule
- *       401:
- *         description: Unauthorized
- */
-router.get('/depreciation-schedule', AssetController.getDepreciationSchedule); // Alias for requirements
 
 /**
  * @swagger

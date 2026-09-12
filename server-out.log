@@ -1,7 +1,0 @@
-Swagger-jsdoc generated 475 endpoints
-Added accounting, cashbook, performance, task assignment, and financial reporting endpoints, total: 515 endpoints
-[2025-11-10T10:48:18.777Z] INFO: ✅ Connected to MySQL database successfully
-[2025-11-10T10:48:18.808Z] INFO: 🚀 Server running on port 3000 {"environment":"development","port":"3000"}
-[2025-11-10T10:48:18.809Z] INFO: 📚 API Documentation available at http://localhost:3000/api-docs
-[2025-11-10T10:48:18.809Z] INFO: 🌐 Server accessible at http://31.220.82.129:3000
-[2025-11-10T10:49:24.229Z] INFO: 🔍 Checking if email already exists (before file uploads) {"applicantEmail":"khayalamizim@gmail.com","hasFiles":true,"fileCount":4}

@@ -3,10 +3,14 @@
 // Handles bank reconciliation endpoints
 
 import { Request, Response } from "express";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { ResponseHelper } from "../utils/responseHelper";
 import BankReconciliationService from "../services/BankReconciliationService";
 import { BankReconciliationEngineService } from "../services/BankReconciliationEngineService";
+import { parseBankStatementCSV } from "../services/BankStatementUploadService";
 import { Decimal } from "@prisma/client";
+import { prisma } from "../utils/database";
 
 interface AuthRequest extends Request {
   user?: {
@@ -16,122 +20,192 @@ interface AuthRequest extends Request {
   };
 }
 
+type ParsedItem = {
+  transactionDate: Date;
+  valueDate?: Date | null;
+  description: string;
+  reference: string | null;
+  debitAmount: number;
+  creditAmount: number;
+  balance?: number | null;
+  amount: number;
+  direction: string;
+};
+
 export default class BankReconciliationController {
-  
+
   /**
-   * Create bank statement
-   * POST /api/cashbook/reconciliation/statements
+   * Create bank statement (manual JSON body) or upload file (CSV in standard format).
+   * File format: optional rows Account Number, Account Currency, Opening Balance, Closing Balance;
+   * then header row Transaction Date, Value Date, Reference, Description, Debit, Credit, Balance; then data rows.
+   * POST /api/accounting/bank-reconciliation/upload (file) or POST with body (bankId, statementDate, openingBalance, closingBalance, items).
    */
   static async createBankStatement(req: Request, res: Response) {
     try {
-      const userId = (req as AuthRequest).user?.id;
-      const {
-        bankId,
-        statementDate,
-        openingBalance,
-        closingBalance,
-        confidenceThreshold
-      } = req.body || {};
+      const userId = (req as AuthRequest).user?.id ?? "system";
+      const body = req.body || {};
+      let bankId = body.bankId || null;
+      let statementDate: Date | null = body.statementDate ? new Date(body.statementDate) : null;
+      let openingBalance: number | null = body.openingBalance !== undefined ? Number(body.openingBalance) : null;
+      let closingBalance: number | null = body.closingBalance !== undefined ? Number(body.closingBalance) : null;
+      const confidenceThreshold = body.confidenceThreshold !== undefined ? Number(body.confidenceThreshold) : 90;
 
-      let { items } = req.body || {};
-      
-      if (!bankId || !statementDate || openingBalance === undefined || closingBalance === undefined || !items) {
-        return ResponseHelper.badRequest(
-          res,
-          "Missing required fields: bankId, statementDate, openingBalance, closingBalance, items"
-        );
-      }
-      
-      if (typeof items === "string") {
-        try {
-          items = JSON.parse(items);
-        } catch {
-          return ResponseHelper.badRequest(res, "items must be a valid JSON array");
+      let parsedItems: ParsedItem[];
+      let accountNumber: string | null = null;
+      let accountCurrency: string | null = null;
+      let fileName = req.file?.originalname ?? `manual-upload-${Date.now()}.json`;
+
+      if (req.file?.buffer) {
+        const parsed = parseBankStatementCSV(req.file.buffer);
+        if (!parsed.items || parsed.items.length === 0) {
+          return ResponseHelper.badRequest(res, "Uploaded file contains no valid transaction rows. Use the standard format: Transaction Date, Value Date, Reference, Description, Debit, Credit, Balance.");
         }
-      }
-
-      if (!Array.isArray(items) || items.length === 0) {
-        return ResponseHelper.badRequest(res, "items must contain at least one statement line");
-      }
-
-      const parsedItems = items.map((rawItem: any, index: number) => {
-        if (!rawItem.transactionDate || !rawItem.description) {
-          throw new Error(`Statement item at index ${index} missing transactionDate or description`);
+        accountNumber = parsed.accountNumber ?? null;
+        accountCurrency = parsed.accountCurrency ?? null;
+        if (parsed.openingBalance != null) openingBalance = parsed.openingBalance;
+        if (parsed.closingBalance != null) closingBalance = parsed.closingBalance;
+        if (!statementDate && parsed.items.length > 0) {
+          statementDate = parsed.items[0].transactionDate;
         }
-
-        const debitAmount = rawItem.debitAmount !== undefined ? Number(rawItem.debitAmount) : 0;
-        const creditAmount = rawItem.creditAmount !== undefined ? Number(rawItem.creditAmount) : 0;
-
-        const hasDebit = !Number.isNaN(debitAmount) && debitAmount !== 0;
-        const hasCredit = !Number.isNaN(creditAmount) && creditAmount !== 0;
-
-        if (!hasDebit && !hasCredit) {
-          throw new Error(`Statement item at index ${index} must have either a debitAmount or creditAmount`);
+        parsedItems = parsed.items.map((row) => {
+          const amt = row.creditAmount > 0 ? row.creditAmount : -row.debitAmount;
+          return {
+            transactionDate: row.transactionDate,
+            valueDate: row.valueDate ?? row.transactionDate,
+            description: row.description,
+            reference: row.reference ?? null,
+            debitAmount: row.debitAmount,
+            creditAmount: row.creditAmount,
+            balance: row.balance ?? null,
+            amount: Math.abs(amt),
+            direction: row.creditAmount > 0 ? "CREDIT" : "DEBIT"
+          };
+        });
+      } else {
+        let items = body.items;
+        if (!items) {
+          return ResponseHelper.badRequest(res, "Missing required fields: either upload a file or provide bankId, statementDate, openingBalance, closingBalance, items");
         }
-
-        const amount = hasCredit ? Math.abs(creditAmount) : Math.abs(debitAmount);
-
-        return {
-          transactionDate: new Date(rawItem.transactionDate),
-          description: rawItem.description,
-          reference: rawItem.reference ?? null,
-          debitAmount: hasDebit ? Math.abs(debitAmount) : 0,
-          creditAmount: hasCredit ? Math.abs(creditAmount) : 0,
-          balance: rawItem.balance !== undefined ? Number(rawItem.balance) : null,
-          amount,
-          direction: hasCredit ? "CREDIT" : "DEBIT"
-        };
-      });
+        if (typeof items === "string") {
+          try {
+            items = JSON.parse(items);
+          } catch {
+            return ResponseHelper.badRequest(res, "items must be a valid JSON array");
+          }
+        }
+        if (!Array.isArray(items) || items.length === 0) {
+          return ResponseHelper.badRequest(res, "items must contain at least one statement line");
+        }
+        if (!bankId || !statementDate || openingBalance === undefined || closingBalance === undefined) {
+          return ResponseHelper.badRequest(res, "Missing required fields: bankId, statementDate, openingBalance, closingBalance");
+        }
+        parsedItems = items.map((rawItem: any, index: number) => {
+          if (!rawItem.transactionDate || !rawItem.description) {
+            throw new Error(`Statement item at index ${index} missing transactionDate or description`);
+          }
+          const debitAmount = rawItem.debitAmount !== undefined ? Number(rawItem.debitAmount) : 0;
+          const creditAmount = rawItem.creditAmount !== undefined ? Number(rawItem.creditAmount) : 0;
+          const hasDebit = !Number.isNaN(debitAmount) && debitAmount !== 0;
+          const hasCredit = !Number.isNaN(creditAmount) && creditAmount !== 0;
+          if (!hasDebit && !hasCredit) {
+            throw new Error(`Statement item at index ${index} must have either a debitAmount or creditAmount`);
+          }
+          const amount = hasCredit ? Math.abs(creditAmount) : Math.abs(debitAmount);
+          return {
+            transactionDate: new Date(rawItem.transactionDate),
+            valueDate: rawItem.valueDate ? new Date(rawItem.valueDate) : new Date(rawItem.transactionDate),
+            description: rawItem.description,
+            reference: rawItem.reference ?? null,
+            debitAmount: hasDebit ? Math.abs(debitAmount) : 0,
+            creditAmount: hasCredit ? Math.abs(creditAmount) : 0,
+            balance: rawItem.balance !== undefined ? Number(rawItem.balance) : null,
+            amount,
+            direction: hasCredit ? "CREDIT" : "DEBIT"
+          };
+        });
+      }
 
       const totalDebits = parsedItems.reduce((sum, item) => sum + item.debitAmount, 0);
       const totalCredits = parsedItems.reduce((sum, item) => sum + item.creditAmount, 0);
+      const confidenceThresholdValue = Number.isNaN(confidenceThreshold) ? 90 : confidenceThreshold;
 
-      const confidenceThresholdValue =
-        confidenceThreshold !== undefined && !Number.isNaN(Number(confidenceThreshold))
-          ? Number(confidenceThreshold)
-          : 90;
+      const reconData: any = {
+        fileName,
+        fileUrl: req.file ? "upload" : "manual-entry",
+        status: "PROCESSING",
+        totalTransactions: parsedItems.length,
+        matchedCount: 0,
+        unmatchedCount: parsedItems.length,
+        confidenceThreshold: new Decimal(confidenceThresholdValue),
+        notes: JSON.stringify({
+          bankId,
+          statementDate: statementDate?.toISOString(),
+          openingBalance,
+          closingBalance,
+          totalDebits,
+          totalCredits,
+          accountNumber,
+          accountCurrency
+        }),
+        createdById: userId
+      };
+      if (bankId) reconData.bankId = bankId;
+      if (accountNumber != null) reconData.accountNumber = accountNumber;
+      if (accountCurrency != null) reconData.accountCurrency = accountCurrency;
+      if (openingBalance != null) reconData.openingBalance = new Decimal(openingBalance);
+      if (closingBalance != null) reconData.closingBalance = new Decimal(closingBalance);
+      if (statementDate) reconData.statementDate = statementDate;
 
-      const reconciliation = await prisma.bankReconciliation.create({
-        data: {
-          fileName: req.file?.originalname ?? `manual-upload-${Date.now()}.json`,
-          fileUrl: req.file?.path ?? "manual-entry",
-          status: "PROCESSING",
-          totalTransactions: parsedItems.length,
-          matchedCount: 0,
-          unmatchedCount: parsedItems.length,
-          confidenceThreshold: new Decimal(confidenceThresholdValue),
-          notes: JSON.stringify({
-        bankId,
-            statementDate,
-            openingBalance: Number(openingBalance),
-            closingBalance: Number(closingBalance),
-            totalDebits,
-            totalCredits
-          }),
-          createdById: userId ?? "system"
+      let reconciliation: any;
+      try {
+        reconciliation = await prisma.bankReconciliation.create({ data: reconData });
+      } catch (e: any) {
+        if (e.message?.includes("Unknown argument")) {
+          delete reconData.bankId;
+          delete reconData.accountNumber;
+          delete reconData.accountCurrency;
+          delete reconData.openingBalance;
+          delete reconData.closingBalance;
+          delete reconData.statementDate;
+          reconciliation = await prisma.bankReconciliation.create({ data: reconData });
+        } else {
+          throw e;
         }
-      });
+      }
 
-      await prisma.bankTransaction.createMany({
-        data: parsedItems.map(item => ({
-          reconciliationId: reconciliation.id,
-          transactionDate: item.transactionDate,
-          description: item.description,
-          reference: item.reference,
-          amount: new Decimal(item.amount),
-          isMatched: false,
-          notes: JSON.stringify({
-            debitAmount: item.debitAmount,
-            creditAmount: item.creditAmount,
-            balance: item.balance,
-            direction: item.direction
-          })
-        }))
-      });
-      
+      const txData = parsedItems.map((item) => ({
+        reconciliationId: reconciliation.id,
+        transactionDate: item.transactionDate,
+        valueDate: item.valueDate ?? undefined,
+        description: item.description,
+        reference: item.reference,
+        amount: new Decimal(item.amount),
+        debitAmount: item.debitAmount ? new Decimal(item.debitAmount) : undefined,
+        creditAmount: item.creditAmount ? new Decimal(item.creditAmount) : undefined,
+        balance: item.balance != null ? new Decimal(item.balance) : undefined,
+        isMatched: false,
+        notes: JSON.stringify({
+          debitAmount: item.debitAmount,
+          creditAmount: item.creditAmount,
+          balance: item.balance,
+          direction: item.direction
+        })
+      }));
+
+      try {
+        await prisma.bankTransaction.createMany({ data: txData });
+      } catch (e: any) {
+        if (e.message?.includes("Unknown argument")) {
+          const fallbackData = txData.map(({ valueDate, debitAmount, creditAmount, balance, ...rest }) => rest);
+          await prisma.bankTransaction.createMany({ data: fallbackData });
+        } else {
+          throw e;
+        }
+      }
+
       const summary = await BankReconciliationEngineService.runReconciliation(
         reconciliation.id,
-        userId ?? "system",
+        userId,
         confidenceThresholdValue
       );
 
@@ -173,18 +247,47 @@ export default class BankReconciliationController {
       return ResponseHelper.error(res, 'Failed to create bank reconciliation', error.message);
     }
   }
-  
+
+  /**
+   * Download bank statement CSV template (standard format: Account Number, Account Currency, Opening/Closing Balance; Transaction Date, Value Date, Reference, Description, Debit, Credit, Balance).
+   * GET /api/accounting/bank-reconciliation/template
+   */
+  static getTemplate(_req: Request, res: Response) {
+    try {
+      const path = join(__dirname, "..", "..", "templates", "bank-reconciliation", "bank_statement_import_template.csv");
+      const csv = readFileSync(path, "utf-8");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", 'attachment; filename="bank_statement_import_template.csv"');
+      res.send(csv);
+    } catch (error: any) {
+      console.error("Error serving bank reconciliation template:", error);
+      ResponseHelper.error(res, "Template not found", error.message, 404);
+    }
+  }
+
   /**
    * Get reconciliation status
    * GET /api/cashbook/reconciliation/status/:bankId
    */
   static async getReconciliationStatus(req: Request, res: Response) {
     try {
-      const { status, page = "1", limit = "10" } = req.query;
+      const { status, page = "1", limit = "10", currencyId } = req.query;
 
       const where: any = {};
       if (status && typeof status === "string") {
         where.status = status;
+      }
+      if (currencyId && typeof currencyId === "string") {
+        const curr = await prisma.currency.findUnique({ where: { id: currencyId } });
+        const banks = await prisma.bank.findMany({
+          where: { currencyId },
+          select: { id: true }
+        });
+        const bankIdList = banks.map((b) => b.id);
+        const orCond: any[] = [];
+        if (bankIdList.length) orCond.push({ bankId: { in: bankIdList } });
+        if (curr?.code) orCond.push({ accountCurrency: curr.code });
+        if (orCond.length) where.OR = orCond;
       }
 
       const pageNumber = Number(page) > 0 ? Number(page) : 1;
@@ -555,7 +658,3 @@ export default class BankReconciliationController {
     }
   }
 }
-
-// Import prisma for direct database access
-import { PrismaClient } from '@prisma/client';
-import { prisma } from '../utils/database';

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from "express";
 import { ClientService, CreateClientRequest, UpdateClientRequest } from "../services/ClientService";
+import { parseDate } from "../utils/dateHelper";
 
 export class ClientController {
   // Create a new client with optional investment commitment
@@ -20,7 +21,7 @@ export class ClientController {
         fundId: (req.body.fundId || req.body.fund_id) && (req.body.fundId || req.body.fund_id).trim() !== "" ? (req.body.fundId || req.body.fund_id) : undefined,
         amount: req.body.amount,
         currency: req.body.currency,
-        effectiveDate: (req.body.effectiveDate || req.body.effective_date) ? new Date(req.body.effectiveDate || req.body.effective_date) : undefined,
+        effectiveDate: (req.body.effectiveDate || req.body.effective_date) ? parseDate(req.body.effectiveDate || req.body.effective_date) : undefined,
         eSign: req.body.eSign || req.body.e_sign,
         notes: req.body.notes
       };
@@ -108,7 +109,7 @@ export class ClientController {
         fundId: (req.body.fundId || req.body.fund_id) && (req.body.fundId || req.body.fund_id).trim() !== "" ? (req.body.fundId || req.body.fund_id) : undefined,
         amount: req.body.amount,
         currency: req.body.currency,
-        effectiveDate: (req.body.effectiveDate || req.body.effective_date) ? new Date(req.body.effectiveDate || req.body.effective_date) : undefined,
+        effectiveDate: (req.body.effectiveDate || req.body.effective_date) ? parseDate(req.body.effectiveDate || req.body.effective_date) : undefined,
         eSign: req.body.eSign || req.body.e_sign,
         notes: req.body.notes
       };
@@ -140,6 +141,24 @@ export class ClientController {
     }
   }
 
+  /** Link portal User to LP Client record (fund performance reporting). */
+  static async linkUser(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const userId = req.body.userId || req.body.user_id;
+      if (!userId) {
+        return res.status(400).json({ success: false, message: "userId is required" });
+      }
+      const client = await ClientService.linkPortalUser(id, userId);
+      res.status(200).json({
+        success: true,
+        message: "Client linked to portal user",
+        data: client,
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
 
   // Get client statistics
   static async getClientStatistics(req: Request, res: Response, next: NextFunction) {

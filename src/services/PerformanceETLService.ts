@@ -75,11 +75,7 @@ export class PerformanceETLService {
       });
 
       // Extract KPIs
-      const kpis = await prisma.kPI.findMany({
-        include: {
-          department: true
-        }
-      });
+      const kpis = await prisma.kPI.findMany();
 
       // Extract scorecards
       const scorecards = await prisma.performanceScorecard.findMany({
@@ -105,7 +101,7 @@ export class PerformanceETLService {
               firstName: true,
               lastName: true,
               email: true,
-              department: true
+              userDepartment: true
             }
           },
           reviewer: {
@@ -174,7 +170,7 @@ export class PerformanceETLService {
           title: goal.title,
           description: goal.description,
           type: goal.type,
-          category: goal.category,
+          scorecardPillar: goal.scorecardPillar,
           targetValue: goal.targetValue,
           targetUnit: goal.targetUnit,
           currentValue: goal.currentValue,
@@ -195,7 +191,7 @@ export class PerformanceETLService {
             id: goal.kpi.id,
             name: goal.kpi.name,
             code: goal.kpi.code,
-            type: goal.kpi.type
+            unitCategory: goal.kpi.unitCategory
           } : null,
           parentGoal: goal.parentGoal ? {
             id: goal.parentGoal.id,
@@ -234,7 +230,7 @@ export class PerformanceETLService {
             id: task.goal.id,
             title: task.goal.title,
             type: task.goal.type,
-            category: task.goal.category
+            scorecardPillar: task.goal.scorecardPillar
           } : null,
           creator: {
             id: task.creator.id,
@@ -262,10 +258,10 @@ export class PerformanceETLService {
           id: kpi.id,
           name: kpi.name,
           code: kpi.code,
-          type: kpi.type,
+          unitCategory: kpi.unitCategory,
           unitSymbol: kpi.unitSymbol,
           unitPosition: kpi.unitPosition,
-          department: kpi.department?.name,
+          catalogDepartmentName: kpi.catalogDepartmentName,
           createdAt: kpi.createdAt,
           updatedAt: kpi.updatedAt
         };
@@ -322,7 +318,7 @@ export class PerformanceETLService {
             id: review.reviewee.id,
             name: `${review.reviewee.firstName} ${review.reviewee.lastName}`,
             email: review.reviewee.email,
-            department: review.reviewee.department?.name
+            department: review.reviewee.userDepartment ?? undefined
           },
           reviewer: {
             id: review.reviewer.id,

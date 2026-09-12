@@ -122,7 +122,8 @@ async function analyzeChartOfAccounts() {
     console.log('\n🔍 MISSING ACCOUNTS FOR CASHBOOK MODULE:\n');
     
     const requiredAccounts = [
-      { accountNo: '1000', name: 'Cash and Cash Equivalents', type: 'Current Asset' },
+      // Note: 1000 used to be "Cash and Cash Equivalents" in legacy setups. It is a reporting bucket, not a posting account.
+      { accountNo: '1000', name: 'Cash on Hand / legacy CACE bucket (reporting)', type: 'Current Asset' },
       { accountNo: '1010', name: 'Main Bank Account - USD', type: 'Current Asset' },
       { accountNo: '1020', name: 'Savings Account - USD', type: 'Current Asset' },
       { accountNo: '1030', name: 'Petty Cash', type: 'Current Asset' },

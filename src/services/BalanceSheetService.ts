@@ -1,12 +1,18 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import { Decimal } from "decimal.js";
+import { buildJournalEntryWhereForGlReporting } from "../utils/journalEntryReportingFilter";
 
 export interface BalanceSheetParams {
   asOfDate: Date;
   currencyId?: string;
   startDate?: Date;
   endDate?: Date;
+  /**
+   * When true, omit line items with no GL activity through as-of date and ~zero balance (same idea as Trial Balance hide zero).
+   * Section totals (currentAssets.total, totalAssets, etc.) remain full figures — only the `accounts` / cash `breakdown` lists are filtered.
+   */
+  hideZeroBalances?: boolean;
 }
 
 export interface BalanceSheetTransaction {
@@ -50,6 +56,11 @@ export interface BalanceSheetData {
       accounts: BalanceSheetAccount[];
       total: number;
     };
+    /** Recoverable/input VAT broken out so it does not appear as a normal liquid or core asset line. Amounts remain in Total Assets for balancing. */
+    expensePresentationRecoverableVat: {
+      accounts: BalanceSheetAccount[];
+      total: number;
+    };
     totalAssets: number;
   };
   liabilities: {
@@ -73,7 +84,76 @@ export interface BalanceSheetData {
   difference: number;
 }
 
+const BS_ZERO_EPS = 0.01;
+
+/** UAT / COA: cash & bank GL bucket — 1100 through 1199 (string order, fixed width). */
+const CASH_EQUIV_ACCOUNT_NO_MIN = "1100";
+const CASH_EQUIV_ACCOUNT_NO_MAX = "1199";
+
+/** Presentation: recoverable / input VAT is tax posture — group with expense-style disclosures, not with liquid current assets or generic other assets. */
+function isRecoverableVatInputByName(accountName: string): boolean {
+  const n = String(accountName || "").toLowerCase();
+  if (n.includes("vat output") || n.includes("output vat")) return false;
+  return (
+    n.includes("vat input") ||
+    n.includes("input vat") ||
+    n.includes("vat recoverable") ||
+    n.includes("recoverable vat") ||
+    (n.includes("vat") && (n.includes("receivable") || n.includes("recover")))
+  );
+}
+
+/** Presentation-only: do not show VAT input/recoverable under Current Assets (policy / UAT clarity). */
+function isVatInputRecoverableCurrentAssetForBsPresentation(accountName: string, accountType: string): boolean {
+  if (accountType !== "Current Asset") return false;
+  return isRecoverableVatInputByName(accountName);
+}
+
 export class BalanceSheetService {
+  /** Current Asset GL accounts in 1100–1199 are treated as cash & cash equivalents (dashboard + BS line). */
+  static isCashEquivalentGlRange(accountNo: string): boolean {
+    return accountNo >= CASH_EQUIV_ACCOUNT_NO_MIN && accountNo <= CASH_EQUIV_ACCOUNT_NO_MAX;
+  }
+
+  /**
+   * Cash & cash equivalents bucket for balance sheet / dashboard / cash-flow cash.
+   * After consolidating all banks onto one CoA, legacy per-bank GL rows (e.g. "CBZ … BANK …") may
+   * still exist with zero balance — we must NOT treat every name containing "bank" as cash, or those
+   * orphans clutter the UI. Include:
+   * - Any Current Asset GL currently linked to a `Bank` row (shared Cash and Cash Equivalents id), and
+   * - Current Asset accounts in the usual cash number ranges that are explicitly named cash/petty/etc.
+   */
+  static isCashOrBankEquivalentForReporting(
+    account: { id: string; accountNo: string; accountName: string; accountType: string },
+    bankGLAccountIds: Set<string>
+  ): boolean {
+    if (account.accountType !== "Current Asset") {
+      return false;
+    }
+    if (bankGLAccountIds.has(account.id)) {
+      return true;
+    }
+    const accountNameLower = account.accountName.toLowerCase();
+    const inLegacyCashRange1000 = account.accountNo >= "1000" && account.accountNo < "1100";
+    const inCashEquiv1100_1199 = BalanceSheetService.isCashEquivalentGlRange(account.accountNo);
+    if (!inLegacyCashRange1000 && !inCashEquiv1100_1199) {
+      return false;
+    }
+    return (
+      accountNameLower.includes("cash") ||
+      accountNameLower.includes("petty") ||
+      accountNameLower.includes("money market") ||
+      accountNameLower.includes("call deposit")
+    );
+  }
+
+  /** Keep row if it has a non-zero balance or any transactions through as-of (offsetting activity still shown). */
+  static shouldShowBalanceSheetAccountRow(acc: BalanceSheetAccount, eps = BS_ZERO_EPS): boolean {
+    if (Math.abs(acc.balance) >= eps) return true;
+    if ((acc.transactions?.length ?? 0) > 0) return true;
+    return false;
+  }
+
   /**
    * Generate Balance Sheet as of a specific date
    */
@@ -100,6 +180,15 @@ export class BalanceSheetService {
       });
 
       console.log(`✅ Found ${accounts.length} balance sheet account(s)`);
+      
+      // Debug: Check if asset account 1100 is in the accounts list
+      const assetAccount1100 = accounts.find(acc => acc.accountNo === '1100');
+      if (assetAccount1100) {
+        console.log(`   ✅ Account 1100 (Office Equipment) IS in the accounts list`);
+      } else {
+        console.log(`   ⚠️  Account 1100 (Office Equipment) is NOT in the accounts list`);
+        console.log(`   This means it doesn't match the filter: financialStatement="Balance Sheet" AND isActive=true`);
+      }
       console.log("");
 
       // Determine date range: use startDate/endDate if provided, otherwise use asOfDate
@@ -118,47 +207,17 @@ export class BalanceSheetService {
         endDate.setHours(23, 59, 59, 999);
       }
 
-      // Get all posted journal entry lines within the date range
-      // Exclude journal entries linked to voided/reversed cashbook entries
-      const journalEntryWhere: any = {
-        transactionDate: {
-          gte: startDate,
-          lte: endDate
-        },
-        status: 'POSTED',
-        // Exclude journal entries where ANY linked cashbook entry is voided or reversed
-        NOT: {
-          cashbookEntries: {
-            some: {
-              OR: [
-                { status: 'VOIDED' },
-                { reversedAt: { not: null } } // Reversed entries have reversedAt set
-              ]
-            }
-          }
-        },
-        // Exclude reversal journal entries
-        AND: [
-          {
-            referenceNumber: {
-              not: {
-                startsWith: 'VR-'
-              }
-            }
-          },
-          {
-            referenceNumber: {
-              not: {
-                startsWith: 'REV-'
-              }
-            }
-          }
-        ]
-      };
+      // Posted JEs in range; same cashbook / VR / REV rules as cash-flow ending cash (see journalEntryReportingFilter)
+      const journalEntryWhere: any = buildJournalEntryWhereForGlReporting(
+        { gte: startDate, lte: endDate },
+        params.currencyId
+      );
 
-      // Add currency filter if provided
       if (params.currencyId) {
-        journalEntryWhere.currencyId = params.currencyId;
+        console.log(`   💱 Currency filter applied: ${params.currencyId}`);
+        console.log(`   ⚠️  Only journal entries with this currency will be included`);
+      } else {
+        console.log(`   💱 No currency filter - including all currencies`);
       }
 
       // OPTIMIZED: First get journal lines without transaction details for fast balance calculation
@@ -198,6 +257,25 @@ export class BalanceSheetService {
       });
 
       console.log(`✅ Retrieved ${journalLines.length} journal entry line(s)`);
+      
+      // Debug: Check if asset journal entry lines are included
+      const assetLines = journalLines.filter(line => 
+        line.journalEntry.referenceNumber?.includes('ASSET') ||
+        line.chartOfAccount.accountNo === '1100'
+      );
+      if (assetLines.length > 0) {
+        console.log(`   📦 Found ${assetLines.length} asset-related journal entry line(s):`);
+        assetLines.forEach(line => {
+          console.log(`      - ${line.journalEntry.referenceNumber}: ${line.chartOfAccount.accountNo} - ${line.chartOfAccount.accountName} (Debit: $${line.debitAmount}, Credit: $${line.creditAmount})`);
+        });
+      } else {
+        console.log(`   ⚠️  No asset-related journal entry lines found in query results`);
+        console.log(`   This means the query filter is excluding asset entries`);
+        console.log(`   Checking query structure...`);
+        console.log(`   Query date range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+        console.log(`   Query status: POSTED`);
+        console.log(`   Query cashbook filter: OR with none/every`);
+      }
       console.log("");
 
       // Calculate balance for each account and collect transactions
@@ -270,6 +348,38 @@ export class BalanceSheetService {
       }
 
       console.log(`📊 Calculated balances for ${accountBalances.size} account(s)`);
+      
+      // Debug: Check if account 1100 is in accountBalances
+      const account1100 = accounts.find(acc => acc.accountNo === '1100');
+      if (account1100) {
+        const balance1100 = accountBalances.get(account1100.id) || 0;
+        console.log(`   [DEBUG] Account 1100 in accounts array:`);
+        console.log(`      - Account ID: ${account1100.id}`);
+        console.log(`      - Balance in accountBalances map: $${balance1100}`);
+        
+        // Check what account IDs are in accountBalances for account 1100
+        const account1100Lines = journalLines.filter(line => line.chartOfAccount.accountNo === '1100');
+        if (account1100Lines.length > 0) {
+          console.log(`      - Journal entry lines found: ${account1100Lines.length}`);
+          account1100Lines.forEach(line => {
+            console.log(`         Line account ID: ${line.chartOfAccountId}`);
+            console.log(`         Matches account1100.id? ${line.chartOfAccountId === account1100.id ? 'YES ✅' : 'NO ❌'}`);
+            const lineBalance = accountBalances.get(line.chartOfAccountId) || 0;
+            console.log(`         Balance for this account ID: $${lineBalance}`);
+          });
+        }
+        
+        if (balance1100 === 0) {
+          console.log(`   ⚠️  WARNING: Account 1100 has zero balance in accountBalances map!`);
+          console.log(`   This means either:`);
+          console.log(`   1. No journal entry lines were found for this account ID`);
+          console.log(`   2. The account ID from journal lines doesn't match the account ID in accounts array`);
+          console.log(`   3. Currency filter is excluding the journal entry`);
+        }
+      } else {
+        console.log(`   ⚠️  Account 1100 is NOT in the accounts array!`);
+        console.log(`   This means it doesn't match: financialStatement="Balance Sheet" AND isActive=true`);
+      }
       console.log("");
 
       // OPTIMIZED: Load transaction details only for accounts that have transactions
@@ -526,11 +636,14 @@ export class BalanceSheetService {
           bankGLAccountIds.add(bank.glAccount.id);
         }
       }
+      // Note: Cash & Cash Equivalents is a reporting bucket, not a single posting account.
+      // We treat bank-linked GL accounts (banks.glAccountId) + explicit cash-like accounts in the cash ranges as the cash pool.
 
       // Categorize accounts
       const currentAssets: Array<{ accountNo: string; accountName: string; balance: number }> = [];
       const fixedAssets: Array<{ accountNo: string; accountName: string; balance: number }> = [];
       const otherAssets: Array<{ accountNo: string; accountName: string; balance: number }> = [];
+      const expensePresentationRecoverableVat: BalanceSheetAccount[] = [];
       const currentLiabilities: Array<{ accountNo: string; accountName: string; balance: number }> = [];
       const longTermLiabilities: Array<{ accountNo: string; accountName: string; balance: number }> = [];
       const equityAccounts: Array<{ accountNo: string; accountName: string; balance: number }> = [];
@@ -540,7 +653,49 @@ export class BalanceSheetService {
       const cashAccountsBreakdown: BalanceSheetAccount[] = []; // Track all cash accounts for breakdown
 
       for (const account of accounts) {
-        const balance = accountBalances.get(account.id) || 0;
+        // IMPORTANT: Look up balance using account.id from accounts array
+        // The accountBalances map was populated using line.chartOfAccountId
+        // These should match, but if they don't, we need to find the correct account ID
+        let balance = accountBalances.get(account.id) || 0;
+        
+        // If balance is zero, check if there's a different account ID in accountBalances
+        // This can happen if the account was updated or there's a data inconsistency
+        if (balance === 0 && account.accountNo === '1100') {
+          // Try to find the balance by checking all entries in accountBalances
+          for (const [accId, accBalance] of accountBalances.entries()) {
+            // Find the account with this ID to check if it's account 1100
+            const acc = accounts.find(a => a.id === accId);
+            if (acc && acc.accountNo === '1100' && accBalance !== 0) {
+              console.log(`   [DEBUG] ⚠️  Found account 1100 balance under different account ID: ${accId}`);
+              console.log(`      - Original account ID: ${account.id}`);
+              console.log(`      - Balance: $${accBalance}`);
+              balance = accBalance;
+              break;
+            }
+          }
+        }
+        
+        // Debug: Log account 1100 specifically
+        if (account.accountNo === '1100') {
+          console.log(`   [DEBUG] Processing account 1100: ${account.accountName}`);
+          console.log(`      - Account ID: ${account.id}`);
+          console.log(`      - Balance from accountBalances: $${balance}`);
+          console.log(`      - Account Type: ${account.accountType}`);
+          console.log(`      - Will be skipped if zero? ${Math.abs(balance) < 0.01 ? 'YES' : 'NO'}`);
+          console.log(`      - Is in accountBalances map? ${accountBalances.has(account.id) ? 'YES' : 'NO'}`);
+          
+          // Also check if there are any journal lines for this account
+          const linesForThisAccount = journalLines.filter(line => 
+            line.chartOfAccount.accountNo === '1100' && line.chartOfAccountId === account.id
+          );
+          console.log(`      - Journal lines for this account ID: ${linesForThisAccount.length}`);
+          if (linesForThisAccount.length > 0) {
+            const calculatedBalance = linesForThisAccount.reduce((sum, line) => {
+              return sum + Number(line.debitAmount) - Number(line.creditAmount);
+            }, 0);
+            console.log(`      - Calculated balance from lines: $${calculatedBalance}`);
+          }
+        }
 
         // Check if this is a cash and cash equivalent account BEFORE skipping zero balances
         // Cash accounts should always be included in "Cash and Cash Equivalents" even if zero balance
@@ -548,21 +703,32 @@ export class BalanceSheetService {
         const accountNo = account.accountNo.toLowerCase();
         const accountType = account.accountType;
         const accountNameLower = accountName.toLowerCase();
-        const isCashAccount = 
-          accountNameLower.includes('cash') ||
-          accountNameLower.includes('bank') ||
-          (accountType === 'Current Asset' && 
-           account.accountNo >= '1000' && 
-           account.accountNo < '1100'); // Account numbers 1000-1099 are typically cash/bank accounts
-        const isBankAccount = bankGLAccountIds.has(account.id);
-        const isCashOrBankAccount = isCashAccount || isBankAccount;
+        const isCashOrBankAccount = BalanceSheetService.isCashOrBankEquivalentForReporting(
+          account,
+          bankGLAccountIds
+        );
+        
+        // Debug for account 1100
+        if (account.accountNo === '1100') {
+          console.log(`   [DEBUG] Cash/Bank account check:`);
+          console.log(`      - accountName: "${account.accountName}"`);
+          console.log(`      - accountNameLower: "${accountNameLower}"`);
+          console.log(`      - isCashOrBankAccount: ${isCashOrBankAccount}`);
+          console.log(`      - account.id in bankGLAccountIds? ${bankGLAccountIds.has(account.id)}`);
+        }
 
         // Skip accounts with zero balance, EXCEPT:
         // 1. Cash and bank accounts (must be included in "Cash and Cash Equivalents" even if zero)
         // 2. Specific liability accounts that need to be shown even when cleared (for UAT verification: PAYE Payable 2150, Net Wages Payable 2250)
         const isImportantLiabilityAccount = account.accountNo === '2150' || account.accountNo === '2250';
-        if (Math.abs(balance) < 0.01 && !isImportantLiabilityAccount && !isCashOrBankAccount) {
-          continue;
+        if (Math.abs(balance) < 0.01 && !isImportantLiabilityAccount) {
+          if (!isCashOrBankAccount) {
+            continue;
+          }
+          // Show zero-balance rows only for the primary CACE line (linked to banks / resolver), not legacy orphan "bank" CoA.
+          if (!bankGLAccountIds.has(account.id)) {
+            continue;
+          }
         }
 
         // Handle Accumulated Depreciation separately - collect all but don't add to array yet
@@ -577,10 +743,22 @@ export class BalanceSheetService {
           accountType === 'Contra-Asset' ||
           (accountType.includes('Asset') && (accountName.includes('depreciation') || accountName.includes('depr')));
 
+        // Debug for account 1100
+        if (account.accountNo === '1100') {
+          console.log(`   [DEBUG] Accumulated Depreciation check:`);
+          console.log(`      - accountName.includes('accumulated'): ${accountName.includes('accumulated')}`);
+          console.log(`      - accountName.includes('depreciation'): ${accountName.includes('depreciation')}`);
+          console.log(`      - accountType === 'Contra-Asset': ${accountType === 'Contra-Asset'}`);
+          console.log(`      - isAccumulatedDepreciation: ${isAccumulatedDepreciation}`);
+        }
+
         if (isAccumulatedDepreciation) {
           // Accumulated depreciation is a credit balance (positive in DB), but we want to show it as negative
           // because it reduces the value of assets
           console.log(`   [Balance Sheet] Found Accumulated Depreciation account: ${account.accountNo} - ${account.accountName} (Type: ${accountType}, Balance: ${balance})`);
+          if (account.accountNo === '1100') {
+            console.log(`   [DEBUG] ⚠️  Account 1100 is being treated as Accumulated Depreciation (WRONG!)`);
+          }
           accumulatedDepreciation += balance;
           continue; // Don't add individual accounts, we'll add one consolidated line item later
         }
@@ -610,6 +788,9 @@ export class BalanceSheetService {
         // Add to cash and cash equivalents if it's a cash/bank account
         // (Already determined above to avoid skipping zero-balance cash accounts)
         if (isCashOrBankAccount) {
+          if (account.accountNo === '1100') {
+            console.log(`   [DEBUG] ⚠️  Account 1100 is being treated as cash/bank account (WRONG!)`);
+          }
           cashAndCashEquivalents += balance;
           
           // Add to breakdown for "Cash and Cash Equivalents" - shows how it was constructed
@@ -627,19 +808,100 @@ export class BalanceSheetService {
           continue;
         }
         
+        // Debug: Log before categorization for account 1100
+        if (account.accountNo === '1100') {
+          console.log(`   [DEBUG] About to categorize account 1100:`);
+          console.log(`      - accountType: "${accountType}"`);
+          console.log(`      - accountType === 'Fixed Asset'? ${accountType === 'Fixed Asset'}`);
+          console.log(`      - accountType === 'Long-Term Asset'? ${accountType === 'Long-Term Asset'}`);
+          console.log(`      - accountType.includes('Asset')? ${accountType.includes('Asset')}`);
+        }
+        
         if (accountType === 'Current Asset') {
-          currentAssets.push(accountData);
-        } else if (accountType === 'Fixed Asset' || accountType === 'Long-Term Asset') {
+          if (isVatInputRecoverableCurrentAssetForBsPresentation(account.accountName, accountType)) {
+            expensePresentationRecoverableVat.push({
+              ...accountData,
+              accountName: `${accountData.accountName} (recoverable/input VAT — expense-style disclosure)`
+            });
+          } else {
+            currentAssets.push(accountData);
+          }
+          if (account.accountNo === '1100') {
+            console.log(`   [DEBUG] Added account 1100 to currentAssets (WRONG - should be Fixed Asset!)`);
+          }
+        } else if (accountType === 'Fixed Asset' || accountType === 'Long-Term Asset' || accountType === 'Non-Current Asset') {
           fixedAssets.push(accountData);
+          if (account.accountNo === '1100') {
+            console.log(`   [DEBUG] ✅ Added account 1100 to fixedAssets array`);
+            console.log(`      - Balance: $${accountData.balance}`);
+            console.log(`      - Transactions: ${accountData.transactions.length}`);
+          }
         } else if (accountType.includes('Asset')) {
-          otherAssets.push(accountData);
+          if (isRecoverableVatInputByName(account.accountName)) {
+            expensePresentationRecoverableVat.push({
+              ...accountData,
+              accountName: `${accountData.accountName} (recoverable/input VAT — expense-style disclosure)`
+            });
+          } else {
+            otherAssets.push(accountData);
+          }
+          if (account.accountNo === '1100') {
+            console.log(`   [DEBUG] Added account 1100 to otherAssets`);
+          }
         } else if (accountType === 'Current Liability') {
           currentLiabilities.push(accountData);
         } else if (accountType === 'Long-Term Liability') {
           longTermLiabilities.push(accountData);
         } else if (accountType === 'Equity') {
           equityAccounts.push(accountData);
+        } else {
+          if (account.accountNo === '1100') {
+            console.log(`   [DEBUG] ⚠️  Account 1100 was NOT categorized! AccountType: ${accountType}`);
+          }
         }
+      }
+
+      // Consolidate Portfolio Investment accounts (1500 and 1501) into a single "Portfolio Investments" account
+      const portfolioAccount1500Index = fixedAssets.findIndex(acc => acc.accountNo === '1500');
+      const portfolioAccount1501Index = fixedAssets.findIndex(acc => acc.accountNo === '1501');
+      const portfolioAccount1500 = portfolioAccount1500Index >= 0 ? fixedAssets[portfolioAccount1500Index] : null;
+      const portfolioAccount1501 = portfolioAccount1501Index >= 0 ? fixedAssets[portfolioAccount1501Index] : null;
+      
+      if (portfolioAccount1500 || portfolioAccount1501) {
+        // Calculate combined balance
+        const combinedBalance = (portfolioAccount1500?.balance || 0) + (portfolioAccount1501?.balance || 0);
+        
+        // Collect all transactions from both accounts
+        const portfolioTransactions: BalanceSheetTransaction[] = [];
+        if (portfolioAccount1500) {
+          portfolioTransactions.push(...portfolioAccount1500.transactions);
+        }
+        if (portfolioAccount1501) {
+          portfolioTransactions.push(...portfolioAccount1501.transactions);
+        }
+        portfolioTransactions.sort((a, b) => a.date.localeCompare(b.date));
+        
+        // Remove individual accounts from fixedAssets (remove from highest index first to avoid index shifting issues)
+        if (portfolioAccount1501Index >= 0) {
+          fixedAssets.splice(portfolioAccount1501Index, 1);
+        }
+        if (portfolioAccount1500Index >= 0) {
+          // Adjust index if 1501 was removed before 1500
+          const adjustedIndex = portfolioAccount1501Index >= 0 && portfolioAccount1500Index < portfolioAccount1501Index 
+            ? portfolioAccount1500Index 
+            : fixedAssets.findIndex(acc => acc.accountNo === '1500');
+          if (adjustedIndex >= 0) {
+            fixedAssets.splice(adjustedIndex, 1);
+          }
+        }
+        
+        // Add consolidated Portfolio Investments account
+        fixedAssets.push({
+          accountNo: '1501',
+          accountName: 'Portfolio Investments',
+          balance: combinedBalance,
+          transactions: portfolioTransactions
+        });
       }
 
       // Add Accumulated Depreciation as a single consolidated line item (shown as negative)
@@ -694,12 +956,27 @@ export class BalanceSheetService {
       // This will give us Net Fixed Assets = Gross Fixed Assets - Accumulated Depreciation
       const totalFixedAssets = fixedAssets.reduce((sum, acc) => sum + acc.balance, 0);
       
+      // Debug: Check if account 1100 is in fixedAssets
+      const account1100InFixedAssets = fixedAssets.find(acc => acc.accountNo === '1100');
+      if (account1100InFixedAssets) {
+        console.log(`   [DEBUG] ✅ Account 1100 IS in fixedAssets array (${fixedAssets.length} total fixed assets)`);
+        console.log(`      - Balance: $${account1100InFixedAssets.balance}`);
+      } else {
+        console.log(`   [DEBUG] ❌ Account 1100 is NOT in fixedAssets array (${fixedAssets.length} total fixed assets)`);
+        console.log(`   [DEBUG] Fixed assets list:`, fixedAssets.map(acc => `${acc.accountNo} - ${acc.accountName}: $${acc.balance}`));
+      }
+      
       // Alternative: Sum of all fixed asset line items (for user reference)
       // This would be: grossFixedAssets + accumulatedDepreciation (if treating dep as positive)
       // But accounting-wise, net is correct: grossFixedAssets - accumulatedDepreciation
       
       const totalOtherAssets = otherAssets.reduce((sum, acc) => sum + acc.balance, 0);
-      const totalAssets = totalCurrentAssets + totalFixedAssets + totalOtherAssets;
+      const totalExpensePresentationRecoverableVat = expensePresentationRecoverableVat.reduce(
+        (sum, acc) => sum + acc.balance,
+        0
+      );
+      const totalAssets =
+        totalCurrentAssets + totalFixedAssets + totalOtherAssets + totalExpensePresentationRecoverableVat;
 
       const totalCurrentLiabilities = currentLiabilities.reduce((sum, acc) => sum + acc.balance, 0);
       const totalLongTermLiabilities = longTermLiabilities.reduce((sum, acc) => sum + acc.balance, 0);
@@ -745,41 +1022,58 @@ export class BalanceSheetService {
       console.log("════════════════════════════════════════════════════════════════");
       console.log("");
 
+      const hideZero = params.hideZeroBalances === true;
+      const filterRows = (rows: BalanceSheetAccount[]) =>
+        hideZero ? rows.filter((a) => BalanceSheetService.shouldShowBalanceSheetAccountRow(a)) : rows;
+
+      const displayBreakdown = filterRows(cashAccountsBreakdown);
+      const displayCurrentAssets = filterRows(currentAssets);
+      const displayFixedAssets = filterRows(fixedAssets);
+      const displayOtherAssets = filterRows(otherAssets);
+      const displayExpensePresentationRecoverableVat = filterRows(expensePresentationRecoverableVat);
+      const displayCurrentLiabilities = filterRows(currentLiabilities);
+      const displayLongTermLiabilities = filterRows(longTermLiabilities);
+      const displayEquity = filterRows(equityAccounts);
+
       return {
         asOfDate: params.asOfDate,
         currency: params.currencyId || 'USD',
         assets: {
           cashAndCashEquivalents: {
             total: cashAndCashEquivalents, // Consolidated total of all cash/bank accounts
-            breakdown: cashAccountsBreakdown // Breakdown showing all accounts (petty cash, bank accounts) that make up this total
+            breakdown: displayBreakdown
           },
           currentAssets: {
-            accounts: currentAssets,
+            accounts: displayCurrentAssets,
             total: totalCurrentAssets
           },
           fixedAssets: {
-            accounts: fixedAssets,
+            accounts: displayFixedAssets,
             total: totalFixedAssets
           },
           otherAssets: {
-            accounts: otherAssets,
+            accounts: displayOtherAssets,
             total: totalOtherAssets
+          },
+          expensePresentationRecoverableVat: {
+            accounts: displayExpensePresentationRecoverableVat,
+            total: totalExpensePresentationRecoverableVat
           },
           totalAssets
         },
         liabilities: {
           currentLiabilities: {
-            accounts: currentLiabilities,
+            accounts: displayCurrentLiabilities,
             total: totalCurrentLiabilities
           },
           longTermLiabilities: {
-            accounts: longTermLiabilities,
+            accounts: displayLongTermLiabilities,
             total: totalLongTermLiabilities
           },
           totalLiabilities
         },
         equity: {
-          accounts: equityAccounts,
+          accounts: displayEquity,
           total: totalEquity, // Total equity including retained earnings
           retainedEarnings
         },
@@ -824,16 +1118,20 @@ export class BalanceSheetService {
         }
       });
 
-      const debtorsAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: '1300' },
-            { accountName: { contains: 'Debtors Control' } },
-            { accountName: { contains: 'Accounts Receivable' }, accountType: 'Current Asset' }
-          ],
-          isActive: true
-        }
-      });
+      const debtorsAccount =
+        (await prisma.chartOfAccounts.findFirst({
+          where: { accountNo: '1200', isActive: true },
+        })) ||
+        (await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountNo: '1300' },
+              { accountName: { contains: 'Debtors Control' } },
+              { accountName: { contains: 'Accounts Receivable' }, accountType: 'Current Asset' },
+            ],
+            isActive: true,
+          },
+        }));
 
       const creditorsAccount = await prisma.chartOfAccounts.findFirst({
         where: {
@@ -963,16 +1261,20 @@ export class BalanceSheetService {
   ): Promise<number> {
     try {
       // Find the Accounts Receivable GL account
-      const arAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: '1300' },
-            { accountName: { contains: 'Debtors Control' } },
-            { accountName: { contains: 'Accounts Receivable' }, accountType: 'Current Asset' }
-          ],
-          isActive: true
-        }
-      });
+      const arAccount =
+        (await prisma.chartOfAccounts.findFirst({
+          where: { accountNo: '1200', isActive: true },
+        })) ||
+        (await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountNo: '1300' },
+              { accountName: { contains: 'Debtors Control' } },
+              { accountName: { contains: 'Accounts Receivable' }, accountType: 'Current Asset' },
+            ],
+            isActive: true,
+          },
+        }));
 
       if (!arAccount) {
         return 0;

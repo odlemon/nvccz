@@ -8,6 +8,7 @@ import VATService from './VATService';
 import crypto from 'crypto';
 
 import { prisma } from '../utils/database';
+import { createJournalEntryWithAuditSequence } from './AuditTrailSequenceService';
 const googleCalendarService = new GoogleCalendarService();
 
 export interface EventCreationData {
@@ -117,6 +118,109 @@ export class EventService {
     }
   }
 
+  static async updateEvent(eventId: string, updateData: any): Promise<any> {
+    const updatedEvent = await prisma.event.update({
+      where: { id: eventId },
+      data: updateData,
+      include: { author: { select: { id: true, firstName: true, lastName: true, email: true } } },
+    });
+
+    if (process.env.GOOGLE_CALENDAR_ENABLED === 'true') {
+      try {
+        console.log(
+          `[GoogleCalendar] Update event (eventId=${updatedEvent.id}, googleEventId=${updatedEvent.googleCalendarEventId || "null"})`
+        );
+        const googleEvent: any = {
+          summary: updatedEvent.title,
+          description: updatedEvent.description,
+          start: { dateTime: updatedEvent.startDate, timeZone: undefined },
+          end: { dateTime: updatedEvent.endDate, timeZone: undefined },
+          location: updatedEvent.location,
+        };
+
+        if (updatedEvent.googleCalendarEventId) {
+          await googleCalendarService.updateEvent(updatedEvent.googleCalendarEventId, googleEvent);
+          console.log(`[GoogleCalendar] Update event OK (sendUpdates=all)`);
+        } else {
+          const googleData = await googleCalendarService.syncEventWithGoogle(updatedEvent);
+          await prisma.event.update({
+            where: { id: updatedEvent.id },
+            data: {
+              googleCalendarEventId: googleData.googleEventId,
+              googleCalendarLink: googleData.googleCalendarLink,
+            },
+          });
+          updatedEvent.googleCalendarEventId = googleData.googleEventId;
+          updatedEvent.googleCalendarLink = googleData.googleCalendarLink;
+          console.log(`[GoogleCalendar] Created + linked Google event OK (sendUpdates=all)`);
+        }
+      } catch (e) {
+        console.error("Failed to update Google Calendar event:", e);
+      }
+    }
+
+    return updatedEvent;
+  }
+
+  static async deleteEvent(eventId: string): Promise<void> {
+    const existing = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, googleCalendarEventId: true } });
+    if (!existing) return;
+
+    if (process.env.GOOGLE_CALENDAR_ENABLED === 'true' && existing.googleCalendarEventId) {
+      try {
+        console.log(
+          `[GoogleCalendar] Delete event (eventId=${existing.id}, googleEventId=${existing.googleCalendarEventId})`
+        );
+        await googleCalendarService.deleteEvent(existing.googleCalendarEventId);
+        console.log(`[GoogleCalendar] Delete event OK (sendUpdates=all)`);
+      } catch (e) {
+        console.error("Failed to delete Google Calendar event:", e);
+      }
+    }
+
+    await prisma.event.update({ where: { id: eventId }, data: { isActive: false } });
+  }
+
+  static async removeGuests(eventId: string, emails: string[]): Promise<{ deletedCount: number }> {
+    const norm = (e: any) => String(e || "").trim().toLowerCase();
+    const list = Array.from(new Set((emails || []).map(norm).filter(Boolean)));
+    if (!list.length) return { deletedCount: 0 };
+
+    const ev = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, googleCalendarEventId: true },
+    });
+    if (!ev) throw new Error("Event not found");
+
+    const del = await prisma.eventGuest.deleteMany({
+      where: { eventId, email: { in: list } },
+    });
+
+    // Re-sync attendees after deletion
+    if (process.env.GOOGLE_CALENDAR_ENABLED === "true" && ev.googleCalendarEventId) {
+      try {
+        console.log(
+          `[GoogleCalendar] Re-sync attendees after delete (eventId=${eventId}, googleEventId=${ev.googleCalendarEventId})`
+        );
+        const allGuests = await prisma.eventGuest.findMany({
+          where: { eventId },
+          select: { email: true, name: true },
+          orderBy: { createdAt: "asc" },
+        });
+        console.log(`[GoogleCalendar] Attendees count=${allGuests.length}`);
+        await googleCalendarService.updateEventAttendees(
+          ev.googleCalendarEventId,
+          allGuests.map((g) => ({ email: g.email, name: g.name }))
+        );
+        console.log(`[GoogleCalendar] Attendees sync OK`);
+      } catch (e) {
+        console.error("Failed to sync Google Calendar attendees after delete:", e);
+      }
+    }
+
+    return { deletedCount: del.count };
+  }
+
   /**
    * Add guests to an event
    */
@@ -130,11 +234,35 @@ export class EventService {
         throw new Error('Event not found');
       }
 
-      const guestRecords = await Promise.all(
-        guests.map(async (guest) => {
-          const invitationToken = crypto.randomBytes(32).toString('hex');
-          
-          return prisma.eventGuest.create({
+      const normEmail = (e: any) => String(e || "").trim().toLowerCase();
+      const incoming = (guests || [])
+        .map((g) => ({ ...g, email: normEmail(g.email) }))
+        .filter((g) => g.email && g.name);
+      const deduped: GuestData[] = [];
+      const seen = new Set<string>();
+      for (const g of incoming) {
+        if (seen.has(g.email)) continue;
+        seen.add(g.email);
+        deduped.push(g);
+      }
+
+      const existing = await prisma.eventGuest.findMany({
+        where: { eventId, email: { in: deduped.map((g) => g.email) } },
+        select: { email: true },
+      });
+      const existingSet = new Set(existing.map((r) => normEmail(r.email)));
+      const toCreate = deduped.filter((g) => !existingSet.has(g.email));
+
+      const skippedExisting = deduped.length - toCreate.length;
+      if (skippedExisting > 0) {
+        console.log(`[EventGuests] Skipping existing guests: ${skippedExisting}`);
+      }
+
+      const guestRecords: any[] = [];
+      for (const guest of toCreate) {
+        const invitationToken = crypto.randomBytes(32).toString('hex');
+        try {
+          const created = await prisma.eventGuest.create({
             data: {
               eventId,
               email: guest.email,
@@ -149,8 +277,16 @@ export class EventService {
               emergencyPhone: guest.emergencyPhone,
             },
           });
-        })
-      );
+          guestRecords.push(created);
+        } catch (e: any) {
+          // Defensive: still skip duplicates if a race happens.
+          if (e?.code === "P2002") {
+            console.log(`[EventGuests] Duplicate skipped at create: ${guest.email}`);
+            continue;
+          }
+          throw e;
+        }
+      }
 
       // Send invitation emails
       for (const guest of guestRecords) {
@@ -169,6 +305,29 @@ export class EventService {
         }
       }
 
+      // Sync attendees to Google Calendar (if event is already linked)
+      if (process.env.GOOGLE_CALENDAR_ENABLED === 'true' && event.googleCalendarEventId) {
+        try {
+          console.log(
+            `[GoogleCalendar] Sync attendees (eventId=${eventId}, googleEventId=${event.googleCalendarEventId})`
+          );
+          const allGuests = await prisma.eventGuest.findMany({
+            where: { eventId },
+            select: { email: true, name: true },
+            orderBy: { createdAt: 'asc' },
+          });
+          console.log(`[GoogleCalendar] Attendees count=${allGuests.length}`);
+          await googleCalendarService.updateEventAttendees(
+            event.googleCalendarEventId,
+            allGuests.map((g) => ({ email: g.email, name: g.name }))
+          );
+          console.log(`[GoogleCalendar] Attendees sync OK`);
+        } catch (e) {
+          console.error("Failed to sync Google Calendar attendees:", e);
+        }
+      }
+
+      // Return created records (callers can compute effective/skipped from request vs result if needed)
       return guestRecords;
     } catch (error) {
       console.error('Error adding guests:', error);
@@ -234,11 +393,96 @@ export class EventService {
         console.error('Failed to send RSVP notification:', emailError);
       }
 
+      // Sync RSVP to Google Calendar attendee (if linked)
+      if (process.env.GOOGLE_CALENDAR_ENABLED === 'true' && guest.event.googleCalendarEventId) {
+        try {
+          console.log(
+            `[GoogleCalendar] Sync RSVP (googleEventId=${guest.event.googleCalendarEventId}, email=${guest.email}, status=${rsvpStatus})`
+          );
+          const map: any = { ACCEPTED: 'accepted', DECLINED: 'declined', MAYBE: 'tentative' };
+          await googleCalendarService.updateAttendeeResponse(
+            guest.event.googleCalendarEventId,
+            guest.email,
+            map[rsvpStatus] || 'needsAction'
+          );
+          console.log(`[GoogleCalendar] RSVP sync OK`);
+        } catch (e) {
+          console.error("Failed to sync RSVP to Google Calendar:", e);
+        }
+      }
+
       return updatedGuest;
     } catch (error) {
       console.error('Error handling RSVP:', error);
       throw error;
     }
+  }
+
+  /**
+   * One-way sync: pull RSVP responses from Google Calendar and update EventGuest.rsvpStatus.
+   * This is what makes "clicked Yes/No in Google invite email" reflect in the Arcus event guest list.
+   */
+  static async syncRsvpsFromGoogle(eventId: string): Promise<{
+    updated: number;
+    skippedNoGoogleLink: boolean;
+    unmatched: number;
+  }> {
+    const ev = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, googleCalendarEventId: true },
+    });
+    if (!ev) throw new Error("Event not found");
+
+    if (!process.env.GOOGLE_CALENDAR_ENABLED || process.env.GOOGLE_CALENDAR_ENABLED !== "true") {
+      return { updated: 0, skippedNoGoogleLink: true, unmatched: 0 };
+    }
+    if (!ev.googleCalendarEventId) {
+      return { updated: 0, skippedNoGoogleLink: true, unmatched: 0 };
+    }
+
+    console.log(`[GoogleCalendar] Pull RSVP statuses (eventId=${eventId}, googleEventId=${ev.googleCalendarEventId})`);
+    const rsvps = await googleCalendarService.getEventRSVPs(ev.googleCalendarEventId);
+    if (!Array.isArray(rsvps) || rsvps.length === 0) {
+      return { updated: 0, skippedNoGoogleLink: false, unmatched: 0 };
+    }
+
+    const mapToLocal: Record<string, 'ACCEPTED' | 'DECLINED' | 'MAYBE'> = {
+      accepted: "ACCEPTED",
+      declined: "DECLINED",
+      tentative: "MAYBE",
+      needsAction: "MAYBE",
+    };
+
+    let updated = 0;
+    let unmatched = 0;
+
+    for (const r of rsvps) {
+      const email = String(r?.attendeeEmail || "").trim().toLowerCase();
+      const status = mapToLocal[String(r?.responseStatus || "").trim()] || null;
+      if (!email || !status) continue;
+
+      const exists = await prisma.eventGuest.findFirst({
+        where: { eventId, email },
+        select: { id: true, rsvpStatus: true },
+      });
+      if (!exists) {
+        unmatched += 1;
+        continue;
+      }
+      if (exists.rsvpStatus === status) continue;
+
+      await prisma.eventGuest.update({
+        where: { id: exists.id },
+        data: {
+          rsvpStatus: status,
+          rsvpRespondedAt: new Date(),
+        },
+      });
+      updated += 1;
+    }
+
+    console.log(`[GoogleCalendar] Pull RSVP sync complete: updated=${updated} unmatched=${unmatched}`);
+    return { updated, skippedNoGoogleLink: false, unmatched };
   }
 
   /**
@@ -286,6 +530,19 @@ export class EventService {
    */
   static async approveBudget(eventId: string, approverId: string, approvedBudget: number, notes?: string): Promise<any> {
     try {
+      // First check if event exists and budget is in SUBMITTED status
+      const existingEvent = await prisma.event.findUnique({
+        where: { id: eventId }
+      });
+
+      if (!existingEvent) {
+        throw new Error('Event not found');
+      }
+
+      if (existingEvent.budgetStatus !== 'SUBMITTED') {
+        throw new Error(`Budget cannot be approved. Current budget status: ${existingEvent.budgetStatus}. Budget must be in SUBMITTED status to be approved.`);
+      }
+
       const event = await prisma.event.update({
         where: { id: eventId },
         data: {
@@ -350,6 +607,11 @@ export class EventService {
         throw new Error('Event not found');
       }
 
+      // Validate that budget is approved before recording expenses
+      if (event.budgetStatus !== 'APPROVED') {
+        throw new Error('Event budget must be approved before recording expenses. Current budget status: ' + event.budgetStatus);
+      }
+
       // Calculate VAT if taxable
       const isTaxable = expenseData.isTaxable || false;
       const vatAmount = VATService.isVATEligible(Number(expenseData.amount), isTaxable)
@@ -365,8 +627,7 @@ export class EventService {
           description: expenseData.description,
           amount: new Decimal(expenseData.amount),
           category: expenseData.category,
-          vendor: expenseData.vendor,
-          receiptPath: expenseData.receiptPath,
+          vendor: expenseData.vendor || null, // Optional vendor name for display
           paymentMethod: expenseData.paymentMethod,
           paymentDate: expenseData.paymentDate ? new Date(expenseData.paymentDate) : null,
           isReimbursable: expenseData.isReimbursable || true,
@@ -376,18 +637,40 @@ export class EventService {
 
       // Create journal entry for accounting integration
       try {
+        // Validate vendorId is provided
+        if (!expenseData.vendorId) {
+          throw new Error('vendorId is required for expense recording');
+        }
+
         // Map event expense category to expense category ID
         const expenseCategoryId = await this.getExpenseCategoryId(expenseData.category);
-        
-        // Create vendor if not exists (for journal entry)
-        const vendorId = await this.getOrCreateVendor(expenseData.vendor, createdById);
         
         // Get currency ID (default to USD if not specified)
         const currencyId = expenseData.currencyId || await this.getDefaultCurrencyId();
 
+        // Get category name for journal entry (it expects categoryName, not categoryId)
+        const expenseCategory = await prisma.expenseCategory.findUnique({
+          where: { id: expenseCategoryId }
+        });
+        const categoryName = expenseCategory?.name || expenseData.category;
+
+        // Normalize payment method: convert common variations to standard values
+        let normalizedPaymentMethod = expenseData.paymentMethod || 'BANK';
+        if (normalizedPaymentMethod === 'BANK_TRANSFER' || normalizedPaymentMethod === 'BANK_TRANSFER') {
+          normalizedPaymentMethod = 'BANK';
+        } else if (normalizedPaymentMethod === 'CASH_PAYMENT' || normalizedPaymentMethod === 'CASH') {
+          normalizedPaymentMethod = 'CASH';
+        } else if (normalizedPaymentMethod === 'CREDIT' || normalizedPaymentMethod === 'ON_CREDIT' || normalizedPaymentMethod === 'ACCOUNTS_PAYABLE') {
+          normalizedPaymentMethod = 'CREDIT';
+        }
+        // Ensure it's one of the valid values
+        if (!['BANK', 'CASH', 'CREDIT'].includes(normalizedPaymentMethod)) {
+          normalizedPaymentMethod = 'BANK'; // Default to BANK if invalid
+        }
+
         const journalEntryParams: CreateExpenseJournalEntryParams = {
-          vendorId,
-          categoryId: expenseCategoryId,
+          vendorId: expenseData.vendorId,
+          categoryName: categoryName,
           amount: Number(expenseData.amount),
           vatAmount,
           totalAmount,
@@ -396,7 +679,7 @@ export class EventService {
           description: `Event Expense: ${expenseData.description} (Event: ${event.title})`,
           receiptNumber: expenseData.receiptNumber,
           isTaxable,
-          paymentMethod: expenseData.paymentMethod || 'BANK',
+          paymentMethod: normalizedPaymentMethod as "CASH" | "BANK" | "CREDIT",
           createdById
         };
 
@@ -467,7 +750,7 @@ export class EventService {
       const feedback = await prisma.eventFeedback.create({
         data: {
           eventId,
-          guestId,
+          // guestId is not set - feedback is not linked to guests
           rating: feedbackData.rating,
           overallSatisfaction: feedbackData.overallSatisfaction,
           contentQuality: feedbackData.contentQuality,
@@ -482,6 +765,26 @@ export class EventService {
           additionalComments: feedbackData.additionalComments,
           anonymous: feedbackData.anonymous || false,
         },
+        select: {
+          id: true,
+          eventId: true,
+          rating: true,
+          overallSatisfaction: true,
+          contentQuality: true,
+          venueQuality: true,
+          foodQuality: true,
+          organization: true,
+          positiveAspects: true,
+          areasForImprovement: true,
+          suggestions: true,
+          wouldAttendAgain: true,
+          wouldRecommend: true,
+          additionalComments: true,
+          anonymous: true,
+          createdAt: true,
+          updatedAt: true
+          // guestId is excluded
+        }
       });
 
       return feedback;
@@ -558,6 +861,28 @@ export class EventService {
             budgetVariance,
           }),
         },
+        select: {
+          id: true,
+          eventId: true,
+          reportType: true,
+          generatedBy: true,
+          generatedAt: true,
+          totalAttendees: true,
+          rsvpRate: true,
+          checkInRate: true,
+          averageRating: true,
+          totalBudget: true,
+          totalExpenses: true,
+          budgetVariance: true,
+          costPerAttendee: true,
+          summary: true,
+          keyMetrics: true,
+          recommendations: true,
+          reportData: true,
+          createdAt: true,
+          updatedAt: true
+          // pdfPath and excelPath are excluded
+        }
       });
 
       return report;
@@ -601,8 +926,7 @@ export class EventService {
           data: {
             name: mappedCategory,
             description: `Event expense category for ${categoryName}`,
-            isActive: true,
-            createdById: 'system' // You might want to pass a real user ID
+            isActive: true
           }
         });
       }
@@ -614,41 +938,6 @@ export class EventService {
     }
   }
 
-  /**
-   * Get or create vendor for journal entry
-   */
-  private static async getOrCreateVendor(vendorName: string, createdById: string): Promise<string> {
-    try {
-      if (!vendorName) {
-        // Create a default vendor for event expenses
-        vendorName = 'Event Vendor';
-      }
-
-      // Find existing vendor
-      let vendor = await prisma.vendor.findFirst({
-        where: { name: vendorName }
-      });
-
-      if (!vendor) {
-        vendor = await prisma.vendor.create({
-          data: {
-            name: vendorName,
-            contactPerson: 'Event Contact',
-            email: 'events@company.com',
-            phone: 'N/A',
-            address: 'Event Address',
-            isActive: true,
-            createdById
-          }
-        });
-      }
-
-      return vendor.id;
-    } catch (error) {
-      console.error('Error getting or creating vendor:', error);
-      throw error;
-    }
-  }
 
   /**
    * Get default currency ID
@@ -697,16 +986,14 @@ export class EventService {
       const currencyId = await this.getDefaultCurrencyId();
 
       // Create journal entry for budget allocation
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: new Date(),
-          referenceNumber: `BUDGET-${eventId}-${Date.now()}`,
-          description: `Event Budget Allocation: ${event.title}`,
-          totalAmount: new Decimal(approvedBudget),
-          currencyId,
-          status: 'POSTED',
-          createdById: approverId
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate: new Date(),
+        referenceNumber: `BUDGET-${eventId}-${Date.now()}`,
+        description: `Event Budget Allocation: ${event.title}`,
+        totalAmount: new Decimal(approvedBudget),
+        currencyId,
+        status: 'POSTED',
+        createdById: approverId,
       });
 
       // Create journal entry lines for budget allocation
@@ -750,7 +1037,7 @@ export class EventService {
     try {
       let account = await prisma.chartOfAccounts.findFirst({
         where: { 
-          name: 'Event Budget Allocation',
+          accountName: 'Event Budget Allocation',
           accountType: 'ASSET'
         }
       });
@@ -758,12 +1045,12 @@ export class EventService {
       if (!account) {
         account = await prisma.chartOfAccounts.create({
           data: {
-            code: 'EBA-001',
-            name: 'Event Budget Allocation',
+            accountNo: 'EBA-001',
+            accountName: 'Event Budget Allocation',
             accountType: 'ASSET',
-            description: 'Allocated budget for events',
-            isActive: true,
-            createdById: 'system'
+            financialStatement: 'BALANCE_SHEET',
+            notes: 'Allocated budget for events',
+            isActive: true
           }
         });
       }
@@ -782,7 +1069,7 @@ export class EventService {
     try {
       let account = await prisma.chartOfAccounts.findFirst({
         where: { 
-          name: 'Cash',
+          accountName: 'Cash',
           accountType: 'ASSET'
         }
       });
@@ -790,12 +1077,12 @@ export class EventService {
       if (!account) {
         account = await prisma.chartOfAccounts.create({
           data: {
-            code: 'CASH-001',
-            name: 'Cash',
+            accountNo: 'CASH-001',
+            accountName: 'Cash',
             accountType: 'ASSET',
-            description: 'Cash on hand',
-            isActive: true,
-            createdById: 'system'
+            financialStatement: 'BALANCE_SHEET',
+            notes: 'Cash on hand',
+            isActive: true
           }
         });
       }

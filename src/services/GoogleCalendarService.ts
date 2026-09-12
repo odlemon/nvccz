@@ -38,6 +38,8 @@ export interface RSVPResponse {
 export class GoogleCalendarService {
   private oauth2Client: OAuth2Client;
   private calendar: any;
+  private calendarId: string;
+  private timeZone: string;
 
   constructor() {
     // Initialize OAuth2 client with credentials
@@ -53,26 +55,44 @@ export class GoogleCalendarService {
       refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
     });
 
+    this.calendarId = process.env.GOOGLE_CALENDAR_ID || 'primary';
+    this.timeZone = process.env.GOOGLE_CALENDAR_TIMEZONE || 'UTC';
+
     this.calendar = google.calendar({ version: 'v3', auth: this.oauth2Client });
+  }
+
+  private asRfc3339DateTime(input: any): string {
+    if (!input) return new Date().toISOString();
+    if (input instanceof Date) return input.toISOString();
+    const d = new Date(input);
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+    return String(input);
+  }
+
+  private isConfigured(): boolean {
+    return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REFRESH_TOKEN);
   }
 
   /**
    * Create a Google Calendar event
    */
-  async createEvent(eventData: GoogleCalendarEvent): Promise<string> {
+  async createEvent(eventData: GoogleCalendarEvent): Promise<{ id: string; htmlLink?: string | null }> {
     try {
+      if (!this.isConfigured()) {
+        throw new Error('Google Calendar is not configured (missing GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/GOOGLE_REFRESH_TOKEN)');
+      }
       const response = await this.calendar.events.insert({
-        calendarId: 'primary',
+        calendarId: this.calendarId,
         resource: {
           summary: eventData.summary,
           description: eventData.description,
           start: {
-            dateTime: eventData.start.dateTime,
-            timeZone: eventData.start.timeZone || 'UTC',
+            dateTime: this.asRfc3339DateTime(eventData.start.dateTime),
+            timeZone: eventData.start.timeZone || this.timeZone,
           },
           end: {
-            dateTime: eventData.end.dateTime,
-            timeZone: eventData.end.timeZone || 'UTC',
+            dateTime: this.asRfc3339DateTime(eventData.end.dateTime),
+            timeZone: eventData.end.timeZone || this.timeZone,
           },
           location: eventData.location,
           attendees: eventData.attendees || [],
@@ -82,7 +102,7 @@ export class GoogleCalendarService {
         },
       });
 
-      return response.data.id;
+      return { id: response.data.id, htmlLink: response.data.htmlLink || null };
     } catch (error) {
       console.error('Error creating Google Calendar event:', error);
       throw new Error('Failed to create Google Calendar event');
@@ -94,26 +114,36 @@ export class GoogleCalendarService {
    */
   async updateEvent(eventId: string, eventData: GoogleCalendarEvent): Promise<void> {
     try {
-      await this.calendar.events.update({
-        calendarId: 'primary',
-        eventId: eventId,
-        resource: {
-          summary: eventData.summary,
-          description: eventData.description,
-          start: {
-            dateTime: eventData.start.dateTime,
-            timeZone: eventData.start.timeZone || 'UTC',
-          },
-          end: {
-            dateTime: eventData.end.dateTime,
-            timeZone: eventData.end.timeZone || 'UTC',
-          },
-          location: eventData.location,
-          attendees: eventData.attendees || [],
-          reminders: eventData.reminders || {
-            useDefault: true,
-          },
+      if (!this.isConfigured()) {
+        throw new Error('Google Calendar is not configured (missing GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/GOOGLE_REFRESH_TOKEN)');
+      }
+      // Important: only include fields we intend to change.
+      // If we send `attendees: []` Google will remove all attendees and email cancellations.
+      const resource: any = {
+        summary: eventData.summary,
+        description: eventData.description,
+        start: {
+          dateTime: this.asRfc3339DateTime(eventData.start.dateTime),
+          timeZone: eventData.start.timeZone || this.timeZone,
         },
+        end: {
+          dateTime: this.asRfc3339DateTime(eventData.end.dateTime),
+          timeZone: eventData.end.timeZone || this.timeZone,
+        },
+        location: eventData.location,
+      };
+      if (eventData.attendees !== undefined) {
+        resource.attendees = eventData.attendees;
+      }
+      if (eventData.reminders !== undefined) {
+        resource.reminders = eventData.reminders;
+      }
+
+      await this.calendar.events.update({
+        calendarId: this.calendarId,
+        eventId: eventId,
+        sendUpdates: 'all',
+        resource,
       });
     } catch (error) {
       console.error('Error updating Google Calendar event:', error);
@@ -126,9 +156,13 @@ export class GoogleCalendarService {
    */
   async deleteEvent(eventId: string): Promise<void> {
     try {
+      if (!this.isConfigured()) {
+        throw new Error('Google Calendar is not configured (missing GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/GOOGLE_REFRESH_TOKEN)');
+      }
       await this.calendar.events.delete({
-        calendarId: 'primary',
+        calendarId: this.calendarId,
         eventId: eventId,
+        sendUpdates: 'all',
       });
     } catch (error) {
       console.error('Error deleting Google Calendar event:', error);
@@ -141,8 +175,11 @@ export class GoogleCalendarService {
    */
   async getEvent(eventId: string): Promise<any> {
     try {
+      if (!this.isConfigured()) {
+        throw new Error('Google Calendar is not configured (missing GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/GOOGLE_REFRESH_TOKEN)');
+      }
       const response = await this.calendar.events.get({
-        calendarId: 'primary',
+        calendarId: this.calendarId,
         eventId: eventId,
       });
 
@@ -187,7 +224,7 @@ export class GoogleCalendarService {
    */
   generateRSVPLink(eventId: string, attendeeEmail: string): string {
     // This would typically be a custom RSVP page that handles the response
-    return `${process.env.FRONTEND_URL}/events/${eventId}/rsvp?email=${encodeURIComponent(attendeeEmail)}`;
+    return `${process.env.EVENTS_PORTAL_URL || 'http://app.kyntaro.com'}/events/${eventId}/rsvp?email=${encodeURIComponent(attendeeEmail)}`;
   }
 
   /**
@@ -200,11 +237,11 @@ export class GoogleCalendarService {
         description: eventData.description,
         start: {
           dateTime: eventData.startDate,
-          timeZone: 'UTC',
+          timeZone: this.timeZone,
         },
         end: {
           dateTime: eventData.endDate,
-          timeZone: 'UTC',
+          timeZone: this.timeZone,
         },
         location: eventData.location,
         attendees: eventData.guests?.map((guest: any) => ({
@@ -217,8 +254,27 @@ export class GoogleCalendarService {
         },
       };
 
-      const googleEventId = await this.createEvent(googleEvent);
-      const googleCalendarLink = this.generateEventLink(googleEventId);
+      const created = await this.calendar.events.insert({
+        calendarId: this.calendarId,
+        sendUpdates: 'all',
+        resource: {
+          summary: googleEvent.summary,
+          description: googleEvent.description,
+          start: {
+            dateTime: this.asRfc3339DateTime(googleEvent.start.dateTime),
+            timeZone: googleEvent.start.timeZone || this.timeZone,
+          },
+          end: {
+            dateTime: this.asRfc3339DateTime(googleEvent.end.dateTime),
+            timeZone: googleEvent.end.timeZone || this.timeZone,
+          },
+          location: googleEvent.location,
+          attendees: googleEvent.attendees || [],
+          reminders: googleEvent.reminders || { useDefault: true },
+        },
+      });
+      const googleEventId = created.data.id;
+      const googleCalendarLink = created.data.htmlLink || this.generateEventLink(googleEventId);
 
       return {
         googleEventId,
@@ -247,14 +303,36 @@ export class GoogleCalendarService {
       };
 
       await this.calendar.events.update({
-        calendarId: 'primary',
+        calendarId: this.calendarId,
         eventId: googleEventId,
+        sendUpdates: 'all',
         resource: updatedEvent,
       });
     } catch (error) {
       console.error('Error updating event attendees:', error);
       throw new Error('Failed to update event attendees');
     }
+  }
+
+  async updateAttendeeResponse(
+    googleEventId: string,
+    attendeeEmail: string,
+    responseStatus: 'declined' | 'tentative' | 'accepted' | 'needsAction'
+  ): Promise<void> {
+    const event = await this.getEvent(googleEventId);
+    const attendees = Array.isArray(event?.attendees) ? event.attendees : [];
+    const emailNorm = String(attendeeEmail || '').trim().toLowerCase();
+    const next = attendees.map((a: any) => {
+      const aEmail = String(a?.email || '').trim().toLowerCase();
+      if (aEmail !== emailNorm) return a;
+      return { ...a, responseStatus };
+    });
+    await this.calendar.events.update({
+      calendarId: this.calendarId,
+      eventId: googleEventId,
+      sendUpdates: 'all',
+      resource: { ...event, attendees: next },
+    });
   }
 
   /**
@@ -268,6 +346,8 @@ export class GoogleCalendarService {
 
     return this.oauth2Client.generateAuthUrl({
       access_type: 'offline',
+      prompt: 'consent',
+      include_granted_scopes: true,
       scope: scopes,
     });
   }

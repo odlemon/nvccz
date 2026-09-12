@@ -213,6 +213,33 @@ export class DataIntegrationService {
   }
 
   /**
+   * Same simplified fund gross IRR as `calculateFundPerformance` but uses a fund already loaded
+   * with `portfolioCompanies.investmentImplementation.fundDisbursements` (no extra DB round-trip).
+   */
+  static fundGrossIrrFromLoadedFund(fund: {
+    totalAmount: Decimal | unknown;
+    portfolioCompanies?: Array<{
+      investmentImplementation?: {
+        fundDisbursements?: Array<{ status?: string; amount?: Decimal | unknown }>;
+      };
+    }>;
+  }): number {
+    const totalAmount = fund.totalAmount instanceof Decimal ? fund.totalAmount : new Decimal(fund.totalAmount ?? 0);
+    let totalInvestments = new Decimal(0);
+    for (const company of fund.portfolioCompanies || []) {
+      const disb = company.investmentImplementation?.fundDisbursements;
+      if (!disb) continue;
+      for (const d of disb) {
+        if (d.status === "DISBURSED") {
+          const amt = d.amount instanceof Decimal ? d.amount : new Decimal(d.amount ?? 0);
+          totalInvestments = totalInvestments.plus(amt);
+        }
+      }
+    }
+    return this.calculateIRR(totalAmount, totalInvestments, 365);
+  }
+
+  /**
    * Calculate Assets Under Management (AUM)
    */
   static async calculateAUM(): Promise<AssetsUnderManagement> {
@@ -260,6 +287,44 @@ export class DataIntegrationService {
   }
 
   /**
+   * Payroll / **Learning, Growth & HR** turnover KPI: same `Employee` rows as the payroll run (active roster).
+   * Point-in-time formula aligned with UAT: **(Terminations ÷ Avg headcount) × 100** where
+   * **Avg headcount** = `activeHeadcount + terminatedCount` (full roster on file), **Terminations** = `Employee.terminated === true`.
+   * So: **terminations / (active + terminations) × 100** (0 if no employees). Synced via B.15 / `sync-payroll-turnover-rate`.
+   */
+  static async calculatePayrollEmployeeTurnoverMetrics(): Promise<{
+    activeHeadcount: number;
+    /** @deprecated use terminatedCount; kept for B.15 / sync payloads */
+    inactiveHeadcount: number;
+    totalHeadcount: number;
+    /** Roster in denominator for the rate: active + terminations (matches “avg headcount” in UAT). */
+    avgHeadcount: number;
+    /** Explicit leavers; `Employee.terminated` (synced with inactive roster on terminate). */
+    terminatedCount: number;
+    turnoverRatePct: number;
+  }> {
+    const [activeHeadcount, terminatedCount] = await Promise.all([
+      prisma.employee.count({ where: { terminated: false, isActive: true } }),
+      prisma.employee.count({ where: { terminated: true } })
+    ]);
+    const inactiveHeadcount = terminatedCount;
+    const totalHeadcount = activeHeadcount + terminatedCount;
+    const avgHeadcount = totalHeadcount;
+    const turnoverRatePct =
+      avgHeadcount > 0
+        ? Math.round((terminatedCount / avgHeadcount) * 10000) / 100
+        : 0;
+    return {
+      activeHeadcount,
+      inactiveHeadcount,
+      totalHeadcount,
+      avgHeadcount,
+      terminatedCount,
+      turnoverRatePct
+    };
+  }
+
+  /**
    * Calculate investment pipeline metrics
    */
   static async calculatePipelineMetrics(): Promise<PipelineMetrics> {
@@ -298,7 +363,7 @@ export class DataIntegrationService {
 
       // Calculate average time to close (simplified)
       const completedApplications = applications.filter(app => 
-        ['FUNDED', 'REJECTED'].includes(app.currentStage)
+        ['FUNDED', 'REJECTED', 'REJECTED_SCREENING', 'AUTO_REJECTED'].includes(app.currentStage)
       );
       
       let averageTimeToClose = 0;
@@ -356,7 +421,7 @@ export class DataIntegrationService {
 
       const totalDealsSourced = applications.length;
       const totalDealsClosed = applications.filter(app => 
-        ['FUNDED', 'REJECTED'].includes(app.currentStage)
+        ['FUNDED', 'REJECTED', 'REJECTED_SCREENING', 'AUTO_REJECTED'].includes(app.currentStage)
       ).length;
 
       const totalValue = applications.reduce((sum, app) => sum.plus(app.requestedAmount), new Decimal(0));
@@ -364,7 +429,7 @@ export class DataIntegrationService {
 
       // Calculate average time to close
       const completedApplications = applications.filter(app => 
-        ['FUNDED', 'REJECTED'].includes(app.currentStage)
+        ['FUNDED', 'REJECTED', 'REJECTED_SCREENING', 'AUTO_REJECTED'].includes(app.currentStage)
       );
       
       let averageTimeToClose = 0;
@@ -411,7 +476,7 @@ export class DataIntegrationService {
             managerGroups[managerId].dealsSourced++;
             managerGroups[managerId].totalValue = managerGroups[managerId].totalValue.plus(app.requestedAmount);
             
-            if (['FUNDED', 'REJECTED'].includes(app.currentStage)) {
+            if (['FUNDED', 'REJECTED', 'REJECTED_SCREENING', 'AUTO_REJECTED'].includes(app.currentStage)) {
               managerGroups[managerId].dealsClosed++;
               
               if (app.submittedAt && app.updatedAt) {
@@ -565,7 +630,7 @@ export class DataIntegrationService {
           dealFlow[managerId][month].sourced++;
           dealFlow[managerId][month].value = dealFlow[managerId][month].value.plus(app.requestedAmount);
           
-          if (['FUNDED', 'REJECTED'].includes(app.currentStage)) {
+          if (['FUNDED', 'REJECTED', 'REJECTED_SCREENING', 'AUTO_REJECTED'].includes(app.currentStage)) {
             dealFlow[managerId][month].closed++;
           }
         });
@@ -786,7 +851,7 @@ export class DataIntegrationService {
     const stageTransitions: Record<string, Record<string, number>> = {};
     
     // This is simplified - in reality you'd track stage transitions over time
-    const stages = ['SHORTLISTED', 'UNDER_DUE_DILIGENCE', 'DUE_DILIGENCE_COMPLETED', 'UNDER_BOARD_REVIEW', 'BOARD_APPROVED', 'FUNDED'];
+    const stages = ['SCREENING', 'ACTIVE_DD', 'DUE_DILIGENCE_COMPLETED', 'UNDER_BOARD_REVIEW', 'BOARD_APPROVED', 'FUNDED'];
     
     const conversionRates: Array<{fromStage: string; toStage: string; rate: number}> = [];
     

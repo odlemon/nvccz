@@ -41,7 +41,7 @@ const upload = multer({
  *   post:
  *     summary: Create a new investment application (PUBLIC)
  *     description: Create a new investment application. Supports both multipart/form-data (with files) and application/json (with document URLs). Files are automatically uploaded to Firebase Storage.
- *     tags: [Portfolio Management]
+ *     tags: [Portfolio Management, Updated investment flow]
  *     requestBody:
  *       required: true
  *       content:
@@ -190,6 +190,42 @@ const upload = multer({
  *                     isRequired:
  *                       type: boolean
  *                       description: Whether this document is required
+ *           examples:
+ *             fullJsonApply:
+ *               summary: Example — JSON apply (document URLs)
+ *               value:
+ *                 applicantName: "Thandiwe Moyo"
+ *                 applicantEmail: "thandiwe.moyo@acmecrops.example"
+ *                 applicantPhone: "+263771234567"
+ *                 applicantAddress: "12 Enterprise Rd, Harare"
+ *                 businessName: "Acme Agri Processing Pvt Ltd"
+ *                 businessDescription: "Grain aggregation and cold storage for smallholder farmers."
+ *                 industry: "Agri-processing"
+ *                 businessStage: "OPERATIONAL"
+ *                 foundingDate: "2019-03-01"
+ *                 requestedAmount: 250000
+ *                 fundId: "cmjfpk2g0000lktwmt25ni8p8"
+ *                 documents:
+ *                   - documentType: "BUSINESS_PLAN"
+ *                     fileName: "acme-business-plan.pdf"
+ *                     fileUrl: "https://storage.example.com/deals/acme/business-plan.pdf"
+ *                     fileSize: 524288
+ *                     isRequired: true
+ *                   - documentType: "PROOF_OF_CONCEPT"
+ *                     fileName: "pilot-warehouse.pdf"
+ *                     fileUrl: "https://storage.example.com/deals/acme/poc.pdf"
+ *                     fileSize: 1024000
+ *                     isRequired: true
+ *                   - documentType: "MARKET_RESEARCH"
+ *                     fileName: "sadc-grain-market-2025.pdf"
+ *                     fileUrl: "https://storage.example.com/deals/acme/market.pdf"
+ *                     fileSize: 890000
+ *                     isRequired: true
+ *                   - documentType: "PROJECTED_CASH_FLOWS"
+ *                     fileName: "acme-5yr-projections.xlsx"
+ *                     fileUrl: "https://storage.example.com/deals/acme/cashflows.xlsx"
+ *                     fileSize: 156000
+ *                     isRequired: true
  *     responses:
  *       201:
  *         description: Application created successfully
@@ -211,9 +247,7 @@ const upload = multer({
  *       500:
  *         description: Internal server error
  */
-router.post("/", upload.fields([
-  { name: 'files', maxCount: 10 }
-]), ApplicationController.createApplication);
+router.post("/", upload.fields([{ name: "files", maxCount: 10 }]), ApplicationController.createApplication);
 
 /**
  * @swagger
@@ -398,11 +432,66 @@ router.get("/", authenticate, ApplicationController.getAllApplications);
 
 /**
  * @swagger
- * /api/applications/{id}:
+ * /api/applications/below-threshold:
  *   get:
- *     summary: Get application by ID (PROTECTED)
- *     description: Get detailed information about an application. Admin/Fund Manager access required.
+ *     summary: Get applications below investment threshold (PROTECTED)
+ *     description: Retrieve all applications that did not meet investment criteria. Admin/Fund Manager access required.
  *     tags: [Portfolio Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Below threshold applications retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     applications:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/Application'
+ *                     total:
+ *                       type: integer
+ *                     page:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/below-threshold", authenticate, ApplicationController.getBelowThresholdApplications);
+
+/**
+ * @swagger
+ * /api/applications/{id}/assigned-analyst:
+ *   patch:
+ *     summary: Assign lead investment analyst (screening / Active DD task owner)
+ *     description: |
+ *       Assign `assignedAnalystId`. Stricter role checks when `NVCCZ_STRICT_DEAL_ACCESS=true`.
+ *     tags: [Portfolio Management, Updated investment flow]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -411,18 +500,196 @@ router.get("/", authenticate, ApplicationController.getAllApplications);
  *         required: true
  *         schema:
  *           type: string
- *         description: Application ID
+ *           example: "cmi78trsi0000jx048i72bb7m"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [analystUserId]
+ *             properties:
+ *               analystUserId:
+ *                 type: string
+ *                 example: "cml7udye80014kt1b65oncfdl"
+ *           examples:
+ *             assignLead:
+ *               summary: Example assign analyst
+ *               value:
+ *                 analystUserId: "cml7udye80014kt1b65oncfdl"
  *     responses:
  *       200:
- *         description: Application retrieved successfully
- *       404:
- *         description: Application not found
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Internal server error
+ *         description: Analyst assigned
+ *       400:
+ *         description: Bad request
  */
-router.get("/:id", authenticate, ApplicationController.getApplicationById);
+router.patch("/:id/assigned-analyst", authenticate, ApplicationController.assignLeadAnalyst);
+
+/**
+ * @swagger
+ * /api/applications/{id}/analyst-screening:
+ *   post:
+ *     summary: Record analyst Initial Screening Scorecard; below minimum score rejects deal
+ *     description: |
+ *       Only the **assigned lead analyst** may score. When `currentStage` is `SCREENING`, score &lt; 50 → `REJECTED_SCREENING`; score ≥ 50 → `ACTIVE_DD` and DD/tasks seeded.
+ *     tags: [Portfolio Management, Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [score]
+ *             properties:
+ *               score:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 100
+ *                 example: 72
+ *           examples:
+ *             passScreening:
+ *               summary: Example — pass (≥ 50)
+ *               value:
+ *                 score: 72
+ *             failScreening:
+ *               summary: Example — reject (&lt; 50)
+ *               value:
+ *                 score: 42
+ *     responses:
+ *       200:
+ *         description: Score recorded; stage may change
+ *       400:
+ *         description: Validation or wrong assignee/stage
+ */
+router.post("/:id/analyst-screening", authenticate, ApplicationController.recordAnalystScreeningScore);
+
+/**
+ * @swagger
+ * /api/applications/{id}/collaboration/messages:
+ *   get:
+ *     summary: List deal collaboration messages
+ *     tags: [Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *   post:
+ *     summary: Post deal collaboration message
+ *     tags: [Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [content]
+ *             properties:
+ *               content:
+ *                 type: string
+ *                 example: "@cml7udye80014kt1b65oncfdl please upload Q3 management accounts before Friday."
+ *               mentionUserIds:
+ *                 type: array
+ *                 items: { type: string }
+ *                 example: ["cml7udye80014kt1b65oncfdl"]
+ *           examples:
+ *             withMentions:
+ *               summary: Example message with mentions
+ *               value:
+ *                 content: "@cml7udye80014kt1b65oncfdl please upload Q3 management accounts before Friday."
+ *                 mentionUserIds: ["cml7udye80014kt1b65oncfdl"]
+ *     responses:
+ *       201: { description: Created }
+ * /api/applications/{id}/collaboration/comments:
+ *   post:
+ *     summary: Post deal collaboration comment (optional multipart attachments)
+ *     description: multipart/form-data — field `content` (string); repeat field `attachments` for each file (max 10).
+ *     tags: [Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [content]
+ *             properties:
+ *               content:
+ *                 type: string
+ *                 example: "See attached legal opinion."
+ *               attachments:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       201: { description: Created }
+ */
+
+/**
+ * Portfolio deal collaboration feed — parity with task chat (`/api/tasks/:id/messages`, `comments`, delete, chats).
+ */
+router.get(
+  "/:id/collaboration/chats/:msgId",
+  authenticate,
+  ApplicationController.getDealCollaborationChatMessage
+);
+router.delete(
+  "/:id/collaboration/messages/:msgId",
+  authenticate,
+  ApplicationController.deleteDealCollaborationMessage
+);
+router.get(
+  "/:id/collaboration/mention-suggestions",
+  authenticate,
+  ApplicationController.getDealCollaborationMentionSuggestions
+);
+router.get(
+  "/:id/collaboration/messages",
+  authenticate,
+  ApplicationController.getDealCollaborationMessages
+);
+router.post(
+  "/:id/collaboration/messages",
+  authenticate,
+  ApplicationController.createDealCollaborationMessage
+);
+router.post(
+  "/:id/collaboration/comments",
+  authenticate,
+  upload.array("attachments", 10),
+  ApplicationController.createDealCollaborationComment
+);
 
 /**
  * @swagger
@@ -511,7 +778,7 @@ router.put("/:id", authenticate, ApplicationController.updateApplication);
  *             properties:
  *               newStage:
  *                 type: string
- *                 enum: [UNDER_DUE_DILIGENCE, DUE_DILIGENCE_COMPLETED, UNDER_BOARD_REVIEW, BOARD_APPROVED, BOARD_REJECTED, BOARD_CONDITIONAL, TERM_SHEET_NEGOTIATION, IMPLEMENTATION, FUNDED, REJECTED]
+ *                 enum: [UNDER_DUE_DILIGENCE, DUE_DILIGENCE_COMPLETED, UNDER_BOARD_REVIEW, BOARD_APPROVED, BOARD_REJECTED, BOARD_CONDITIONAL, TERM_SHEET_NEGOTIATION, IMPLEMENTATION, FUNDED, BELOW_THRESHOLD]
  *                 description: New stage for the application
  *               notes:
  *                 type: string
@@ -529,6 +796,106 @@ router.put("/:id", authenticate, ApplicationController.updateApplication);
  *         description: Internal server error
  */
 router.post("/:id/change-stage", authenticate, ApplicationController.changeApplicationStage);
+
+/**
+ * @swagger
+ * /api/applications/{id}/request-clarification:
+ *   post:
+ *     summary: Email the applicant a clarification request
+ *     tags: [Portfolio Management]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post("/:id/request-clarification", authenticate, ApplicationController.requestClarification);
+
+/**
+ * @swagger
+ * /api/applications/{id}/statutory-compliance:
+ *   patch:
+ *     summary: Update KYC / statutory compliance flags
+ *     description: |
+ *       When `kycVerified` is true, requires an application document with type `RBZ_EXCHANGE_CONTROL`.
+ *       Sets `complianceCleared` when rules are satisfied. Fund disbursement APIs stay blocked until `complianceCleared` is true.
+ *     tags: [Portfolio Management, Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - kycVerified
+ *             properties:
+ *               kycVerified:
+ *                 type: boolean
+ *                 example: true
+ *           examples:
+ *             verifyKyc:
+ *               summary: Example — mark KYC verified
+ *               value:
+ *                 kycVerified: true
+ *     responses:
+ *       200:
+ *         description: Application updated
+ *       400:
+ *         description: Validation error (e.g. missing RBZ document when verifying KYC)
+ */
+/**
+ * @swagger
+ * /api/applications/{id}/rbz-exchange-control-document:
+ *   post:
+ *     summary: Upload RBZ Exchange Control approval (Legal / Compliance)
+ *     description: |
+ *       `multipart/form-data` only. Form field **`file`** — single PDF or scan (e.g. `RBZ_Approval_Acme_2026.pdf`).
+ *       Replaces any previous RBZ document for this application. Then call `PATCH /{id}/statutory-compliance` with `kycVerified: true`.
+ *     tags: [Portfolio Management, Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
+ *         description: Application ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *                 description: RBZ Exchange Control approval document
+ *     responses:
+ *       201:
+ *         description: Document stored
+ *       400:
+ *         description: Missing file
+ *       401:
+ *         description: Not authenticated
+ */
+router.post(
+  "/:id/rbz-exchange-control-document",
+  upload.single("file"),
+  ApplicationController.uploadRbzExchangeControlDocument
+);
+
+router.patch("/:id/statutory-compliance", authenticate, ApplicationController.updateStatutoryCompliance);
 
 router.post("/:id/trigger-shortlisting", authenticate, ApplicationController.triggerShortlisting);
 
@@ -562,13 +929,15 @@ router.post("/:id/trigger-shortlisting", authenticate, ApplicationController.tri
  */
 router.delete("/:id", authenticate, ApplicationController.deleteApplication);
 
-// Due Diligence Routes
 /**
  * @swagger
- * /api/applications/{id}/due-diligence/initiate:
- *   post:
- *     summary: Initiate due diligence for an application (PROTECTED)
- *     description: Start the due diligence process for an application. Admin/Fund Manager access required.
+ * /api/applications/{id}:
+ *   get:
+ *     summary: Get application by ID (PROTECTED)
+ *     description: |
+ *       Deal detail. Optional query `light=true` for a smaller payload.
+ *       **403 fund isolation** applies only when env `NVCCZ_STRICT_DEAL_ACCESS=true`.
+ *       Registered after `/:id/...` routes so paths like `/assigned-analyst` are not swallowed by `:id`.
  *     tags: [Portfolio Management]
  *     security:
  *       - bearerAuth: []
@@ -578,6 +947,44 @@ router.delete("/:id", authenticate, ApplicationController.deleteApplication);
  *         required: true
  *         schema:
  *           type: string
+ *         description: Application ID
+ *       - in: query
+ *         name: light
+ *         schema:
+ *           type: boolean
+ *         description: When true, returns a lighter payload (faster; omits heavy disbursement joins).
+ *     responses:
+ *       200:
+ *         description: Application retrieved successfully
+ *       403:
+ *         description: Forbidden — deal access denied when NVCCZ_STRICT_DEAL_ACCESS=true
+ *       404:
+ *         description: Application not found
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/:id", authenticate, ApplicationController.getApplicationById);
+
+// Due Diligence Routes
+/**
+ * @swagger
+ * /api/applications/{id}/due-diligence/initiate:
+ *   post:
+ *     summary: Initiate due diligence for an application (PROTECTED)
+ *     description: |
+ *       Typically when `currentStage` is `SCREENING`. Sets stage to `ACTIVE_DD`, creates DD record, seeds tasks (assignee prefers `assignedAnalystId`). No request body.
+ *     tags: [Portfolio Management, Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
  *         description: Application ID
  *     responses:
  *       200:

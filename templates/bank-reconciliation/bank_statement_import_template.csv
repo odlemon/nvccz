@@ -1,0 +1,8 @@
+Account Number,23572550015
+Account Currency,ZWL
+Opening Balance,-25741.84
+Closing Balance,36218.37
+
+Transaction Date,Value Date,Reference,Description,Debit,Credit,Balance
+03-Apr-2020,03-Apr-2020,066ISTP200945403,TRF EX SAMPLE CREDIT,,107628.00,81248.37
+30-Apr-2020,30-Apr-2020,011FTIT201210014,TRF SAMPLE DEBIT,45000.00,,36248.37

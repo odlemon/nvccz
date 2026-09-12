@@ -3,8 +3,10 @@ import { PrismaClient, DueDiligenceReview, Application } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
 import { prisma } from '../utils/database';
+import { ActiveDdPmsTaskPackService } from './ActiveDdPmsTaskPackService';
 import { TaskService } from './TaskService';
 import { EmailNotificationService } from './EmailNotificationService';
+import { BoardReviewService } from './BoardReviewService';
 import { logger } from '../utils/logger';
 import { HARDCODED_ROLES } from '../config/hardcodedRoles';
 
@@ -55,7 +57,7 @@ export class DueDiligenceService {
    */
   static async initiateDueDiligence(params: IDueDiligenceCreateParams): Promise<IDueDiligenceWithRelations> {
     try {
-      // Check if application exists and is in SHORTLISTED stage
+      // Check if application exists and is in SCREENING (qualified) stage
       const application = await prisma.application.findUnique({
         where: { id: params.applicationId }
       });
@@ -64,8 +66,8 @@ export class DueDiligenceService {
         throw new Error('Application not found');
       }
 
-      if (application.currentStage !== 'SHORTLISTED') {
-        throw new Error('Due diligence can only be initiated for applications in SHORTLISTED stage. Current stage: ' + application.currentStage);
+      if (application.currentStage !== 'SCREENING') {
+        throw new Error('Due diligence can only be initiated for applications in SCREENING stage. Current stage: ' + application.currentStage);
       }
 
       // Check if due diligence already exists - prevent multiple due diligence reviews
@@ -97,10 +99,25 @@ export class DueDiligenceService {
         }
       });
 
-      // Update application stage to UNDER_DUE_DILIGENCE
+      // Update application stage to ACTIVE_DD (UAT "Active DD" / active due diligence)
       await prisma.application.update({
         where: { id: params.applicationId },
-        data: { currentStage: 'UNDER_DUE_DILIGENCE' }
+        data: {
+          currentStage: 'ACTIVE_DD',
+          screeningOutcome: 'ACTIVE_DD'
+        }
+      });
+
+      const appRow = await prisma.application.findUnique({
+        where: { id: params.applicationId },
+        select: { dealReference: true, assignedAnalystId: true }
+      });
+
+      await ActiveDdPmsTaskPackService.ensureSeededForActiveDueDiligence({
+        applicationId: params.applicationId,
+        assigneeUserId: appRow?.assignedAnalystId || params.reviewerId,
+        createdByUserId: params.reviewerId,
+        dealReference: appRow?.dealReference ?? null
       });
 
       // Create notification for applicant
@@ -111,8 +128,21 @@ export class DueDiligenceService {
           recipientPhone: application.applicantPhone,
           notificationType: 'DUE_DILIGENCE_STARTED',
           title: 'Due Diligence Started',
-          message: `Your application for ${application.businessName} has entered the due diligence phase. We will conduct a thorough review of your business and will keep you updated on the progress.`
+          message: `Your application for ${application.businessName} has passed screening and entered active due diligence. We will conduct a thorough review and keep you updated.`
         }
+      });
+
+      void EmailNotificationService.sendDueDiligenceStartedEmail({
+        applicantName: application.applicantName,
+        applicantEmail: application.applicantEmail,
+        businessName: application.businessName,
+        applicationId: application.id,
+        currentStage: 'ACTIVE_DD'
+      }).catch((err: any) => {
+        logger.error('Due diligence started applicant email failed', {
+          applicationId: params.applicationId,
+          error: err?.message
+        });
       });
 
       return dueDiligence;
@@ -306,7 +336,8 @@ export class DueDiligenceService {
           return {
             ...activity,
             byUser,
-            by: byUser ? `${byUser.firstName} ${byUser.lastName}`.trim() : activity.by || activity.userId || null
+            by: byUser ? `${byUser.firstName} ${byUser.lastName}`.trim() : activity.by || activity.userId || null,
+            status: activity.status || 'pending_approval' // Ensure status field is included
           };
         });
 
@@ -375,6 +406,20 @@ export class DueDiligenceService {
         throw new Error('Due diligence is already completed');
       }
 
+      const requiredSections = [
+        { field: 'marketResearchViable', label: 'Market Research' },
+        { field: 'financialViable', label: 'Financial Assessment' },
+        { field: 'legalCompliant', label: 'Legal Compliance' },
+        { field: 'managementTeamQualified', label: 'Management Assessment' }
+      ];
+
+      const incompleteSections = requiredSections
+        .filter(section => !existingDueDiligence[section.field]);
+
+      if (incompleteSections.length > 0) {
+        throw new Error(`Cannot complete due diligence: Please complete ${incompleteSections.map(section => section.label).join(', ')} first.`);
+      }
+
       // Validate that all required fields are filled
       if (existingDueDiligence.overallScore === null || 
           existingDueDiligence.recommendation === null ||
@@ -405,14 +450,19 @@ export class DueDiligenceService {
         // Check each task's activities for approval status
         for (const task of relatedTasks) {
           const activities = task.activityLogs || [];
+
+          if (task.stage === 'completed') {
+            logger.info(`Task "${task.title}" is marked completed — skipping activity approval check`, {
+              taskId: task.id,
+              activitiesCount: activities.length,
+            });
+            continue;
+          }
           
           if (activities.length > 0) {
-            // Check if all activities are approved
+            // Check if all activities are approved using status field
             const unapprovedActivities = activities.filter((activity: any) => {
-              const approvalMatch = activity.description?.match(/\[APPROVAL:(.+?)\]/);
-              if (!approvalMatch) return true; // No approval found
-              const approvalParts = approvalMatch[1].split(':');
-              return approvalParts[0] !== 'APPROVED';
+              return activity.status !== 'approved';
             });
 
             if (unapprovedActivities.length > 0) {
@@ -468,11 +518,59 @@ export class DueDiligenceService {
         }
       });
 
-      // Update application stage to UNDER_BOARD_REVIEW
+      // Determine next stage based on recommendation
+      let nextStage: string;
+      if (existingDueDiligence.recommendation === 'REJECT') {
+        nextStage = 'REJECTED';
+      } else if (existingDueDiligence.recommendation === 'APPROVE' || existingDueDiligence.recommendation === 'CONDITIONAL') {
+        // Move to TERM_SHEET stage (new workflow: due diligence → term sheet → board review)
+        nextStage = 'TERM_SHEET';
+        
+        // Create user and portfolio company when due diligence approves/conditionally approves
+        // This allows users to access and sign term sheets before board review
+        try {
+          const fullApplication = await prisma.application.findUnique({
+            where: { id: applicationId },
+            select: {
+              id: true,
+              businessName: true,
+              applicantName: true,
+              applicantEmail: true,
+              applicantPhone: true,
+              applicantAddress: true,
+              currentStage: true,
+              requestedAmount: true,
+              industry: true,
+              foundingDate: true,
+              businessDescription: true,
+              businessStage: true
+            }
+          });
+
+          if (fullApplication) {
+            await BoardReviewService.createUserAndPortfolioCompany(fullApplication);
+            logger.info("User and portfolio company created after due diligence completion", {
+              applicationId,
+              applicantEmail: fullApplication.applicantEmail
+            });
+          }
+        } catch (userCreationError: any) {
+          logger.error("Failed to create user and portfolio company after due diligence", {
+            applicationId,
+            error: userCreationError.message
+          });
+          // Don't fail due diligence completion if user creation fails - log and continue
+        }
+      } else {
+        // Default to TERM_SHEET for any other recommendation
+        nextStage = 'TERM_SHEET';
+      }
+
+      // Update application stage
       await prisma.application.update({
         where: { id: applicationId },
         data: { 
-          currentStage: 'UNDER_BOARD_REVIEW',
+          currentStage: nextStage,
           dueDiligenceScore: existingDueDiligence.overallScore
         }
       });
@@ -505,6 +603,12 @@ export class DueDiligenceService {
       }
 
       // Create notification for applicant
+      const notificationMessage = nextStage === 'REJECTED' 
+        ? `The due diligence review for your application (${existingDueDiligence.application.businessName}) has been completed. Unfortunately, your application has been rejected.`
+        : nextStage === 'TERM_SHEET'
+        ? `The due diligence review for your application (${existingDueDiligence.application.businessName}) has been completed. Your account has been created and you can now log in to review and sign the term sheet.`
+        : `The due diligence review for your application (${existingDueDiligence.application.businessName}) has been completed. Your application is now moving to the next stage.`;
+
       await prisma.applicationNotification.create({
         data: {
           applicationId,
@@ -512,11 +616,31 @@ export class DueDiligenceService {
           recipientPhone: existingDueDiligence.application.applicantPhone,
           notificationType: 'DUE_DILIGENCE_COMPLETED',
           title: 'Due Diligence Completed',
-          message: `The due diligence review for your application (${existingDueDiligence.application.businessName}) has been completed. Your application is now under board review.`
+          message: notificationMessage
         }
       });
 
-      return completedDueDiligence;
+      // `completedDueDiligence` was loaded before `application.update` — nested `application` would stay stale (e.g. ACTIVE_DD).
+      const refreshed = await prisma.dueDiligenceReview.findUnique({
+        where: { applicationId },
+        include: {
+          application: true,
+          reviewer: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          }
+        }
+      });
+
+      if (!refreshed) {
+        throw new Error('Due diligence record missing after completion');
+      }
+
+      return refreshed;
     } catch (error: any) {
       throw new Error(`Failed to complete due diligence: ${error.message}`);
     }
@@ -633,6 +757,7 @@ export class DueDiligenceService {
       description?: string;
       priority?: string;
       dueDate?: Date;
+      category?: string;
     },
     assignedById: string
   ): Promise<any> {
@@ -654,6 +779,10 @@ export class DueDiligenceService {
 
       if (!dueDiligence) {
         throw new Error('Due diligence not found for this application');
+      }
+
+      if (dueDiligence.status === 'COMPLETED') {
+        throw new Error('Cannot assign workstreams after due diligence is completed');
       }
 
       // Get assignee user
@@ -682,18 +811,13 @@ export class DueDiligenceService {
           applicationId: applicationId,
           fromDueDiligence: true,
           isPerformanceTask: true,
-          performanceCategory: 'business'
+          performanceCategory: 'business',
+          category: taskData.category
         },
         assignedById
       );
 
-      // Append marker for legacy references
-      await prisma.task.update({
-        where: { id: task.id },
-        data: {
-          description: `${task.description || ''}\n\n[DueDiligenceApplication:${applicationId}]`
-        }
-      });
+      // applicationId + fromDueDiligence link the task; no legacy description marker needed.
 
       // Send email notification to assignee
       try {

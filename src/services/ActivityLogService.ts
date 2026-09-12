@@ -55,7 +55,8 @@ export class ActivityLogService {
           taskId: request.taskId,
           kpiId: request.kpiId,
           monetaryValueAchieved: request.monetaryValueAchieved,
-          percentValueAchieved: request.percentValueAchieved
+          percentValueAchieved: request.percentValueAchieved,
+          status: 'pending_approval'
         },
         include: {
           user: {
@@ -70,8 +71,7 @@ export class ActivityLogService {
             select: {
               id: true,
               title: true,
-              type: true,
-              category: true
+              type: true
             }
           },
           task: {
@@ -153,8 +153,7 @@ export class ActivityLogService {
             select: {
               id: true,
               title: true,
-              type: true,
-              category: true
+              type: true
             }
           },
           task: {
@@ -203,8 +202,7 @@ export class ActivityLogService {
             select: {
               id: true,
               title: true,
-              type: true,
-              category: true
+              type: true
             }
           },
           task: {

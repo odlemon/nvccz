@@ -1,24 +1,8 @@
 // @ts-nocheck
 import { PrismaClient, Decimal } from '@prisma/client';
 import { prisma } from '../utils/database';
-import { initializeApp } from 'firebase/app';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-
-// const prisma = dbConnection.getPrismaClient(); // Moved inside methods
-
-// Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyAjxju0tSJoLtKnwOVqLRTMkVkpZ_iEstw",
-  authDomain: "otcebp.firebaseapp.com",
-  projectId: "otcebp",
-  storageBucket: "otcebp.appspot.com",
-  messagingSenderId: "904504797201",
-  appId: "1:904504797201:web:091e69c41ba296362fe9b0",
-  measurementId: "G-RS3VTZWQ3D"
-};
-
-const app = initializeApp(firebaseConfig);
-const storage = getStorage(app);
+import { createJournalEntryWithAuditSequence } from './AuditTrailSequenceService';
+import { remoteUploadService } from './RemoteUploadService';
 
 export interface CSVTransaction {
   bankName: string;
@@ -58,21 +42,77 @@ export class CashbookBatchImportService {
     try {
       console.log(`📁 Processing CSV import: ${fileName}`);
       
-      // 1. Upload file to Firebase
-      const fileRef = ref(storage, `cashbook-imports/${Date.now()}-${fileName}`);
-      const uploadResult = await uploadBytes(fileRef, file);
-      const fileUrl = await getDownloadURL(uploadResult.ref);
-      
-      console.log(`✅ File uploaded to Firebase: ${fileUrl}`);
+      // 1. Upload file to remote server (optional - continue even if it fails)
+      let fileUrl: string | null = null;
+      try {
+        const uploadResult = await remoteUploadService.uploadSingleFile(
+          {
+            buffer: file,
+            originalname: fileName,
+            mimetype: 'text/csv',
+          },
+          'cashbook-imports'
+        );
+        
+        fileUrl = uploadResult.downloadURL;
+        console.log(`✅ File uploaded to remote server: ${fileUrl}`);
+      } catch (uploadError: any) {
+        // Extract detailed error message from axios errors
+        let errorMsg = uploadError.message || 'Unknown upload error';
+        if (uploadError.response) {
+          errorMsg = `Upload service error: ${uploadError.response.status} - ${uploadError.response.statusText}`;
+          if (uploadError.response.data?.message) {
+            errorMsg += ` - ${uploadError.response.data.message}`;
+          }
+        } else if (uploadError.code) {
+          errorMsg = `Upload network error: ${uploadError.code} - ${errorMsg}`;
+        }
+        console.warn(`⚠️ File upload failed (continuing with import): ${errorMsg}`);
+        // Continue processing even if upload fails
+      }
       
       // 2. Parse CSV content
       const csvContent = file.toString('utf-8');
+      if (!csvContent || csvContent.trim().length === 0) {
+        throw new Error('CSV file is empty');
+      }
+      
       const transactions = this.parseCSV(csvContent);
+      
+      if (transactions.length === 0) {
+        throw new Error('No transactions found in CSV file. Please check the file format.');
+      }
       
       console.log(`📊 Parsed ${transactions.length} transactions from CSV`);
       
+      // Debug: Log first transaction to verify parsing
+      if (transactions.length > 0) {
+        console.log(`📋 Sample parsed transaction:`, {
+          bankName: transactions[0].bankName,
+          counterpartyType: transactions[0].counterpartyType,
+          customerName: transactions[0].customerName || '(empty)',
+          vendorName: transactions[0].vendorName || '(empty)',
+          glAccountNo: transactions[0].glAccountNo || '(empty)'
+        });
+      }
+      
+      // Debug: Log first transaction to verify parsing
+      if (transactions.length > 0) {
+        console.log(`📋 Sample transaction:`, {
+          bankName: transactions[0].bankName,
+          counterpartyType: transactions[0].counterpartyType,
+          customerName: transactions[0].customerName,
+          vendorName: transactions[0].vendorName,
+          glAccountNo: transactions[0].glAccountNo
+        });
+      }
+      
       // 3. Validate transactions
       const validationResult = await this.validateTransactions(transactions);
+      
+      if (validationResult.validTransactions.length === 0) {
+        throw new Error(`No valid transactions found. Errors: ${validationResult.errors.join('; ')}`);
+      }
       
       // 4. Create batch
       const batch = await prisma.cashbookBatch.create({
@@ -137,13 +177,79 @@ export class CashbookBatchImportService {
         validTransactions: validCount,
         invalidTransactions: validationResult.errors.length,
         errors: validationResult.errors,
-        fileUrl
+        fileUrl: fileUrl || ''
       };
       
     } catch (error: any) {
-      console.error('❌ Error importing CSV:', error.message);
-      throw error;
+      console.error('❌ Error importing CSV:', error);
+      console.error('Error message:', error.message);
+      console.error('Error code:', error.code);
+      console.error('Stack trace:', error.stack);
+      
+      // Extract detailed error message
+      let errorMessage = error.message || 'Unknown error occurred during CSV import';
+      
+      // Handle Prisma errors
+      if (error.code) {
+        if (error.code === 'P2002') {
+          errorMessage = `Duplicate entry: ${error.meta?.target?.join(', ') || 'unique constraint violation'}`;
+        } else if (error.code === 'P2025') {
+          errorMessage = `Record not found: ${error.meta?.cause || 'resource does not exist'}`;
+        } else if (error.code === 'P2003') {
+          errorMessage = `Foreign key constraint failed: ${error.meta?.field_name || 'invalid reference'}`;
+        } else {
+          errorMessage = `Database error (${error.code}): ${errorMessage}`;
+        }
+      }
+      
+      // Handle axios/network errors
+      if (error.response) {
+        errorMessage = `Remote service error: ${error.response.status} - ${error.response.statusText}`;
+        if (error.response.data?.message) {
+          errorMessage += ` - ${error.response.data.message}`;
+        }
+      } else if (error.code && (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND')) {
+        errorMessage = `Network error (${error.code}): ${errorMessage}`;
+      }
+      
+      throw new Error(errorMessage);
     }
+  }
+  
+  /**
+   * Parse a CSV line properly handling quoted fields
+   */
+  private static parseCSVLine(line: string): string[] {
+    const values: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      const nextChar = line[i + 1];
+      
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          // Escaped quote
+          current += '"';
+          i++; // Skip next quote
+        } else {
+          // Toggle quote state
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        // End of field
+        values.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    
+    // Add last field
+    values.push(current.trim());
+    
+    return values;
   }
   
   /**
@@ -151,7 +257,36 @@ export class CashbookBatchImportService {
    */
   private static parseCSV(csvContent: string): CSVTransaction[] {
     const lines = csvContent.split('\n').filter(line => line.trim());
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    
+    if (lines.length === 0) {
+      throw new Error('CSV file is empty or has no content');
+    }
+    
+    if (lines.length < 2) {
+      throw new Error('CSV file must have at least a header row and one data row');
+    }
+    
+    // Parse header row properly
+    const headers = this.parseCSVLine(lines[0]).map(h => h.trim().toLowerCase().replace(/^"|"$/g, ''));
+    
+    if (headers.length === 0) {
+      throw new Error('CSV file has no headers');
+    }
+    
+    // Validate required headers
+    const hasBankName = headers.some(h => h === 'bankname' || h === 'bank');
+    const hasDate = headers.some(h => h === 'transactiondate' || h === 'date');
+    const hasAmount = headers.some(h => h === 'amount');
+    
+    if (!hasBankName) {
+      throw new Error('CSV file must have a "bankName" or "bank" column');
+    }
+    if (!hasDate) {
+      throw new Error('CSV file must have a "transactionDate" or "date" column');
+    }
+    if (!hasAmount) {
+      throw new Error('CSV file must have an "amount" column');
+    }
     
     const transactions: CSVTransaction[] = [];
     
@@ -175,26 +310,38 @@ export class CashbookBatchImportService {
     const discountIdx = getColumnIndex('discount');
     
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim());
+      const line = lines[i].trim();
+      if (!line) continue; // Skip empty lines
       
-      if (values.length !== headers.length) {
-        // Try to handle quoted values that might contain commas
+      // Parse line properly handling quoted fields
+      const values = this.parseCSVLine(line).map(v => v.replace(/^"|"$/g, '')); // Remove surrounding quotes
+      
+      // Skip if column count doesn't match (might be a malformed row)
+      if (values.length < headers.length) {
+        console.warn(`⚠️ Row ${i + 1}: Column count mismatch (expected ${headers.length}, got ${values.length}), skipping`);
         continue;
       }
       
+      // Extract values, handling empty strings properly
+      const getValue = (idx: number): string | undefined => {
+        if (idx < 0 || idx >= values.length) return undefined;
+        const val = values[idx]?.trim();
+        return val && val.length > 0 ? val : undefined;
+      };
+      
       const transaction: CSVTransaction = {
-        bankName: bankNameIdx >= 0 ? values[bankNameIdx] || '' : '',
-        transactionDate: dateIdx >= 0 ? values[dateIdx] || '' : '',
-        description: descIdx >= 0 ? values[descIdx] || '' : '',
-        amount: amountIdx >= 0 ? parseFloat(values[amountIdx]) || 0 : 0,
-        reference: refIdx >= 0 ? values[refIdx] || '' : '',
-        counterpartyType: counterpartyIdx >= 0 ? (values[counterpartyIdx] as any)?.toUpperCase() || 'GL' : 'GL',
-        customerName: customerIdx >= 0 ? values[customerIdx] || undefined : undefined,
-        vendorName: vendorIdx >= 0 ? values[vendorIdx] || undefined : undefined,
-        glAccountNo: glAccountIdx >= 0 ? values[glAccountIdx] || undefined : undefined,
-        vatCode: vatIdx >= 0 ? values[vatIdx] || '15%' : '15%',
-        projectCode: projectIdx >= 0 ? values[projectIdx] || undefined : undefined,
-        discount: discountIdx >= 0 ? parseFloat(values[discountIdx]) || 0 : 0
+        bankName: bankNameIdx >= 0 ? (values[bankNameIdx]?.trim() || '') : '',
+        transactionDate: dateIdx >= 0 ? (values[dateIdx]?.trim() || '') : '',
+        description: descIdx >= 0 ? (values[descIdx]?.trim() || '') : '',
+        amount: amountIdx >= 0 ? parseFloat(values[amountIdx] || '0') || 0 : 0,
+        reference: refIdx >= 0 ? (values[refIdx]?.trim() || '') : '',
+        counterpartyType: counterpartyIdx >= 0 ? (values[counterpartyIdx]?.trim().toUpperCase() || 'GL') : 'GL',
+        customerName: getValue(customerIdx),
+        vendorName: getValue(vendorIdx),
+        glAccountNo: getValue(glAccountIdx),
+        vatCode: vatIdx >= 0 ? (values[vatIdx]?.trim() || '15%') : '15%',
+        projectCode: getValue(projectIdx),
+        discount: discountIdx >= 0 ? parseFloat(values[discountIdx] || '0') || 0 : 0
       };
       
       transactions.push(transaction);
@@ -333,7 +480,11 @@ export class CashbookBatchImportService {
         // Validate and resolve counterparty
         if (transaction.counterpartyType === 'CUSTOMER') {
           if (!transaction.customerName || transaction.customerName.trim() === '') {
-            errors.push(`Row ${rowNumber}: Customer name is required for CUSTOMER transactions`);
+            if (allCustomers.length === 0) {
+              errors.push(`Row ${rowNumber}: Customer name is required for CUSTOMER transactions. No customers exist in the system. Please create customers first.`);
+            } else {
+              errors.push(`Row ${rowNumber}: Customer name is required for CUSTOMER transactions. Available customers: ${allCustomers.slice(0, 10).map(c => c.name).join(', ')}${allCustomers.length > 10 ? ` (and ${allCustomers.length - 10} more)` : ''}`);
+            }
           continue;
         }
         
@@ -350,7 +501,11 @@ export class CashbookBatchImportService {
             if (matchedCustomer) {
               transaction.customerId = matchedCustomer.id;
             } else {
-              errors.push(`Row ${rowNumber}: Customer "${transaction.customerName}" not found. Available customers: ${allCustomers.map(c => c.name).join(', ')}`);
+              if (allCustomers.length === 0) {
+                errors.push(`Row ${rowNumber}: Customer "${transaction.customerName}" not found. No customers exist in the system. Please create customers first.`);
+              } else {
+                errors.push(`Row ${rowNumber}: Customer "${transaction.customerName}" not found. Available customers: ${allCustomers.slice(0, 10).map(c => c.name).join(', ')}${allCustomers.length > 10 ? ` (and ${allCustomers.length - 10} more)` : ''}`);
+              }
             continue;
           }
           } else {
@@ -360,7 +515,11 @@ export class CashbookBatchImportService {
         
         if (transaction.counterpartyType === 'SUPPLIER') {
           if (!transaction.vendorName || transaction.vendorName.trim() === '') {
-            errors.push(`Row ${rowNumber}: Vendor name is required for SUPPLIER transactions`);
+            if (allVendors.length === 0) {
+              errors.push(`Row ${rowNumber}: Vendor name is required for SUPPLIER transactions. No vendors exist in the system. Please create vendors first.`);
+            } else {
+              errors.push(`Row ${rowNumber}: Vendor name is required for SUPPLIER transactions. Available vendors: ${allVendors.slice(0, 10).map(v => v.name).join(', ')}${allVendors.length > 10 ? ` (and ${allVendors.length - 10} more)` : ''}`);
+            }
             continue;
           }
           
@@ -377,7 +536,11 @@ export class CashbookBatchImportService {
             if (matchedVendor) {
               transaction.vendorId = matchedVendor.id;
             } else {
-              errors.push(`Row ${rowNumber}: Vendor "${transaction.vendorName}" not found. Available vendors: ${allVendors.map(v => v.name).join(', ')}`);
+              if (allVendors.length === 0) {
+                errors.push(`Row ${rowNumber}: Vendor "${transaction.vendorName}" not found. No vendors exist in the system. Please create vendors first.`);
+              } else {
+                errors.push(`Row ${rowNumber}: Vendor "${transaction.vendorName}" not found. Available vendors: ${allVendors.slice(0, 10).map(v => v.name).join(', ')}${allVendors.length > 10 ? ` (and ${allVendors.length - 10} more)` : ''}`);
+              }
             continue;
           }
           } else {
@@ -448,68 +611,111 @@ export class CashbookBatchImportService {
    * Generate CSV template with actual data from database
    */
   static async generateTemplate(): Promise<string> {
-    // Get all active banks
+    // Get ALL active banks (not just samples)
     const banks = await prisma.bank.findMany({
       where: { isActive: true },
       select: { name: true },
       orderBy: { name: 'asc' }
     });
     
-    // Get sample customers
+    // Get ALL active customers (not just samples)
     const customers = await prisma.customer.findMany({
       where: { isActive: true },
       select: { name: true },
-      orderBy: { name: 'asc' },
-      take: 5
+      orderBy: { name: 'asc' }
     });
     
-    // Get sample vendors
+    // Get ALL active vendors (not just samples)
     const vendors = await prisma.vendor.findMany({
       where: { isActive: true },
       select: { name: true },
-      orderBy: { name: 'asc' },
-      take: 5
+      orderBy: { name: 'asc' }
     });
     
-    // Get sample GL accounts
+    // Get ALL active GL accounts (not just samples)
     const glAccounts = await prisma.chartOfAccounts.findMany({
       where: { isActive: true },
       select: { accountNo: true, accountName: true },
-      orderBy: { accountNo: 'asc' },
-      take: 10
+      orderBy: { accountNo: 'asc' }
     });
     
-    const bankNames = banks.map(b => b.name).join(', ');
-    const customerNames = customers.map(c => c.name).join(', ');
-    const vendorNames = vendors.map(v => v.name).join(', ');
-    const glAccountList = glAccounts.map(a => `${a.accountNo} - ${a.accountName}`).join(', ');
-    
-    // Use first available data for examples
-    const exampleBank = banks[0]?.name || 'Main Bank';
+    // Use actual data for examples - must exist in system
+    const exampleBank = banks[0]?.name || '';
     const exampleCustomer = customers[0]?.name || '';
     const exampleVendor = vendors[0]?.name || '';
     const exampleGLAccount = glAccounts[0]?.accountNo || '';
     
+    if (!exampleBank) {
+      throw new Error('No active bank accounts found. Please create at least one bank account first.');
+    }
+    
     const today = new Date().toISOString().split('T')[0];
     
-    let template = `bankName,transactionDate,description,amount,reference,counterpartyType,customerName,vendorName,glAccountNo,vatCode,projectCode,discount
-${exampleBank},${today},Customer Payment - Invoice #INV-001,1500.00,RCP-001,CUSTOMER,${exampleCustomer},,,15%,PROJ-001,0
-${exampleBank},${today},GL Receipt - Share Capital,5000.00,RCP-002,GL,,,${exampleGLAccount},15%,,0
-${exampleBank},${today},Supplier Payment - Office Supplies,250.00,PAY-001,SUPPLIER,,${exampleVendor},,15%,PROJ-002,0
-
-Available Options:
-- Banks: ${bankNames}
-- Customers: ${customerNames}
-- Vendors: ${vendorNames}
-- GL Accounts: ${glAccountList}
-
-Notes:
-- Use exact names/account numbers as shown above (case-insensitive)
-- counterpartyType must be: CUSTOMER, SUPPLIER, or GL
-- vatCode must be: 15%, 0%, or EXEMPT
-- Date format: YYYY-MM-DD
-- Amount must be positive number
-- Leave fields empty if not applicable`;
+    // Build template with actual examples
+    let template = `bankName,transactionDate,description,amount,reference,counterpartyType,customerName,vendorName,glAccountNo,vatCode,projectCode,discount`;
+    
+    // Add example rows only if we have the required data
+    if (exampleCustomer) {
+      template += `\n${exampleBank},${today},Customer Payment - Invoice #INV-001,1500.00,RCP-001,CUSTOMER,${exampleCustomer},,,15%,PROJ-001,0`;
+    }
+    
+    if (exampleGLAccount) {
+      template += `\n${exampleBank},${today},GL Receipt - Share Capital,5000.00,RCP-002,GL,,,${exampleGLAccount},15%,,0`;
+    }
+    
+    if (exampleVendor) {
+      template += `\n${exampleBank},${today},Supplier Payment - Office Supplies,250.00,PAY-001,SUPPLIER,,${exampleVendor},,15%,PROJ-002,0`;
+    }
+    
+    // Add comprehensive list of available options
+    template += `\n\n=== AVAILABLE OPTIONS (Use exact names/account numbers from below) ===`;
+    
+    template += `\n\nBanks (${banks.length} available):`;
+    banks.forEach((bank, idx) => {
+      template += `\n  ${idx + 1}. ${bank.name}`;
+    });
+    
+    if (customers.length > 0) {
+      template += `\n\nCustomers (${customers.length} available):`;
+      customers.forEach((customer, idx) => {
+        template += `\n  ${idx + 1}. ${customer.name}`;
+      });
+    } else {
+      template += `\n\nCustomers: NONE - Please create customers first if you need CUSTOMER transactions`;
+    }
+    
+    if (vendors.length > 0) {
+      template += `\n\nVendors (${vendors.length} available):`;
+      vendors.forEach((vendor, idx) => {
+        template += `\n  ${idx + 1}. ${vendor.name}`;
+      });
+    } else {
+      template += `\n\nVendors: NONE - Please create vendors first if you need SUPPLIER transactions`;
+    }
+    
+    if (glAccounts.length > 0) {
+      template += `\n\nGL Accounts (${glAccounts.length} available):`;
+      glAccounts.slice(0, 20).forEach((account) => {
+        template += `\n  ${account.accountNo} - ${account.accountName}`;
+      });
+      if (glAccounts.length > 20) {
+        template += `\n  ... and ${glAccounts.length - 20} more`;
+      }
+    } else {
+      template += `\n\nGL Accounts: NONE - Please create GL accounts first if you need GL transactions`;
+    }
+    
+    template += `\n\n=== IMPORTANT NOTES ===
+- Use EXACT names/account numbers as shown above (case-insensitive matching)
+- counterpartyType must be exactly: CUSTOMER, SUPPLIER, or GL
+- For CUSTOMER transactions: customerName is REQUIRED and must match a customer from the list above
+- For SUPPLIER transactions: vendorName is REQUIRED and must match a vendor from the list above
+- For GL transactions: glAccountNo is REQUIRED and must match an account number from the list above
+- vatCode must be: 15%, 15.5%, 0%, or EXEMPT (15% and 15.5% use standard 15.5% rate)
+- Date format: YYYY-MM-DD (e.g., ${today})
+- Amount must be a positive number
+- Leave fields empty if not applicable
+- Do NOT use customer/vendor/GL account names that are not in the lists above`;
     
     return template;
   }
@@ -590,16 +796,14 @@ Notes:
       throw new Error('Bank account not found');
     }
     
-    const journalEntry = await prisma.journalEntry.create({
-      data: {
-        transactionDate: transaction.transactionDate,
-        referenceNumber,
-        description: `Cashbook ${transaction.type}: ${transaction.description}`,
-        totalAmount: transaction.amount,
-        currencyId: bank.currency.id,
-        status: 'POSTED',
-        createdById: userId
-      }
+    const journalEntry = await createJournalEntryWithAuditSequence({
+      transactionDate: transaction.transactionDate,
+      referenceNumber,
+      description: `Cashbook ${transaction.type}: ${transaction.description}`,
+      totalAmount: transaction.amount,
+      currencyId: bank.currency.id,
+      status: 'POSTED',
+      createdById: userId,
     });
     
     // Create journal entry lines for double-entry accounting
@@ -727,7 +931,8 @@ Notes:
     page: number = 1,
     limit: number = 10,
     status?: string,
-    userId?: string
+    userId?: string,
+    currencyId?: string
   ): Promise<{
     batches: any[];
     totalCount: number;
@@ -744,6 +949,9 @@ Notes:
       if (userId) {
         whereClause.createdById = userId;
       }
+      if (currencyId) {
+        whereClause.transactions = { some: { bank: { currencyId } } };
+      }
       
       const [batches, totalCount] = await Promise.all([
         prisma.cashbookBatch.findMany({
@@ -758,7 +966,11 @@ Notes:
                 type: true,
                 amount: true,
                 description: true,
-                status: true
+                status: true,
+                receiptAttachmentUrl: true,
+                receiptAttachmentPath: true,
+                receiptAttachmentFileName: true,
+                receiptAttachmentMimeType: true
               }
             },
             createdBy: {
@@ -968,13 +1180,19 @@ Notes:
         )
       ].join('\n');
 
-      // Upload to Firebase Storage
+      // Upload to remote server
       const fileName = `batch-export-${batchId}-${Date.now()}.csv`;
-      const storageRef = ref(storage, `cashbook-exports/${fileName}`);
-      const csvBlob = new Blob([csvContent], { type: 'text/csv' });
+      const csvBuffer = Buffer.from(csvContent, 'utf-8');
       
-      await uploadBytes(storageRef, csvBlob);
-      const downloadUrl = await getDownloadURL(storageRef);
+      const uploadResult = await remoteUploadService.uploadSingleFile(
+        {
+          buffer: csvBuffer,
+          originalname: fileName,
+          mimetype: 'text/csv',
+        },
+        'cashbook-imports' // Use same type as imports
+      );
+      const downloadUrl = uploadResult.downloadURL;
 
       console.log(`✅ Batch exported: ${batchId}`);
       return {
@@ -1082,13 +1300,19 @@ Notes:
         )
       ].join('\n');
 
-      // Upload to Firebase Storage
+      // Upload to remote server
       const fileName = `all-batches-export-${userId}-${Date.now()}.csv`;
-      const storageRef = ref(storage, `cashbook-exports/${fileName}`);
-      const csvBlob = new Blob([csvContent], { type: 'text/csv' });
+      const csvBuffer = Buffer.from(csvContent, 'utf-8');
       
-      await uploadBytes(storageRef, csvBlob);
-      const downloadUrl = await getDownloadURL(storageRef);
+      const uploadResult = await remoteUploadService.uploadSingleFile(
+        {
+          buffer: csvBuffer,
+          originalname: fileName,
+          mimetype: 'text/csv',
+        },
+        'cashbook-imports' // Use same type as imports
+      );
+      const downloadUrl = uploadResult.downloadURL;
 
       console.log(`✅ All batches exported for user: ${userId}`);
       return {

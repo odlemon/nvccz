@@ -499,7 +499,7 @@ curl -X GET http://localhost:3000/api/users \
 
 1. **Install dependencies:** `npm install`
 2. **Generate Prisma client:** `npm run prisma:generate`
-3. **Set up database:** `npm run prisma:db:push`
+3. **Set up database:** run `npm run db:migrate:*` scripts (e.g. `db:migrate:invoice-payment-snapshots`) as needed — do **not** use `prisma migrate` or `prisma db push` for this project (see `.claude-rules.md` §13)
 4. **Seed database:** `npm run prisma:seed`
 5. **Start server:** `npm run dev`
 

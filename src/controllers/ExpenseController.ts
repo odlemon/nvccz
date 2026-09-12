@@ -2,6 +2,8 @@
 import { Request, Response } from "express";
 import { AuthRequest } from "../middleware/authenticate";
 import ExpenseService, { CreateExpenseParams } from "../services/ExpenseService";
+import { parseDate } from "../utils/dateHelper";
+import { prisma } from "../utils/database";
 
 export class ExpenseController {
   /**
@@ -12,6 +14,7 @@ export class ExpenseController {
       const {
         vendorId,
         category,
+        categoryId,
         amount,
         currencyId,
         transactionDate,
@@ -21,36 +24,61 @@ export class ExpenseController {
         paymentMethod
       } = req.body;
 
-      // Validate required fields
-      if (!vendorId || !category || !amount || !currencyId || !transactionDate || !description) {
+      let resolvedCategoryName: string | null = null;
+      if (categoryId != null && String(categoryId).trim() !== "") {
+        const ec = await prisma.expenseCategory.findUnique({
+          where: { id: String(categoryId).trim() },
+        });
+        if (!ec) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid categoryId: expense category not found",
+          });
+        }
+        resolvedCategoryName = ec.name;
+      } else if (category != null && String(category).trim() !== "") {
+        resolvedCategoryName = String(category).trim();
+      }
+
+      if (
+        !vendorId ||
+        !resolvedCategoryName ||
+        amount == null ||
+        amount === "" ||
+        !currencyId ||
+        !transactionDate ||
+        !description
+      ) {
         return res.status(400).json({
           success: false,
-          message: "Missing required fields: vendorId, category, amount, currencyId, transactionDate, description"
+          message:
+            "Missing required fields: vendorId, category or categoryId, amount, currencyId, transactionDate, description",
         });
       }
 
-      // Validate category name
       const validCategories = [
         "Salaries and Wages",
-        "Travel and Accommodation", 
+        "Travel and Accommodation",
         "Operations",
         "Branding and Marketing",
-        "Office Equipment"
+        "Office Equipment",
       ];
-
-      if (!validCategories.includes(category)) {
+      if (
+        !categoryId &&
+        !validCategories.includes(resolvedCategoryName)
+      ) {
         return res.status(400).json({
           success: false,
-          message: `Invalid category. Must be one of: ${validCategories.join(", ")}`
+          message: `Invalid category. Must be one of: ${validCategories.join(", ")}`,
         });
       }
 
       const expenseParams: CreateExpenseParams = {
         vendorId,
-        category,
+        category: resolvedCategoryName,
         amount: parseFloat(amount),
         currencyId,
-        transactionDate: new Date(transactionDate),
+        transactionDate: parseDate(transactionDate),
         description,
         receiptNumber,
         isTaxable: Boolean(isTaxable),
@@ -125,8 +153,8 @@ export class ExpenseController {
         vendorId: vendorId as string,
         categoryId: categoryId as string,
         currencyId: currencyId as string,
-        startDate: startDate ? new Date(startDate as string) : undefined,
-        endDate: endDate ? new Date(endDate as string) : undefined,
+        startDate: startDate ? parseDate(startDate as string) : undefined,
+        endDate: endDate ? parseDate(endDate as string) : undefined,
         status: status as string
       };
 
@@ -182,7 +210,7 @@ export class ExpenseController {
 
       // Convert transactionDate to Date if provided
       if (updateData.transactionDate) {
-        updateData.transactionDate = new Date(updateData.transactionDate);
+        updateData.transactionDate = parseDate(updateData.transactionDate);
       }
 
       // Convert isTaxable to boolean if provided
@@ -236,8 +264,8 @@ export class ExpenseController {
       const { startDate, endDate, currencyId } = req.query;
 
       const params = {
-        startDate: startDate ? new Date(startDate as string) : undefined,
-        endDate: endDate ? new Date(endDate as string) : undefined,
+        startDate: startDate ? parseDate(startDate as string) : undefined,
+        endDate: endDate ? parseDate(endDate as string) : undefined,
         currencyId: currencyId as string
       };
 
@@ -275,6 +303,7 @@ export class ExpenseController {
 
       // Import VATService here to avoid circular dependency
       const { VATService } = await import("../services/VATService");
+      await VATService.refreshActiveVatRate().catch(() => undefined);
 
       const vatAmount = VATService.isVATEligible(numericAmount, taxable) 
         ? VATService.calculateVAT(numericAmount) 
@@ -284,6 +313,7 @@ export class ExpenseController {
       res.status(200).json({
         success: true,
         data: {
+          amount: numericAmount,
           baseAmount: numericAmount,
           vatAmount,
           totalAmount,

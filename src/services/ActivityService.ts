@@ -4,6 +4,13 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { FirebaseStorageService } from './FirebaseStorageService';
 import { EmailNotificationService } from './EmailNotificationService';
 import { logger } from '../utils/logger';
+import { computeTaskPercentage } from './TaskService';
+import { computeAchievementPercent, deriveGoalProgressState } from './performanceGoalRollupUtils';
+import {
+  legacyProgressFieldsForGoal,
+  parseProgressBaseline,
+  PerformanceGoalService
+} from "./PerformanceGoalService";
 
 export class ActivityService {
   /**
@@ -57,7 +64,8 @@ export class ActivityService {
           goalId: finalGoalId,
           userId: activityData.userId,
           monetaryValueAchieved: activityData.valueCollected ? new Decimal(activityData.valueCollected) : null,
-          percentValueAchieved: null // We'll calculate this if needed
+          percentValueAchieved: null, // We'll calculate this if needed
+          status: 'pending_approval'
         },
         include: {
           user: {
@@ -101,10 +109,20 @@ export class ActivityService {
           await this.updateTaskStageBasedOnProgress(activityData.taskId, activityData.valueCollected);
           // Also update the linked goal progress
           if (finalGoalId) {
-            await this.updateGoalProgressBasedOnActivity(finalGoalId, activityData.valueCollected);
+            await this.updateGoalProgressBasedOnActivity(
+              finalGoalId,
+              activityData.valueCollected,
+              activityData.userId,
+              activity.id
+            );
           }
         } else if (activityData.activityType === 'goal' && activityData.goalId) {
-          await this.updateGoalProgressBasedOnActivity(activityData.goalId, activityData.valueCollected);
+          await this.updateGoalProgressBasedOnActivity(
+            activityData.goalId,
+            activityData.valueCollected,
+            activityData.userId,
+            activity.id
+          );
         }
       }
 
@@ -176,50 +194,38 @@ export class ActivityService {
   /**
    * Update goal progress based on activity
    */
-  static async updateGoalProgressBasedOnActivity(goalId: string, valueCollected: number) {
+  static async updateGoalProgressBasedOnActivity(
+    goalId: string,
+    valueCollected: number,
+    actorId: string,
+    activityId?: string
+  ) {
     try {
       const goal = await prisma.performanceGoal.findUnique({
         where: { id: goalId },
-        select: {
-          id: true,
-          title: true,
-          targetValue: true,
-          currentValue: true,
-          stage: true,
-          type: true
-        }
+        select: { id: true, title: true, targetValue: true, createdById: true }
       });
 
       if (!goal) {
         throw new Error("Goal not found");
       }
 
-      // Update current value and progress
-      const currentValue = goal.currentValue ? parseFloat(goal.currentValue.toString()) : 0;
-      const newCurrentValue = currentValue + valueCollected;
-      const targetValue = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
-      const progressPercentage = targetValue > 0 ? Math.min((newCurrentValue / targetValue) * 100, 100) : 0;
-      const stage = newCurrentValue >= targetValue ? 'completed' : 'in_progress';
-
-      await prisma.performanceGoal.update({
-        where: { id: goalId },
-        data: {
-          currentValue: newCurrentValue,
-          progressPercentage,
-          stage,
-          status: stage === 'completed' ? 'completed' : 'active',
-          updatedAt: new Date()
-        }
+      const { PerformanceGoalProgressBridge } = await import("./PerformanceGoalProgressBridge");
+      await PerformanceGoalProgressBridge.applyDelta({
+        goalId,
+        delta: valueCollected,
+        source: "activity",
+        sourceRef: activityId ?? `activity:${Date.now()}`,
+        actorId: actorId || goal.createdById
       });
 
-      console.log(`📈 Goal ${goal.title} progress updated: ${newCurrentValue}/${targetValue} (${progressPercentage.toFixed(1)}%)`);
+      await PerformanceGoalService.refreshPerformanceRiskZoneOnGoal(goalId).catch(() => undefined);
 
-      if (goal.parentGoalId) {
-        await PerformanceWorkflowService.updateParentGoalProgress(goal.parentGoalId);
-      }
-      if (goal.departmentGoalId) {
-        await PerformanceWorkflowService.updateDepartmentGoalProgress(goal.departmentGoalId);
-      }
+      const updated = await prisma.performanceGoal.findUnique({ where: { id: goalId } });
+      const targetValue = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
+      console.log(
+        `📈 Goal ${goal.title} progress updated: ${updated?.currentValue}/${targetValue} (${updated?.progressPercentage}%)`
+      );
     } catch (error) {
       console.error('Error updating goal progress:', error);
       throw error;
@@ -422,7 +428,6 @@ export class ActivityService {
               id: true,
               title: true,
               type: true,
-              category: true
             }
           }
         },
@@ -431,7 +436,11 @@ export class ActivityService {
         }
       });
 
-      return tasks;
+      // Add taskPercentage to each task
+      return tasks.map(task => ({
+        ...task,
+        taskPercentage: computeTaskPercentage(task)
+      }));
     } catch (error) {
       console.error('Error getting manager created tasks:', error);
       throw error;
@@ -525,7 +534,8 @@ export class ActivityService {
             goalId: goalId, // Can be null
             userId: userId,
             monetaryValueAchieved: updateData.valueCollected ? new Decimal(updateData.valueCollected) : null,
-            percentValueAchieved: null
+            percentValueAchieved: null,
+            status: 'pending_approval'
           },
           include: {
             task: {
@@ -681,13 +691,13 @@ export class ActivityService {
       }
 
       // Update activity with approval status
-      // Store approval in description for now (in production, add approval fields to schema)
-      const approvalStatus = approvalData?.approved !== false ? 'APPROVED' : 'REJECTED';
-      const approvalInfo = `\n\n[APPROVAL:${approvalStatus}:${approverId}:${new Date().toISOString()}:${approvalData?.comments || ''}]`;
+      const approvalStatus = approvalData?.approved !== false ? 'approved' : 'rejected';
+      const approvalInfo = `\n\n[APPROVAL:${approvalStatus.toUpperCase()}:${approverId}:${new Date().toISOString()}:${approvalData?.comments || ''}]`;
       
       const updatedActivity = await prisma.activityLog.update({
         where: { id: activityId },
         data: {
+          status: approvalStatus,
           description: `${activity.description || ''}${approvalInfo}`
         },
         include: {
@@ -703,14 +713,14 @@ export class ActivityService {
           assigneeEmail: activity.user.email,
           taskTitle: activity.task?.title || 'Task',
           activityTitle: activity.title,
-          approved: approvalStatus === 'APPROVED',
+          approved: approvalStatus === 'approved',
           comments: approvalData?.comments,
           activityId: activityId
         });
         logger.info('Activity approval email sent to assignee', {
           activityId,
           assigneeId: activity.userId,
-          approved: approvalStatus === 'APPROVED'
+          approved: approvalStatus === 'approved'
         });
       } catch (emailError: any) {
         logger.error('Failed to send activity approval email', {
@@ -723,7 +733,7 @@ export class ActivityService {
       logger.info('Activity approved', {
         activityId,
         approverId,
-        approved: approvalStatus === 'APPROVED'
+        approved: approvalStatus === 'approved'
       });
 
       return {

@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { EmailNotificationService } from '../services/EmailNotificationService';
 import { InvestmentImplementationService } from '../services/InvestmentImplementationService';
 import { PrismaClient } from '@prisma/client';
+import { parseDate } from '../utils/dateHelper';
 
 import { prisma } from '../utils/database';
 
@@ -34,7 +35,17 @@ export class InvestmentImplementationController {
    */
   static async initiateInvestmentImplementation(req: Request, res: Response) {
     try {
-      const { portfolioCompanyId, applicationId, fundId, implementationPlan, notes } = req.body;
+      const {
+        portfolioCompanyId,
+        applicationId,
+        fundId,
+        implementationPlan,
+        notes,
+        disbursementMode,
+        totalCommittedAmount,
+        commitmentCurrencyId,
+        disbursementPeriods
+      } = req.body;
       const initiatedById = (req as any).user.id;
 
       const implementation = await InvestmentImplementationService.initiateInvestmentImplementation({
@@ -43,7 +54,11 @@ export class InvestmentImplementationController {
         fundId, // Required - must link to a fund
         initiatedById,
         implementationPlan,
-        notes
+        notes,
+        disbursementMode, // ONE_TIME or MILESTONE_BASED
+        totalCommittedAmount, // Required if MILESTONE_BASED
+        commitmentCurrencyId,
+        disbursementPeriods
       });
 
       // Send investment implementation started email notification
@@ -166,7 +181,7 @@ export class InvestmentImplementationController {
           title,
           description,
           amount,
-          dueDate: new Date(dueDate),
+          dueDate: parseDate(dueDate),
           deliverables
         }
       );
@@ -208,11 +223,134 @@ export class InvestmentImplementationController {
   }
 
   /**
+   * All PENDING fund disbursement requests (JWT only).
+   */
+  static async listPendingDisbursementRequests(req: Request, res: Response) {
+    try {
+      const data = await InvestmentImplementationService.listPendingDisbursementRequests();
+      res.status(200).json({
+        success: true,
+        data,
+        message: "Pending disbursements retrieved successfully"
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  /**
+   * Banks with linked GL accounts for fund-disbursement approval picker (JWT only).
+   * Query paymentCurrencyId optional — limits to banks in that currency (e.g. tranche payout currency).
+   */
+  static async listDisbursementBanks(req: Request, res: Response) {
+    try {
+      const raw = req.query.paymentCurrencyId;
+      const paymentCurrencyId =
+        typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+      const data =
+        await InvestmentImplementationService.listBanksForFundDisbursementApproval(
+          paymentCurrencyId
+        );
+      res.status(200).json({
+        success: true,
+        data,
+        message: "Banks for disbursement approval retrieved successfully"
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  /**
+   * Approve or reject a PENDING disbursement (single universal action; JWT only).
+   */
+  static async applyFundDisbursementDecision(req: Request, res: Response) {
+    try {
+      const { disbursementId } = req.params;
+      const actorUserId = (req as any).user.id;
+      const raw = String(req.body?.decision ?? "")
+        .trim()
+        .toUpperCase();
+      if (raw !== "APPROVE" && raw !== "REJECT") {
+        res.status(400).json({
+          success: false,
+          message: "decision must be APPROVE or REJECT"
+        });
+        return;
+      }
+      const reason =
+        typeof req.body?.reason === "string" ? req.body.reason : undefined;
+      const bankId =
+        typeof req.body?.bankId === "string" ? req.body.bankId : undefined;
+
+      const disbursement = await InvestmentImplementationService.applyFundDisbursementDecision(
+        disbursementId,
+        actorUserId,
+        raw as "APPROVE" | "REJECT",
+        reason,
+        bankId
+      );
+
+      const message =
+        raw === "APPROVE"
+          ? "Fund disbursement approved successfully"
+          : "Fund disbursement rejected successfully";
+
+      res.status(200).json({
+        success: true,
+        data: disbursement,
+        message
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  /**
+   * Get disbursement summary for an investment implementation
+   */
+  static async getDisbursementSummary(req: Request, res: Response) {
+    try {
+      const { investmentImplementationId } = req.params;
+
+      const summary = await InvestmentImplementationService.getDisbursementSummary(investmentImplementationId);
+
+      res.status(200).json({
+        success: true,
+        data: summary,
+        message: "Disbursement summary retrieved successfully"
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  /**
    * Create fund disbursement
    */
   static async createFundDisbursement(req: Request, res: Response) {
     try {
-      const { investmentImplementationId, milestoneId, amount, disbursementDate, disbursementType, notes } = req.body;
+      const {
+        investmentImplementationId,
+        milestoneId,
+        amount,
+        disbursementDate,
+        disbursementType,
+        notes,
+        paymentCurrencyId
+      } = req.body;
 
       const disbursement = await InvestmentImplementationService.createFundDisbursement({
         investmentImplementationId,
@@ -220,7 +358,8 @@ export class InvestmentImplementationController {
         amount,
         disbursementDate: new Date(disbursementDate),
         disbursementType,
-        notes
+        notes,
+        paymentCurrencyId
       });
 
       res.status(201).json({
@@ -243,16 +382,21 @@ export class InvestmentImplementationController {
     try {
       const { disbursementId } = req.params;
       const approvedById = (req as any).user.id;
+      const bankId =
+        typeof req.body?.bankId === "string" ? req.body.bankId : undefined;
 
-      const disbursement = await InvestmentImplementationService.approveFundDisbursement(
+      const disbursement = await InvestmentImplementationService.applyFundDisbursementDecision(
         disbursementId,
-        approvedById
+        approvedById,
+        "APPROVE",
+        undefined,
+        bankId
       );
 
       res.status(200).json({
         success: true,
         data: disbursement,
-        message: "Fund disbursement approved successfully"
+        message: "Fund disbursement approved, posted, and marked disbursed successfully"
       });
     } catch (error: any) {
       res.status(400).json({

@@ -1,0 +1,290 @@
+[
+  {
+    "symbol": "AXIA.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 0.149,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "AXIA.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 0.1208,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "CMCL.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 54.3103,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "CMCL.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 55.0924,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "EAGLE.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 0.36,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "EAGLE.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 0.36,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "INFR.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 0.246,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "INFR.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 0.24,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "EDGR.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 0.0288,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "EDGR.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 0.0272,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "FCA.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 0.1224,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "FCA.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 0.1255,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "FMWG.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 0.1383,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "FMWG.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 0.1381,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "INN.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 1.3135,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "INN.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 1.4027,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "INV.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 0.15,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "INV.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 0.15,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "KARO.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 100,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "KARO.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 100,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "KAV.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 0.02,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "KAV.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 0.02,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "NED.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 13.1,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "NED.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 13.1,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "PHL.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 1.0327,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "PHL.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 1.0215,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "PFUMA.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 0.15,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "PFUMA.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 0.15,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "SCIL.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 0.3,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "SCIL.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 0.3,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "SIM.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 0.58,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "SIM.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 0.6049,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "WPHL.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 10,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "WPHL.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 10,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "ZIMW.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "OPEN",
+    "price": 0.0779,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  },
+  {
+    "symbol": "ZIMW.VX",
+    "exchangeCode": "VFEX",
+    "priceType": "CLOSE",
+    "price": 0.093,
+    "pricedAt": "2026-06-18T14:00:00.000Z",
+    "tickFrequency": "EOD"
+  }
+]

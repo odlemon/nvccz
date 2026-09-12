@@ -1,0 +1,85 @@
+import router from "../routes/investmentOpsRoutes";
+
+describe("Investment Ops Phase 3 route smoke", () => {
+  const routes = (router as any).stack
+    .filter((layer: any) => layer.route)
+    .flatMap((layer: any) =>
+      Object.keys(layer.route.methods).map(
+        (method) => `${method.toUpperCase()} ${layer.route.path}`
+      )
+    );
+
+  it.each([
+    "POST /valuation/runs",
+    "GET /valuation/runs",
+    "GET /valuation/runs/:id",
+    "GET /valuation/runs/:id/inputs",
+    "GET /valuation/runs/:id/items",
+    "GET /valuation/runs/:id/summary",
+    "POST /valuation/runs/:id/cancel",
+    "POST /valuation/runs/:id/rerun",
+    "GET /valuation/exceptions",
+    "GET /valuation/exceptions/:id",
+    "POST /valuation/exceptions/:id/resolve",
+    "POST /valuation/exceptions/:id/override",
+    "POST /valuation/exceptions/:id/approve-override",
+    "POST /valuation/exceptions/:id/reject-override",
+    "POST /valuation/exceptions/:id/escalate",
+    "GET /valuation/price-validation",
+    "GET /valuation/fx-validation",
+    "POST /reconciliation/uploads",
+    "POST /reconciliation/run",
+    "GET /reconciliation/batches",
+    "GET /reconciliation/batches/:id",
+    "GET /reconciliation/items",
+    "GET /reconciliation/items/:id",
+    "POST /reconciliation/items/:id/assign",
+    "POST /reconciliation/items/:id/investigate",
+    "POST /reconciliation/items/:id/resolve",
+    "POST /reconciliation/items/:id/escalate",
+    "POST /reconciliation/items/:id/write-off",
+    "POST /reconciliation/items/:id/approve-write-off",
+    "POST /reconciliation/items/:id/reject-write-off",
+    "POST /reconciliation/items/:id/reopen",
+    "GET /reconciliation/items/:id/history",
+    "GET /reconciliation/summary",
+    "GET /accounting/events",
+    "GET /accounting/events/:id",
+    "POST /accounting/events/:id/retry",
+    "GET /accounting/journals",
+    "GET /accounting/journals/:id",
+    "POST /accounting/journals/:id/submit",
+    "POST /accounting/journals/:id/approve",
+    "POST /accounting/journals/:id/reject",
+    "POST /accounting/journals/:id/post",
+    "GET /accounting/reversals",
+    "POST /accounting/events/:id/reverse",
+    "POST /accounting/reversals/:id/approve",
+    "POST /accounting/reversals/:id/reject",
+    "POST /accounting/ledger-exports",
+    "GET /accounting/ledger-exports",
+    "GET /accounting/ledger-exports/:id",
+    "GET /accounting/ledger-exports/:id/download",
+    "POST /files/upload-sessions",
+    "POST /files",
+    "POST /files/:fileId/complete",
+    "GET /files/:fileId/status",
+    "GET /documents",
+    "POST /documents",
+    "GET /documents/:id",
+    "PATCH /documents/:id",
+    "GET /documents/:id/versions",
+    "POST /documents/:id/versions",
+    "GET /documents/:id/versions/:versionId/preview",
+    "GET /documents/:id/versions/:versionId/download",
+    "POST /documents/:id/versions/:versionId/approve",
+    "POST /documents/:id/versions/:versionId/request-changes",
+    "POST /documents/:id/versions/:versionId/reject",
+    "GET /documents/:id/access",
+    "PUT /documents/:id/access",
+    "GET /documents/:id/audit",
+    "POST /documents/:id/archive",
+  ])("registers %s", (route) => {
+    expect(routes).toContain(route);
+  });
+});

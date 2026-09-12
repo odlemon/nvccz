@@ -33,10 +33,30 @@ export interface CashFlowAccount {
   transactions: CashFlowTransaction[]; // Transaction breakdown
 }
 
+/** One row in operating / investing / financing (direct-method line items + drill-down). */
+export interface CashFlowStatementLineItem {
+  accountId: string;
+  accountNo: string;
+  accountName: string;
+  accountType: string;
+  amount: number;
+  netAmount: number;
+  totalDebits: number;
+  totalCredits: number;
+  transactions: CashFlowTransaction[];
+}
+
 export interface CashFlowActivity {
-  accounts: CashFlowAccount[];
   total: number;
   description: string;
+  /** Row-level detail (preferred). */
+  lineItems: CashFlowStatementLineItem[];
+  /**
+   * Same array as `lineItems`. Older frontends keyed off `accounts`; without this they show
+   * "No activities" while still displaying section `total` from the same object.
+   */
+  accounts: CashFlowStatementLineItem[];
+  accountCount?: number;
 }
 
 export interface CashFlowLine {
@@ -62,7 +82,13 @@ export interface CashFlowStatement {
   operatingActivities: CashFlowActivity;
   investingActivities: CashFlowActivity;
   financingActivities: CashFlowActivity;
+  /**
+   * Net increase (decrease) in cash for the period from GL cash accounts: ending − beginning.
+   * Always reconciles: beginningCashBalance + netCashFlow === endingCashBalance.
+   */
   netCashFlow: number;
+  /** Operating + investing + financing section totals (approximate; may differ from netCashFlow). */
+  activityBasedNetCashFlow: number;
   beginningCashBalance: number;
   endingCashBalance: number;
   currency: {

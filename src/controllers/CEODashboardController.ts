@@ -2,7 +2,9 @@
 import { Request, Response } from "express";
 import { CEODashboardService } from "../services/CEODashboardService";
 import { DataIntegrationService } from "../services/DataIntegrationService";
+import { PortfolioDashboardService } from "../services/PortfolioDashboardService";
 import { prisma } from "../utils/database";
+import { computeTaskPercentage } from "../services/TaskService";
 
 export class CEODashboardController {
   /**
@@ -196,31 +198,45 @@ export class CEODashboardController {
 
       let taskData;
       if (departmentId) {
-        // Get tasks for specific department
+        const department = await prisma.department.findUnique({
+          where: { id: departmentId as string },
+        });
+
+        if (!department) {
+          return res.status(404).json({
+            success: false,
+            message: "Department not found",
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // PerformanceGoal has scalar `departmentName`, not a `department` relation — match by department name (and task `department` string).
         const tasks = await prisma.task.findMany({
           where: {
-            goal: {
-              departmentId: departmentId as string
-            }
+            OR: [
+              { goal: { departmentName: department.name } },
+              { department: department.name },
+            ],
           },
           include: {
             goal: {
               include: {
-                department: true,
-                assignedTo: true
-              }
+                assignedTo: true,
+              },
             },
-            creator: true
-          }
+            creator: true,
+          },
         });
 
-        const department = await prisma.department.findUnique({
-          where: { id: departmentId as string }
-        });
+        // Add taskPercentage to each task
+        const tasksWithPercentage = tasks.map(task => ({
+          ...task,
+          taskPercentage: computeTaskPercentage(task)
+        }));
 
         taskData = {
           department: department,
-          tasks: tasks,
+          tasks: tasksWithPercentage,
           summary: {
             total: tasks.length,
             completed: tasks.filter(t => t.status === 'completed').length,
@@ -297,6 +313,10 @@ export class CEODashboardController {
         switch (metric.trim()) {
           case 'aum':
             results.aum = await DataIntegrationService.calculateAUM();
+            break;
+          case 'holdingsAum':
+          case 'holdings_aum':
+            results.holdingsAum = await PortfolioDashboardService.getAggregatedHoldingsAumSnapshot();
             break;
           case 'pipeline':
             results.pipeline = await DataIntegrationService.calculatePipelineMetrics();

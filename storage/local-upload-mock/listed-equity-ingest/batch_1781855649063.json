@@ -1,0 +1,16 @@
+[
+  {
+    "symbol": "UATUDX6",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 1,
+    "pricedAt": "2026-06-19T07:54:07.974Z"
+  },
+  {
+    "symbol": "UATUDX6",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 1.2,
+    "pricedAt": "2026-06-19T07:54:07.975Z"
+  }
+]

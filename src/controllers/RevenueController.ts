@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import { AuthRequest } from "../middleware/authenticate";
 import RevenueService, { CreateRevenueParams } from "../services/RevenueService";
+import { parseDate } from "../utils/dateHelper";
 
 export class RevenueController {
   /**
@@ -17,7 +18,8 @@ export class RevenueController {
         transactionDate,
         description,
         isTaxable,
-        paymentMethod
+        paymentMethod,
+        paymentBankId,
       } = req.body;
 
       // Validate required fields
@@ -33,11 +35,12 @@ export class RevenueController {
         categoryId,
         amount: parseFloat(amount),
         currencyId,
-        transactionDate: new Date(transactionDate),
+        transactionDate: parseDate(transactionDate),
         description,
         isTaxable: Boolean(isTaxable),
         paymentMethod,
-        createdById: req.user!.id
+        createdById: req.user!.id,
+        paymentBankId,
       };
 
       const revenue = await RevenueService.createRevenue(revenueParams);
@@ -81,8 +84,8 @@ export class RevenueController {
       if (paymentMethod) filters.paymentMethod = paymentMethod as string;
       if (status) filters.status = status as string;
       if (isActive !== undefined) filters.isActive = isActive === 'true';
-      if (startDate) filters.startDate = new Date(startDate as string);
-      if (endDate) filters.endDate = new Date(endDate as string);
+      if (startDate) filters.startDate = parseDate(startDate as string);
+      if (endDate) filters.endDate = parseDate(endDate as string);
 
       const revenues = await RevenueService.getRevenues(filters);
 

@@ -5,8 +5,77 @@ import { EmailNotificationService } from '../services/EmailNotificationService';
 import { PrismaClient } from '@prisma/client';
 
 import { prisma } from '../utils/database';
+import { rewritePublicMediaUrl } from '../services/RemoteUploadService';
 
 export class TermSheetController {
+  /**
+   * Format term sheet response to only include required fields
+   */
+  private static formatTermSheetResponse(termSheet: any) {
+    if (!termSheet) return null;
+
+    return {
+      id: termSheet.id,
+      applicationId: termSheet.applicationId,
+      title: termSheet.title,
+      investmentAmount: termSheet.investmentAmount ? Number(termSheet.investmentAmount) : null,
+      equityPercentage: termSheet.equityPercentage ? Number(termSheet.equityPercentage) : null,
+      valuation: termSheet.valuation ? Number(termSheet.valuation) : null,
+      status: termSheet.status,
+      isDraft: termSheet.isDraft,
+      isFinal: termSheet.isFinal,
+      isSigned: termSheet.isSigned,
+      signedAt: termSheet.signedAt,
+      keyTerms: termSheet.keyTerms,
+      conditions: termSheet.conditions,
+      timeline: termSheet.timeline,
+      documentUrl: termSheet.documentUrl ? rewritePublicMediaUrl(termSheet.documentUrl) : null,
+      documentFileName: termSheet.documentFileName,
+      documentSize: termSheet.documentSize,
+      createdAt: termSheet.createdAt,
+      updatedAt: termSheet.updatedAt,
+      // Include application basic info
+      application: termSheet.application ? {
+        id: termSheet.application.id,
+        businessName: termSheet.application.businessName,
+        applicantName: termSheet.application.applicantName,
+        applicantEmail: termSheet.application.applicantEmail,
+        currentStage: termSheet.application.currentStage
+      } : null,
+      // Include creator basic info
+      createdBy: termSheet.createdBy ? {
+        id: termSheet.createdBy.id,
+        firstName: termSheet.createdBy.firstName,
+        lastName: termSheet.createdBy.lastName,
+        email: termSheet.createdBy.email
+      } : null,
+      // Include applicant signature data
+      applicantSignature: termSheet.applicantSignatureUrl ? {
+        signatureUrl: rewritePublicMediaUrl(termSheet.applicantSignatureUrl),
+        signatureFileName: termSheet.applicantSignatureFileName,
+        signedAt: termSheet.applicantSignedAt,
+        signedBy: termSheet.applicantSignedBy ? {
+          id: termSheet.applicantSignedBy.id,
+          firstName: termSheet.applicantSignedBy.firstName,
+          lastName: termSheet.applicantSignedBy.lastName,
+          email: termSheet.applicantSignedBy.email
+        } : null
+      } : null,
+      // Include investor signature data
+      investorSignature: termSheet.investorSignatureUrl ? {
+        signatureUrl: rewritePublicMediaUrl(termSheet.investorSignatureUrl),
+        signatureFileName: termSheet.investorSignatureFileName,
+        signedAt: termSheet.investorSignedAt,
+        signedBy: termSheet.investorSignedBy ? {
+          id: termSheet.investorSignedBy.id,
+          firstName: termSheet.investorSignedBy.firstName,
+          lastName: termSheet.investorSignedBy.lastName,
+          email: termSheet.investorSignedBy.email
+        } : null
+      } : null
+    };
+  }
+
   /**
    * Check if user is an applicant
    * Applicants are identified by having an application, not by roles
@@ -59,6 +128,36 @@ export class TermSheetController {
         documentSize = file.size;
 
         console.log(`📁 Term sheet document uploaded: ${documentFileName} -> ${documentUrl}`);
+      }
+
+      // Validate required fields
+      if (!req.body.title) {
+        res.status(400).json({
+          success: false,
+          message: 'Title is required'
+        });
+        return;
+      }
+      if (!req.body.investmentAmount) {
+        res.status(400).json({
+          success: false,
+          message: 'Investment amount is required'
+        });
+        return;
+      }
+      if (!req.body.equityPercentage) {
+        res.status(400).json({
+          success: false,
+          message: 'Equity percentage is required'
+        });
+        return;
+      }
+      if (!req.body.valuation) {
+        res.status(400).json({
+          success: false,
+          message: 'Valuation is required'
+        });
+        return;
       }
 
       const termSheetData: CreateTermSheetRequest = {
@@ -115,7 +214,7 @@ export class TermSheetController {
       res.status(201).json({
         success: true,
         message: 'Term sheet created successfully',
-        data: termSheet
+        data: TermSheetController.formatTermSheetResponse(termSheet)
       });
     } catch (error: any) {
       res.status(400).json({
@@ -145,7 +244,7 @@ export class TermSheetController {
       res.status(200).json({
         success: true,
         message: 'Term sheet retrieved successfully',
-        data: termSheet
+        data: TermSheetController.formatTermSheetResponse(termSheet)
       });
     } catch (error: any) {
       res.status(400).json({
@@ -163,29 +262,44 @@ export class TermSheetController {
       const { applicationId } = req.params;
 
       // Only include fields that are actually provided in the request body
+      // Note: Signature fields are NOT allowed in updates (signatures are immutable)
       const updateData: UpdateTermSheetRequest = {};
       
       if (req.body && typeof req.body === 'object') {
-        if (req.body.title !== undefined) updateData.title = req.body.title;
-        if (req.body.investmentAmount !== undefined) updateData.investmentAmount = req.body.investmentAmount;
-        if (req.body.equityPercentage !== undefined) updateData.equityPercentage = req.body.equityPercentage;
-        if (req.body.valuation !== undefined) updateData.valuation = req.body.valuation;
-        if (req.body.keyTerms !== undefined) updateData.keyTerms = req.body.keyTerms;
-        if (req.body.conditions !== undefined) updateData.conditions = req.body.conditions;
-        if (req.body.timeline !== undefined) updateData.timeline = req.body.timeline;
-        if (req.body.documentUrl !== undefined) updateData.documentUrl = req.body.documentUrl;
-        if (req.body.documentFileName !== undefined) updateData.documentFileName = req.body.documentFileName;
-        if (req.body.documentSize !== undefined) updateData.documentSize = req.body.documentSize;
-        if (req.body.status !== undefined) updateData.status = req.body.status;
-        if (req.body.isDraft !== undefined) updateData.isDraft = req.body.isDraft;
-        if (req.body.isFinal !== undefined) updateData.isFinal = req.body.isFinal;
+        // Reject any signature-related fields
+        if (req.body.applicantSignatureUrl || req.body.investorSignatureUrl || 
+            req.body.applicantSignatureFileName || req.body.investorSignatureFileName ||
+            req.body.applicantSignedById || req.body.investorSignedById ||
+            req.body.applicantSignedAt || req.body.investorSignedAt) {
+          res.status(400).json({
+            success: false,
+            message: 'Signature fields cannot be updated. Signatures are immutable once uploaded.'
+          });
+          return;
+        }
+
+        // Allow updating mandatory fields (title, investmentAmount, equityPercentage, valuation)
+        // Use hasOwnProperty to check if field exists in request body (even if null or empty string)
+        if ('title' in req.body) updateData.title = req.body.title;
+        if ('investmentAmount' in req.body) updateData.investmentAmount = req.body.investmentAmount;
+        if ('equityPercentage' in req.body) updateData.equityPercentage = req.body.equityPercentage;
+        if ('valuation' in req.body) updateData.valuation = req.body.valuation;
+        if ('keyTerms' in req.body) updateData.keyTerms = req.body.keyTerms;
+        if ('conditions' in req.body) updateData.conditions = req.body.conditions;
+        if ('timeline' in req.body) updateData.timeline = req.body.timeline;
+        if ('documentUrl' in req.body) updateData.documentUrl = req.body.documentUrl;
+        if ('documentFileName' in req.body) updateData.documentFileName = req.body.documentFileName;
+        if ('documentSize' in req.body) updateData.documentSize = req.body.documentSize;
+        if ('status' in req.body) updateData.status = req.body.status;
+        if ('isDraft' in req.body) updateData.isDraft = req.body.isDraft;
+        if ('isFinal' in req.body) updateData.isFinal = req.body.isFinal;
       }
 
       // Check if any fields were provided
       if (Object.keys(updateData).length === 0) {
         res.status(400).json({
           success: false,
-          message: 'No update fields provided'
+          message: 'No update fields provided. You can update: title, investmentAmount, equityPercentage, valuation, keyTerms, conditions, timeline, documentUrl, documentFileName, documentSize, status, isDraft, isFinal'
         });
         return;
       }
@@ -195,7 +309,7 @@ export class TermSheetController {
       res.status(200).json({
         success: true,
         message: 'Term sheet updated successfully',
-        data: termSheet
+        data: TermSheetController.formatTermSheetResponse(termSheet)
       });
     } catch (error: any) {
       res.status(400).json({
@@ -217,7 +331,7 @@ export class TermSheetController {
       res.status(200).json({
         success: true,
         message: 'Term sheet marked as final successfully',
-        data: termSheet
+        data: TermSheetController.formatTermSheetResponse(termSheet)
       });
     } catch (error: any) {
       res.status(400).json({
@@ -228,7 +342,7 @@ export class TermSheetController {
   }
 
   /**
-   * Sign term sheet
+   * Sign term sheet with signature
    */
   static async signTermSheet(req: Request, res: Response): Promise<void> {
     try {
@@ -239,16 +353,6 @@ export class TermSheetController {
         res.status(401).json({
           success: false,
           message: 'User not found in request'
-        });
-        return;
-      }
-
-      // Check if user is applicant
-      const isApplicant = await TermSheetController.isApplicant(reqUser);
-      if (!isApplicant) {
-        res.status(403).json({
-          success: false,
-          message: 'Access denied. This endpoint is only available to applicants.'
         });
         return;
       }
@@ -268,46 +372,110 @@ export class TermSheetController {
         return;
       }
 
-      // Check if the user is the applicant for this application
+      // Check if user is applicant or investor/admin
+      const isApplicant = await TermSheetController.isApplicant(reqUser);
       const user = await prisma.user.findUnique({
-        where: { id: userId }
+        where: { id: userId },
+        include: { role: true }
       });
 
-      if (!user || user.email !== application.applicantEmail) {
-        res.status(403).json({
+      if (!user) {
+        res.status(404).json({
           success: false,
-          message: 'You are not authorized to sign this term sheet'
+          message: 'User not found'
         });
         return;
       }
 
-      const termSheet = await TermSheetService.signTermSheet(applicationId);
+      // Determine signature type based on user
+      let signatureType: 'applicant' | 'investor';
+      if (isApplicant && user.email === application.applicantEmail) {
+        signatureType = 'applicant';
+      } else {
+        // Check if user has investor signing permissions
+        // Admin and Fund Manager roles can sign as investor
+        const roleName = user.role?.name?.toLowerCase() || '';
+        const isAdmin = roleName === 'admin';
+        const isFundManager = roleName === 'fund manager';
+        
+        if (isAdmin || isFundManager) {
+          signatureType = 'investor';
+        } else {
+          res.status(403).json({
+            success: false,
+            message: 'You are not authorized to sign this term sheet. Only admin or Fund Manager roles can sign as investor.'
+          });
+          return;
+        }
+      }
 
-      // Send term sheet approved email notification
-      try {
-        await EmailNotificationService.sendTermSheetApprovedEmail({
-          applicantName: application.applicantName,
-          applicantEmail: application.applicantEmail,
-          businessName: application.businessName,
-          applicationId: application.id,
-          currentStage: 'TERM_SHEET_APPROVED'
+      // Get signature file from request
+      const signatureFile = (req as any).file;
+      if (!signatureFile) {
+        res.status(400).json({
+          success: false,
+          message: 'Signature file is required'
         });
-        console.log("Term sheet approved email sent successfully", {
-          applicationId: application.id,
-          applicantEmail: application.applicantEmail
+        return;
+      }
+
+      // Validate file type (must be image)
+      const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+      if (!allowedMimeTypes.includes(signatureFile.mimetype.toLowerCase())) {
+        res.status(400).json({
+          success: false,
+          message: 'Signature must be an image file (PNG, JPEG, JPG, GIF, or WEBP)'
         });
-      } catch (emailError) {
-        console.error("Failed to send term sheet approved email", {
+        return;
+      }
+
+      const termSheet = await TermSheetService.signTermSheet(
+        applicationId,
+        userId,
+        signatureType,
+        {
+          buffer: signatureFile.buffer,
+          fileName: signatureFile.originalname,
+          mimetype: signatureFile.mimetype
+        }
+      );
+
+      // Only send "approved" email if BOTH signatures are present (fully signed)
+      // Otherwise, the notification is already sent in TermSheetService
+      if (termSheet.isSigned && termSheet.applicantSignatureUrl && termSheet.investorSignatureUrl) {
+        // Both signatures present - send approved email
+        try {
+          await EmailNotificationService.sendTermSheetApprovedEmail({
+            applicantName: application.applicantName,
+            applicantEmail: application.applicantEmail,
+            businessName: application.businessName,
+            applicationId: application.id,
+            currentStage: 'TERM_SHEET_APPROVED'
+          });
+          console.log("Term sheet approved email sent successfully (both signatures present)", {
+            applicationId: application.id,
+            applicantEmail: application.applicantEmail
+          });
+        } catch (emailError) {
+          console.error("Failed to send term sheet approved email", {
+            applicationId,
+            error: emailError.message
+          });
+          // Don't fail the term sheet signing if email fails
+        }
+      } else {
+        // Partial signature - notification already sent in service, just log
+        console.log("Term sheet partially signed - notification sent in service", {
           applicationId,
-          error: emailError.message
+          signatureType,
+          isFullySigned: false
         });
-        // Don't fail the term sheet signing if email fails
       }
 
       res.status(200).json({
         success: true,
         message: 'Term sheet signed successfully',
-        data: termSheet
+        data: TermSheetController.formatTermSheetResponse(termSheet)
       });
     } catch (error: any) {
       res.status(400).json({
@@ -328,10 +496,16 @@ export class TermSheetController {
 
       const result = await TermSheetService.getAllTermSheets(page, limit, status);
 
+      // Format term sheets in the result
+      const formattedResult = {
+        ...result,
+        termSheets: result.termSheets.map((ts: any) => TermSheetController.formatTermSheetResponse(ts))
+      };
+
       res.status(200).json({
         success: true,
         message: 'Term sheets retrieved successfully',
-        data: result
+        data: formattedResult
       });
     } catch (error: any) {
       res.status(400).json({
@@ -379,10 +553,16 @@ export class TermSheetController {
 
       const result = await TermSheetService.getMyTermSheets(userId, page, limit);
 
+      // Format term sheets in the result
+      const formattedResult = {
+        ...result,
+        termSheets: result.termSheets.map((ts: any) => TermSheetController.formatTermSheetResponse(ts))
+      };
+
       res.status(200).json({
         success: true,
         message: 'My term sheets retrieved successfully',
-        data: result
+        data: formattedResult
       });
     } catch (error: any) {
       // Return empty result instead of error

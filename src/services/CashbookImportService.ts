@@ -6,6 +6,7 @@ import { PrismaClient } from '@prisma/client';
 import { prisma } from '../utils/database';
 import FirebaseStorageService from './FirebaseStorageService';
 import { Decimal } from '@prisma/client/runtime/library';
+import VATService from './VATService';
 
 export interface ImportTransaction {
   date: string;
@@ -248,11 +249,11 @@ export class CashbookImportService {
       }
       
       // Validate VAT code
-      if (transaction.vatCode && !['15%', '0%', 'EXEMPT'].includes(transaction.vatCode)) {
+      if (transaction.vatCode && !['15%', '15.5%', '0%', 'EXEMPT'].includes(transaction.vatCode)) {
         transactionErrors.push({
           rowNumber,
           fieldName: 'vatCode',
-          errorMessage: 'VAT code must be 15%, 0%, or EXEMPT',
+          errorMessage: 'VAT code must be 15%, 15.5%, 0%, or EXEMPT',
           severity: 'WARNING'
         });
       }
@@ -276,6 +277,8 @@ export class CashbookImportService {
     userId: string
   ): Promise<any[]> {
     const processedTransactions = [];
+
+    await VATService.refreshActiveVatRate().catch(() => undefined);
     
     for (const transaction of transactions) {
       try {
@@ -294,8 +297,8 @@ export class CashbookImportService {
           where: { accountNo: transaction.contraAccount }
         });
         
-        // Calculate VAT
-        const vatRate = transaction.vatCode === '15%' ? 0.15 : 0;
+        // Calculate VAT (15% / 15.5% code → standard 15.5%)
+        const vatRate = VATService.standardRateFromVatCode(transaction.vatCode);
         const vatAmount = transaction.amount * vatRate;
         const netAmount = transaction.amount - vatAmount;
         

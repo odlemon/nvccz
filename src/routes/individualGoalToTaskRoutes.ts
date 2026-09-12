@@ -1,8 +1,21 @@
 // @ts-nocheck
 import express from "express";
 import { IndividualGoalToTaskController } from "../controllers/IndividualGoalToTaskController";
+import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 
 const router = express.Router();
+const READ_KEYS = ["performance.goals.view", "performance.goals.manage"]
+const WRITE_KEYS = ["performance.goals.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
+
+// Every route in this file was mounted with no guard at all: three of them mutate data
+// (goal→task conversion) and two read per-user / per-department task lists. All five were
+// reachable without a token on local, arcus-dev and nvccz-prod. Applied router-wide rather
+// than per-route so a future addition cannot silently inherit the old behaviour.
+// See design-refs/performance-role-matrix.md §4.1.
+router.use(authenticate);
+router.use(guard);
 
 /**
  * @swagger

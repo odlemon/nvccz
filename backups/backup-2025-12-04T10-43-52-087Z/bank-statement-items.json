@@ -1,0 +1,41 @@
+[
+  {
+    "id": "cmhxbw4710003unncjtj1xdlh",
+    "statementId": "cmhxbw2aw0001unncozs4vshh",
+    "transactionDate": "2025-11-03T00:00:00.000Z",
+    "description": "Customer Payment - A/R Integration Test",
+    "reference": "REC-001",
+    "debitAmount": "0",
+    "creditAmount": "500",
+    "balance": "100500",
+    "isMatched": false,
+    "matchedTransactionId": null,
+    "createdAt": "2025-11-13T11:11:07.838Z"
+  },
+  {
+    "id": "cmhxbw6120005unnc59txghbc",
+    "statementId": "cmhxbw2aw0001unncozs4vshh",
+    "transactionDate": "2025-11-03T00:00:00.000Z",
+    "description": "UAT Test Payment - Full Allocation",
+    "reference": "PAY-001",
+    "debitAmount": "1150",
+    "creditAmount": "0",
+    "balance": "99350",
+    "isMatched": false,
+    "matchedTransactionId": null,
+    "createdAt": "2025-11-13T11:11:10.215Z"
+  },
+  {
+    "id": "cmhxbw78m0007unncdbmba33t",
+    "statementId": "cmhxbw2aw0001unncozs4vshh",
+    "transactionDate": "2025-11-03T00:00:00.000Z",
+    "description": "Payroll Payment - Net Wages",
+    "reference": "PAYROLL",
+    "debitAmount": "2000",
+    "creditAmount": "0",
+    "balance": "97350",
+    "isMatched": false,
+    "matchedTransactionId": null,
+    "createdAt": "2025-11-13T11:11:11.782Z"
+  }
+]

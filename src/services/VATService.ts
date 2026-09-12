@@ -1,8 +1,66 @@
-// @ts-nocheck
 import { Decimal } from "@prisma/client/runtime/library";
+import { prisma } from "../utils/database";
 
 export class VATService {
-  private static readonly VAT_RATE = 0.145; // 14.5% Zimbabwean VAT rate
+  /**
+   * Active VAT rate is stored in DB (`vat_rates.is_active = true`).
+   * We keep a small in-memory cache to avoid querying on every line-item calculation.
+   */
+  private static cachedDecimalRate: number = 0.155;
+  private static lastLoadedAtMs: number = 0;
+  private static refreshInFlight: Promise<number> | null = null;
+  private static readonly CACHE_TTL_MS = 30_000;
+
+  static async refreshActiveVatRate(force = false): Promise<number> {
+    const now = Date.now();
+    if (!force && now - this.lastLoadedAtMs < this.CACHE_TTL_MS) {
+      return this.cachedDecimalRate;
+    }
+    if (this.refreshInFlight) return this.refreshInFlight;
+
+    this.refreshInFlight = (async () => {
+      const row = await prisma.vatRate.findFirst({
+        where: { isActive: true },
+        orderBy: [{ createdAt: "desc" }]
+      });
+      if (row) {
+        const n = Number(row.rateDecimal);
+        if (Number.isFinite(n) && n >= 0) {
+          this.cachedDecimalRate = n;
+        }
+      }
+      this.lastLoadedAtMs = Date.now();
+      return this.cachedDecimalRate;
+    })().finally(() => {
+      this.refreshInFlight = null;
+    });
+
+    return this.refreshInFlight;
+  }
+
+  /** Synchronous accessor used by existing callers (value stays fresh via `refreshActiveVatRate`). */
+  private static getCachedDecimalRate(): number {
+    // Best-effort background refresh if stale.
+    if (Date.now() - this.lastLoadedAtMs > this.CACHE_TTL_MS && !this.refreshInFlight) {
+      void this.refreshActiveVatRate(false);
+    }
+    return this.cachedDecimalRate;
+  }
+
+  /** Decimal multiplier for standard rate (use for line-item `vatRate` fields, etc.). */
+  static getDecimalRate(): number {
+    return this.getCachedDecimalRate();
+  }
+
+  /**
+   * Cashbook / CSV codes that map to the standard rate. Label `15%` means "standard rate" (15.5%).
+   */
+  static standardRateFromVatCode(vatCode: string | undefined | null): number {
+    if (vatCode == null || String(vatCode).trim() === '') return 0;
+    const c = String(vatCode).trim();
+    if (c === '15%' || c === '15.5%') return this.getCachedDecimalRate();
+    return 0;
+  }
 
   /**
    * Calculate VAT amount from a given amount
@@ -11,7 +69,8 @@ export class VATService {
    */
   static calculateVAT(amount: number | Decimal): number {
     const numericAmount = typeof amount === 'number' ? amount : parseFloat(amount.toString());
-    return Math.round(numericAmount * this.VAT_RATE * 100) / 100; // Round to 2 decimal places
+    const rate = this.getCachedDecimalRate();
+    return Math.round(numericAmount * rate * 100) / 100; // Round to 2 decimal places
   }
 
   /**
@@ -21,7 +80,8 @@ export class VATService {
    */
   static calculateTotalWithVAT(baseAmount: number | Decimal): number {
     const numericAmount = typeof baseAmount === 'number' ? baseAmount : parseFloat(baseAmount.toString());
-    return Math.round(numericAmount * (1 + this.VAT_RATE) * 100) / 100;
+    const rate = this.getCachedDecimalRate();
+    return Math.round(numericAmount * (1 + rate) * 100) / 100;
   }
 
   /**
@@ -31,7 +91,8 @@ export class VATService {
    */
   static extractVATFromTotal(totalAmount: number | Decimal): number {
     const numericAmount = typeof totalAmount === 'number' ? totalAmount : parseFloat(totalAmount.toString());
-    const baseAmount = numericAmount / (1 + this.VAT_RATE);
+    const rate = this.getCachedDecimalRate();
+    const baseAmount = numericAmount / (1 + rate);
     return Math.round((numericAmount - baseAmount) * 100) / 100;
   }
 
@@ -40,7 +101,7 @@ export class VATService {
    * @returns The VAT rate as a percentage
    */
   static getVATRate(): number {
-    return this.VAT_RATE * 100;
+    return this.getCachedDecimalRate() * 100;
   }
 
   /**

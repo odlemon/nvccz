@@ -1,0 +1,329 @@
+/**
+ * Reviews UAT — Review cycles & independent evaluation.
+ *
+ * NOTE: Swagger `servers[].url` already ends with `/api`,
+ * so paths here MUST NOT include a second `/api` prefix.
+ */
+
+const JSON_401 = { description: 'Missing or invalid JWT' };
+const JSON_400 = { description: 'Validation or business-rule error' };
+const JSON_403 = { description: 'Forbidden' };
+const JSON_404 = { description: 'Not found' };
+
+export const reviewsUatReviewCyclesIndependentEvalEndpoints = {
+  // ==========================
+  // Review Cycles
+  // ==========================
+
+  '/performance/review-cycles': {
+    post: {
+      summary: 'Create performance review cycle',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: [
+                'title',
+                'reviewPeriodStart',
+                'reviewPeriodEnd',
+                'selfAssessmentDeadline',
+                'peerReviewDeadline',
+                'managerReviewDeadline',
+                'availableReviewTypes',
+                'reviewRatingScale'
+              ],
+              properties: {
+                title: { type: 'string', example: 'Year End 2026 Review Cycle' },
+                reviewPeriodStart: { type: 'string', format: 'date-time' },
+                reviewPeriodEnd: { type: 'string', format: 'date-time' },
+                selfAssessmentDeadline: { type: 'string', format: 'date-time' },
+                peerReviewDeadline: { type: 'string', format: 'date-time' },
+                managerReviewDeadline: { type: 'string', format: 'date-time' },
+                availableReviewTypes: { type: 'array', items: { type: 'string' }, example: ['Self', 'Manager', 'Peer'] },
+                reviewRatingScale: { type: 'string', example: '1-6 Scale' },
+                isActive: { type: 'boolean', nullable: true }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        201: { description: 'Created' },
+        400: JSON_400,
+        401: JSON_401
+      }
+    },
+    get: {
+      summary: 'List performance review cycles',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'query', name: 'isActive', schema: { type: 'boolean' } },
+        { in: 'query', name: 'page', schema: { type: 'integer', default: 1 } },
+        { in: 'query', name: 'limit', schema: { type: 'integer', default: 10 } }
+      ],
+      responses: { 200: { description: 'OK' }, 401: JSON_401 }
+    }
+  },
+
+  '/performance/review-cycles/{cycleId}': {
+    get: {
+      summary: 'Get review cycle by id',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'cycleId', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'OK' }, 401: JSON_401, 404: JSON_404 }
+    },
+    put: {
+      summary: 'Update review cycle',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'cycleId', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: { 'application/json': { schema: { type: 'object', properties: { isActive: { type: 'boolean' } } } } }
+      },
+      responses: { 200: { description: 'OK' }, 400: JSON_400, 401: JSON_401, 404: JSON_404 }
+    },
+    delete: {
+      summary: 'Delete review cycle',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'cycleId', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'Deleted' }, 400: JSON_400, 401: JSON_401, 404: JSON_404 }
+    }
+  },
+
+  // ==========================
+  // Reviews (independent evaluation)
+  // ==========================
+
+  '/performance-reviews': {
+    post: {
+      summary: 'Create performance review',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['reviewType', 'reviewPeriod', 'title', 'revieweeId'],
+              properties: {
+                reviewType: { type: 'string', example: 'ANNUAL' },
+                reviewPeriod: { type: 'string', example: '2026' },
+                title: { type: 'string', example: 'Year End 2026 Performance Review' },
+                description: { type: 'string', nullable: true },
+                revieweeId: { type: 'string', description: 'User id of the employee being reviewed' },
+                reviewerId: {
+                  type: 'string',
+                  nullable: true,
+                  description: 'Optional. Omit to use the logged-in user as reviewer.'
+                },
+                stakeholderId: {
+                  type: 'string',
+                  nullable: true,
+                  description: 'Optional external stakeholder record id for independent evaluation'
+                },
+                reviewStartDate: { type: 'string', format: 'date-time', nullable: true },
+                reviewEndDate: { type: 'string', format: 'date-time', nullable: true },
+                dueDate: { type: 'string', format: 'date-time', nullable: true },
+                criteria: { type: 'array', items: { type: 'object' }, nullable: true },
+                scores: { type: 'array', items: { type: 'object' }, nullable: true },
+                strengths: { type: 'string', nullable: true },
+                areasForImprovement: { type: 'string', nullable: true },
+                achievements: { type: 'string', nullable: true },
+                goals: { type: 'string', nullable: true },
+                developmentPlan: { type: 'string', nullable: true },
+                managerFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                selfFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                peerFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                stakeholderFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                actionItems: { type: 'array', items: { type: 'object' }, nullable: true },
+                nextReviewDate: { type: 'string', format: 'date-time', nullable: true },
+                cycleId: { type: 'string', nullable: true }
+              }
+            }
+          }
+        }
+      },
+      responses: { 201: { description: 'Created' }, 400: JSON_400, 401: JSON_401 }
+    },
+    get: {
+      summary: 'List performance reviews',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'query', name: 'page', schema: { type: 'integer', default: 1 } },
+        { in: 'query', name: 'limit', schema: { type: 'integer', default: 10 } },
+        { in: 'query', name: 'status', schema: { type: 'string' } },
+        { in: 'query', name: 'stage', schema: { type: 'string' } }
+      ],
+      responses: { 200: { description: 'OK' }, 401: JSON_401 }
+    }
+  },
+
+  '/performance-reviews/{id}': {
+    get: {
+      summary: 'Get performance review by id',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'OK' }, 401: JSON_401, 403: JSON_403, 404: JSON_404 }
+    },
+    put: {
+      summary: 'Update performance review',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              minProperties: 1,
+              properties: {
+                reviewType: { type: 'string' },
+                reviewPeriod: { type: 'string' },
+                title: { type: 'string' },
+                description: { type: 'string', nullable: true },
+                reviewerId: { type: 'string', nullable: true },
+                stakeholderId: { type: 'string', nullable: true },
+                status: { type: 'string', nullable: true },
+                stage: { type: 'string', nullable: true },
+                reviewStartDate: { type: 'string', format: 'date-time', nullable: true },
+                reviewEndDate: { type: 'string', format: 'date-time', nullable: true },
+                dueDate: { type: 'string', format: 'date-time', nullable: true },
+                completedDate: { type: 'string', format: 'date-time', nullable: true },
+                criteria: { type: 'array', items: { type: 'object' }, nullable: true },
+                scores: { type: 'array', items: { type: 'object' }, nullable: true },
+                overallScore: { type: 'number', nullable: true },
+                ratingValue: { type: 'integer', minimum: 1, maximum: 6, nullable: true },
+                rating: { type: 'string', nullable: true },
+                strengths: { type: 'string', nullable: true },
+                areasForImprovement: { type: 'string', nullable: true },
+                achievements: { type: 'string', nullable: true },
+                goals: { type: 'string', nullable: true },
+                developmentPlan: { type: 'string', nullable: true },
+                managerFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                selfFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                peerFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                stakeholderFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                actionItems: { type: 'array', items: { type: 'object' }, nullable: true },
+                nextReviewDate: { type: 'string', format: 'date-time', nullable: true }
+              }
+            }
+          }
+        }
+      },
+      responses: { 200: { description: 'OK' }, 400: JSON_400, 401: JSON_401, 403: JSON_403, 404: JSON_404 }
+    },
+    delete: {
+      summary: 'Delete performance review',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'Deleted' }, 401: JSON_401, 403: JSON_403, 404: JSON_404 }
+    }
+  },
+
+  '/performance-reviews/cycles/{cycleId}/initiate': {
+    post: {
+      summary: 'Trigger review cycle reminders / initiation',
+      description:
+        'Emails eligible reviewees (existing reviews only; does not bulk-create). On success, may email the assigned reviewer and linked stakeholder for awareness. Response includes emailsSent, reviewerEmailsSent, stakeholderEmailsSent.',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'cycleId', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'OK' }, 401: JSON_401 }
+    }
+  },
+
+  '/performance-reviews/{id}/autopopulate': {
+    post: {
+      summary: 'Auto-populate quantitative snapshot',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'OK' }, 401: JSON_401, 403: JSON_403, 404: JSON_404 }
+    }
+  },
+
+  '/performance-reviews/{id}/complete-stage': {
+    post: {
+      summary: 'Complete current stage and advance workflow',
+      description:
+        'When stakeholderId is set on the review: SELF_REVIEW → PEER_REVIEW → HR_REVIEW → MANAGER_REVIEW → FINAL_REVIEW. Without stakeholder: SELF_REVIEW → MANAGER_REVIEW → FINAL_REVIEW. Use finalize after FINAL_REVIEW.',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'OK' }, 401: JSON_401, 403: JSON_403, 404: JSON_404 }
+    }
+  },
+
+  '/performance-reviews/{id}/finalize': {
+    post: {
+      summary: 'Finalize review (lock + generate PDF)',
+      description:
+        'Locks the review and generates a PDF (server-side storage). Allowed for the reviewee line manager or HR/exec/admin bypass roles. After this, use GET /performance-reviews/{id}/document.pdf to download the PDF.',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'Finalized' }, 400: JSON_400, 401: JSON_401, 403: JSON_403, 404: JSON_404 }
+    }
+  },
+
+  '/performance-reviews/{id}/document': {
+    get: {
+      summary: 'Get document payload/status',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'OK' }, 401: JSON_401, 403: JSON_403, 404: JSON_404 }
+    }
+  },
+
+  '/performance-reviews/{id}/document.pdf': {
+    get: {
+      summary: 'Download finalized PDF',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+      responses: {
+        200: { description: 'PDF stream', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } },
+        400: JSON_400,
+        401: JSON_401,
+        403: JSON_403,
+        404: JSON_404
+      }
+    }
+  },
+
+  '/performance-reviews/reports/rating-distribution': {
+    get: {
+      summary: 'Rating distribution report',
+      description:
+        'Per-department: pass departmentName. Organisation-wide: pass organizationWide=true or 1 (departmentName optional; HR/exec/admin bypass only). Buckets use ratingValue 1–6.',
+      tags: ['Reviews UAT (Review cycles & independent evaluation)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'query',
+          name: 'organizationWide',
+          required: false,
+          schema: { type: 'string', enum: ['true', 'false', '1', '0'] }
+        },
+        { in: 'query', name: 'departmentName', required: false, schema: { type: 'string' } },
+        { in: 'query', name: 'reviewPeriod', required: false, schema: { type: 'string' } }
+      ],
+      responses: { 200: { description: 'OK' }, 400: JSON_400, 401: JSON_401 }
+    }
+  }
+};
+

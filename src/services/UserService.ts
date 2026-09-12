@@ -1,18 +1,40 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import bcrypt from "bcrypt";
-import { SendMailClient } from "zeptomail";
+import { emailTransport, getFromAddress } from "../config/email.config";
+import AuditService from "./AuditService";
+import {
+  deleteUserRecord,
+  formatReassignedRecordsMessage,
+  getUserDeleteBlockers,
+  reassignUserReferences,
+  resolveAdminReassignTarget
+} from "./userDeleteHelpers";
 
-const BOARD_VOTING_ROLE_CODES = ["BOARD_CHAIR", "BOARD_MEMBER"];
-
-// Email configuration
-const zeptoUrl = "api.zeptomail.com/";
-const zeptoToken = "Zoho-enczapikey wSsVR61/+xejCqZ6mzOpJuptkQxSVlmgER993FKmuHb7HKiT8MdvxELKDFWmTfJMFmZvRTRAorookUoIgGZa3dUszgsFASiF9mqRe1U4J3x17qnvhDzPX29dmxCAL4wPwQ1jmWVjFc8q+g==";
-const zeptoClient = new SendMailClient({ url: zeptoUrl, token: zeptoToken });
+const BOARD_VOTING_ROLE_CODES = ["BOARD_CHAIR", "BOARD_MEMBER", "INV_COMM_MEM", "CIO"];
 
 export class UserService {
   private static isBoardVotingRole(roleCode?: string | null): boolean {
     return !!roleCode && BOARD_VOTING_ROLE_CODES.includes(roleCode);
+  }
+
+  /**
+   * System role "CEO" (hardcoded role code / DB role name) — at most one user may hold it.
+   */
+  private static async assertAtMostOneCeoInSystem(params: { excludeUserId?: string; assigningCeo: boolean }) {
+    if (!params.assigningCeo) return;
+    const existing = await prisma.user.findFirst({
+      where: {
+        ...(params.excludeUserId ? { id: { not: params.excludeUserId } } : {}),
+        OR: [{ roleCode: "CEO" }, { roleCode: "ceo" }, { role: { name: "CEO" } }]
+      },
+      select: { id: true, email: true, firstName: true, lastName: true }
+    });
+    if (existing) {
+      throw new Error(
+        `Only one CEO is allowed in the system. Current CEO: ${existing.firstName} ${existing.lastName} (${existing.email}). Reassign that user before assigning another CEO.`
+      );
+    }
   }
 
   private static validateVotingPowerValue(value: number) {
@@ -24,10 +46,13 @@ export class UserService {
     }
   }
 
-  private static async fetchBoardVotingMembers() {
+  private static async fetchBoardVotingMembers(params?: { includeDisabled?: boolean }) {
+    const strict = process.env.NVCCZ_STRICT_BOARD_VOTE === "true";
+    const includeDisabled = Boolean(params?.includeDisabled);
     return prisma.user.findMany({
       where: {
-        userDepartment: "Investments",
+        ...(includeDisabled ? {} : { boardVotingDisabled: false }),
+        ...(strict ? { userDepartment: "Investments" } : {}),
         roleCode: {
           in: BOARD_VOTING_ROLE_CODES
         }
@@ -39,13 +64,26 @@ export class UserService {
         email: true,
         roleCode: true,
         departmentRole: true,
-        votingPower: true
+        votingPower: true,
+        boardVotingDisabled: true
       }
     });
   }
 
   static async getBoardVotingMembers() {
-    const members = await this.fetchBoardVotingMembers();
+    // Returns all board voting-role users, including those removed from voting.
+    const members = await this.fetchBoardVotingMembers({ includeDisabled: true });
+    return members.map(member => ({
+      ...member,
+      votingPower: member.votingPower !== null && member.votingPower !== undefined
+        ? Number(member.votingPower)
+        : null
+    }));
+  }
+
+  /** Only members currently allowed to vote (and receive vote-invite emails). */
+  static async getActiveBoardVotingMembers() {
+    const members = await this.fetchBoardVotingMembers({ includeDisabled: false });
     return members.map(member => ({
       ...member,
       votingPower: member.votingPower !== null && member.votingPower !== undefined
@@ -55,7 +93,7 @@ export class UserService {
   }
 
   private static async getTotalBoardVotingPower(): Promise<number> {
-    const voters = await this.fetchBoardVotingMembers();
+    const voters = await this.fetchBoardVotingMembers({ includeDisabled: false });
 
     return voters.reduce((sum, voter) => {
       const value = voter.votingPower ? Number(voter.votingPower) : 0;
@@ -140,7 +178,7 @@ export class UserService {
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Your NVCCZ Account Credentials</title>
+        <title>Your ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Account Credentials</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -155,12 +193,12 @@ export class UserService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>Welcome to NVCCZ!</h1>
+            <h1>Welcome to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}!</h1>
             <p>Your account has been created successfully</p>
           </div>
           <div class="content">
             <p>Hi ${firstName} ${lastName},</p>
-            <p>Welcome to the NVCCZ system! Your account has been created and you've been assigned to the <strong>${department} Department</strong> as a <strong>${roleName}</strong>.</p>
+            <p>Welcome to the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} system! Your account has been created and you've been assigned to the <strong>${department} Department</strong> as a <strong>${roleName}</strong>.</p>
             
             <div class="credentials">
               <h3>🔐 Your Login Credentials</h3>
@@ -180,11 +218,11 @@ export class UserService {
             <p>You can now access the system using these credentials. If you have any questions or need assistance, please contact the IT department.</p>
             
             <p style="text-align: center;">
-              <a href="${process.env.FRONTEND_URL || 'https://nvccz-frontend.vercel.app'}/login" class="button">Login to NVCCZ</a>
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:3001'}/login" class="button">Login to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</a>
             </p>
           </div>
           <div class="footer">
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
             <p>This is an automated message. Please do not reply to this email.</p>
           </div>
         </div>
@@ -198,11 +236,11 @@ export class UserService {
    */
   static getCredentialsEmailText(firstName: string, lastName: string, email: string, password: string, department: string, roleName: string): string {
     return `
-Welcome to NVCCZ!
+Welcome to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}!
 
 Hi ${firstName} ${lastName},
 
-Welcome to the NVCCZ system! Your account has been created and you've been assigned to the ${department} Department as a ${roleName}.
+Welcome to the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} system! Your account has been created and you've been assigned to the ${department} Department as a ${roleName}.
 
 Your Login Credentials:
 Email: ${email}
@@ -215,9 +253,9 @@ IMPORTANT SECURITY NOTICE:
 
 You can now access the system using these credentials. If you have any questions or need assistance, please contact the IT department.
 
-Login URL: ${process.env.FRONTEND_URL || 'https://nvccz-frontend.vercel.app'}/login
+Login URL: ${process.env.FRONTEND_URL || 'http://localhost:3001'}/login
 
-© 2024 NVCCZ. All rights reserved.
+© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.
 This is an automated message. Please do not reply to this email.
     `;
   }
@@ -227,26 +265,17 @@ This is an automated message. Please do not reply to this email.
    */
   static async sendCredentialsEmail(email: string, firstName: string, lastName: string, password: string, department: string, roleName: string): Promise<boolean> {
     try {
-      const subject = "Your NVCCZ Account Credentials - Welcome!";
+      const subject = `Your ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Account Credentials - Welcome!`;
       const htmlContent = this.getCredentialsEmailHTML(firstName, lastName, email, password, department, roleName);
       const textContent = this.getCredentialsEmailText(firstName, lastName, email, password, department, roleName);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ IT Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: email,
-              name: `${firstName} ${lastName}`
-            }
-          }
-        ],
+      const from = getFromAddress('it');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${firstName} ${lastName}" <${email}>`,
         subject: subject,
-        htmlbody: htmlContent,
-        textbody: textContent
+        html: htmlContent,
+        text: textContent
       });
 
       console.log(`✅ Credentials email sent to ${email}`);
@@ -255,6 +284,55 @@ This is an automated message. Please do not reply to this email.
       console.error("❌ Error sending credentials email:", error);
       throw error;
     }
+  }
+
+  /**
+   * Resolve a roleCode (e.g. "IT_SUPPORT") to the Role record that actually grants
+   * permissions, via hardcodedRoles.ts's roleCode -> role name mapping.
+   *
+   * Extracted out of createUser so updateUser can share it. Before this, updateUser
+   * only ever wrote userData.roleId onto the row, and only when the caller passed one
+   * explicitly -- which the admin UI's Edit User form never does; it only sends
+   * roleCode. So changing a user's role through Edit User changed the roleCode label
+   * everywhere it's displayed, updated the audit log with the new code, and returned
+   * 200 "User updated successfully" -- while the user's roleId, and therefore every
+   * permission check in the system (all of which read role.permissions via the roleId
+   * relation, not the roleCode string), silently kept pointing at their OLD role. An
+   * admin "promoting" someone via Edit User believed it took effect; it hadn't.
+   */
+  static async resolveRoleIdFromRoleCode(roleCode: string): Promise<{ id: string; name: string; code: string }> {
+    const { getRoleByCode } = await import('../config/hardcodedRoles');
+    const hardcodedRole = getRoleByCode(roleCode);
+
+    if (!hardcodedRole) {
+      throw new Error(`Invalid roleCode: ${roleCode}. Role code not found in hardcoded roles.`);
+    }
+
+    // Find the Role record in database by name
+    // Try exact match first, then case-insensitive if needed
+    let role = await prisma.role.findFirst({
+      where: {
+        name: hardcodedRole.name
+      }
+    });
+
+    // If exact match fails, try case-insensitive (for MySQL compatibility)
+    if (!role) {
+      const allRoles = await prisma.role.findMany({
+        where: {
+          name: {
+            notIn: ["admin", "applicant"]
+          }
+        }
+      });
+      role = allRoles.find(r => r.name.toLowerCase() === hardcodedRole.name.toLowerCase());
+    }
+
+    if (!role) {
+      throw new Error(`Role "${hardcodedRole.name}" not found in database. Please ensure roles are synced by running: npx ts-node scripts/sync-hardcoded-roles.ts`);
+    }
+
+    return { id: role.id, name: role.name, code: hardcodedRole.code };
   }
 
   /**
@@ -297,18 +375,11 @@ This is an automated message. Please do not reply to this email.
         throw new Error("An application already exists with this email address");
       }
 
-      // Find the role by code or name
-      const role = await prisma.role.findFirst({
-        where: { 
-          name: { 
-            notIn: ["admin", "applicant"]
-          }
-        }
-      });
+      // Find the role by mapping roleCode to role name using hardcoded roles
+      const role = await this.resolveRoleIdFromRoleCode(userData.roleCode);
 
-      if (!role) {
-        throw new Error("Could not find appropriate role for user");
-      }
+      const assigningCeo = role.code === "CEO" || String(role.name || "").trim().toUpperCase() === "CEO";
+      await this.assertAtMostOneCeoInSystem({ assigningCeo });
 
       const isBoardRole = this.isBoardVotingRole(userData.roleCode);
 
@@ -462,19 +533,28 @@ This is an automated message. Please do not reply to this email.
   /**
    * Update user
    */
-  static async updateUser(id: string, userData: {
-    firstName?: string;
-    lastName?: string;
-    email?: string;
-    department?: string;
-    roleCode?: string;
-    departmentRole?: string;
-    roleId?: string;
-  }) {
+  static async updateUser(
+    id: string,
+    userData: {
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      department?: string;
+      roleCode?: string;
+      departmentRole?: string;
+      roleId?: string;
+    },
+    auditContext?: {
+      actorUserId: string;
+      ipAddress?: string | null;
+      userAgent?: string | null;
+    }
+  ) {
     try {
       // Check if user exists
       const existingUser = await prisma.user.findUnique({
-        where: { id }
+        where: { id },
+        include: { role: true }
       });
 
       if (!existingUser) {
@@ -522,6 +602,15 @@ This is an automated message. Please do not reply to this email.
       const targetRoleCode = userData.roleCode ?? existingUser.roleCode;
       const isBoardRole = this.isBoardVotingRole(targetRoleCode);
 
+      let assigningCeo = false;
+      if (userData.roleCode !== undefined && userData.roleCode !== null) {
+        assigningCeo = String(userData.roleCode).trim().toUpperCase() === "CEO";
+      } else if (userData.roleId !== undefined && userData.roleId !== null) {
+        const r = await prisma.role.findUnique({ where: { id: userData.roleId } });
+        assigningCeo = String(r?.name || "").trim().toUpperCase() === "CEO";
+      }
+      await this.assertAtMostOneCeoInSystem({ excludeUserId: id, assigningCeo });
+
       if (isBoardRole) {
         const departmentToSet = userData.department ?? existingUser.userDepartment;
         if (departmentToSet !== "Investments") {
@@ -552,7 +641,17 @@ This is an automated message. Please do not reply to this email.
       if (userData.department) updateData.userDepartment = userData.department;
       if (userData.roleCode) updateData.roleCode = userData.roleCode;
       if (userData.departmentRole) updateData.departmentRole = userData.departmentRole;
-      if (userData.roleId) updateData.roleId = userData.roleId;
+      if (userData.roleId) {
+        // Caller passed roleId explicitly -- honour it as-is, same as before.
+        updateData.roleId = userData.roleId;
+      } else if (userData.roleCode) {
+        // The admin UI's Edit User form sends roleCode, never roleId. Resolve it the
+        // same way createUser does, so roleId (the relation every permission check in
+        // the system actually reads) moves together with the roleCode label instead of
+        // being left pointed at the user's previous role.
+        const resolved = await this.resolveRoleIdFromRoleCode(userData.roleCode);
+        updateData.roleId = resolved.id;
+      }
       if (!isBoardRole && this.isBoardVotingRole(existingUser.roleCode)) {
         updateData.votingPower = null;
       }
@@ -571,6 +670,33 @@ This is an automated message. Please do not reply to this email.
           }
         }
       });
+
+      const roleIdChanged =
+        userData.roleId != null && String(userData.roleId) !== String(existingUser.roleId);
+      const roleCodeChanged =
+        userData.roleCode != null && String(userData.roleCode) !== String(existingUser.roleCode ?? "");
+      if (auditContext?.actorUserId && (roleIdChanged || roleCodeChanged)) {
+        await AuditService.log({
+          userId: auditContext.actorUserId,
+          action: "USER_ROLE_UPDATE",
+          entityType: "User",
+          entityId: id,
+          oldValues: {
+            targetUserId: id,
+            oldRoleId: existingUser.roleId,
+            oldRoleName: existingUser.role?.name ?? null,
+            oldRoleCode: existingUser.roleCode ?? null
+          },
+          newValues: {
+            targetUserId: id,
+            newRoleId: user.roleId,
+            newRoleName: user.role?.name ?? null,
+            newRoleCode: user.roleCode ?? null
+          },
+          ipAddress: auditContext.ipAddress ?? null,
+          userAgent: auditContext.userAgent ?? null
+        });
+      }
 
       // Return only the fields we want, with role as optional
       return {
@@ -597,7 +723,7 @@ This is an automated message. Please do not reply to this email.
   }
 
   /**
-   * Delete user
+   * Delete user. Related records (journal entries, etc.) are reassigned to an admin user automatically.
    */
   static async deleteUser(id: string) {
     try {
@@ -628,14 +754,24 @@ This is an automated message. Please do not reply to this email.
         }
       }
 
-      // Delete user
-      await prisma.user.delete({
-        where: { id }
-      });
+      const blockers = await getUserDeleteBlockers(id);
+      const admin = await resolveAdminReassignTarget(id);
+      await reassignUserReferences(id, admin.id);
+      await deleteUserRecord(id);
 
-      return { message: "User deleted successfully" };
-    } catch (error) {
+      return { message: formatReassignedRecordsMessage(blockers, admin) };
+    } catch (error: any) {
       console.error("Error deleting user:", error);
+      const message = error?.message ?? "";
+      if (
+        message.includes("required relation") ||
+        message.includes("Foreign key constraint") ||
+        message.includes("P2003")
+      ) {
+        throw new Error(
+          "Cannot delete user: still referenced by records that could not be reassigned. Contact support."
+        );
+      }
       throw error;
     }
   }
@@ -651,6 +787,10 @@ This is an automated message. Please do not reply to this email.
 
       if (!user) {
         throw new Error("User not found");
+      }
+
+      if (user.boardVotingDisabled) {
+        throw new Error("This user has been removed from board voting and cannot be assigned voting power.");
       }
 
       if (!this.isBoardVotingRole(user.roleCode)) {
@@ -700,6 +840,43 @@ This is an automated message. Please do not reply to this email.
       console.error("Error setting voting power:", error);
       throw error;
     }
+  }
+
+  /**
+   * Remove or restore a user from board voting member lists and vote-invite emails.
+   * When disabled, they are excluded from board voting members and cannot be assigned voting power.
+   */
+  static async setBoardVotingDisabled(userId: string, disabled: boolean) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new Error("User not found");
+    }
+    if (!this.isBoardVotingRole(user.roleCode)) {
+      throw new Error("Only board voting roles can be removed from voting.");
+    }
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        boardVotingDisabled: Boolean(disabled),
+        ...(disabled ? { votingPower: null } : {})
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        userDepartment: true,
+        departmentRole: true,
+        roleCode: true,
+        votingPower: true,
+        boardVotingDisabled: true
+      }
+    });
+    return {
+      ...updated,
+      votingPower:
+        updated.votingPower !== null && updated.votingPower !== undefined ? Number(updated.votingPower) : null
+    };
   }
 }
 

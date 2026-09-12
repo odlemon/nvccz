@@ -7,6 +7,8 @@ import { ResponseHelper } from "../utils/responseHelper";
 import CashbookService from "../services/CashbookService";
 import { prisma } from "../utils/database";
 import AuditService from "../services/AuditService";
+import { createJournalEntryWithAuditSequence } from "../services/AuditTrailSequenceService";
+import { parseDate } from "../utils/dateHelper";
 
 interface AuthRequest extends Request {
   user?: {
@@ -17,7 +19,36 @@ interface AuthRequest extends Request {
 }
 
 export default class CashbookController {
-  
+  /**
+   * Magic bankId values: resolve or create the operating ZiG bank (same as CashbookService.ensureZigCashbookBank).
+   * Use these instead of a separate flag — it's still just `bankId`.
+   */
+  private static readonly ZIG_BANK_SHORTCUTS = new Set([
+    'AUTO_ZIG',
+    'AUTO:ZIG',
+    '@ZIG',
+    '_ZIG',
+  ]);
+
+  private static bankIdRequestsZiGAutoProvision(bankId: unknown): boolean {
+    if (bankId == null || typeof bankId !== 'string') {
+      return false;
+    }
+    const key = bankId.trim().toUpperCase();
+    return CashbookController.ZIG_BANK_SHORTCUTS.has(key);
+  }
+
+  /** Resolves real `banks.id`, including ZiG aliases (`@ZIG`, `AUTO_ZIG`, …). */
+  private static async resolveCashbookBankId(bankId: unknown): Promise<string | undefined> {
+    let resolved: string | undefined =
+      typeof bankId === 'string' && bankId.trim() !== '' ? bankId.trim() : undefined;
+    if (CashbookController.bankIdRequestsZiGAutoProvision(resolved)) {
+      const ensured = await CashbookService.ensureZigCashbookBank();
+      return ensured.bank.id;
+    }
+    return resolved;
+  }
+
   /**
    * Create Cash Receipt
    * POST /api/cashbook/receipts
@@ -45,11 +76,16 @@ export default class CashbookController {
         discount
       } = req.body;
 
+      const resolvedBankId = await CashbookController.resolveCashbookBankId(bankId);
+
       // Validate required fields
-      if (!bankId || !transactionDate || !description || !amount || !counterpartyType) {
-        return ResponseHelper.badRequest(res, 'Missing required fields: bankId, transactionDate, description, amount, counterpartyType');
+      if (!resolvedBankId || !transactionDate || !description || !amount || !counterpartyType) {
+        return ResponseHelper.badRequest(
+          res,
+          'Missing required fields: bankId (use AUTO_ZIG / @ZIG / _ZIG to auto-pick ZiG bank), transactionDate, description, amount, counterpartyType'
+        );
       }
-      
+
       // Validate counterparty type specific fields
       if (counterpartyType === 'GL' && !glAccountId) {
         return ResponseHelper.badRequest(res, 'glAccountId required for GL transactions');
@@ -60,10 +96,10 @@ export default class CashbookController {
       if (counterpartyType === 'SUPPLIER' && !vendorId) {
         return ResponseHelper.badRequest(res, 'vendorId required for supplier transactions');
       }
-      
+
       const result = await CashbookService.createCashReceipt({
-        bankId,
-        transactionDate: new Date(transactionDate),
+        bankId: resolvedBankId,
+        transactionDate: parseDate(transactionDate),
         description,
         amount: parseFloat(amount),
         reference,
@@ -116,11 +152,16 @@ export default class CashbookController {
         discount
       } = req.body;
 
+      const resolvedBankId = await CashbookController.resolveCashbookBankId(bankId);
+
       // Validate required fields
-      if (!bankId || !transactionDate || !description || !amount || !counterpartyType) {
-        return ResponseHelper.badRequest(res, 'Missing required fields: bankId, transactionDate, description, amount, counterpartyType');
+      if (!resolvedBankId || !transactionDate || !description || !amount || !counterpartyType) {
+        return ResponseHelper.badRequest(
+          res,
+          'Missing required fields: bankId (use AUTO_ZIG / @ZIG / _ZIG for ZiG bank), transactionDate, description, amount, counterpartyType'
+        );
       }
-      
+
       // Validate counterparty type specific fields
       if (counterpartyType === 'GL' && !glAccountId) {
         return ResponseHelper.badRequest(res, 'glAccountId required for GL transactions');
@@ -131,10 +172,10 @@ export default class CashbookController {
       if (counterpartyType === 'SUPPLIER' && !vendorId) {
         return ResponseHelper.badRequest(res, 'vendorId required for supplier transactions');
       }
-      
+
       const result = await CashbookService.createCashPayment({
-        bankId,
-        transactionDate: new Date(transactionDate),
+        bankId: resolvedBankId,
+        transactionDate: parseDate(transactionDate),
         description,
         amount: parseFloat(amount),
         reference,
@@ -283,6 +324,7 @@ export default class CashbookController {
     try {
       const {
         bankId,
+        currencyId,
         transactionType,
         status,
         dateFrom,
@@ -290,14 +332,15 @@ export default class CashbookController {
         limit,
         offset
       } = req.query;
-      
+
       const filters: any = {};
-      
+
       if (bankId) filters.bankId = bankId as string;
+      if (currencyId) filters.currencyId = currencyId as string;
       if (transactionType) filters.transactionType = transactionType as string;
       if (status) filters.status = status as string;
-      if (dateFrom) filters.dateFrom = new Date(dateFrom as string);
-      if (dateTo) filters.dateTo = new Date(dateTo as string);
+      if (dateFrom) filters.dateFrom = parseDate(dateFrom as string);
+      if (dateTo) filters.dateTo = parseDate(dateTo as string);
       if (limit) filters.limit = parseInt(limit as string);
       if (offset) filters.offset = parseInt(offset as string);
       
@@ -394,10 +437,13 @@ export default class CashbookController {
    */
   static async listBatches(req: Request, res: Response) {
     try {
-      const { status, limit, offset } = req.query;
+      const { status, limit, offset, currencyId } = req.query;
       
       const where: any = {};
       if (status) where.status = status;
+      if (currencyId) {
+        where.transactions = { some: { bank: { currencyId: currencyId as string } } };
+      }
       
       const batches = await prisma.cashbookBatch.findMany({
         where,
@@ -407,7 +453,11 @@ export default class CashbookController {
               id: true,
               type: true,
               amount: true,
-              status: true
+              status: true,
+              receiptAttachmentUrl: true,
+              receiptAttachmentPath: true,
+              receiptAttachmentFileName: true,
+              receiptAttachmentMimeType: true
             }
           },
           createdBy: {
@@ -487,17 +537,14 @@ export default class CashbookController {
           const originalLines = originalEntry.journalEntryLines;
           
           // Create reversal journal entry
-          reversalJournalEntry = await prisma.journalEntry.create({
-            data: {
-              transactionDate: new Date(),
-              referenceNumber: `VR-${originalEntry.referenceNumber}`,
-              description: `REVERSAL of CB Transaction ${id}: ${originalEntry.description}`,
-              totalAmount: originalEntry.totalAmount,
-              currencyId: originalEntry.currencyId,
-              status: 'POSTED', // Auto-post the reversal
-              createdById: userId,
-              cashbookEntryId: id // Link to the voided cashbook entry
-            }
+          reversalJournalEntry = await createJournalEntryWithAuditSequence({
+            transactionDate: new Date(),
+            referenceNumber: `VR-${originalEntry.referenceNumber}`,
+            description: `REVERSAL of CB Transaction ${id}: ${originalEntry.description}`,
+            totalAmount: originalEntry.totalAmount,
+            currencyId: originalEntry.currencyId,
+            status: 'POSTED',
+            createdById: userId,
           });
           
           // Create reversal journal entry lines (opposite debits/credits)
@@ -616,25 +663,54 @@ export default class CashbookController {
   }
   
   /**
-   * Get Bank Accounts
+   * Get Bank Accounts (dynamic from DB)
    * GET /api/cashbook/banks
+   * Query: includeInactive=true to include inactive banks (e.g. for admin/settings).
    */
   static async getBanks(req: Request, res: Response) {
     try {
+      const includeInactive = req.query.includeInactive === 'true';
+      const where: { isActive?: boolean } = {};
+      if (!includeInactive) {
+        where.isActive = true;
+      }
       const banks = await prisma.bank.findMany({
-        where: { isActive: true },
+        where,
         include: {
           currency: true,
           glAccount: true
         },
         orderBy: { name: 'asc' }
       });
-      
+
       return ResponseHelper.success(res, 'Banks retrieved successfully', banks);
-      
     } catch (error: any) {
       console.error('Error in CashbookController.getBanks:', error);
       return ResponseHelper.error(res, 'Failed to get banks', error.message);
+    }
+  }
+
+  /**
+   * Get single bank by ID
+   * GET /api/cashbook/banks/:id
+   */
+  static async getBankById(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const bank = await prisma.bank.findUnique({
+        where: { id },
+        include: {
+          currency: true,
+          glAccount: true
+        }
+      });
+      if (!bank) {
+        return ResponseHelper.notFound(res, 'Bank account not found');
+      }
+      return ResponseHelper.success(res, 'Bank retrieved successfully', bank);
+    } catch (error: any) {
+      console.error('Error in CashbookController.getBankById:', error);
+      return ResponseHelper.error(res, 'Failed to get bank', error.message);
     }
   }
   
@@ -657,14 +733,15 @@ export default class CashbookController {
         glAccountId,
         bankCode,
         branchCode,
+        swiftCode,
         isActive = true
       } = req.body;
       
       // Validate required fields
-      if (!name || !accountNumber || !currencyId || !glAccountId) {
-        return ResponseHelper.badRequest(res, 'Missing required fields: name, accountNumber, currencyId, glAccountId');
+      if (!name || !accountNumber || !currencyId) {
+        return ResponseHelper.badRequest(res, 'Missing required fields: name, accountNumber, currencyId');
       }
-      
+
       const bank = await CashbookService.createBank({
         name,
         accountNumber,
@@ -672,6 +749,7 @@ export default class CashbookController {
         glAccountId,
         bankCode,
         branchCode,
+        swiftCode,
         isActive
       });
       
@@ -681,9 +759,7 @@ export default class CashbookController {
       
       // Handle specific Prisma constraint errors
       if (error.message.includes('Unique constraint failed')) {
-        if (error.message.includes('glAccountId_key')) {
-          return ResponseHelper.badRequest(res, 'This GL account is already associated with another bank account. Each GL account can only be linked to one bank account.');
-        } else if (error.message.includes('accountNumber')) {
+        if (error.message.includes('accountNumber')) {
           return ResponseHelper.badRequest(res, 'A bank account with this account number already exists.');
         }
       }
@@ -694,8 +770,65 @@ export default class CashbookController {
           error.message.includes('not found')) {
         return ResponseHelper.badRequest(res, error.message);
       }
-      
+
       return ResponseHelper.error(res, 'Failed to create bank account', error.message);
+    }
+  }
+
+  /**
+   * Update Bank Account
+   * PUT /api/cashbook/banks/:id
+   */
+  static async updateBank(req: Request, res: Response) {
+    try {
+      const userId = (req as AuthRequest).user?.id;
+      if (!userId) {
+        return ResponseHelper.unauthorized(res, 'User not authenticated.');
+      }
+      const { id } = req.params;
+      const { name, accountNumber, currencyId, glAccountId, branchCode, swiftCode, isActive } = req.body;
+
+      const bank = await CashbookService.updateBank(id, {
+        name,
+        accountNumber,
+        currencyId,
+        glAccountId,
+        branchCode,
+        swiftCode,
+        isActive
+      });
+      return ResponseHelper.success(res, 'Bank account updated successfully', bank);
+    } catch (error: any) {
+      console.error('Error in CashbookController.updateBank:', error);
+      if (error.message?.includes('not found')) {
+        return ResponseHelper.notFound(res, error.message);
+      }
+      if (error.message?.includes('already exists') || error.message?.includes('already associated')) {
+        return ResponseHelper.badRequest(res, error.message);
+      }
+      return ResponseHelper.error(res, 'Failed to update bank account', error.message);
+    }
+  }
+
+  /**
+   * Soft delete bank account (sets isActive: false)
+   * DELETE /api/cashbook/banks/:id
+   */
+  static async deleteBank(req: Request, res: Response) {
+    try {
+      const userId = (req as AuthRequest).user?.id;
+      if (!userId) {
+        return ResponseHelper.unauthorized(res, 'User not authenticated.');
+      }
+      const { id } = req.params;
+      const bank = await CashbookService.softDeleteBank(id);
+      return ResponseHelper.success(res, 'Bank account deactivated (soft delete) successfully', bank);
+    } catch (error: any) {
+      console.error('Error in CashbookController.deleteBank:', error);
+      if (error.message?.includes('not found')) {
+        return ResponseHelper.notFound(res, error.message);
+      }
+      return ResponseHelper.error(res, 'Failed to delete bank account', error.message);
     }
   }
 
@@ -715,16 +848,12 @@ export default class CashbookController {
       // If requesting accounts available for bank creation, exclude those already used
       if (availableForBank === 'true') {
         where.accountType = { in: ['Current Asset', 'Fixed Asset'] };
-        
-        // Get GL accounts already used by banks
-        const usedGLAccounts = await prisma.bank.findMany({
+        // Each bank must have its own GL account — exclude GL accounts already linked to an active bank.
+        const used = await prisma.bank.findMany({
+          where: { isActive: true, glAccountId: { not: null } },
           select: { glAccountId: true }
         });
-        
-        const usedGLAccountIds = usedGLAccounts.map(bank => bank.glAccountId);
-        if (usedGLAccountIds.length > 0) {
-          where.id = { notIn: usedGLAccountIds };
-        }
+        where.id = { notIn: used.map((u) => u.glAccountId).filter(Boolean) };
       }
       
       const accounts = await prisma.chartOfAccounts.findMany({

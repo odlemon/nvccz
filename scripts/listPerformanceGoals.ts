@@ -38,7 +38,7 @@ async function listGoals() {
       id: true,
       title: true,
       type: true,
-      category: true,
+      scorecardPillar: true,
       departmentName: true,
       targetValue: true,
       currentValue: true,

@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import { PerformanceAnalyticsService } from "../services/PerformanceAnalyticsService";
 import { ResponseHelper } from "../utils/responseHelper";
+import { parseDate } from "../utils/dateHelper";
 
 export class PerformanceAnalyticsController {
   /**
@@ -9,17 +10,31 @@ export class PerformanceAnalyticsController {
    */
   static async getKPIAnalysis(req: Request, res: Response) {
     try {
-      const { kpiId, department, startDate, endDate } = req.query;
+      const { kpiId, department, startDate, endDate, currencyId } = req.query;
 
       const dateRange = startDate && endDate ? {
-        start: new Date(startDate as string),
-        end: new Date(endDate as string)
+        start: parseDate(startDate as string),
+        end: parseDate(endDate as string)
       } : undefined;
+
+      // Ensure currencyId is properly extracted as a string
+      const currencyIdValue = currencyId 
+        ? (typeof currencyId === 'string' ? currencyId : String(currencyId))
+        : undefined;
+
+      console.log(`[PerformanceAnalyticsController] Received query params:`, {
+        kpiId,
+        department,
+        startDate,
+        endDate,
+        currencyId: currencyIdValue || 'NOT PROVIDED'
+      });
 
       const analysis = await PerformanceAnalyticsService.getKPIAnalysis(
         kpiId as string,
         department as string,
-        dateRange
+        dateRange,
+        currencyIdValue
       );
 
       return ResponseHelper.success(res, "KPI analysis retrieved successfully", analysis);
@@ -58,8 +73,8 @@ export class PerformanceAnalyticsController {
       
       if (startDate && endDate) {
         filters.dateRange = {
-          start: new Date(startDate as string),
-          end: new Date(endDate as string)
+          start: parseDate(startDate as string),
+          end: parseDate(endDate as string)
         };
       }
 

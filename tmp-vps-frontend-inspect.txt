@@ -1,0 +1,380 @@
+===== date on VPS =====
+2026-07-11T11:50:09+02:00
+
+===== PM2 list =====
+[90m┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐[39m
+[90m│[39m[1m[36m id [39m[22m[90m│[39m[1m[36m name               [39m[22m[90m│[39m[1m[36m mode     [39m[22m[90m│[39m[1m[36m ↺    [39m[22m[90m│[39m[1m[36m status    [39m[22m[90m│[39m[1m[36m cpu      [39m[22m[90m│[39m[1m[36m memory   [39m[22m[90m│[39m
+[90m├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤[39m
+[90m│[39m[1m[36m [1m[36m0[39m[36m[22m[1m  [39m[22m[90m│[39m api-kyntaro-dev    [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 380… [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 55.9mb   [90m│[39m
+[90m│[39m[1m[36m [1m[36m1[39m[36m[22m[1m  [39m[22m[90m│[39m api-kyntaro-prod   [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 380… [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 56.2mb   [90m│[39m
+[90m│[39m[1m[36m [1m[36m6[39m[36m[22m[1m  [39m[22m[90m│[39m app-kyntaro-dev    [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 32   [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 107.4mb  [90m│[39m
+[90m│[39m[1m[36m [1m[36m5[39m[36m[22m[1m  [39m[22m[90m│[39m app-kyntaro-prod   [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 32   [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 96.0mb   [90m│[39m
+[90m│[39m[1m[36m [1m[36m7[39m[36m[22m[1m  [39m[22m[90m│[39m aqua-flow-back-app [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 32   [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 119.2mb  [90m│[39m
+[90m│[39m[1m[36m [1m[36m3[39m[36m[22m[1m  [39m[22m[90m│[39m baby-minder-api    [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 283… [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 95.2mb   [90m│[39m
+[90m│[39m[1m[36m [1m[36m9[39m[36m[22m[1m  [39m[22m[90m│[39m chommie-api        [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 275… [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 56.4mb   [90m│[39m
+[90m│[39m[1m[36m [1m[36m10[39m[36m[22m[1m [39m[22m[90m│[39m chommie-backend    [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 540… [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 56.2mb   [90m│[39m
+[90m│[39m[1m[36m [1m[36m15[39m[36m[22m[1m [39m[22m[90m│[39m demo_env           [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 380… [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 212.0mb  [90m│[39m
+[90m│[39m[1m[36m [1m[36m8[39m[36m[22m[1m  [39m[22m[90m│[39m khaya-backend      [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 462… [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 90.0mb   [90m│[39m
+[90m│[39m[1m[36m [1m[36m14[39m[36m[22m[1m [39m[22m[90m│[39m lms-admin          [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 32   [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 57.2mb   [90m│[39m
+[90m│[39m[1m[36m [1m[36m13[39m[36m[22m[1m [39m[22m[90m│[39m lms-client         [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 32   [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 57.1mb   [90m│[39m
+[90m│[39m[1m[36m [1m[36m12[39m[36m[22m[1m [39m[22m[90m│[39m minio              [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 32   [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 133.9mb  [90m│[39m
+[90m│[39m[1m[36m [1m[36m4[39m[36m[22m[1m  [39m[22m[90m│[39m nest-app           [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 32   [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 89.3mb   [90m│[39m
+[90m│[39m[1m[36m [1m[36m11[39m[36m[22m[1m [39m[22m[90m│[39m simbi-api          [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 540… [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 56.1mb   [90m│[39m
+[90m│[39m[1m[36m [1m[36m2[39m[36m[22m[1m  [39m[22m[90m│[39m simbi-upload       [90m│[39m [7m[1mfork[22m[27m     [90m│[39m 32   [90m│[39m [32m[1monline[22m[39m    [90m│[39m 0%       [90m│[39m 53.3mb   [90m│[39m
+[90m└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘[39m
+
+===== PM2 details (name/cwd/uptime) =====
+NAME= api-kyntaro-dev
+  status= online restarts= 38071 uptime_epoch_ms= 1783761858812
+  cwd= /var/www/projects/nts
+  script= /usr/bin/npm
+---
+NAME= api-kyntaro-prod
+  status= online restarts= 38043 uptime_epoch_ms= 1783761858813
+  cwd= /var/www/projects/client1
+  script= /usr/bin/npm
+---
+NAME= simbi-upload
+  status= online restarts= 32 uptime_epoch_ms= 1783761858955
+  cwd= /opt/simbi-upload-service
+  script= /opt/simbi-upload-service/server.js
+---
+NAME= baby-minder-api
+  status= online restarts= 283655 uptime_epoch_ms= 1783761858960
+  cwd= /var/www/projects/inteligent-baby-minder-back
+  script= /var/www/projects/inteligent-baby-minder-back/dist/src/main.js
+---
+NAME= nest-app
+  status= online restarts= 32 uptime_epoch_ms= 1783761859097
+  cwd= /var/www/projects/zitf-connect-backend
+  script= /var/www/projects/zitf-connect-backend/dist/main.js
+---
+NAME= app-kyntaro-prod
+  status= online restarts= 32 uptime_epoch_ms= 1783761859113
+  cwd= /var/www/projects/nvccz-new
+  script= /var/www/projects/nvccz-new/node_modules/next/dist/bin/next
+---
+NAME= app-kyntaro-dev
+  status= online restarts= 32 uptime_epoch_ms= 1783761859246
+  cwd= /var/www/projects/dev
+  script= /var/www/projects/dev/node_modules/next/dist/bin/next
+---
+NAME= aqua-flow-back-app
+  status= online restarts= 32 uptime_epoch_ms= 1783761859271
+  cwd= /var/www/projects/aqua-flow-back
+  script= /var/www/projects/aqua-flow-back/dist/src/main.js
+---
+NAME= khaya-backend
+  status= online restarts= 46251 uptime_epoch_ms= 1783761859504
+  cwd= /var/www/projects/khaya-server
+  script= /var/www/projects/khaya-server/dist/app.js
+---
+NAME= chommie-api
+  status= online restarts= 275319 uptime_epoch_ms= 1783761859549
+  cwd= /var/www/projects/chommie-backend
+  script= /usr/bin/npm
+---
+NAME= chommie-backend
+  status= online restarts= 54089 uptime_epoch_ms= 1783761859777
+  cwd= /var/www/projects/simbi
+  script= /usr/bin/npm
+---
+NAME= simbi-api
+  status= online restarts= 54089 uptime_epoch_ms= 1783761859853
+  cwd= /var/www/projects/simbi
+  script= /usr/bin/npm
+---
+NAME= minio
+  status= online restarts= 32 uptime_epoch_ms= 1783761860005
+  cwd= /root
+  script= /usr/local/bin/minio
+---
+NAME= lms-client
+  status= online restarts= 32 uptime_epoch_ms= 1783761860321
+  cwd= /var/www/projects/lms-web/apps/client-web
+  script= /usr/bin/npm
+---
+NAME= lms-admin
+  status= online restarts= 32 uptime_epoch_ms= 1783761860481
+  cwd= /var/www/projects/lms-web/apps/admin-web
+  script= /usr/bin/npm
+---
+NAME= demo_env
+  status= online restarts= 38022 uptime_epoch_ms= 1783761860594
+  cwd= /var/www/projects/demo_env/nvccz
+  script= /var/www/projects/demo_env/nvccz/dist/app.js
+---
+
+===== nginx arcus server blocks =====
+/etc/nginx/sites-enabled/simbi-media:2:    listen 80;
+/etc/nginx/sites-enabled/simbi-media:3:    server_name 31.220.82.129;
+/etc/nginx/sites-enabled/simbi-media:7:        alias /var/www/simbi/uploads;
+/etc/nginx/sites-enabled/dev-api.arcus.co.zw:2:    server_name dev-api.arcus.co.zw;
+/etc/nginx/sites-enabled/dev-api.arcus.co.zw:5:        proxy_pass http://127.0.0.1:3009;
+/etc/nginx/sites-enabled/dev-api.arcus.co.zw:17:    listen 443 ssl; # managed by Certbot
+/etc/nginx/sites-enabled/dev-api.arcus.co.zw:31:    listen 80;
+/etc/nginx/sites-enabled/dev-api.arcus.co.zw:32:    server_name dev-api.arcus.co.zw;
+/etc/nginx/sites-enabled/zitf.arcus.co.zw:2:    server_name zitf.arcus.co.zw;
+/etc/nginx/sites-enabled/zitf.arcus.co.zw:5:        proxy_pass http://127.0.0.1:5004;
+/etc/nginx/sites-enabled/zitf.arcus.co.zw:17:    listen 443 ssl; # managed by Certbot
+/etc/nginx/sites-enabled/zitf.arcus.co.zw:31:    listen 80;
+/etc/nginx/sites-enabled/zitf.arcus.co.zw:32:    server_name zitf.arcus.co.zw;
+/etc/nginx/sites-enabled/lms-client.arcus.co.zw:2:    server_name lms-client.arcus.co.zw;
+/etc/nginx/sites-enabled/lms-client.arcus.co.zw:5:        proxy_pass http://127.0.0.1:3007;
+/etc/nginx/sites-enabled/lms-client.arcus.co.zw:18:    listen 443 ssl; # managed by Certbot
+/etc/nginx/sites-enabled/lms-client.arcus.co.zw:31:    server_name lms-client.arcus.co.zw;
+/etc/nginx/sites-enabled/lms-client.arcus.co.zw:33:    listen 80;
+/etc/nginx/sites-enabled/lms-api:2:    server_name lms-api.arcus.co.zw;
+/etc/nginx/sites-enabled/lms-api:5:        proxy_pass http://127.0.0.1:3006;
+/etc/nginx/sites-enabled/lms-api:16:    listen 443 ssl;
+/etc/nginx/sites-enabled/lms-api:17:    listen [::]:443 ssl;
+/etc/nginx/sites-enabled/lms-api:27:    listen 80;
+/etc/nginx/sites-enabled/lms-api:28:    listen [::]:80;
+/etc/nginx/sites-enabled/lms-api:29:    server_name lms-api.arcus.co.zw;
+/etc/nginx/sites-enabled/chommie-api:2:    listen 4005 ssl;
+/etc/nginx/sites-enabled/chommie-api:3:    server_name 31.220.82.129;
+/etc/nginx/sites-enabled/chommie-api:9:        proxy_pass http://127.0.0.1:4006;
+/etc/nginx/sites-enabled/api.arcus.co.zw:2:    server_name api.arcus.co.zw;
+/etc/nginx/sites-enabled/api.arcus.co.zw:5:        proxy_pass http://127.0.0.1:3010;
+/etc/nginx/sites-enabled/api.arcus.co.zw:17:    listen 443 ssl; # managed by Certbot
+/etc/nginx/sites-enabled/api.arcus.co.zw:30:    listen 80;
+/etc/nginx/sites-enabled/api.arcus.co.zw:31:    server_name api.arcus.co.zw;
+/etc/nginx/sites-enabled/app.arcus.co.zw:3:    server_name arcus.co.zw www.arcus.co.zw;
+/etc/nginx/sites-enabled/app.arcus.co.zw:6:        proxy_pass http://127.0.0.1:3002;
+/etc/nginx/sites-enabled/app.arcus.co.zw:17:    listen [::]:443 ssl ipv6only=on; # managed by Certbot
+/etc/nginx/sites-enabled/app.arcus.co.zw:18:    listen 443 ssl; # managed by Certbot
+/etc/nginx/sites-enabled/app.arcus.co.zw:37:    listen 80 default_server;
+/etc/nginx/sites-enabled/app.arcus.co.zw:38:    listen [::]:80 default_server;
+/etc/nginx/sites-enabled/app.arcus.co.zw:40:    server_name arcus.co.zw www.arcus.co.zw;
+/etc/nginx/sites-enabled/aquaflow.arcus.co.zw:2:    server_name aquaflow.arcus.co.zw www.aquaflow.arcus.co.zw;
+/etc/nginx/sites-enabled/aquaflow.arcus.co.zw:5:        proxy_pass http://127.0.0.1:5009;
+/etc/nginx/sites-enabled/aquaflow.arcus.co.zw:17:    listen 443 ssl;
+/etc/nginx/sites-enabled/aquaflow.arcus.co.zw:20:    listen 80;
+/etc/nginx/sites-enabled/aquaflow.arcus.co.zw:21:    server_name aquaflow.arcus.co.zw www.aquaflow.arcus.co.zw;
+/etc/nginx/sites-enabled/dev.arcus.co.zw:3:    server_name dev.arcus.co.zw;
+/etc/nginx/sites-enabled/dev.arcus.co.zw:6:        proxy_pass http://127.0.0.1:3001;
+/etc/nginx/sites-enabled/dev.arcus.co.zw:16:    listen 443 ssl; # managed by Certbot
+/etc/nginx/sites-enabled/dev.arcus.co.zw:29:    listen 80;
+/etc/nginx/sites-enabled/dev.arcus.co.zw:31:    server_name dev.arcus.co.zw;
+/etc/nginx/sites-enabled/lms-admin.arcus.co.zw:2:    server_name lms-admin.arcus.co.zw;
+/etc/nginx/sites-enabled/lms-admin.arcus.co.zw:5:        proxy_pass http://127.0.0.1:3008;
+/etc/nginx/sites-enabled/lms-admin.arcus.co.zw:18:    listen 443 ssl; # managed by Certbot
+/etc/nginx/sites-enabled/lms-admin.arcus.co.zw:31:    server_name lms-admin.arcus.co.zw;
+/etc/nginx/sites-enabled/lms-admin.arcus.co.zw:33:    listen 80;
+
+/etc/nginx/sites-enabled/dev-api.arcus.co.zw
+/etc/nginx/sites-enabled/zitf.arcus.co.zw
+/etc/nginx/sites-enabled/lms-client.arcus.co.zw
+/etc/nginx/sites-enabled/lms-api
+/etc/nginx/sites-enabled/api.arcus.co.zw
+/etc/nginx/sites-enabled/app.arcus.co.zw
+/etc/nginx/sites-enabled/aquaflow.arcus.co.zw
+/etc/nginx/sites-enabled/dev.arcus.co.zw
+/etc/nginx/sites-enabled/lms-admin.arcus.co.zw
+/etc/nginx/zitf.arcus.co.zw.save.1.bak
+/etc/nginx/app.arcus.co.zw.save.bak
+/etc/nginx/sites-available/dev-api.arcus.co.zw
+/etc/nginx/sites-available/zitf.arcus.co.zw
+/etc/nginx/sites-available/dev.kyntaro.com
+/etc/nginx/sites-available/lms-client.arcus.co.zw
+/etc/nginx/sites-available/lms-api
+/etc/nginx/sites-available/api.arcus.co.zw
+/etc/nginx/sites-available/app.arcus.co.zw
+/etc/nginx/sites-available/aquaflow.arcus.co.zw
+/etc/nginx/sites-available/lms-admin.arcus.co.zw
+
+===== /var/www/projects =====
+total 180
+drwxr-xr-x 22 root root  4096 Jun 24 17:38 .
+drwxr-xr-x  5 root root  4096 Jun 11 06:53 ..
+drwxr-xr-x  7 root root  4096 Jan 26 00:00 QMS
+drwxr-xr-x 10 root root  4096 Jun  2 10:42 aqua-flow-back
+drwxr-xr-x  7 root root  4096 May 25 23:22 chommie-backend
+drwxr-xr-x 26 root root 36864 Jul 10 23:51 client1
+drwxr-xr-x  3 root root  4096 Jun 24 17:43 demo_env
+drwxr-xr-x 15 root root  4096 Jul 10 17:39 dev
+drwxr-xr-x  4 root root  4096 Jan 30 09:23 ihr-backend-zb
+drwxr-xr-x  8 root root  4096 May 15 11:37 inteligent-baby-minder-back
+drwxr-xr-x 12 root root  4096 Jun  7 15:01 khaya-server
+drwxr-xr-x  2 root root  4096 Dec 13  2025 kyntaro
+drwxr-xr-x 11 root root  4096 Jul 10 10:08 lms-backend
+drwxr-xr-x  8 root root  4096 Jul 10 17:08 lms-web
+drwxr-xr-x 27 root root 36864 Jul 11 00:00 nts
+drwxr-xr-x 14 root root 32768 Nov 17  2025 nvccz
+drwxr-xr-x 14 root root  4096 Jul  3 09:26 nvccz-new
+drwxr-xr-x 13 root root  4096 May 26 09:39 simbi
+drwxr-xr-x 10 root root  4096 Jan 20 12:01 simbi-admin
+drwxr-xr-x 12 root root  4096 Jan  8  2026 simbi-buyer
+drwxr-xr-x  8 root root  4096 Jan  8  2026 simbi-seller
+drwxr-xr-x  8 root root  4096 Apr 13 13:17 zitf-connect-backend
+
+===== git repos =====
+DIR=/var/www/projects/QMS
+origin	git@github.com:NiakaziTechnologies/QMS.git (fetch)
+origin	git@github.com:NiakaziTechnologies/QMS.git (push)
+  branch=main
+  commit=b347285 | 2025-11-28 14:53:28 +0200 | save
+  FETCH_HEAD_mtime=2025-11-28 13:55:41.707887769 +0100
+  reflog=b347285 HEAD@{2025-11-28 13:55:41 +0100}: pull origin main: Fast-forward
+---
+DIR=/var/www/projects/aqua-flow-back
+origin	https://github.com/blessingmwalein/aqua-flow-back.git (fetch)
+origin	https://github.com/blessingmwalein/aqua-flow-back.git (push)
+  branch=main
+  commit=5f36ffa | 2026-06-02 10:41:43 +0200 | local changes
+  FETCH_HEAD_mtime=2026-06-02 10:41:43.429176184 +0200
+  reflog=5f36ffa HEAD@{2026-06-02 10:41:43 +0200}: pull origin main --rebase (finish): returning to refs/heads/main
+---
+DIR=/var/www/projects/chommie-backend
+origin	https://github.com/odlemon/chommie-backend.git (fetch)
+origin	https://github.com/odlemon/chommie-backend.git (push)
+  branch=main
+  commit=eb138c4 | 2026-05-02 18:55:27 +0200 | save
+  FETCH_HEAD_mtime=n/a
+  reflog=eb138c4 HEAD@{2026-05-25 23:09:45 +0200}: clone: from https://github.com/odlemon/chommie-backend.git
+---
+DIR=/var/www/projects/client1
+origin	git@github-vexima:odlemon/nvccz.git (fetch)
+origin	git@github-vexima:odlemon/nvccz.git (push)
+  branch=master
+  commit=f213610 | 2026-07-11 11:22:17 +0200 | Strip authoring chrome from issued IO DOCX reports.
+  FETCH_HEAD_mtime=2026-07-11 11:23:26.177917168 +0200
+  reflog=f213610 HEAD@{2026-07-11 11:23:26 +0200}: pull: Fast-forward
+---
+DIR=/var/www/projects/dev
+origin	https://github.com/GRIdiscrete/nvccz-new.git (fetch)
+origin	https://github.com/GRIdiscrete/nvccz-new.git (push)
+  branch=dev
+  commit=4ce441c | 2026-07-10 17:39:58 +0200 | lcoal changes
+  FETCH_HEAD_mtime=2026-07-10 17:39:58.176041995 +0200
+  reflog=4ce441c HEAD@{2026-07-10 17:39:58 +0200}: pull origin dev --rebase (finish): returning to refs/heads/dev
+---
+DIR=/var/www/projects/ihr-backend-zb
+origin	git@github-vexima:odlemon/ihr-backend-zb.git (fetch)
+origin	git@github-vexima:odlemon/ihr-backend-zb.git (push)
+  branch=refactor
+  commit=8778d81 | 2026-01-30 10:05:25 +0200 | save
+  FETCH_HEAD_mtime=n/a
+  reflog=8778d81 HEAD@{2026-01-30 09:23:21 +0100}: clone: from github-vexima:odlemon/ihr-backend-zb.git
+---
+DIR=/var/www/projects/inteligent-baby-minder-back
+origin	https://github.com/blessingmwalein/inteligent-baby-minder-back.git (fetch)
+origin	https://github.com/blessingmwalein/inteligent-baby-minder-back.git (push)
+  branch=main
+  commit=c06a138 | 2026-05-15 10:41:37 +0200 | added new chages
+  FETCH_HEAD_mtime=2026-05-15 10:41:55.895688620 +0200
+  reflog=c06a138 HEAD@{2026-05-15 10:41:55 +0200}: pull origin main: Fast-forward
+---
+DIR=/var/www/projects/khaya-server
+origin	https://github.com/odlemon/khaya-server.git (fetch)
+origin	https://github.com/odlemon/khaya-server.git (push)
+  branch=3chat
+  commit=319b988 | 2026-06-21 14:55:59 +0200 | Merge pull request #22 from odlemon/paynow
+  FETCH_HEAD_mtime=2026-06-21 14:56:30.426675395 +0200
+  reflog=319b988 HEAD@{2026-06-21 14:56:30 +0200}: pull: Fast-forward
+---
+DIR=/var/www/projects/lms-backend
+origin	https://github.com/blessingmwalein/lms-backend.git (fetch)
+origin	https://github.com/blessingmwalein/lms-backend.git (push)
+  branch=main
+  commit=c34f541 | 2026-07-10 10:08:18 +0200 | local changes
+  FETCH_HEAD_mtime=2026-07-10 10:08:18.242021433 +0200
+  reflog=c34f541 HEAD@{2026-07-10 10:08:18 +0200}: pull origin main --rebase (finish): returning to refs/heads/main
+---
+DIR=/var/www/projects/lms-web
+origin	https://github.com/blessingmwalein/lms-web.git (fetch)
+origin	https://github.com/blessingmwalein/lms-web.git (push)
+  branch=main
+  commit=b86d754 | 2026-07-10 17:08:43 +0200 | loca
+  FETCH_HEAD_mtime=2026-07-10 17:39:00.268768438 +0200
+  reflog=b86d754 HEAD@{2026-07-10 17:08:43 +0200}: pull origin main --rebase (finish): returning to refs/heads/main
+---
+DIR=/var/www/projects/nts
+origin	git@github-vexima:odlemon/nvccz.git (fetch)
+origin	git@github-vexima:odlemon/nvccz.git (push)
+  branch=master
+  commit=f213610 | 2026-07-11 11:22:17 +0200 | Strip authoring chrome from issued IO DOCX reports.
+  FETCH_HEAD_mtime=2026-07-11 11:22:31.171607374 +0200
+  reflog=f213610 HEAD@{2026-07-11 11:22:31 +0200}: pull: Fast-forward
+---
+DIR=/var/www/projects/nvccz
+origin	git@github-vexima:odlemon/nvccz.git (fetch)
+origin	git@github-vexima:odlemon/nvccz.git (push)
+  branch=prod
+  commit=c6a4cd6 | 2025-11-17 10:16:48 +0200 | Merge pull request #329 from odlemon/docs
+  FETCH_HEAD_mtime=2026-06-14 23:24:10.157660018 +0200
+  reflog=c6a4cd6 HEAD@{2025-11-17 09:25:21 +0100}: merge master: Fast-forward
+---
+DIR=/var/www/projects/nvccz-new
+origin	https://github.com/GRIdiscrete/nvccz-new.git (fetch)
+origin	https://github.com/GRIdiscrete/nvccz-new.git (push)
+  branch=main
+  commit=b76c98f | 2026-07-03 09:26:05 +0200 | local changes
+  FETCH_HEAD_mtime=2026-07-03 09:26:05.267426689 +0200
+  reflog=b76c98f HEAD@{2026-07-03 09:26:05 +0200}: pull origin main --rebase (finish): returning to refs/heads/main
+---
+DIR=/var/www/projects/simbi
+origin	https://github.com/odlemon/simbi.git (fetch)
+origin	https://github.com/odlemon/simbi.git (push)
+  branch=main
+  commit=43f2cf6 | 2026-06-05 09:38:57 +0200 | Merge pull request #14 from odlemon/opt
+  FETCH_HEAD_mtime=2026-06-05 09:39:23.962245474 +0200
+  reflog=43f2cf6 HEAD@{2026-06-05 09:39:23 +0200}: pull: Fast-forward
+---
+DIR=/var/www/projects/simbi-admin
+origin	git@github-vexima:odlemon/simbi-admin.git (fetch)
+origin	git@github-vexima:odlemon/simbi-admin.git (push)
+  branch=main
+  commit=f63acec | 2026-01-08 11:04:58 +0200 | s
+  FETCH_HEAD_mtime=2026-01-08 10:05:07.419187092 +0100
+  reflog=f63acec HEAD@{2026-01-08 10:05:07 +0100}: pull: Fast-forward
+---
+DIR=/var/www/projects/simbi-buyer
+origin	git@github-vexima:odlemon/simbi-buyer.git (fetch)
+origin	git@github-vexima:odlemon/simbi-buyer.git (push)
+  branch=main
+  commit=b17faf2 | 2026-01-08 11:58:02 +0200 | s
+  FETCH_HEAD_mtime=2026-01-08 10:59:19.154017861 +0100
+  reflog=b17faf2 HEAD@{2026-01-08 10:59:19 +0100}: pull: Fast-forward
+---
+DIR=/var/www/projects/simbi-seller
+origin	git@github-vexima:odlemon/simbi-seller.git (fetch)
+origin	git@github-vexima:odlemon/simbi-seller.git (push)
+  branch=main
+  commit=1150463 | 2026-01-08 11:37:33 +0200 | s
+  FETCH_HEAD_mtime=2026-01-08 10:38:30.915592598 +0100
+  reflog=1150463 HEAD@{2026-01-08 10:38:30 +0100}: pull: Fast-forward
+---
+DIR=/var/www/projects/zitf-connect-backend
+origin	https://github.com/blessingmwalein/zitf-connect-backend.git (fetch)
+origin	https://github.com/blessingmwalein/zitf-connect-backend.git (push)
+  branch=main
+  commit=d24d74c | 2026-04-13 13:16:47 +0200 | local
+  FETCH_HEAD_mtime=2026-04-13 13:16:47.904131582 +0200
+  reflog=d24d74c HEAD@{2026-04-13 13:16:47 +0200}: pull origin main --rebase (finish): returning to refs/heads/main
+---
+
+===== next apps =====
+NEXT=/var/www/projects/dev
+https://github.com/GRIdiscrete/nvccz-new.git
+[?1h=  4ce441c | 2026-07-10 17:39:58 +0200 | lcoal changes[m
+[K[?1l>NEXT=/var/www/projects/dev/stock-price-module
+https://github.com/GRIdiscrete/nvccz-new.git
+[?1h=  4ce441c | 2026-07-10 17:39:58 +0200 | lcoal changes[m
+[K[?1l>NEXT=/var/www/projects/simbi-buyer
+git@github-vexima:odlemon/simbi-buyer.git
+[?1h=  b17faf2 | 2026-01-08 11:58:02 +0200 | s[m
+[K[?1l>NEXT=/var/www/projects/QMS
+git@github.com:NiakaziTechnologies/QMS.git
+[?1h=  b347285 | 2025-11-28 14:53:28 +0200 | save[m
+[K[?1l>NEXT=/var/www/projects/simbi-seller
+git@github-vexima:odlemon/simbi-seller.git
+[?1h=  1150463 | 2026-01-08 11:37:33 +0200 | s[m
+[K[?1l>NEXT=/var/www/projects/nvccz-new/trading-dashboard-ui (1)
+https://github.com/GRIdiscrete/nvccz-new.git
+[?1h=  b76c98f | 2026-07-03 09:26:05 +0200 | local changes[m
+[K[?1l>NEXT=/var/www/projects/nvccz-new
+https://github.com/GRIdiscrete/nvccz-new.git
+[?1h=  b76c98f | 2026-07-03 09:26:05 +0200 | local changes[m
+[K[?1l>
+exit 0

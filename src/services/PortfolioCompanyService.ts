@@ -195,7 +195,7 @@ export class PortfolioCompanyService {
           website: request.website,
           description: request.description,
           logoUrl: request.logoUrl,
-          status: request.status || "PENDING",
+          status: request.status || "APPROVED",
           companySize: request.companySize,
           employeeCount: request.employeeCount,
           annualRevenue: request.annualRevenue,
@@ -719,6 +719,23 @@ export class PortfolioCompanyService {
             return sum + Number(d.amount);
           }, 0);
 
+        // Determine status based on fund disbursements only
+        // Priority: DISBURSED > APPROVED > PENDING > NO_INVESTMENT
+        let disbursementStatus = 'NO_INVESTMENT';
+        if (allDisbursements.length > 0) {
+          const hasDisbursed = allDisbursements.some(d => d.status === 'DISBURSED');
+          const hasApproved = allDisbursements.some(d => d.status === 'APPROVED');
+          const hasPending = allDisbursements.some(d => d.status === 'PENDING');
+          
+          if (hasDisbursed) {
+            disbursementStatus = 'DISBURSED';
+          } else if (hasApproved) {
+            disbursementStatus = 'APPROVED';
+          } else if (hasPending) {
+            disbursementStatus = 'PENDING';
+          }
+        }
+
         // Use fund from investmentImplementation if available, otherwise from portfolioCompany
         const fund = company.investmentImplementation?.fund || company.fund;
 
@@ -727,7 +744,7 @@ export class PortfolioCompanyService {
           name: company.name,
           registrationNumber: company.registrationNumber,
           industry: company.industry,
-          status: company.status,
+          status: disbursementStatus, // Status based on fund disbursements only
           fund: fund,
           user: company.user,
           totalInvested: totalInvested,
@@ -739,7 +756,14 @@ export class PortfolioCompanyService {
         };
       });
 
-      return companiesWithInvestments;
+      // Endpoint is "with-investments": exclude companies that have no investment activity
+      // (i.e. no disbursements at all). A company is considered "with investments" when it
+      // has at least one disbursement in any state (PENDING/APPROVED/DISBURSED).
+      const onlyWithInvestments = companiesWithInvestments.filter(
+        c => c.status !== 'NO_INVESTMENT'
+      );
+
+      return onlyWithInvestments;
     } catch (error) {
       throw error;
     }

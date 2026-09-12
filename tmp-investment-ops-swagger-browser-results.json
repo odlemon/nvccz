@@ -1,0 +1,30 @@
+{
+  "checks": [
+    {
+      "name": "Swagger IO tag present",
+      "ok": true,
+      "detail": "Investment Operations tag in /api-docs HTML"
+    },
+    {
+      "name": "Journals path in spec",
+      "ok": true,
+      "detail": "GET journals documented"
+    },
+    {
+      "name": "Journals fundId query param",
+      "ok": true,
+      "detail": "fundId filter available in embedded spec"
+    },
+    {
+      "name": "Journals without Bearer → 401",
+      "ok": true,
+      "detail": "status=401 message=Unauthorized"
+    },
+    {
+      "name": "Journals with Bearer → 200 + data",
+      "ok": true,
+      "detail": "status=200 count=11"
+    }
+  ],
+  "failed": 0
+}

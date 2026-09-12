@@ -3,6 +3,8 @@ import express from "express";
 import { VendorQuotationController } from "../controllers/VendorQuotationController";
 import { authenticate } from "../middleware/authenticate";
 
+import { requireAnyPermission, requireInternalStaffUser } from "../middleware/permissionAuth";
+import { PROCUREMENT_PERMISSIONS as PROC_PERMS } from "../config/procurementPermissions";
 const router = express.Router();
 
 /**
@@ -19,14 +21,23 @@ const router = express.Router();
  *           schema:
  *             type: object
  *             required:
+ *               - vendorPortalToken
  *               - vendorName
  *               - vendorEmail
  *               - items
  *             properties:
+ *               vendorPortalToken:
+ *                 type: string
+ *                 description: >
+ *                   Signed portal token from the RFQ invitation email (`token` query param).
+ *                   Embeds vendor id and procurement RFQ id; server verifies HMAC and invitation.
+ *               token:
+ *                 type: string
+ *                 description: Alias of `vendorPortalToken` (same value).
  *               rfqNumber:
  *                 type: string
- *                 description: RFQ number this quotation responds to
- *                 example: "RFQ-1729012345-123"
+ *                 description: Optional cross-check; must match the RFQ embedded in the token if supplied.
+ *                 example: "RFQ_20260511_0001"
  *               requisitionId:
  *                 type: string
  *                 description: Requisition ID (optional)
@@ -123,6 +134,7 @@ const router = express.Router();
  *                       type: string
  *                       example: "2 years"
  *           example:
+ *             vendorPortalToken: "<signed token from RFQ email link>"
  *             rfqNumber: "RFQ-1729012345-123"
  *             vendorName: "John Doe"
  *             vendorEmail: "john@abcsupplies.com"
@@ -164,6 +176,11 @@ router.post("/submit", VendorQuotationController.createVendorQuotation);
 
 // All routes below require authentication
 router.use(authenticate);
+// Internal staff only. Every route below is staff procurement data or a staff action;
+// `authenticate` alone let LP and investee portal accounts read vendor master data and
+// create internal requisitions. Vendors never reach these: their flows use signed
+// vendorPortalToken links on the public routes declared above this line.
+router.use(requireInternalStaffUser());
 
 /**
  * @swagger
@@ -224,7 +241,7 @@ router.use(authenticate);
  *       401:
  *         description: Unauthorized
  */
-router.get("/", VendorQuotationController.getAllQuotations);
+router.get("/", requireAnyPermission([PROC_PERMS.quotationsView]), VendorQuotationController.getAllQuotations);
 
 /**
  * @swagger
@@ -245,11 +262,27 @@ router.get("/", VendorQuotationController.getAllQuotations);
  *         example: "RFQ-1729012345-123"
  *     responses:
  *       200:
- *         description: List of quotations for the RFQ
- *       401:
- *         description: Unauthorized
+ *         description: List of quotations for the RFQ; `rfq` carries procurement row + itemsSnapshot when the RFQ exists (even if `data` is empty).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: array
+ *                   description: Vendor quotations (empty until vendors submit)
+ *                 rfq:
+ *                   type: object
+ *                   nullable: true
+ *                   description: Procurement RFQ header including itemsSnapshot (null if RFQ row was deleted or number unknown)
+ *                 count:
+ *                   type: number
  */
-router.get("/rfq/:rfqNumber", VendorQuotationController.getQuotationsByRFQ);
+router.get("/rfq/:rfqNumber", requireAnyPermission([PROC_PERMS.quotationsView]), VendorQuotationController.getQuotationsByRFQ);
 
 /**
  * @swagger
@@ -275,14 +308,17 @@ router.get("/rfq/:rfqNumber", VendorQuotationController.getQuotationsByRFQ);
  *       401:
  *         description: Unauthorized
  */
-router.get("/:id", VendorQuotationController.getQuotationById);
+router.get("/:id", requireAnyPermission([PROC_PERMS.quotationsView]), VendorQuotationController.getQuotationById);
 
 /**
  * @swagger
  * /vendor-quotations/{id}/accept:
  *   post:
  *     summary: Accept a vendor quotation
- *     description: **Required Role:** PROC_MGR or PROC_OFF. Accepts a quotation and automatically creates a Purchase Order. Once accepted, status becomes ACCEPTED and cannot be modified.
+ *     description: |
+ *       **Required Role:** PROC_MGR or PROC_OFF.
+ *       Accepts the quotation, notifies the vendor, auto-rejects other bids on the same RFQ number,
+ *       builds PO lines from the RFQ item snapshot (priced from the quote), creates the PO, and emails it to the vendor (PDF).
  *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
@@ -293,43 +329,14 @@ router.get("/:id", VendorQuotationController.getQuotationById);
  *         schema:
  *           type: string
  *         description: Quotation ID
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               reviewNotes:
- *                 type: string
- *                 description: Notes about the acceptance
- *                 example: "Best price and delivery time"
- *               createInvoice:
- *                 type: boolean
- *                 description: Whether to automatically create an invoice
- *                 default: true
- *           example:
- *             reviewNotes: "Best price and delivery time"
- *             createInvoice: true
+ *       - in: query
+ *         name: reviewNotes
+ *         schema:
+ *           type: string
+ *         description: Optional notes about the acceptance
  *     responses:
  *       200:
- *         description: Quotation accepted successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
- *                 data:
- *                   type: object
- *                   properties:
- *                     quotation:
- *                       type: object
- *                     invoice:
- *                       type: object
- *                       description: Created invoice (if createInvoice was true)
+ *         description: Quotation accepted; purchase order may be included in data
  *       400:
  *         description: Bad request
  *       401:
@@ -337,14 +344,14 @@ router.get("/:id", VendorQuotationController.getQuotationById);
  *       404:
  *         description: Quotation not found
  */
-router.post("/:id/accept", VendorQuotationController.acceptQuotation);
+router.post("/:id/accept", requireAnyPermission([PROC_PERMS.rfqAward]), VendorQuotationController.acceptQuotation);
 
 /**
  * @swagger
  * /vendor-quotations/{id}/reject:
  *   post:
  *     summary: Reject a vendor quotation
- *     description: **Required Role:** PROC_MGR or PROC_OFF. ⚠️ Once rejected, status becomes REJECTED and cannot be modified
+ *     description: **Required Role:** PROC_MGR or PROC_OFF. Sets status **REJECTED**, persists `rejectionReason`, and stores `rejectionContentFingerprint` on the quotation row. Response `data` includes those fields.
  *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
@@ -384,7 +391,11 @@ router.post("/:id/accept", VendorQuotationController.acceptQuotation);
  *       404:
  *         description: Quotation not found
  */
-router.post("/:id/reject", VendorQuotationController.rejectQuotation);
+router.post("/:id/reject", requireAnyPermission([PROC_PERMS.quotationsManage]), VendorQuotationController.rejectQuotation);
+
+// The evaluation team's technical score for a bid. Scoring (quotations.manage) and awarding
+// (rfq.award) are separate grants, so the desk that scores is not the one that decides.
+router.put("/:id/evaluation", requireAnyPermission([PROC_PERMS.quotationsManage]), VendorQuotationController.scoreQuotation);
 
 /**
  * @swagger
@@ -412,7 +423,7 @@ router.post("/:id/reject", VendorQuotationController.rejectQuotation);
  *       404:
  *         description: Quotation not found
  */
-router.delete("/:id", VendorQuotationController.deleteQuotation);
+router.delete("/:id", requireAnyPermission([PROC_PERMS.quotationsManage]), VendorQuotationController.deleteQuotation);
 
 export default router;
 

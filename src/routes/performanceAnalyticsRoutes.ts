@@ -1,19 +1,29 @@
 // @ts-nocheck
 import express from "express";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 import { PerformanceAnalyticsController } from "../controllers/PerformanceAnalyticsController";
 
 const router = express.Router();
+const READ_KEYS = ["performance.analytics.view", "performance.analytics.manage"]
+const WRITE_KEYS = ["performance.analytics.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 // All routes require authentication
 router.use(authenticate);
+router.use(guard);
 
 /**
  * @swagger
  * /api/performance/analytics/kpi:
  *   get:
  *     summary: Get KPI performance analysis
- *     description: Analyze KPI performance across goals with detailed metrics and trends
+ *     description: |
+ *       Analyze KPI performance across linked goals. **`totalCurrentValue` always comes from
+ *       company-level performance goals** (same as Total Revenue). KPIs with no company goal
+ *       show `0` until goals are linked and synced. Ledger totals are exposed separately as
+ *       `accountingCurrentValue` for comparison when the KPI is financial.
+ *       Use BSC GL period sync to import accounting into goals before expecting non-zero currents.
  *     tags: [📊 Performance Analytics]
  *     security:
  *       - bearerAuth: []
@@ -41,6 +51,11 @@ router.use(authenticate);
  *           type: string
  *           format: date
  *         description: End date for analysis period
+ *       - in: query
+ *         name: currencyId
+ *         schema:
+ *           type: string
+ *         description: Currency ID for filtering accounting data (required for accurate KPI values matching accounting module)
  *     responses:
  *       200:
  *         description: KPI analysis retrieved successfully
@@ -84,14 +99,38 @@ router.use(authenticate);
  *                             type: number
  *                           notStartedGoals:
  *                             type: number
+ *                           goalsTargetMet:
+ *                             type: number
+ *                             description: Count of linked goals where target is met (isTargetMet)
  *                           totalTargetValue:
  *                             type: number
+ *                             description: Sum of all linked goal targets
  *                           totalCurrentValue:
  *                             type: number
+ *                             description: Current value from synced performance goals (company goal when present)
+ *                           sourceCurrentValue:
+ *                             type: string
+ *                             enum: [performance_goals, accounting]
+ *                             description: Source of totalCurrentValue (performance_goals when goals exist)
+ *                           accountingCurrentValue:
+ *                             type: number
+ *                             description: Optional ledger total for financial KPIs (reference only when goals exist)
+ *                           accountingProgressPercentage:
+ *                             type: string
+ *                             description: Optional GL-based progress vs summed targets (reference only)
+ *                           syncStatus:
+ *                             type: string
+ *                             enum: [synced, pending]
+ *                             description: Whether any linked goal has BSC/GL/integration sync metadata
+ *                           progressSource:
+ *                             type: string
+ *                             enum: [goals, accounting]
  *                           progressPercentage:
  *                             type: string
+ *                             description: Average per-goal achievement when goals exist
  *                           completionRate:
  *                             type: string
+ *                             description: Percent of goals where target is met
  *                     summary:
  *                       type: object
  *                       properties:

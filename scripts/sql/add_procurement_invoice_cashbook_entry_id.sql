@@ -1,0 +1,6 @@
+-- Add cashbook_entry_id to procurement_invoices for cashbook integration (no Prisma migrate)
+-- Run via: scripts/add-procurement-invoice-cashbook-field.ts
+-- Step 1: Add column (run only if column does not exist)
+-- ALTER TABLE procurement_invoices ADD COLUMN cashbook_entry_id VARCHAR(191) NULL UNIQUE;
+-- Step 2: Add FK (run only if constraint does not exist)
+-- ALTER TABLE procurement_invoices ADD CONSTRAINT procurement_invoices_cashbook_entry_id_fkey FOREIGN KEY (cashbook_entry_id) REFERENCES cashbook_entries(id) ON DELETE SET NULL ON UPDATE CASCADE;
