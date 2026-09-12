@@ -83,6 +83,84 @@ export const emailTransport = nodemailer.createTransport({
   },
 });
 
+/**
+ * ---------------------------------------------------------------------------
+ * Outbound-mail safety interceptor
+ * ---------------------------------------------------------------------------
+ * This module exports ONE transport, and 52 call sites across 9 services use
+ * it — AuthController, EmailNotificationService, LpPortalInviteService,
+ * FundraisingMailerService and others. The only place every recipient can be
+ * intercepted at once is here.
+ *
+ * OFF BY DEFAULT. With MAIL_REDIRECT_ENFORCE unset, sendMail is untouched and
+ * production behaviour is exactly what it was.
+ *
+ * With MAIL_REDIRECT_ENFORCE=true:
+ *   MAIL_REDIRECT_TO set   -> every to/cc/bcc is replaced by that one address.
+ *                             The real recipients survive in the subject and in
+ *                             an X-Original-To header, so a test can still
+ *                             assert who the message was addressed to.
+ *   MAIL_REDIRECT_TO unset -> NOTHING is sent. The message is logged and a
+ *                             nodemailer-shaped result is returned, because
+ *                             callers read .messageId and .response.
+ *
+ * Fail-closed is deliberate. A half-configured guard that quietly delivers is
+ * worse than no guard, because it gets trusted: LP invitations and payslip
+ * notices go to real people, and this transport has live SMTP credentials.
+ */
+const MAIL_ENFORCE = String(process.env.MAIL_REDIRECT_ENFORCE || "").toLowerCase() === "true";
+const MAIL_REDIRECT_TO = String(process.env.MAIL_REDIRECT_TO || "").trim();
+
+if (MAIL_ENFORCE) {
+  const realSendMail = emailTransport.sendMail.bind(emailTransport);
+
+  /** nodemailer accepts a string, an {name,address} object, or an array of either. */
+  const flatten = (v) => {
+    if (!v) return "";
+    if (Array.isArray(v)) return v.map(flatten).filter(Boolean).join(", ");
+    if (typeof v === "string") return v;
+    return v.address || "";
+  };
+
+  emailTransport.sendMail = async (options = {}) => {
+    const original = ["to", "cc", "bcc"]
+      .map((k) => flatten(options[k]))
+      .filter(Boolean)
+      .join("; ");
+    const subject = options.subject || "";
+
+    if (!MAIL_REDIRECT_TO) {
+      console.warn(
+        `[mail:BLOCKED] to="${original}" subject="${subject}" — MAIL_REDIRECT_ENFORCE is on and MAIL_REDIRECT_TO is not set, so nothing was sent.`,
+      );
+      return {
+        messageId: `<blocked-${Date.now()}@mail-guard.local>`,
+        accepted: [],
+        rejected: [],
+        pending: [],
+        response: "250 Blocked by MAIL_REDIRECT_ENFORCE (MAIL_REDIRECT_TO is not configured)",
+        envelope: { from: options.from, to: [] },
+      };
+    }
+
+    console.warn(`[mail:REDIRECT] to="${original}" -> ${MAIL_REDIRECT_TO} subject="${subject}"`);
+    return realSendMail({
+      ...options,
+      to: MAIL_REDIRECT_TO,
+      cc: undefined,
+      bcc: undefined,
+      subject: `[TEST -> ${original}] ${subject}`,
+      headers: { ...(options.headers || {}), "X-Original-To": original },
+    });
+  };
+
+  console.warn(
+    MAIL_REDIRECT_TO
+      ? `[mail-guard] ACTIVE — every outbound message is redirected to ${MAIL_REDIRECT_TO}`
+      : `[mail-guard] ACTIVE — outbound mail is BLOCKED. Set MAIL_REDIRECT_TO to deliver to a single inbox instead.`,
+  );
+}
+
 export async function verifyEmailConnection(): Promise<boolean> {
   try {
     await emailTransport.verify();

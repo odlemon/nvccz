@@ -414,6 +414,20 @@ router.get(
 );
 
 // GP admin
+// Investor service desk, staff side. Until these existed an investor could submit a request and
+// nobody internal could read, assign or answer it, so SRD section 21's ASSIGNED -> UNDER REVIEW ->
+// AWAITING -> RESOLVED flow had no return leg. Not investor-scoped: admin guard only.
+router.get("/admin/requests", requireGpAdmin, LpPortalController.listAdminRequests);
+router.get("/admin/requests/:reference", requireGpAdmin, LpPortalController.getAdminRequest);
+router.patch("/admin/requests/:reference", requireGpAdmin, LpPortalController.updateAdminRequest);
+router.post("/admin/requests/:reference/messages", requireGpAdmin, LpPortalController.replyAdminRequest);
+
+// Investor notices, staff side. LpNotice already modelled ALL/FUND/ORG/USER targeting and a
+// receipt per recipient, but nothing could issue one — notices could be read and acknowledged and
+// never created.
+router.get("/admin/notices", requireGpAdmin, LpPortalController.listAdminNotices);
+router.post("/admin/notices", requireGpAdmin, LpPortalController.createAdminNotice);
+
 router.get("/admin/memberships", requireGpAdmin, LpPortalController.listAdminMemberships);
 router.post("/admin/memberships", requireGpAdmin, LpPortalController.createAdminMembership);
 router.patch(

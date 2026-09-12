@@ -18,6 +18,8 @@ export const CFO_MODULE_PERMISSIONS: PermissionEntry[] = [
   { name: "accounting.period_lock.manage", value: true },
   { name: "accounting.period_lock.override", value: true },
   { name: "accounting.period_lock.audit_view", value: true },
+  { name: "accounting.timesheets.view", value: true },
+  { name: "accounting.timesheets.manage", value: true },
   { name: "view_business_operations", value: true },
   { name: "manage_business_operations", value: true },
   { name: "view_events", value: true },

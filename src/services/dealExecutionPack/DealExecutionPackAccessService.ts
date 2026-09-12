@@ -9,11 +9,21 @@ export class DealExecutionPackAccessService {
 
   static isCco(user: any): boolean {
     const code = String(user?.roleCode || user?.role?.name || "").trim().toUpperCase();
-    return code === "CCO" || hasAnySignal(user, ["chief compliance", "cco", "compliance officer"]);
+    // The exact code check above already covers CCO; the bare "cco" fragment
+    // only added a collision with "A-cco-untant".
+    return code === "CCO" || hasAnySignal(user, ["chief compliance", "compliance officer"]);
   }
 
+  /**
+   * "ic" was a bare two-letter fragment matched as a substring, so "appl-ic-ant"
+   * and "off-ic-er" both satisfied it: every external applicant account was
+   * treated as an Investment Committee member. INV_COMM_MEM is the real code
+   * and was never checked.
+   */
   static isIcMember(user: any): boolean {
-    return hasAnySignal(user, ["investment committee", "ic member", "ic_member", "ic"]);
+    const code = String(user?.roleCode || user?.role?.name || "").trim().toUpperCase();
+    if (code === "INV_COMM_MEM" || code === "IC_MEMBER") return true;
+    return hasAnySignal(user, ["investment committee", "ic member", "ic_member"]);
   }
 
   static isAnalyst(user: any): boolean {

@@ -80,7 +80,12 @@ export function normalizeRfqItemLinesFromBody(items: unknown): NormalizedRfqLine
   return out;
 }
 
-/** Map DB purchase requisition lines to the same shape used for RFQ emails and snapshots. */
+/**
+ * Map DB purchase requisition lines to the same shape used for RFQ emails and snapshots.
+ *
+ * Prices are deliberately dropped. A requisition line's unit price is the requester's internal
+ * estimate; copied onto the RFQ it would be emailed to every invited vendor and anchor their bids.
+ */
 export function prItemsToNormalizedRfqLines(
   prItems: Array<{
     itemName: string;
@@ -94,16 +99,14 @@ export function prItemsToNormalizedRfqLines(
 ): NormalizedRfqLine[] {
   return prItems.map((it) => {
     const itemName = trimStr(it.itemName) || "Purchase requisition line";
-    const unitPrice = coerceOptionalMoney(it.unitPrice);
-    const lineTotal = coerceOptionalMoney(it.totalPrice);
     return {
       itemName,
       description: it.description ? trimStr(it.description) : undefined,
       quantity: coercePositiveQuantity(it.quantity),
       unit: it.unit ? trimStr(it.unit) : undefined,
       specifications: it.specifications ?? undefined,
-      unitPrice: unitPrice ?? null,
-      lineTotal: lineTotal ?? null,
+      unitPrice: null,
+      lineTotal: null,
     };
   });
 }

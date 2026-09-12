@@ -56,8 +56,11 @@ export class LpPortalVaultService {
     if (localPath && fs.existsSync(localPath)) {
       buffer = fs.readFileSync(localPath);
     } else {
-      const RemoteUploadService = (await import("../RemoteUploadService")).default;
-      buffer = await new RemoteUploadService().downloadFile(doc.fileUrl || doc.storagePath!);
+      // `RemoteUploadService` exports the class by name plus a ready-made singleton and has no
+      // default export, so `.default` was undefined: every investor document download failed with
+      // "RemoteUploadService is not a constructor".
+      const { remoteUploadService } = await import("../RemoteUploadService");
+      buffer = await remoteUploadService.downloadFile(doc.fileUrl || doc.storagePath!);
     }
     const ext = doc.mimeType?.includes("pdf")
       ? ".pdf"

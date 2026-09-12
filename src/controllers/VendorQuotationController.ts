@@ -4,6 +4,23 @@ import { VendorQuotationService } from "../services/VendorQuotationService";
 import { serializeDecimalsDeep } from "../utils/prismaDecimalJson";
 import { enrichRfqItemsSnapshotForApi } from "../utils/rfqItemInput";
 
+/**
+ * The service throws plain Errors for problems with the request itself — an unknown quotation,
+ * a bad or expired vendor portal token, a quotation already decided — and the error middleware
+ * answers any error without a status as a 500. That told a vendor or the desk the system had
+ * broken when the request was wrong, and buried real failures among them (PROC-FINDING-003).
+ * Database errors keep their 500.
+ */
+function withClientStatus(error: any) {
+  if (!error || error.status || error.statusCode) return error;
+  const msg = String(error.message || "");
+  if (/^PrismaClient/.test(String(error.name || "")) || /prisma\./i.test(msg)) return error;
+  if (/not found/i.test(msg)) error.status = 404;
+  else if (/already been|already (accepted|rejected|submitted)/i.test(msg)) error.status = 409;
+  else if (/token|required|invalid|expired|closed|not invited|does not match|must |not accepting|deadline has passed/i.test(msg)) error.status = 400;
+  return error;
+}
+
 export class VendorQuotationController {
   /**
    * Create a vendor quotation (PUBLIC - no auth required)
@@ -23,7 +40,7 @@ export class VendorQuotationController {
         data: serializeDecimalsDeep(quotation),
       });
     } catch (error: any) {
-      next(error);
+      next(withClientStatus(error));
     }
   }
 
@@ -55,7 +72,7 @@ export class VendorQuotationController {
         offset: result.offset
       });
     } catch (error: any) {
-      next(error);
+      next(withClientStatus(error));
     }
   }
 
@@ -78,7 +95,7 @@ export class VendorQuotationController {
         data
       });
     } catch (error: any) {
-      next(error);
+      next(withClientStatus(error));
     }
   }
 
@@ -106,7 +123,7 @@ export class VendorQuotationController {
         count: data.length,
       });
     } catch (error: any) {
-      next(error);
+      next(withClientStatus(error));
     }
   }
 
@@ -153,13 +170,39 @@ export class VendorQuotationController {
         }),
       });
     } catch (error: any) {
-      next(error);
+      next(withClientStatus(error));
     }
   }
 
   /**
    * Reject a vendor quotation (AUTHENTICATED)
    */
+  /**
+   * Record the evaluation team's technical score for a bid (PUT /:id/evaluation), 0 to 100.
+   * Only while the bid is still open. A vendor's own declarations never count as this score.
+   */
+  static async scoreQuotation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+      const raw = req.body?.score;
+      if (raw === undefined || raw === null || raw === "" || !Number.isFinite(Number(raw))) {
+        return res.status(400).json({ success: false, message: "score is required, a number from 0 to 100" });
+      }
+      const updated = await VendorQuotationService.recordEvaluation({
+        quotationId: req.params.id,
+        score: Number(raw),
+        notes: typeof req.body?.notes === "string" ? req.body.notes : undefined,
+        scoredById: userId,
+      });
+      res.json({ success: true, message: "Technical score recorded", data: serializeDecimalsDeep(updated) });
+    } catch (error: any) {
+      next(withClientStatus(error));
+    }
+  }
+
   static async rejectQuotation(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
@@ -195,7 +238,7 @@ export class VendorQuotationController {
         data: serializeDecimalsDeep(result.quotation),
       });
     } catch (error: any) {
-      next(error);
+      next(withClientStatus(error));
     }
   }
 
@@ -222,7 +265,7 @@ export class VendorQuotationController {
         message: "Quotation deleted successfully"
       });
     } catch (error: any) {
-      next(error);
+      next(withClientStatus(error));
     }
   }
 }

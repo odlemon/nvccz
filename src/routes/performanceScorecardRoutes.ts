@@ -1,11 +1,16 @@
 // @ts-nocheck
 import express from "express";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 import { PerformanceScorecardController } from "../controllers/PerformanceScorecardController";
 
 const router = express.Router();
+const READ_KEYS = ["performance.scorecards.view", "performance.scorecards.manage"]
+const WRITE_KEYS = ["performance.scorecards.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 router.use(authenticate);
+router.use(guard);
 
 /**
  * @swagger

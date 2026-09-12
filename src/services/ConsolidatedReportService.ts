@@ -28,12 +28,31 @@ export interface ConsolidatedBalanceSheetParams {
   startDate?: Date;
   endDate?: Date;
   hideZeroBalances?: boolean;
+  /** Group Consolidation: scope to one ForecastEntity's own journal entries. Omitted = whole ledger (existing behavior, unchanged). */
+  forecastEntityId?: string;
+  /** Group Consolidation: true = only manually-flagged elimination journals, false = exclude them, omitted = no filter (existing behavior, unchanged). */
+  isEliminationEntry?: boolean;
 }
 
 export interface ConsolidatedIncomeStatementParams {
   startDate: Date;
   endDate: Date;
   consolidationCurrencyId: string;
+  /** Group Consolidation: scope to one ForecastEntity's own journal entries. Omitted = whole ledger (existing behavior, unchanged). */
+  forecastEntityId?: string;
+  /** Group Consolidation: true = only manually-flagged elimination journals, false = exclude them, omitted = no filter (existing behavior, unchanged). */
+  isEliminationEntry?: boolean;
+}
+
+export interface ConsolidationSummaryParams {
+  /** Balance sheet as-of date. Defaults to now. */
+  asOfDate?: Date;
+  /** Income statement period. Defaults to month-to-date. */
+  periodStart?: Date;
+  periodEnd?: Date;
+  consolidationCurrencyId: string;
+  /** Scope to one entity's own summary. Omitted = full multi-entity + eliminations + consolidated envelope. */
+  forecastEntityId?: string;
 }
 
 type RateCache = Map<string, { rate: number; code: string }>;
@@ -380,6 +399,27 @@ export class ConsolidatedReportService {
     return out;
   }
 
+  /**
+   * Group Consolidation: merge optional `forecastEntityId` / `isEliminationEntry` scoping onto an
+   * already-built GL reporting `where` (from `buildJournalEntryWhereForGlReporting`). Both are added
+   * as additional top-level fields — Prisma combines them with that where's existing `AND` array via
+   * implicit AND, no need to touch the shared helper. Omitting both keeps every existing caller's
+   * behavior (whole-ledger, no entity/elimination filter) bit-for-bit unchanged.
+   */
+  private static applyConsolidationScope(
+    where: Record<string, unknown>,
+    scope: { forecastEntityId?: string; isEliminationEntry?: boolean }
+  ): Record<string, unknown> {
+    const scoped: Record<string, unknown> = { ...where };
+    if (scope.forecastEntityId) {
+      scoped.forecastEntityId = scope.forecastEntityId;
+    }
+    if (scope.isEliminationEntry !== undefined) {
+      scoped.isEliminationEntry = scope.isEliminationEntry;
+    }
+    return scoped;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   //  CONSOLIDATED BALANCE SHEET
   // ═══════════════════════════════════════════════════════════════════════════
@@ -401,8 +441,11 @@ export class ConsolidatedReportService {
       endDate.setHours(23, 59, 59, 999);
     }
 
-    // Fetch ALL journal lines — no currency filter
-    const journalEntryWhere = buildJournalEntryWhereForGlReporting({ gte: startDate, lte: endDate });
+    // Fetch ALL journal lines — no currency filter (optionally scoped by forecastEntityId / isEliminationEntry for Group Consolidation)
+    const journalEntryWhere = this.applyConsolidationScope(
+      buildJournalEntryWhereForGlReporting({ gte: startDate, lte: endDate }),
+      params
+    );
 
     const accounts = await prisma.chartOfAccounts.findMany({
       where: { financialStatement: { in: ["Balance Sheet", "Balance sheet"] }, isActive: true },
@@ -589,8 +632,11 @@ export class ConsolidatedReportService {
     const ed = new Date(endDate);
     ed.setHours(23, 59, 59, 999);
 
-    // Fetch ALL posted JE lines — no currency filter
-    const journalEntryWhere = buildJournalEntryWhereForGlReporting({ gte: sd, lte: ed });
+    // Fetch ALL posted JE lines — no currency filter (optionally scoped by forecastEntityId / isEliminationEntry for Group Consolidation)
+    const journalEntryWhere = this.applyConsolidationScope(
+      buildJournalEntryWhereForGlReporting({ gte: sd, lte: ed }),
+      params
+    );
 
     const journalLines = await this.loadJournalLinesWithCoaForConsolidated(journalEntryWhere);
 
@@ -741,6 +787,168 @@ export class ConsolidatedReportService {
         belowTheLine: belowTotal,
         netIncome,
       },
+      generatedAt: new Date(),
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  GROUP CONSOLIDATION SUMMARY (multi-entity)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private static round2(n: number): number {
+    return Math.round(n * 100) / 100;
+  }
+
+  /**
+   * One entity's own GL summary — reuses the exact same currency-consolidation math as the
+   * standalone balance sheet / income statement reports, just scoped via forecastEntityId.
+   * Excludes that entity's own elimination-flagged journals (isEliminationEntry: false) so a
+   * multi-entity caller can add these up and separately net out eliminations without double-counting.
+   */
+  private static async buildEntityGlSummary(
+    entity: { id: string; name: string; type: string },
+    asOfDate: Date,
+    periodStart: Date,
+    periodEnd: Date,
+    consolidationCurrencyId: string
+  ) {
+    const [bs, is] = await Promise.all([
+      this.generateConsolidatedBalanceSheet({
+        asOfDate,
+        consolidationCurrencyId,
+        hideZeroBalances: true,
+        forecastEntityId: entity.id,
+        isEliminationEntry: false,
+      }),
+      this.generateConsolidatedIncomeStatement({
+        startDate: periodStart,
+        endDate: periodEnd,
+        consolidationCurrencyId,
+        forecastEntityId: entity.id,
+        isEliminationEntry: false,
+      }),
+    ]);
+
+    return {
+      forecastEntityId: entity.id,
+      entityName: entity.name,
+      entityType: entity.type,
+      balanceSheet: {
+        totalAssets: bs.assets.totalAssets,
+        totalLiabilities: bs.liabilities.totalLiabilities,
+        totalEquity: bs.equity.total,
+        isBalanced: bs.isBalanced,
+      },
+      incomeStatement: {
+        revenue: is.sections.revenue.total,
+        expenses: is.sections.operatingExpenses.total,
+        netIncome: is.totals.netIncome,
+      },
+    };
+  }
+
+  /**
+   * Group Consolidation summary. Two modes:
+   *  - `forecastEntityId` given: returns that one entity's own GL summary.
+   *  - omitted: returns EVERY active ForecastEntity's own summary, plus an `eliminations` line
+   *    (the sum of all `isEliminationEntry: true` journals, ledger-wide) and a `consolidated`
+   *    total = combined (sum of all entities) MINUS eliminations — netted out as its own visible
+   *    layer rather than silently folded into the combined figure.
+   */
+  static async getConsolidationSummary(params: ConsolidationSummaryParams) {
+    const asOfDate = params.asOfDate ?? new Date();
+    const periodStart = params.periodStart ?? new Date(asOfDate.getFullYear(), asOfDate.getMonth(), 1);
+    const periodEnd = params.periodEnd ?? asOfDate;
+    const { consolidationCurrencyId } = params;
+
+    if (params.forecastEntityId) {
+      const entity = await prisma.forecastEntity.findUnique({
+        where: { id: params.forecastEntityId },
+        select: { id: true, name: true, type: true, isActive: true },
+      });
+      if (!entity) {
+        throw new Error(`ForecastEntity not found: ${params.forecastEntityId}`);
+      }
+      const summary = await this.buildEntityGlSummary(entity, asOfDate, periodStart, periodEnd, consolidationCurrencyId);
+      return {
+        scope: "SINGLE_ENTITY" as const,
+        asOfDate,
+        period: { startDate: periodStart, endDate: periodEnd },
+        consolidationCurrencyId,
+        entity: summary,
+        generatedAt: new Date(),
+      };
+    }
+
+    const entities = await prisma.forecastEntity.findMany({
+      where: { isActive: true },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+      select: { id: true, name: true, type: true },
+    });
+
+    const entitySummaries = await Promise.all(
+      entities.map((e) => this.buildEntityGlSummary(e, asOfDate, periodStart, periodEnd, consolidationCurrencyId))
+    );
+
+    // Eliminations: every isEliminationEntry=true journal, ledger-wide (not scoped to one entity —
+    // a human posts these at the group layer to net out inter-entity balances/activity).
+    const [elimBs, elimIs] = await Promise.all([
+      this.generateConsolidatedBalanceSheet({
+        asOfDate,
+        consolidationCurrencyId,
+        hideZeroBalances: true,
+        isEliminationEntry: true,
+      }),
+      this.generateConsolidatedIncomeStatement({
+        startDate: periodStart,
+        endDate: periodEnd,
+        consolidationCurrencyId,
+        isEliminationEntry: true,
+      }),
+    ]);
+    const eliminations = {
+      totalAssets: elimBs.assets.totalAssets,
+      totalLiabilities: elimBs.liabilities.totalLiabilities,
+      totalEquity: elimBs.equity.total,
+      revenue: elimIs.sections.revenue.total,
+      expenses: elimIs.sections.operatingExpenses.total,
+      netIncome: elimIs.totals.netIncome,
+    };
+
+    const zero = { totalAssets: 0, totalLiabilities: 0, totalEquity: 0, revenue: 0, expenses: 0, netIncome: 0 };
+    const combinedBeforeEliminations = entitySummaries.reduce(
+      (acc, e) => ({
+        totalAssets: acc.totalAssets + e.balanceSheet.totalAssets,
+        totalLiabilities: acc.totalLiabilities + e.balanceSheet.totalLiabilities,
+        totalEquity: acc.totalEquity + e.balanceSheet.totalEquity,
+        revenue: acc.revenue + e.incomeStatement.revenue,
+        expenses: acc.expenses + e.incomeStatement.expenses,
+        netIncome: acc.netIncome + e.incomeStatement.netIncome,
+      }),
+      { ...zero }
+    );
+    for (const k of Object.keys(combinedBeforeEliminations) as Array<keyof typeof combinedBeforeEliminations>) {
+      combinedBeforeEliminations[k] = this.round2(combinedBeforeEliminations[k]);
+    }
+
+    const consolidated = {
+      totalAssets: this.round2(combinedBeforeEliminations.totalAssets - eliminations.totalAssets),
+      totalLiabilities: this.round2(combinedBeforeEliminations.totalLiabilities - eliminations.totalLiabilities),
+      totalEquity: this.round2(combinedBeforeEliminations.totalEquity - eliminations.totalEquity),
+      revenue: this.round2(combinedBeforeEliminations.revenue - eliminations.revenue),
+      expenses: this.round2(combinedBeforeEliminations.expenses - eliminations.expenses),
+      netIncome: this.round2(combinedBeforeEliminations.netIncome - eliminations.netIncome),
+    };
+
+    return {
+      scope: "MULTI_ENTITY" as const,
+      asOfDate,
+      period: { startDate: periodStart, endDate: periodEnd },
+      consolidationCurrencyId,
+      entities: entitySummaries,
+      eliminations,
+      combinedBeforeEliminations,
+      consolidated,
       generatedAt: new Date(),
     };
   }

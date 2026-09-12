@@ -218,7 +218,7 @@ export class UserService {
             <p>You can now access the system using these credentials. If you have any questions or need assistance, please contact the IT department.</p>
             
             <p style="text-align: center;">
-              <a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/login" class="button">Login to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</a>
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:3001'}/login" class="button">Login to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</a>
             </p>
           </div>
           <div class="footer">
@@ -253,7 +253,7 @@ IMPORTANT SECURITY NOTICE:
 
 You can now access the system using these credentials. If you have any questions or need assistance, please contact the IT department.
 
-Login URL: ${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/login
+Login URL: ${process.env.FRONTEND_URL || 'http://localhost:3001'}/login
 
 © 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.
 This is an automated message. Please do not reply to this email.
@@ -284,6 +284,55 @@ This is an automated message. Please do not reply to this email.
       console.error("❌ Error sending credentials email:", error);
       throw error;
     }
+  }
+
+  /**
+   * Resolve a roleCode (e.g. "IT_SUPPORT") to the Role record that actually grants
+   * permissions, via hardcodedRoles.ts's roleCode -> role name mapping.
+   *
+   * Extracted out of createUser so updateUser can share it. Before this, updateUser
+   * only ever wrote userData.roleId onto the row, and only when the caller passed one
+   * explicitly -- which the admin UI's Edit User form never does; it only sends
+   * roleCode. So changing a user's role through Edit User changed the roleCode label
+   * everywhere it's displayed, updated the audit log with the new code, and returned
+   * 200 "User updated successfully" -- while the user's roleId, and therefore every
+   * permission check in the system (all of which read role.permissions via the roleId
+   * relation, not the roleCode string), silently kept pointing at their OLD role. An
+   * admin "promoting" someone via Edit User believed it took effect; it hadn't.
+   */
+  static async resolveRoleIdFromRoleCode(roleCode: string): Promise<{ id: string; name: string; code: string }> {
+    const { getRoleByCode } = await import('../config/hardcodedRoles');
+    const hardcodedRole = getRoleByCode(roleCode);
+
+    if (!hardcodedRole) {
+      throw new Error(`Invalid roleCode: ${roleCode}. Role code not found in hardcoded roles.`);
+    }
+
+    // Find the Role record in database by name
+    // Try exact match first, then case-insensitive if needed
+    let role = await prisma.role.findFirst({
+      where: {
+        name: hardcodedRole.name
+      }
+    });
+
+    // If exact match fails, try case-insensitive (for MySQL compatibility)
+    if (!role) {
+      const allRoles = await prisma.role.findMany({
+        where: {
+          name: {
+            notIn: ["admin", "applicant"]
+          }
+        }
+      });
+      role = allRoles.find(r => r.name.toLowerCase() === hardcodedRole.name.toLowerCase());
+    }
+
+    if (!role) {
+      throw new Error(`Role "${hardcodedRole.name}" not found in database. Please ensure roles are synced by running: npx ts-node scripts/sync-hardcoded-roles.ts`);
+    }
+
+    return { id: role.id, name: role.name, code: hardcodedRole.code };
   }
 
   /**
@@ -327,38 +376,9 @@ This is an automated message. Please do not reply to this email.
       }
 
       // Find the role by mapping roleCode to role name using hardcoded roles
-      const { getRoleByCode } = await import('../config/hardcodedRoles');
-      const hardcodedRole = getRoleByCode(userData.roleCode);
-      
-      if (!hardcodedRole) {
-        throw new Error(`Invalid roleCode: ${userData.roleCode}. Role code not found in hardcoded roles.`);
-      }
+      const role = await this.resolveRoleIdFromRoleCode(userData.roleCode);
 
-      // Find the Role record in database by name
-      // Try exact match first, then case-insensitive if needed
-      let role = await prisma.role.findFirst({
-        where: { 
-          name: hardcodedRole.name
-        }
-      });
-
-      // If exact match fails, try case-insensitive (for MySQL compatibility)
-      if (!role) {
-        const allRoles = await prisma.role.findMany({
-          where: {
-            name: {
-              notIn: ["admin", "applicant"]
-            }
-          }
-        });
-        role = allRoles.find(r => r.name.toLowerCase() === hardcodedRole.name.toLowerCase());
-      }
-
-      if (!role) {
-        throw new Error(`Role "${hardcodedRole.name}" not found in database. Please ensure roles are synced by running: npx ts-node scripts/sync-hardcoded-roles.ts`);
-      }
-
-      const assigningCeo = hardcodedRole.code === "CEO" || String(role.name || "").trim().toUpperCase() === "CEO";
+      const assigningCeo = role.code === "CEO" || String(role.name || "").trim().toUpperCase() === "CEO";
       await this.assertAtMostOneCeoInSystem({ assigningCeo });
 
       const isBoardRole = this.isBoardVotingRole(userData.roleCode);
@@ -621,7 +641,17 @@ This is an automated message. Please do not reply to this email.
       if (userData.department) updateData.userDepartment = userData.department;
       if (userData.roleCode) updateData.roleCode = userData.roleCode;
       if (userData.departmentRole) updateData.departmentRole = userData.departmentRole;
-      if (userData.roleId) updateData.roleId = userData.roleId;
+      if (userData.roleId) {
+        // Caller passed roleId explicitly -- honour it as-is, same as before.
+        updateData.roleId = userData.roleId;
+      } else if (userData.roleCode) {
+        // The admin UI's Edit User form sends roleCode, never roleId. Resolve it the
+        // same way createUser does, so roleId (the relation every permission check in
+        // the system actually reads) moves together with the roleCode label instead of
+        // being left pointed at the user's previous role.
+        const resolved = await this.resolveRoleIdFromRoleCode(userData.roleCode);
+        updateData.roleId = resolved.id;
+      }
       if (!isBoardRole && this.isBoardVotingRole(existingUser.roleCode)) {
         updateData.votingPower = null;
       }

@@ -2,7 +2,9 @@
 import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { VendorInvoiceIntakeService } from "../services/VendorInvoiceIntakeService";
+import { VendorInvoiceExtractionService } from "../services/VendorInvoiceExtractionService";
 import { ThreeWayMatchService } from "../services/ThreeWayMatchService";
+import { getSuite06MatchConfidenceThreshold } from "../config/suite06Config";
 
 export class ProcurementSuite06Controller {
   private static async withTimeout<T>(label: string, ms: number, p: Promise<T>): Promise<T> {
@@ -93,6 +95,136 @@ export class ProcurementSuite06Controller {
       res.json({ success: true, data });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
+    }
+  }
+
+  /**
+   * Procurement → AI Invoice Capture: PDF in, extracted fields out, in one call.
+   *
+   * The fields prefill the operator's capture form; the invoice is still written by
+   * POST /procurement/invoices, so three-way matching, approval and payment are untouched.
+   * With a known vendor (given, or resolved from the purchase order) the extraction is stored
+   * as a VendorInvoiceIntake, so it reaches the verification queue and the per-vendor correction
+   * map. Without one the PDF is still parsed — refusing to read an invoice because nobody has
+   * picked the vendor yet would be worse than reading it.
+   */
+  static async extractForCapture(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file?.buffer?.length) {
+        return res.status(400).json({
+          success: false,
+          message: "PDF file is required (multipart field name: document)",
+        });
+      }
+
+      const { getLlmConfig } = await import("../services/LlmChatService");
+      if (!getLlmConfig().configured) {
+        return res.status(503).json({
+          success: false,
+          message: "Invoice extraction is not configured on this server. Capture the invoice by hand, or set LLM_API_KEY.",
+        });
+      }
+
+      const purchaseOrderId = String(req.body?.purchaseOrderId ?? "").trim();
+      let vendorId = String(req.body?.vendorId ?? "").trim();
+      if (!vendorId && purchaseOrderId) {
+        const po = await prisma.purchaseOrder.findUnique({
+          where: { id: purchaseOrderId },
+          select: { vendorId: true },
+        });
+        vendorId = po?.vendorId || "";
+      }
+
+      const { FirebaseStorageService } = await import("../services/FirebaseStorageService");
+      const { downloadURL: documentUrl } = await ProcurementSuite06Controller.withTimeout(
+        "Upload vendor invoice PDF",
+        70_000,
+        FirebaseStorageService.uploadProcurementVendorInvoice(
+          file.buffer,
+          file.originalname || "invoice.pdf",
+          userId
+        )
+      );
+
+      const threshold = getSuite06MatchConfidenceThreshold();
+
+      if (vendorId) {
+        const intake = await VendorInvoiceIntakeService.createCaptureIntake({
+          documentUrl,
+          vendorId,
+          sourcePurchaseOrderId: purchaseOrderId || null,
+          createdById: userId,
+        });
+        const extracted = await ProcurementSuite06Controller.withTimeout(
+          "Extract vendor invoice",
+          150_000,
+          VendorInvoiceIntakeService.runExtraction(intake.id)
+        );
+        return res.json({
+          success: true,
+          data: {
+            payload: extracted.extractedPayloadJson,
+            documentUrl,
+            intake: {
+              id: extracted.id,
+              intakeNumber: extracted.intakeNumber,
+              status: extracted.status,
+              taxParseStatus: extracted.taxParseStatus,
+            },
+            storedIntake: true,
+            lowConfidence: extracted.status === "PENDING_VERIFICATION",
+            threshold,
+          },
+        });
+      }
+
+      const rawText = await ProcurementSuite06Controller.withTimeout(
+        "Read vendor invoice PDF",
+        90_000,
+        VendorInvoiceExtractionService.extractTextFromUrl(documentUrl, file.originalname || "invoice.pdf")
+      );
+      const { payload } = await ProcurementSuite06Controller.withTimeout(
+        "Extract vendor invoice",
+        150_000,
+        VendorInvoiceExtractionService.parseExtractedTextWithLlm(rawText)
+      );
+      return res.json({
+        success: true,
+        data: {
+          payload,
+          documentUrl,
+          intake: null,
+          storedIntake: false,
+          lowConfidence: Number(payload?.overallConfidence ?? 0) < threshold,
+          threshold,
+        },
+      });
+    } catch (e: any) {
+      const msg = e?.message || "Failed to extract the invoice";
+      const code = String(e?.code || e?.cause?.code || "");
+      const isTimeout = /timed out/i.test(msg);
+      // The model could not be reached at all (no egress, DNS, refused). That is an outage of the
+      // reading service, not a bad invoice, and the operator can still capture the invoice by hand.
+      const isUnreachable =
+        /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|CERT_/i.test(code) ||
+        /getaddrinfo|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ENETUNREACH|socket hang up|network error/i.test(msg);
+      // A scanned-image PDF carries no text layer: the operator needs to know that, not a 500.
+      const isUnreadable =
+        !isTimeout && !isUnreachable && /no (readable )?text|empty|could not (be )?(read|parsed)|unsupported/i.test(msg);
+
+      if (isUnreachable || isTimeout) {
+        console.error("[Suite06] invoice extraction unavailable", { code, msg });
+        return res.status(503).json({
+          success: false,
+          message:
+            "The invoice reading service could not be reached, so nothing was read and nothing was saved. Capture this invoice by hand, or ask an administrator to check the extraction settings.",
+        });
+      }
+      res.status(isUnreadable ? 400 : 500).json({ success: false, message: msg });
     }
   }
 

@@ -8,7 +8,9 @@ import {
 import { prisma } from "../utils/database";
 import { parseDate } from "../utils/dateHelper";
 import { hasUsableRfqItemLines } from "../utils/rfqItemInput";
-import { isModulePrivilegedUser } from "../config/cfoModulePermissions";
+import { isModulePrivilegedUser, userHasEffectivePermission } from "../config/cfoModulePermissions";
+import { PROCUREMENT_PERMISSIONS } from "../config/procurementPermissions";
+import { publicErrorMessage } from "../utils/publicErrorMessage";
 
 export class ProcurementController {
   /**
@@ -77,7 +79,7 @@ export class ProcurementController {
       console.error("Error creating purchase requisition:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to create purchase requisition"
+        message: publicErrorMessage(error, "Failed to create purchase requisition")
       });
     }
   }
@@ -108,7 +110,7 @@ export class ProcurementController {
       console.error("Error fetching my purchase requisitions:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to fetch my purchase requisitions"
+        message: publicErrorMessage(error, "Failed to fetch my purchase requisitions")
       });
     }
   }
@@ -178,7 +180,7 @@ export class ProcurementController {
       console.error("Error fetching pending requisitions for department head:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to fetch pending requisitions"
+        message: publicErrorMessage(error, "Failed to fetch pending requisitions")
       });
     }
   }
@@ -210,8 +212,13 @@ export class ProcurementController {
       });
 
       const isAdmin = user ? isModulePrivilegedUser(user) : false;
+      // The procurement desk works from every department's requisitions, not only its own.
+      const canViewAll = userHasEffectivePermission(
+        (req as any).user,
+        PROCUREMENT_PERMISSIONS.requisitionsViewAll,
+      );
 
-      if (!user || (!isAdmin && !user.userDepartment)) {
+      if (!user || (!isAdmin && !canViewAll && !user.userDepartment)) {
         return res.status(403).json({
           success: false,
           message: "User is not assigned to any department"
@@ -219,8 +226,9 @@ export class ProcurementController {
       }
 
       // Check if user can view requisitions (HEAD, DEPUTY, or PROC_MGR)
-      const canView = 
+      const canView =
         isAdmin ||
+        canViewAll ||
         user.departmentRole === 'HEAD' || 
         user.departmentRole === 'DEPUTY' || 
         user.roleCode === 'PROC_MGR';
@@ -241,7 +249,7 @@ export class ProcurementController {
       } = req.query;
 
       // Filter by user's department - requisitions target the department
-      const where: any = isAdmin
+      const where: any = isAdmin || canViewAll
         ? {}
         : { department: user.userDepartment }; // Non-admins are filtered by department name
 
@@ -320,7 +328,7 @@ export class ProcurementController {
       console.error("Error getting purchase requisitions:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get purchase requisitions"
+        message: publicErrorMessage(error, "Failed to get purchase requisitions")
       });
     }
   }
@@ -414,7 +422,7 @@ export class ProcurementController {
       console.error("Error getting purchase requisition:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get purchase requisition"
+        message: publicErrorMessage(error, "Failed to get purchase requisition")
       });
     }
   }
@@ -438,7 +446,7 @@ export class ProcurementController {
       const code = error?.message?.includes("Not authorized") ? 403 : 400;
       return res.status(code).json({
         success: false,
-        message: error.message || "Failed to list investee requisitions",
+        message: publicErrorMessage(error, "Failed to list investee requisitions"),
       });
     }
   }
@@ -462,7 +470,7 @@ export class ProcurementController {
       const code = error?.message?.includes("Not authorized") ? 403 : 400;
       return res.status(code).json({
         success: false,
-        message: error.message || "Failed to list SLA breaches",
+        message: publicErrorMessage(error, "Failed to list SLA breaches"),
       });
     }
   }
@@ -493,7 +501,7 @@ export class ProcurementController {
       console.error("Error submitting purchase requisition:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to submit purchase requisition"
+        message: publicErrorMessage(error, "Failed to submit purchase requisition")
       });
     }
   }
@@ -524,7 +532,7 @@ export class ProcurementController {
       console.error("Error approving purchase requisition:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to approve purchase requisition"
+        message: publicErrorMessage(error, "Failed to approve purchase requisition")
       });
     }
   }
@@ -563,7 +571,7 @@ export class ProcurementController {
       console.error("Error rejecting purchase requisition:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to reject purchase requisition"
+        message: publicErrorMessage(error, "Failed to reject purchase requisition")
       });
     }
   }
@@ -594,7 +602,7 @@ export class ProcurementController {
       console.error("Error updating purchase requisition:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to update purchase requisition"
+        message: publicErrorMessage(error, "Failed to update purchase requisition")
       });
     }
   }
@@ -633,6 +641,25 @@ export class ProcurementController {
         });
       }
 
+      // A direct order (no accepted quotation) is raised from an approved requisition, and only once:
+      // the requisition is marked converted below so it cannot be ordered, or sent to RFQ, again.
+      const directFromRequisition = Boolean(requisitionId) && !quotationId;
+      if (directFromRequisition) {
+        const reqRow = await prisma.purchaseRequisition.findUnique({
+          where: { id: String(requisitionId) },
+          select: { status: true, requisitionNumber: true },
+        });
+        if (!reqRow) {
+          return res.status(404).json({ success: false, message: "Purchase requisition not found" });
+        }
+        if (String(reqRow.status).toUpperCase() !== "APPROVED") {
+          return res.status(400).json({
+            success: false,
+            message: `Only an approved requisition can be ordered directly (${reqRow.requisitionNumber} is ${reqRow.status}).`,
+          });
+        }
+      }
+
       const purchaseOrder = await ProcurementService.createPurchaseOrder({
         requisitionId,
         quotationId: quotationId ? String(quotationId).trim() : undefined,
@@ -656,7 +683,7 @@ export class ProcurementController {
       console.error("Error creating purchase order:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to create purchase order"
+        message: publicErrorMessage(error, "Failed to create purchase order")
       });
     }
   }
@@ -746,7 +773,7 @@ export class ProcurementController {
       console.error("Error creating/sending RFQ:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to create/send RFQ"
+        message: publicErrorMessage(error, "Failed to create/send RFQ")
       });
     }
   }
@@ -777,7 +804,7 @@ export class ProcurementController {
       console.error("Error getting RFQs:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get RFQs"
+        message: publicErrorMessage(error, "Failed to get RFQs")
       });
     }
   }
@@ -808,7 +835,7 @@ export class ProcurementController {
       console.error("Error sending purchase order:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to send purchase order"
+        message: publicErrorMessage(error, "Failed to send purchase order")
       });
     }
   }
@@ -902,7 +929,7 @@ export class ProcurementController {
       console.error("Error getting purchase orders:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get purchase orders"
+        message: publicErrorMessage(error, "Failed to get purchase orders")
       });
     }
   }
@@ -996,7 +1023,7 @@ export class ProcurementController {
       console.error("Error getting purchase order:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get purchase order",
+        message: publicErrorMessage(error, "Failed to get purchase order"),
       });
     }
   }
@@ -1040,7 +1067,7 @@ export class ProcurementController {
       console.error("Error uploading vendor invoice document:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to upload document",
+        message: publicErrorMessage(error, "Failed to upload document"),
       });
     }
   }
@@ -1135,8 +1162,109 @@ export class ProcurementController {
       console.error("Error creating procurement invoice:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to create procurement invoice"
+        message: publicErrorMessage(error, "Failed to create procurement invoice")
       });
+    }
+  }
+
+  /**
+   * PUBLIC, token-scoped. The purchase order behind a vendor's emailed invoice link
+   * (`PO_VENDOR_INVOICE` token), so the vendor invoice form can show the order, prefill its lines and
+   * say whether it still takes invoices. Only the PO named in the token, for the vendor in the token.
+   */
+  static async getVendorPortalPurchaseOrder(req: Request, res: Response) {
+    const raw = String(req.query.token || req.query.vendorPortalToken || "").trim();
+    if (!raw) {
+      return res.status(400).json({ success: false, message: "This invoice link is missing its token" });
+    }
+    try {
+      const { verifyVendorPortalToken, VENDOR_PORTAL_KIND_PO_VENDOR_INVOICE } = await import(
+        "../utils/vendorPortalToken"
+      );
+      let payload;
+      try {
+        payload = verifyVendorPortalToken(raw);
+      } catch (err: any) {
+        return res.status(400).json({ success: false, message: err?.message || "Invalid invoice link" });
+      }
+      if (payload.k !== VENDOR_PORTAL_KIND_PO_VENDOR_INVOICE) {
+        return res.status(400).json({ success: false, message: "This link is not a purchase order invoice link" });
+      }
+
+      const po = await prisma.purchaseOrder.findUnique({
+        where: { id: payload.p },
+        select: {
+          id: true,
+          poNumber: true,
+          vendorId: true,
+          status: true,
+          orderDate: true,
+          expectedDeliveryDate: true,
+          paymentTerms: true,
+          subtotal: true,
+          taxAmount: true,
+          totalAmount: true,
+          vendor: { select: { name: true, email: true } },
+          currency: { select: { id: true, code: true, symbol: true } },
+          items: {
+            where: { lineStatus: { not: "CANCELLED" } },
+            orderBy: { createdAt: "asc" },
+            select: {
+              id: true,
+              itemName: true,
+              description: true,
+              unit: true,
+              quantity: true,
+              quantityReceived: true,
+              unitPrice: true,
+              totalPrice: true,
+            },
+          },
+        },
+      });
+      if (!po || po.vendorId !== payload.v) {
+        return res.status(404).json({ success: false, message: "No purchase order matches this invoice link" });
+      }
+
+      const invoices = await prisma.procurementInvoice.findMany({
+        where: { purchaseOrderId: po.id, vendorId: payload.v },
+        orderBy: { createdAt: "desc" },
+        select: { invoiceNumber: true, status: true, totalAmount: true, invoiceDate: true, createdAt: true },
+      });
+      const { canVendorSubmitProcurementInvoice } = await import("../constants/purchaseOrderStatus");
+      const { default: VATService } = await import("../services/VATService");
+      const num = (v) => (v == null ? null : Number(v));
+
+      return res.json({
+        success: true,
+        data: {
+          poNumber: po.poNumber,
+          status: po.status,
+          openForInvoice: canVendorSubmitProcurementInvoice(po.status),
+          orderDate: po.orderDate,
+          expectedDeliveryDate: po.expectedDeliveryDate,
+          paymentTerms: po.paymentTerms,
+          subtotal: num(po.subtotal),
+          taxAmount: num(po.taxAmount),
+          totalAmount: num(po.totalAmount),
+          vendor: po.vendor,
+          currency: po.currency,
+          // createProcurementInvoice computes VAT itself with VATService; show the vendor that rate.
+          vatPercent: VATService.calculateVAT(100),
+          items: po.items.map((it) => ({
+            ...it,
+            quantity: num(it.quantity),
+            quantityReceived: num(it.quantityReceived),
+            unitPrice: num(it.unitPrice),
+            totalPrice: num(it.totalPrice),
+          })),
+          invoices: invoices.map((inv) => ({ ...inv, totalAmount: num(inv.totalAmount) })),
+          tokenExpiresAt: new Date(payload.exp * 1000).toISOString(),
+        },
+      });
+    } catch (error: any) {
+      console.error("Error loading vendor portal purchase order:", error);
+      return res.status(500).json({ success: false, message: "Could not load this purchase order" });
     }
   }
 
@@ -1159,7 +1287,7 @@ export class ProcurementController {
       console.error("Error processing OCR data:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to process OCR data"
+        message: publicErrorMessage(error, "Failed to process OCR data")
       });
     }
   }
@@ -1183,7 +1311,7 @@ export class ProcurementController {
       console.error("Error performing AI matching:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to perform AI matching"
+        message: publicErrorMessage(error, "Failed to perform AI matching")
       });
     }
   }
@@ -1220,8 +1348,59 @@ export class ProcurementController {
       console.error("Error approving procurement invoice:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to approve procurement invoice"
+        message: publicErrorMessage(error, "Failed to approve procurement invoice")
       });
+    }
+  }
+
+  /**
+   * Reject a procurement invoice awaiting approval.
+   * PUT /api/procurement/invoices/:id/reject  { rejectionReason }
+   */
+  static async rejectProcurementInvoice(req: Request, res: Response) {
+    try {
+      const rejectedById = req.user?.id;
+      if (!rejectedById) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+
+      const { id } = req.params;
+      const { rejectionReason } = req.body ?? {};
+      const reason = typeof rejectionReason === "string" ? rejectionReason.trim() : "";
+      if (!reason) {
+        return res.status(400).json({ success: false, message: "rejectionReason is required" });
+      }
+
+      const invoice = await ProcurementService.rejectProcurementInvoice(id, rejectedById, reason);
+
+      const { serializeDecimalsDeep } = await import("../utils/prismaDecimalJson");
+      res.status(200).json({
+        success: true,
+        message: "Procurement invoice rejected",
+        data: serializeDecimalsDeep(invoice),
+      });
+    } catch (error: any) {
+      console.error("Error rejecting procurement invoice:", error);
+      const message = error?.message || "Failed to reject procurement invoice";
+      res.status(/not found/i.test(message) ? 404 : 400).json({ success: false, message });
+    }
+  }
+
+  /**
+   * Re-run the three-way match (invoice vs PO vs accepted receipts) for one invoice.
+   * POST /api/procurement/invoices/:id/match
+   */
+  static async matchProcurementInvoice(req: Request, res: Response) {
+    try {
+      const { ProcurementInvoiceMatchService } = await import("../services/ProcurementInvoiceMatchService");
+      const result = await ProcurementInvoiceMatchService.evaluate(req.params.id);
+      if (!result) {
+        return res.status(404).json({ success: false, message: "Invoice not found" });
+      }
+      res.status(200).json({ success: true, message: `Match result: ${result.status}`, data: result });
+    } catch (error: any) {
+      console.error("Error matching procurement invoice:", error);
+      res.status(400).json({ success: false, message: error?.message || "Failed to run the three-way match" });
     }
   }
 
@@ -1272,7 +1451,7 @@ export class ProcurementController {
       console.error("Error converting PO to bill:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to convert purchase order to vendor bill"
+        message: publicErrorMessage(error, "Failed to convert purchase order to vendor bill")
       });
     }
   }
@@ -1387,7 +1566,7 @@ export class ProcurementController {
       console.error("Error processing procurement invoice payment:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to process payment"
+        message: publicErrorMessage(error, "Failed to process payment")
       });
     }
   }
@@ -1480,7 +1659,7 @@ export class ProcurementController {
       console.error("Error getting procurement invoices:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get procurement invoices"
+        message: publicErrorMessage(error, "Failed to get procurement invoices")
       });
     }
   }
@@ -1537,7 +1716,7 @@ export class ProcurementController {
       console.error("Error creating goods received note:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to create goods received note"
+        message: publicErrorMessage(error, "Failed to create goods received note")
       });
     }
   }
@@ -1642,7 +1821,7 @@ export class ProcurementController {
       console.error("Error listing goods received notes:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to list goods received notes",
+        message: publicErrorMessage(error, "Failed to list goods received notes"),
       });
     }
   }
@@ -1672,7 +1851,7 @@ export class ProcurementController {
       console.error("Error getting goods received note:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get goods received note",
+        message: publicErrorMessage(error, "Failed to get goods received note"),
       });
     }
   }
@@ -1704,7 +1883,7 @@ export class ProcurementController {
       console.error("Error approving goods received note:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to approve goods received note",
+        message: publicErrorMessage(error, "Failed to approve goods received note"),
       });
     }
   }
@@ -1747,7 +1926,7 @@ export class ProcurementController {
       console.error("Error rejecting goods received note:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to reject goods received note",
+        message: publicErrorMessage(error, "Failed to reject goods received note"),
       });
     }
   }
@@ -1774,7 +1953,7 @@ export class ProcurementController {
       console.error("Error getting procurement dashboard:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to get procurement dashboard"
+        message: publicErrorMessage(error, "Failed to get procurement dashboard")
       });
     }
   }
@@ -1929,7 +2108,7 @@ export class ProcurementController {
       console.error("Error getting payments:", error);
       res.status(500).json({
         success: false,
-        message: error.message || "Failed to get payments"
+        message: publicErrorMessage(error, "Failed to get payments")
       });
     }
   }

@@ -2,11 +2,16 @@
 import express from "express";
 import { HardcodedKPIController } from "../controllers/HardcodedKPIController";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 
 const router = express.Router();
+const READ_KEYS = ["performance.kpi.view", "performance.kpi.manage"]
+const WRITE_KEYS = ["performance.kpi.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 // All routes require authentication
 router.use(authenticate);
+router.use(guard);
 
 /**
  * @swagger

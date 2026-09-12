@@ -78,6 +78,17 @@ export interface PayrollDashboardData {
   generatedAt: Date;
 }
 
+/**
+ * Payroll dashboard aggregation.
+ *
+ * Monthly buckets key off the run's pay-period end date, not `updatedAt`.
+ * Bucketing by `updatedAt` meant a run landed in whatever month it was last
+ * written: three runs for June, July and August 2026 all reported under
+ * September because that is when they were processed, and any later status
+ * change would silently move a month's payroll to a different bar on the
+ * chart. The axis is labelled by month, so the figure under "Jun" has to be
+ * June's payroll.
+ */
 export class PayrollDashboardService {
   /**
    * Get comprehensive payroll dashboard data
@@ -175,7 +186,7 @@ export class PayrollDashboardService {
         currentMonthPayrollRuns = await prisma.payrollRun.findMany({
           where: {
             status: 'COMPLETED',
-            updatedAt: {
+            endDate: {
               gte: yearStart,
               lte: yearEnd
             },
@@ -220,7 +231,7 @@ export class PayrollDashboardService {
         currentMonthPayrollRuns = await prisma.payrollRun.findMany({
           where: {
             status: 'COMPLETED',
-            updatedAt: {
+            endDate: {
               gte: currentMonthStart,
               lte: currentMonthEnd
             },
@@ -314,11 +325,12 @@ export class PayrollDashboardService {
       let lastMonthPayrollRuns: any[] = [];
       
       if (!showAllData && !showYearOnly) {
-        // Filter by updatedAt (when payroll was completed) instead of endDate
+        // Bucket by the period the payroll is FOR (endDate), not by when the row
+        // was last written.
         lastMonthPayrollRuns = await prisma.payrollRun.findMany({
           where: {
             status: 'COMPLETED',
-            updatedAt: {
+            endDate: {
               gte: lastMonthStart,
               lte: lastMonthEnd
             },
@@ -341,7 +353,7 @@ export class PayrollDashboardService {
           lastMonthPayrollRuns = await prisma.payrollRun.findMany({
             where: {
               status: 'COMPLETED',
-              updatedAt: {
+              endDate: {
                 lt: currentRunsOldestDate
               },
               ...(resolvedCurrencyId && resolvedCurrencyId !== 'INVALID_CURRENCY_CODE' && { currencyId: resolvedCurrencyId })
@@ -552,7 +564,7 @@ export class PayrollDashboardService {
         const payrollRuns = await prisma.payrollRun.findMany({
           where: {
             status: 'COMPLETED',
-            updatedAt: {
+            endDate: {
               gte: monthStart,
               lte: monthEnd
             },
@@ -601,7 +613,7 @@ export class PayrollDashboardService {
       const payrollRuns = await prisma.payrollRun.findMany({
         where: {
           status: 'COMPLETED',
-          updatedAt: {
+          endDate: {
             gte: monthStart,
             lte: monthEnd
           },

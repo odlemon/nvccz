@@ -3,6 +3,8 @@ import express from "express";
 import { VendorQuotationController } from "../controllers/VendorQuotationController";
 import { authenticate } from "../middleware/authenticate";
 
+import { requireAnyPermission, requireInternalStaffUser } from "../middleware/permissionAuth";
+import { PROCUREMENT_PERMISSIONS as PROC_PERMS } from "../config/procurementPermissions";
 const router = express.Router();
 
 /**
@@ -174,6 +176,11 @@ router.post("/submit", VendorQuotationController.createVendorQuotation);
 
 // All routes below require authentication
 router.use(authenticate);
+// Internal staff only. Every route below is staff procurement data or a staff action;
+// `authenticate` alone let LP and investee portal accounts read vendor master data and
+// create internal requisitions. Vendors never reach these: their flows use signed
+// vendorPortalToken links on the public routes declared above this line.
+router.use(requireInternalStaffUser());
 
 /**
  * @swagger
@@ -234,7 +241,7 @@ router.use(authenticate);
  *       401:
  *         description: Unauthorized
  */
-router.get("/", VendorQuotationController.getAllQuotations);
+router.get("/", requireAnyPermission([PROC_PERMS.quotationsView]), VendorQuotationController.getAllQuotations);
 
 /**
  * @swagger
@@ -275,7 +282,7 @@ router.get("/", VendorQuotationController.getAllQuotations);
  *                 count:
  *                   type: number
  */
-router.get("/rfq/:rfqNumber", VendorQuotationController.getQuotationsByRFQ);
+router.get("/rfq/:rfqNumber", requireAnyPermission([PROC_PERMS.quotationsView]), VendorQuotationController.getQuotationsByRFQ);
 
 /**
  * @swagger
@@ -301,7 +308,7 @@ router.get("/rfq/:rfqNumber", VendorQuotationController.getQuotationsByRFQ);
  *       401:
  *         description: Unauthorized
  */
-router.get("/:id", VendorQuotationController.getQuotationById);
+router.get("/:id", requireAnyPermission([PROC_PERMS.quotationsView]), VendorQuotationController.getQuotationById);
 
 /**
  * @swagger
@@ -337,7 +344,7 @@ router.get("/:id", VendorQuotationController.getQuotationById);
  *       404:
  *         description: Quotation not found
  */
-router.post("/:id/accept", VendorQuotationController.acceptQuotation);
+router.post("/:id/accept", requireAnyPermission([PROC_PERMS.rfqAward]), VendorQuotationController.acceptQuotation);
 
 /**
  * @swagger
@@ -384,7 +391,11 @@ router.post("/:id/accept", VendorQuotationController.acceptQuotation);
  *       404:
  *         description: Quotation not found
  */
-router.post("/:id/reject", VendorQuotationController.rejectQuotation);
+router.post("/:id/reject", requireAnyPermission([PROC_PERMS.quotationsManage]), VendorQuotationController.rejectQuotation);
+
+// The evaluation team's technical score for a bid. Scoring (quotations.manage) and awarding
+// (rfq.award) are separate grants, so the desk that scores is not the one that decides.
+router.put("/:id/evaluation", requireAnyPermission([PROC_PERMS.quotationsManage]), VendorQuotationController.scoreQuotation);
 
 /**
  * @swagger
@@ -412,7 +423,7 @@ router.post("/:id/reject", VendorQuotationController.rejectQuotation);
  *       404:
  *         description: Quotation not found
  */
-router.delete("/:id", VendorQuotationController.deleteQuotation);
+router.delete("/:id", requireAnyPermission([PROC_PERMS.quotationsManage]), VendorQuotationController.deleteQuotation);
 
 export default router;
 

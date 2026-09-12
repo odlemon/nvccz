@@ -2,6 +2,7 @@
 import { prisma } from "../../utils/database";
 import { LpPortalAccessService, type LpPortalContext } from "./LpPortalAccessService";
 import { LpPortalError, normalizeLpRole } from "../../middleware/lpPortalFoundation";
+import { LpPortalInviteService } from "./LpPortalInviteService";
 
 export class LpPortalColleagueService {
   static async listColleagues(ctx: LpPortalContext) {
@@ -55,13 +56,24 @@ export class LpPortalColleagueService {
       throw new LpPortalError("LP_FORBIDDEN", "Cannot invite another MANAGER via portal", 403);
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user)
-      throw new LpPortalError(
-        "LP_NOT_FOUND",
-        "User not found — invite must match an existing account",
-        404
-      );
+    // Previously this threw "User not found — invite must match an existing account", which
+    // meant an LP manager could only ever grant access to somebody who had already been created
+    // by hand elsewhere. Inviting a genuinely new colleague was impossible from the portal.
+    // The account is now created on demand with no usable password, and the invitee receives an
+    // activation link to set their own (see LpPortalInviteService).
+    const client = await prisma.client.findUnique({
+      where: { id: ctx.clientId },
+      select: { legalName: true },
+    });
+    const { user, created, activationEmailSent } = await LpPortalInviteService.onboard({
+      email,
+      organisationName: client?.legalName ?? null,
+    });
+    if (created && !activationEmailSent) {
+      // The membership below still commits — the invitee exists and is authorised — but the
+      // caller must know the email did not go out so it can offer a resend.
+      console.warn(`[LP invite] account created for ${email} but the invitation email failed`);
+    }
 
     let fundIds = params.fundIds;
     if (fundIds?.length && ctx.fundScope?.length) {

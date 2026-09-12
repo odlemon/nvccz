@@ -1,10 +1,15 @@
 import express from "express";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 import { ScorecardPillarController } from "../controllers/ScorecardPillarController";
 
 const router = express.Router();
+const READ_KEYS = ["performance.scorecards.view", "performance.scorecards.manage"]
+const WRITE_KEYS = ["performance.scorecards.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 router.use(authenticate);
+router.use(guard);
 
 /**
  * @swagger

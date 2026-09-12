@@ -16,6 +16,7 @@ export class PerformanceGoalController {
         targetValue,
         targetUnit,
         currentValue,
+        kpiId,
         kpiName,
         priority,
         startDate,
@@ -28,6 +29,11 @@ export class PerformanceGoalController {
         dataSourceField,
         trackingFrequency,
         scorecardPillar,
+        // Governance indicator section (A1/A2/B/C/D) for Board/CEO contracts. Was accepted by
+        // PerformanceGoalService's CreatePerformanceGoalRequest but silently dropped here,
+        // since it was never destructured from the request body — no API route could ever
+        // create a governance indicator, only a seed script could.
+        scorecardSection,
         performanceContractId,
         contributionWeightPercent,
         isReverseKpi,
@@ -52,6 +58,7 @@ export class PerformanceGoalController {
         targetValue,
         targetUnit,
         currentValue,
+        kpiId,
         kpiName,
         priority,
         startDate: parseDate(startDate),
@@ -64,6 +71,7 @@ export class PerformanceGoalController {
         dataSourceField,
         trackingFrequency,
         scorecardPillar,
+        scorecardSection,
         performanceContractId,
         contributionWeightPercent,
         isReverseKpi,

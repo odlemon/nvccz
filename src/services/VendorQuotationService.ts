@@ -128,6 +128,18 @@ export interface ReviewQuotationParams {
   createInvoice?: boolean; // Whether to automatically create invoice on acceptance (default: false, creates after GRN)
 }
 
+/**
+ * A vendor may declare technical attributes with its quotation (warranty, ESG, local content),
+ * but never its own evaluation. `score` and `evaluation` belong to the evaluation team, set
+ * through PUT /vendor-quotations/:id/evaluation; a vendor-supplied value for either is dropped.
+ * PROC-FINDING-006: a vendor's self-declared score of 100 was counted as its technical evaluation.
+ */
+function vendorDeclarationsOnly(json: unknown): Record<string, unknown> | undefined {
+  if (!json || typeof json !== "object" || Array.isArray(json)) return undefined;
+  const { score: _score, evaluation: _evaluation, ...declarations } = json as Record<string, unknown>;
+  return Object.keys(declarations).length ? declarations : undefined;
+}
+
 export class VendorQuotationService {
   /**
    * Prefer `vendorId` on the quotation; fall back to email match (legacy rows).
@@ -342,7 +354,7 @@ export class VendorQuotationService {
         notes,
         attachments,
         procurementRfqId,
-        technicalScoreJson: technicalScoreJson ?? undefined,
+        technicalScoreJson: vendorDeclarationsOnly(technicalScoreJson),
         subtotal: new Decimal(subtotal),
         taxAmount: new Decimal(taxAmount),
         totalAmount: new Decimal(totalAmount),
@@ -649,6 +661,59 @@ export class VendorQuotationService {
   /**
    * Accept or reject a vendor quotation
    */
+  /**
+   * The evaluation team's technical score for a bid, 0 to 100, kept in technicalScoreJson.evaluation
+   * next to whatever the vendor declared. Only while the bid is open: once a quotation is accepted
+   * or rejected its evaluation is part of the decision record. Each score is audited.
+   */
+  static async recordEvaluation(params: { quotationId: string; score: number; notes?: string; scoredById: string }) {
+    const { quotationId, score, notes, scoredById } = params;
+    if (!Number.isFinite(score) || score < 0 || score > 100) {
+      throw new Error("Technical score must be a number from 0 to 100");
+    }
+    const quotation = await prisma.vendorQuotation.findUnique({
+      where: { id: quotationId },
+      select: { id: true, status: true, technicalScoreJson: true },
+    });
+    if (!quotation) throw new Error("Quotation not found");
+    if (quotation.status !== "SUBMITTED" && quotation.status !== "UNDER_REVIEW") {
+      throw new Error(`Quotation has already been ${String(quotation.status).toLowerCase()}`);
+    }
+
+    const scorer = await prisma.user.findUnique({
+      where: { id: scoredById },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const existing =
+      quotation.technicalScoreJson && typeof quotation.technicalScoreJson === "object" && !Array.isArray(quotation.technicalScoreJson)
+        ? (quotation.technicalScoreJson as Record<string, unknown>)
+        : {};
+    const previous = (existing.evaluation as { score?: unknown } | undefined)?.score ?? null;
+    const evaluation = {
+      score,
+      notes: notes ?? null,
+      scoredById,
+      scoredByName: scorer ? `${scorer.firstName ?? ""} ${scorer.lastName ?? ""}`.trim() || scorer.email : null,
+      scoredAt: new Date().toISOString(),
+    };
+
+    const updated = await prisma.vendorQuotation.update({
+      where: { id: quotationId },
+      data: { technicalScoreJson: { ...existing, evaluation } as any },
+    });
+
+    await AuditService.log({
+      userId: scoredById,
+      action: "SCORE",
+      entityType: "VendorQuotation",
+      entityId: quotationId,
+      oldValues: { technicalScore: previous },
+      newValues: { technicalScore: score, notes: notes ?? null },
+    });
+
+    return updated;
+  }
+
   static async reviewQuotation(params: ReviewQuotationParams) {
     try {
       const {
@@ -879,6 +944,22 @@ export class VendorQuotationService {
           }
 
           console.log(`✅ Purchase Order created: ${purchaseOrder.poNumber}`);
+
+          // Record the award on the RFQ and close it. The RFQ stayed OPEN with no awarded
+          // quotation, so vendors could keep quoting on a decided tender (PROC-FINDING-007);
+          // quotation submit accepts only OPEN RFQs, so AWARDED also closes submissions.
+          const awardedRfqId =
+            quotation.procurementRfqId ||
+            (quotation.rfqNumber
+              ? (await prisma.procurementRfq.findUnique({ where: { rfqNumber: quotation.rfqNumber }, select: { id: true } }))?.id
+              : null);
+          if (awardedRfqId) {
+            await prisma.procurementRfq.update({
+              where: { id: awardedRfqId },
+              data: { status: "AWARDED", awardedQuotationId: quotation.id, awardRationale: reviewNotes || null },
+            });
+            console.log(`   RFQ ${quotation.rfqNumber ?? awardedRfqId} marked AWARDED`);
+          }
           console.log(`   PO ID: ${purchaseOrder.id}`);
           console.log(`   Lines: ${poItems.length} (from quotation)`);
 

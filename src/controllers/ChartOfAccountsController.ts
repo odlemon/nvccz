@@ -10,6 +10,11 @@ import { prisma } from '../utils/database';
 import { naturalBalanceForAccountType } from '../utils/chartOfAccountsNaturalBalance';
 import { validateChartAccountNumberForType } from '../utils/chartOfAccountsNumberRange';
 import { bulkImportChartOfAccountsFromBuffer } from '../services/ChartOfAccountsBulkValidateService';
+import { isModulePrivilegedUser } from '../config/cfoModulePermissions';
+import {
+  applyChartOfAccountsUpdate,
+  hasChartOfAccountsUpdatableField,
+} from '../services/ChartOfAccountsUpdateService';
 
 export class ChartOfAccountsController {
   /**
@@ -195,133 +200,76 @@ export class ChartOfAccountsController {
 
   /**
    * Update chart of accounts
+   *
+   * Privileged users (admin/CFO — see isModulePrivilegedUser in config/cfoModulePermissions.ts, the
+   * same check ApprovalService uses to let admin/CFO act on procurement approvals) apply the change
+   * directly and immediately, exactly as this endpoint always has.
+   *
+   * Everyone else does NOT get the change applied here. Instead the proposed change is routed through
+   * the generic approval system (ApprovalRequest/Approval, stageType "MASTER_DATA_COA") and only
+   * actually applied once a CFO approves it — see ApprovalService.updateEntityStatusAfterApproval.
+   * Both paths call the same applyChartOfAccountsUpdate() (services/ChartOfAccountsUpdateService.ts)
+   * so validation/mutation logic is not duplicated between them.
    */
   static async updateChartOfAccounts(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { accountNo, accountName, accountType, financialStatement, notes, parentId, isActive, naturalBalance: bodyNaturalBalance } = req.body || {};
+      const patch = req.body || {};
 
-      const updatableKeys = ["accountNo", "accountName", "accountType", "financialStatement", "notes", "parentId", "isActive", "naturalBalance"];
-      const hasUpdatableField = updatableKeys.some((k) => req.body != null && Object.prototype.hasOwnProperty.call(req.body, k));
-      if (!hasUpdatableField) {
+      if (isModulePrivilegedUser(req.user)) {
+        const result = await applyChartOfAccountsUpdate(id, patch);
+        if (!result.ok) {
+          return ResponseHelper.error(res, result.message, undefined, result.status);
+        }
+        return ResponseHelper.success(res, "Chart of accounts updated successfully", result.data);
+      }
+
+      // Non-privileged caller: don't mutate anything here. Same "no fields sent" guard the direct
+      // path uses, so we don't queue a pointless empty-change approval request.
+      if (!hasChartOfAccountsUpdatableField(patch)) {
         return ResponseHelper.validationError(
           res,
           "No updatable fields provided. Send at least one of: accountNo, accountName, accountType, financialStatement, notes, parentId, isActive."
         );
       }
 
-      // Check if chart of accounts exists
-      const existingAccount = await prisma.chartOfAccounts.findUnique({
-        where: { id }
-      });
-
+      const existingAccount = await prisma.chartOfAccounts.findUnique({ where: { id } });
       if (!existingAccount) {
         return ResponseHelper.notFound(res, "Chart of accounts not found");
       }
 
-      const typeForNaturalBalance = accountType || existingAccount.accountType;
-      const expectedNaturalBalance = naturalBalanceForAccountType(typeForNaturalBalance);
-      if (bodyNaturalBalance != null && bodyNaturalBalance !== '' && bodyNaturalBalance !== expectedNaturalBalance) {
-        return ResponseHelper.badRequest(
+      const { ApprovalService } = await import('../services/ApprovalService');
+      const approvalResult = await ApprovalService.createApprovalRequest({
+        stageType: "MASTER_DATA_COA",
+        entityId: id,
+        entityData: patch,
+        requestedById: req.user?.id,
+        department: "Finance",
+      });
+
+      if (!approvalResult) {
+        // No active MASTER_DATA_COA approval configuration/stage found (see
+        // scripts/run-accounting-approval-configs-seed.ts). Fail closed rather than silently
+        // applying the change for a non-privileged caller.
+        return ResponseHelper.error(
           res,
-          `Natural balance for "${typeForNaturalBalance}" is ${expectedNaturalBalance} and cannot be changed.`
+          "Chart of accounts changes require CFO approval, but no approval workflow is configured. Contact an administrator.",
+          undefined,
+          503
         );
       }
 
-      // Validate account type if provided
-      if (accountType) {
-        const validAccountTypes = ["Current Asset", "Fixed Asset", "Long-Term Asset", "Contra-Asset", "Current Liability", "Long-Term Liability", "Equity", "Revenue", "Expense", "Income"];
-        if (!validAccountTypes.includes(accountType)) {
-          return ResponseHelper.badRequest(res, "Invalid account type. Must be one of: Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset, Current Liability, Long-Term Liability, Equity, Revenue, Expense, Income");
-        }
-      }
-
-      const typeChanging = Boolean(accountType && accountType !== existingAccount.accountType);
-      const financialStatementChanging = Boolean(
-        financialStatement && financialStatement !== existingAccount.financialStatement
+      return ResponseHelper.success(
+        res,
+        "Change submitted for CFO approval",
+        {
+          status: "pending_approval",
+          approvalRequestId: approvalResult.approvalRequest.id,
+          chartOfAccountsId: id,
+          proposedChanges: patch,
+        },
+        202
       );
-
-      if (typeChanging || financialStatementChanging) {
-        const journalLineCount = await prisma.journalEntryLine.count({
-          where: { chartOfAccountId: id },
-        });
-        if (journalLineCount > 0) {
-          if (typeChanging) {
-            return ResponseHelper.conflict(
-              res,
-              `Cannot change account type from "${existingAccount.accountType}" to "${accountType}" because this account has ${journalLineCount} journal line(s). ` +
-                `Reclassifying would misstate historical profit and loss and balance sheet reporting. ` +
-                `Create a new chart account and post a transfer journal if reclassification is required.`
-            );
-          }
-          return ResponseHelper.conflict(
-            res,
-            `Cannot change financial statement classification because this account has ${journalLineCount} journal line(s). ` +
-              `Historical statements would no longer tie to the original presentation. ` +
-              `Create a new account and transfer balances if presentation must change.`
-          );
-        }
-      }
-
-      // Validate that account number range matches account type (if either is being updated)
-      const accountNoToValidate = accountNo || existingAccount.accountNo;
-      const accountTypeToValidate = accountType || existingAccount.accountType;
-      const accountNumberValidation = validateChartAccountNumberForType(accountNoToValidate, accountTypeToValidate);
-      if (!accountNumberValidation.valid) {
-        return ResponseHelper.badRequest(res, accountNumberValidation.message || "Account number range does not match account type");
-      }
-
-      // Validate financial statement if provided
-      if (financialStatement) {
-        const validFinancialStatements = ["Balance Sheet", "Income Statement", "Cash Flow / Tracking", "Income Statement / Cash Flow"];
-        if (!validFinancialStatements.includes(financialStatement)) {
-          return ResponseHelper.badRequest(res, "Invalid financial statement. Must be one of: Balance Sheet, Income Statement, Cash Flow / Tracking, Income Statement / Cash Flow");
-        }
-      }
-
-      // Check if account number already exists (if changing account number)
-      if (accountNo && accountNo !== existingAccount.accountNo) {
-        const duplicateAccount = await prisma.chartOfAccounts.findUnique({
-          where: { accountNo }
-        });
-
-        if (duplicateAccount) {
-          return ResponseHelper.conflict(res, "Account number already exists");
-        }
-      }
-
-      // If parentId is provided, validate it exists and is not the same as the current account
-      if (parentId !== undefined) {
-        if (parentId === id) {
-          return ResponseHelper.badRequest(res, "Account cannot be its own parent");
-        }
-
-        if (parentId) {
-          const parentAccount = await prisma.chartOfAccounts.findUnique({
-            where: { id: parentId }
-          });
-
-          if (!parentAccount) {
-            return ResponseHelper.badRequest(res, "Parent account not found");
-          }
-        }
-      }
-
-      // Update the chart of accounts entry
-      const updatedChartOfAccounts = await prisma.chartOfAccounts.update({
-        where: { id },
-        data: {
-          ...(accountNo && { accountNo }),
-          ...(accountName && { accountName }),
-          ...(accountType && { accountType }),
-          ...(financialStatement && { financialStatement }),
-          ...(notes !== undefined && { notes }),
-          ...(parentId !== undefined && { parentId: parentId || null }),
-          ...(isActive !== undefined && { isActive })
-        }
-      });
-
-      return ResponseHelper.success(res, "Chart of accounts updated successfully", updatedChartOfAccounts);
     } catch (error) {
       next(error);
     }

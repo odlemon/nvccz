@@ -13,7 +13,10 @@ export class QuarterlyStatementAccessService {
   }
 
   static isInvestorRelations(user: any): boolean {
-    return hasAnySignal(user, ["investor relations", "ir", "investor_relations"]);
+    // Same bare "ir" collision as FundraisingAccessService — see the note there.
+    const code = String(user?.roleCode || user?.role?.name || "").trim().toUpperCase();
+    if (code === "IR" || code === "INVESTOR_RELATIONS") return true;
+    return hasAnySignal(user, ["investor relations", "investor_relations"]);
   }
 
   static isChecker(user: any): boolean {

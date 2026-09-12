@@ -47,6 +47,7 @@ import customerRoutes from "./routes/customerRoutes"
 import incomeStatementRoutes from "./routes/incomeStatementRoutes"
 import cashFlowRoutes from "./routes/cashFlowRoutes"
 import balanceSheetRoutes from "./routes/balanceSheetRoutes"
+import consolidationRoutes from "./routes/consolidationRoutes"
 import accountingDashboardRoutes from "./routes/accountingDashboardRoutes"
 import shortTermInvestmentRoutes from "./routes/shortTermInvestmentRoutes"
 import accountingPeIntegrationV1Routes from "./routes/accountingPeIntegrationV1Routes"
@@ -64,6 +65,7 @@ import cashbookTransferRoutes from "./routes/cashbookTransferRoutes"
 import entryTypeRoutes from "./routes/entryTypeRoutes"
 import trialBalanceRoutes from "./routes/trialBalanceRoutes"
 import fiscalCalendarRoutes from "./routes/fiscalCalendarRoutes"
+import accountingCloseTaskRoutes from "./routes/accountingCloseTaskRoutes"
 import miniKycRoutes from "./routes/miniKycRoutes"
 import companyProfileRoutes from "./routes/companyProfileRoutes"
 import portfolioCompanyRoutes from "./routes/portfolioCompanyRoutes"
@@ -153,6 +155,11 @@ import performanceIntegrationRoutes from "./routes/performanceIntegrationRoutes"
 import performanceBscEntryRoutes from "./routes/performanceBscEntryRoutes"
 import bscWorkflowRoutes from "./routes/bscWorkflowRoutes"
 import performanceContractRoutes from "./routes/performanceContractRoutes"
+import performanceCorrectiveActionRoutes from "./routes/performanceCorrectiveActionRoutes"
+import performanceSettingsRoutes from "./routes/performanceSettingsRoutes"
+import performanceAlertRoutes from "./routes/performanceAlertRoutes"
+import performanceDocumentRoutes from "./routes/performanceDocumentRoutes"
+import performanceScorecardEntryRoutes from "./routes/performanceScorecardEntryRoutes"
 import accountingApiRoutes from "./routes/accountingApiRoutes"
 import vatReportRoutes from "./routes/vatReportRoutes"
 import glLedgerDetailRoutes from "./routes/glLedgerDetailRoutes"
@@ -232,11 +239,17 @@ app.use(cors({
       "http://localhost:3000",
       "http://localhost:3001",
       "http://localhost:3110",
+      // A second set of portal instances, for running a test pass without disturbing the
+      // default 3001/3110 pair. See scripts/run-portal-dev.mjs --port/--dist.
+      "http://localhost:3201",
+      "http://localhost:3210",
       "http://localhost:3120",
       "http://localhost:3130",
       "http://127.0.0.1:3000",
       "http://127.0.0.1:3001",
       "http://127.0.0.1:3110",
+      "http://127.0.0.1:3201",
+      "http://127.0.0.1:3210",
       "http://127.0.0.1:3120",
       "http://127.0.0.1:3130",
       "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io",
@@ -259,6 +272,14 @@ app.use(cors({
     
     // Allow all Vercel preview deployments for development
     if (origin && origin.includes('.vercel.app')) {
+      return callback(null, true);
+    }
+
+    // Escape hatch for local work on a port that is not in the list above. Opt-in via
+    // ALLOW_LOOPBACK_CORS=1 rather than keyed off NODE_ENV, because this dev machine's .env pins
+    // NODE_ENV=production and a NODE_ENV-gated branch would be silently dead here. A rejected
+    // origin surfaces in the browser only as "Request failed", with no clue as to the cause.
+    if (origin && process.env.ALLOW_LOOPBACK_CORS === "1" && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
       return callback(null, true);
     }
     
@@ -608,6 +629,7 @@ app.use("/api/accounting/customers", customerRoutes)
 app.use("/api/accounting/income-statement", incomeStatementRoutes)
 app.use("/api/accounting/cash-flow", cashFlowRoutes)
 app.use("/api/accounting/balance-sheet", balanceSheetRoutes)
+app.use("/api/accounting/consolidation", consolidationRoutes)
 app.use("/api/accounting/dashboard", accountingDashboardRoutes)
 app.use("/api/accounting/short-term-investments", shortTermInvestmentRoutes)
 app.use("/api/accounting/v1", accountingPeIntegrationV1Routes)
@@ -635,6 +657,10 @@ app.use("/api/cashbook", cashbookRoutes)
 import contraEntryRoutes from "./routes/contraEntryRoutes"
 import batchImportExportRoutes from "./routes/batchImportExportRoutes"
 import periodLockoutRoutes from "./routes/periodLockoutRoutes"
+import recurringJournalRoutes from "./routes/recurringJournalRoutes"
+import projectRoutes from "./routes/projectRoutes"
+import timesheetRoutes from "./routes/timesheetRoutes"
+import accountingDocumentRoutes from "./routes/accountingDocumentRoutes"
 
 // Register new cashbook routes (must be BEFORE general /api/cashbook route)
 app.use("/api/cashbook/contra", contraEntryRoutes)
@@ -642,6 +668,11 @@ app.use("/api/cashbook/entry-types", entryTypeRoutes)
 app.use("/api/cashbook/periods", periodLockoutRoutes)
 app.use("/api/accounting/trial-balance", trialBalanceRoutes)
 app.use("/api/accounting/fiscal-calendar", fiscalCalendarRoutes)
+app.use("/api/accounting/close-tasks", accountingCloseTaskRoutes)
+app.use("/api/accounting/recurring-journal-templates", recurringJournalRoutes)
+app.use("/api/accounting/projects", projectRoutes)
+app.use("/api/accounting/timesheets", timesheetRoutes)
+app.use("/api/accounting/documents", accountingDocumentRoutes)
 app.use("/accounting/api", accountingApiRoutes)
 
 // Mini-KYC routes
@@ -714,6 +745,11 @@ app.use("/api/performance/integration", performanceIntegrationRoutes)
 app.use("/api/performance/bsc-entry", performanceBscEntryRoutes)
 app.use("/api/performance/bsc-workflow", bscWorkflowRoutes)
 app.use("/api/performance/contracts", performanceContractRoutes)
+app.use("/api/performance/corrective-actions", performanceCorrectiveActionRoutes)
+app.use("/api/performance/settings", performanceSettingsRoutes)
+app.use("/api/performance/alerts", performanceAlertRoutes)
+app.use("/api/performance/documents", performanceDocumentRoutes)
+app.use("/api/performance/scorecard-entries", performanceScorecardEntryRoutes)
 
 // CEO Dashboard routes
 app.use("/api/ceo-dashboard", ceoDashboardRoutes)

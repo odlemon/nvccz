@@ -6216,7 +6216,7 @@ export class EmailNotificationService {
             </div>`
                   : `<div class="highlight-box" style="border-left-color:#64748b;background-color:#f1f5f9;">
               <p style="margin:0;font-size:14px;line-height:1.5;">
-                <strong>Online invoice link</strong> could not be built. Set <code>VENDOR_PORTAL_BASE_URL</code> or <code>FRONTEND_URL</code>. Path: <code>VENDOR_PO_INVOICE_RESPONSE_PATH</code> (default <code>/procurement/vendor-invoice</code>).
+                <strong>Online invoice link</strong> could not be built. Set <code>VENDOR_PORTAL_BASE_URL</code> or <code>FRONTEND_URL</code>. Path: <code>VENDOR_PO_INVOICE_RESPONSE_PATH</code> (default <code>/vendor/invoice/submit</code>).
               </p>
             </div>`
             }

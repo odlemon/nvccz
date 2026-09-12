@@ -28,6 +28,9 @@ model User {
   boardVotingDisabled                   Boolean                         @default(false) @map("board_voting_disabled")
   /// Bumped on LP access revocation to invalidate outstanding JWTs.
   tokenVersion                          Int                             @default(0) @map("token_version")
+  /// Set when a password was issued by us (e.g. an LP invitation) and must be replaced at
+  /// next sign-in. Cleared once the user chooses their own.
+  mustChangePassword                    Boolean                         @default(false) @map("must_change_password")
   role                                  Role                            @relation(fields: [roleId], references: [id])
   posts                                 Post[]
   replies                               Reply[]
@@ -91,6 +94,17 @@ model User {
   lpUserRelationsInvited                LpUserRelation[]                @relation("LpUserRelationInvitedBy")
   lpPortalDocumentsPublished            LpPortalDocument[]              @relation("LpPortalDocumentPublisher")
   fundDocuments                         FundDocument[]
+  accountingDocuments                   AccountingDocument[]
+  payrollDocuments                      PayrollDocument[]
+  correctiveActionsOwned                PerformanceCorrectiveAction[]   @relation("PerformanceCorrectiveActionOwner")
+  correctiveActionsCreated              PerformanceCorrectiveAction[]   @relation("PerformanceCorrectiveActionCreatedBy")
+  performanceAlertsOwned                PerformanceAlert[]              @relation("PerformanceAlertOwner")
+  performanceAlertsCreated              PerformanceAlert[]              @relation("PerformanceAlertCreatedBy")
+  performanceDocumentsOwned             PerformanceDocument[]           @relation("PerformanceDocumentOwner")
+  performanceDocumentsUploaded          PerformanceDocument[]           @relation("PerformanceDocumentUploader")
+  performanceScorecardEntriesAsEmployee PerformanceScorecardEntry[]     @relation("PerformanceScorecardEntryEmployee")
+  performanceScorecardEntriesAsActor    PerformanceScorecardEntry[]     @relation("PerformanceScorecardEntryActor")
+  performanceSettingsUpdated            PerformanceSetting[]
   userMfaTotp                           UserMfaTotp?
   fundReportRunsTriggered               FundReportRun[]                 @relation("FundReportRunTriggeredBy")
   fundReportAuditEvents                 FundReportAuditEvent[]          @relation("FundReportAuditAuthor")
@@ -212,6 +226,11 @@ model User {
   listedEquityWatchlistEntries          ListedEquityWatchlistEntry[]
   listedEquityTradesExecuted            ListedEquityTrade[]             @relation("ListedEquityTradeExecutor")
   listedEquityTicksReviewed             ListedEquityPriceTick[]         @relation("ListedEquityTickReviewer")
+  accountingCloseTasksOwned             AccountingCloseTask[]           @relation("AccountingCloseTaskOwner")
+  accountingCloseTasksCompleted         AccountingCloseTask[]           @relation("AccountingCloseTaskCompletedBy")
+  projectsCreated                       Project[]
+  timesheets                            Timesheet[]                     @relation("TimesheetUser")
+  timesheetsApproved                    Timesheet[]                     @relation("TimesheetApprover")
 
   @@map("users")
 }
@@ -782,8 +801,13 @@ model JournalEntry {
   updatedAt                    DateTime                           @updatedAt
   /// USD/ZWG avg from Zimrate at posting (see ZimrateRateService + prisma middleware)
   usdZwgRateSnapshot           Decimal?                           @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
+  /// Multi-entity GL tagging (Group Consolidation report). Null on legacy rows until backfilled by db:migrate:journal-entry-forecast-entity.
+  forecastEntityId             String?                            @map("forecast_entity_id")
+  /// Manually-flagged inter-entity elimination journal — no automated matching engine; a human posts + flags it. Netted out as its own layer in consolidation reporting.
+  isEliminationEntry           Boolean                            @default(false) @map("is_elimination_entry")
   currency                     Currency                           @relation(fields: [currencyId], references: [id])
   createdBy                    User                               @relation(fields: [createdById], references: [id])
+  forecastEntity               ForecastEntity?                    @relation(fields: [forecastEntityId], references: [id], onDelete: SetNull)
   journalEntryLines            JournalEntryLine[]
   expenses                     Expense[]
   invoices                     Invoice[]
@@ -809,6 +833,7 @@ model JournalEntry {
   payrollRuns                  PayrollRun[]
   listedEquityTradeSettlements ListedEquityTradeSettlement[]      @relation("ListedEquityTradeJournal")
 
+  @@index([forecastEntityId], map: "journal_entries_forecast_entity_id_idx")
   @@map("journal_entries")
 }
 
@@ -1195,6 +1220,7 @@ model ForecastEntity {
   createdBy        User                   @relation("ForecastEntityCreatedBy", fields: [createdById], references: [id])
   accounts         EntityChartOfAccount[]
   taxReturnPacks   TaxReturnPack[]
+  journalEntries   JournalEntry[]
 
   @@index([isDefault], map: "forecast_entities_is_default_idx")
   @@index([type, isActive], map: "forecast_entities_type_active_idx")
@@ -2394,16 +2420,19 @@ model FundDisbursement {
 }
 
 model Department {
-  id                String                     @id @default(cuid())
-  name              String                     @unique
-  description       String?                    @db.Text
-  branch            String?
-  isActive          Boolean                    @default(true)
-  createdAt         DateTime                   @default(now())
-  updatedAt         DateTime                   @updatedAt
-  users             User[]                     @relation("UserDepartment")
-  dealSourcingGoals DealSourcingGoal[]
-  approvalStages    ProcurementApprovalStage[] @relation("ApprovalStageDepartment")
+  id                   String                        @id @default(cuid())
+  name                 String                        @unique
+  description          String?                       @db.Text
+  branch               String?
+  isActive             Boolean                       @default(true)
+  createdAt            DateTime                      @default(now())
+  updatedAt            DateTime                      @updatedAt
+  users                User[]                        @relation("UserDepartment")
+  dealSourcingGoals    DealSourcingGoal[]
+  approvalStages       ProcurementApprovalStage[]    @relation("ApprovalStageDepartment")
+  correctiveActions    PerformanceCorrectiveAction[]
+  performanceAlerts    PerformanceAlert[]            @relation("PerformanceAlertDepartment")
+  performanceDocuments PerformanceDocument[]         @relation("PerformanceDocumentDepartment")
 
   @@map("departments")
 }
@@ -3189,6 +3218,109 @@ model ProcurementInvoiceItem {
   invoice         ProcurementInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@map("procurement_invoice_items")
+}
+
+/// Procurement V23 document vault. Tables created by scripts/run-procurement-registers-migration.ts.
+/// Record links are plain ids and references (no Prisma relations), so the vault never blocks a
+/// delete elsewhere.
+model ProcurementDocument {
+  id             String   @id @default(cuid())
+  name           String   @db.VarChar(255)
+  folder         String   @default("General") @db.VarChar(64)
+  documentType   String?  @map("document_type") @db.VarChar(64)
+  /// Free reference to the record it belongs to: a PO, RFQ, contract or plan number, or a vendor.
+  relatedRecord  String?  @map("related_record") @db.VarChar(128)
+  classification String   @default("Internal") @db.VarChar(32)
+  source         String   @default("Internal upload") @db.VarChar(32)
+  version        String   @default("v1.0") @db.VarChar(16)
+  /// under_review | approved | archived
+  status         String   @default("under_review") @db.VarChar(24)
+  description    String?  @db.Text
+  fileUrl        String   @map("file_url") @db.Text
+  storagePath    String?  @map("storage_path") @db.VarChar(512)
+  mimeType       String?  @map("mime_type") @db.VarChar(128)
+  fileSizeBytes  Int?     @map("file_size_bytes")
+  uploadedById   String?  @map("uploaded_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([folder], map: "procurement_documents_folder_idx")
+  @@index([status], map: "procurement_documents_status_idx")
+  @@map("procurement_documents")
+}
+
+/// Contracts register: the agreement that follows an award (an accepted quotation) or stands alone.
+model ProcurementContract {
+  id              String    @id @default(cuid())
+  contractNumber  String    @unique @map("contract_number") @db.VarChar(32)
+  title           String    @db.VarChar(255)
+  vendorId        String    @map("vendor_id")
+  quotationId     String?   @map("quotation_id")
+  purchaseOrderId String?   @map("purchase_order_id")
+  rfqNumber       String?   @map("rfq_number") @db.VarChar(64)
+  value           Decimal   @default(0.00) @db.Decimal(15, 2)
+  currencyCode    String?   @map("currency_code") @db.VarChar(8)
+  startDate       DateTime? @map("start_date")
+  endDate         DateTime? @map("end_date")
+  /// DRAFT | ACTIVE | EXPIRED | TERMINATED
+  status          String    @default("DRAFT") @db.VarChar(24)
+  paymentTerms    String?   @map("payment_terms") @db.Text
+  scope           String?   @db.Text
+  createdById     String    @map("created_by_id")
+  activatedAt     DateTime? @map("activated_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([vendorId], map: "procurement_contracts_vendor_idx")
+  @@index([status], map: "procurement_contracts_status_idx")
+  @@index([quotationId], map: "procurement_contracts_quotation_idx")
+  @@map("procurement_contracts")
+}
+
+/// Annual procurement plan: a budgeted list of what a department intends to buy in a fiscal year.
+model ProcurementPlan {
+  id              String                @id @default(cuid())
+  planNumber      String                @unique @map("plan_number") @db.VarChar(32)
+  name            String                @db.VarChar(255)
+  department      String?               @db.VarChar(191)
+  fiscalYear      String                @map("fiscal_year") @db.VarChar(16)
+  version         Int                   @default(1)
+  /// DRAFT | SUBMITTED | APPROVED | REJECTED
+  status          String                @default("DRAFT") @db.VarChar(24)
+  budget          Decimal               @default(0.00) @db.Decimal(15, 2)
+  currencyCode    String?               @map("currency_code") @db.VarChar(8)
+  notes           String?               @db.Text
+  createdById     String                @map("created_by_id")
+  submittedAt     DateTime?             @map("submitted_at")
+  approvedById    String?               @map("approved_by_id")
+  approvedAt      DateTime?             @map("approved_at")
+  rejectionReason String?               @map("rejection_reason") @db.Text
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  items           ProcurementPlanItem[]
+
+  @@index([fiscalYear], map: "procurement_plans_fiscal_year_idx")
+  @@index([status], map: "procurement_plans_status_idx")
+  @@map("procurement_plans")
+}
+
+model ProcurementPlanItem {
+  id             String          @id @default(cuid())
+  planId         String          @map("plan_id")
+  description    String          @db.VarChar(255)
+  category       String?         @db.VarChar(64)
+  quarter        String?         @db.VarChar(8)
+  method         String?         @db.VarChar(64)
+  estimatedValue Decimal         @default(0.00) @map("estimated_value") @db.Decimal(15, 2)
+  department     String?         @db.VarChar(191)
+  /// PLANNED | IN_PROGRESS | COMPLETED | CANCELLED
+  status         String          @default("PLANNED") @db.VarChar(24)
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  plan           ProcurementPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId], map: "procurement_plan_items_plan_idx")
+  @@map("procurement_plan_items")
 }
 
 model PurchaseInvoice {
@@ -4199,6 +4331,32 @@ model LpPortalIdempotencyKey {
 }
 
 /// Per-fund operating context for portal (PRIVATE_CAPITAL | OPEN_ENDED)
+/// Approved benchmark index series shown on the LP performance screen.
+///
+/// Added because the portal had no benchmark data at all: `LpPortalPerformanceService.benchmarks`
+/// generated a straight arithmetic line (`base + i * step`) per benchmark id, stamped it
+/// `valuationStatus: "FINAL"`, and shipped it to investors as the index their fund is judged
+/// against. A benchmark is an external series that either exists or does not; it cannot be
+/// derived. Rows here are the only source, and the endpoint reports "not configured" when a
+/// benchmark has none rather than inventing one.
+model LpBenchmarkSeriesPoint {
+  id          String   @id @default(cuid())
+  benchmarkId String   @map("benchmark_id") @db.VarChar(64)
+  metric      String   @map("metric") @db.VarChar(32)
+  asOfDate    DateTime @map("as_of_date") @db.Date
+  value       Decimal  @map("value") @db.Decimal(18, 6)
+  label       String?  @map("label") @db.VarChar(64)
+  source      String?  @map("source") @db.VarChar(255)
+  approvedBy  String?  @map("approved_by") @db.VarChar(191)
+  approvedAt  DateTime? @map("approved_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([benchmarkId, metric, asOfDate])
+  @@index([benchmarkId, metric])
+  @@map("lp_benchmark_series_points")
+}
+
 model LpFundPortalContext {
   id                String    @id @default(cuid())
   fundId            String    @unique @map("fund_id")
@@ -4422,11 +4580,15 @@ model LpServiceRequest {
   subject     String                    @db.VarChar(512)
   body        String                    @db.Text
   createdById String?                   @map("created_by_id")
+  /// Internal owner of the request (SRD section 21 ASSIGNED state). Null until triaged.
+  assignedToId String?                  @map("assigned_to_id")
   createdAt   DateTime                  @default(now()) @map("created_at")
   updatedAt   DateTime                  @updatedAt @map("updated_at")
   client      Client                    @relation(fields: [clientId], references: [id], onDelete: Cascade)
   fund        Fund?                     @relation(fields: [fundId], references: [id], onDelete: SetNull)
   messages    LpServiceRequestMessage[]
+
+  @@index([assignedToId])
 
   @@index([clientId], map: "lp_service_requests_client_idx")
   @@map("lp_service_requests")
@@ -5001,6 +5163,159 @@ model Employee {
   @@map("employees")
 }
 
+/// A batch of payroll inputs uploaded for a period — hours, allowances, deductions, bonuses.
+///
+/// Added because no model existed: the Inputs & Validation screen was entirely fixture-rendered,
+/// and the Command Centre's "1,247 of 1,284 valid" had nothing behind it.
+model PayrollInputBatch {
+  id             String              @id @default(cuid())
+  reference      String              @unique @db.VarChar(64)
+  periodLabel    String              @map("period_label") @db.VarChar(64)
+  payrollRunId   String?             @map("payroll_run_id")
+  sourceFileName String?             @map("source_file_name") @db.VarChar(255)
+  /// DRAFT | VALIDATED | COMMITTED | REJECTED
+  status         String              @default("DRAFT") @db.VarChar(24)
+  totalRows      Int                 @default(0) @map("total_rows")
+  validRows      Int                 @default(0) @map("valid_rows")
+  errorRows      Int                 @default(0) @map("error_rows")
+  uploadedById   String?             @map("uploaded_by_id")
+  committedAt    DateTime?           @map("committed_at")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+  rows           PayrollInputRow[]
+
+  @@index([status])
+  @@map("payroll_input_batches")
+}
+
+/// One line of an input batch. `status` is what the validation screen filters on.
+model PayrollInputRow {
+  id             String            @id @default(cuid())
+  batchId        String            @map("batch_id")
+  rowNumber      Int               @map("row_number")
+  employeeNumber String?           @map("employee_number") @db.VarChar(64)
+  employeeName   String?           @map("employee_name") @db.VarChar(255)
+  /// HOURS | ALLOWANCE | DEDUCTION | BONUS | OTHER
+  inputType      String            @default("OTHER") @map("input_type") @db.VarChar(24)
+  amount         Decimal?          @db.Decimal(15, 2)
+  currencyCode   String            @default("USD") @map("currency_code") @db.VarChar(8)
+  /// VALID | ERROR | RESOLVED
+  status         String            @default("VALID") @db.VarChar(16)
+  errorMessage   String?           @map("error_message") @db.Text
+  resolvedById   String?           @map("resolved_by_id")
+  resolvedAt     DateTime?         @map("resolved_at")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  batch          PayrollInputBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, status])
+  @@map("payroll_input_rows")
+}
+
+/// A population of employees paid on the same cycle. Runs had no concept of one, which is why the
+/// runs list reported a single hardcoded "Monthly Staff" group.
+model PayrollPayGroup {
+  id           String                   @id @default(cuid())
+  name         String                   @db.VarChar(128)
+  code         String                   @unique @db.VarChar(32)
+  /// MONTHLY | FORTNIGHTLY | WEEKLY
+  frequency    String                   @default("MONTHLY") @db.VarChar(24)
+  payDayOfMonth Int?                    @map("pay_day_of_month")
+  currencyCode String                   @default("USD") @map("currency_code") @db.VarChar(8)
+  isActive     Boolean                  @default(true) @map("is_active")
+  createdAt    DateTime                 @default(now()) @map("created_at")
+  updatedAt    DateTime                 @updatedAt @map("updated_at")
+  periods      PayrollCalendarPeriod[]
+
+  @@map("payroll_pay_groups")
+}
+
+/// One dated period on a pay group's calendar: cut-off, pay date and where it has got to.
+model PayrollCalendarPeriod {
+  id          String          @id @default(cuid())
+  payGroupId  String          @map("pay_group_id")
+  periodLabel String          @map("period_label") @db.VarChar(64)
+  periodStart DateTime        @map("period_start") @db.Date
+  periodEnd   DateTime        @map("period_end") @db.Date
+  cutoffDate  DateTime?       @map("cutoff_date") @db.Date
+  payDate     DateTime?       @map("pay_date") @db.Date
+  /// PLANNED | OPEN | LOCKED | PAID
+  status      String          @default("PLANNED") @db.VarChar(16)
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  payGroup    PayrollPayGroup @relation(fields: [payGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([payGroupId, periodLabel])
+  @@index([status])
+  @@map("payroll_calendar_periods")
+}
+
+/// A joiner being taken through payroll onboarding. Separate from `Employee`: the record exists
+/// before there is an employee to create.
+model PayrollOnboardingCandidate {
+  id           String    @id @default(cuid())
+  firstName    String    @map("first_name") @db.VarChar(128)
+  lastName     String    @map("last_name") @db.VarChar(128)
+  email        String?   @db.VarChar(255)
+  position     String?   @db.VarChar(128)
+  department   String?   @db.VarChar(128)
+  startDate    DateTime? @map("start_date") @db.Date
+  payGroupId   String?   @map("pay_group_id")
+  /// INVITED | DOCUMENTS | CONTRACT | PAYROLL_SETUP | COMPLETE | WITHDRAWN
+  status       String    @default("INVITED") @db.VarChar(24)
+  /// Per-step completion, so the pipeline can show progress without a table per step.
+  checklist    Json?
+  employeeId   String?   @map("employee_id")
+  completedAt  DateTime? @map("completed_at")
+  createdById  String?   @map("created_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("payroll_onboarding_candidates")
+}
+
+/// A sourcing event issued to vendors from the payroll module.
+model PayrollRfq {
+  id          String          @id @default(cuid())
+  reference   String          @unique @db.VarChar(64)
+  title       String          @db.VarChar(255)
+  category    String?         @db.VarChar(128)
+  /// DRAFT | OPEN | EVALUATING | AWARDED | CANCELLED
+  status      String          @default("DRAFT") @db.VarChar(24)
+  issueDate   DateTime?       @map("issue_date") @db.Date
+  closingDate DateTime?       @map("closing_date") @db.Date
+  awardedBidId String?        @map("awarded_bid_id")
+  createdById String?         @map("created_by_id")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  bids        PayrollRfqBid[]
+
+  @@index([status])
+  @@map("payroll_rfqs")
+}
+
+/// A vendor's response to an RFQ, with the three evaluation scores the comparison matrix shows.
+model PayrollRfqBid {
+  id               String     @id @default(cuid())
+  rfqId            String     @map("rfq_id")
+  vendorId         String?    @map("vendor_id")
+  vendorName       String     @map("vendor_name") @db.VarChar(255)
+  amount           Decimal?   @db.Decimal(15, 2)
+  currencyCode     String     @default("USD") @map("currency_code") @db.VarChar(8)
+  technicalScore   Decimal?   @map("technical_score") @db.Decimal(5, 2)
+  commercialScore  Decimal?   @map("commercial_score") @db.Decimal(5, 2)
+  complianceScore  Decimal?   @map("compliance_score") @db.Decimal(5, 2)
+  /// INVITED | SUBMITTED | WITHDRAWN | AWARDED | REJECTED
+  status           String     @default("INVITED") @db.VarChar(24)
+  submittedAt      DateTime?  @map("submitted_at")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+  rfq              PayrollRfq @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+
+  @@index([rfqId, status])
+  @@map("payroll_rfq_bids")
+}
+
 model PayrollRun {
   id                     String            @id @default(cuid())
   name                   String
@@ -5031,6 +5346,7 @@ model PayrollRun {
   journalEntry           JournalEntry?     @relation(fields: [journalEntryId], references: [id])
   employeePayrolls       EmployeePayroll[]
   payslips               Payslip[]
+  documents              PayrollDocument[]
 
   @@map("payroll_runs")
 }
@@ -5364,6 +5680,38 @@ model BankFileTemplate {
   createdBy   User     @relation(fields: [createdById], references: [id])
 
   @@map("bank_file_templates")
+}
+
+/// Payroll Document Vault. The Vault screen rendered a hardcoded register of control
+/// packs from the vendored runtime because there was no store behind it; this is that
+/// store. Company-wide rather than run-scoped, with an optional link to the run or
+/// period a document belongs to so a control pack can be traced to what it evidences.
+model PayrollDocument {
+  id             String    @id @default(cuid())
+  name           String    @db.VarChar(255)
+  /// Free string, matching the accounting vault's approach: "Payroll control packs",
+  /// "Statutory returns", "Bank files", "Payslip archives", ...
+  category       String    @default("General") @db.VarChar(64)
+  /// INTERNAL | CONFIDENTIAL | RESTRICTED | HIGHLY_RESTRICTED. A label only: access to every
+  /// document is governed by payroll.vault.view / payroll.vault.manage, not by this field.
+  classification String    @default("INTERNAL") @db.VarChar(24)
+  reference      String?   @db.VarChar(64)
+  periodLabel    String?   @map("period_label") @db.VarChar(64)
+  payrollRunId   String?   @map("payroll_run_id")
+  fileUrl        String    @map("file_url") @db.Text
+  storagePath    String?   @map("storage_path") @db.VarChar(512)
+  mimeType       String?   @map("mime_type") @db.VarChar(128)
+  fileSizeBytes  Int?      @map("file_size_bytes")
+  uploadedById   String?   @map("uploaded_by_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  uploadedBy User?       @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  payrollRun PayrollRun? @relation(fields: [payrollRunId], references: [id], onDelete: SetNull)
+
+  @@index([category], map: "payroll_documents_category_idx")
+  @@index([payrollRunId], map: "payroll_documents_payroll_run_id_idx")
+  @@map("payroll_documents")
 }
 
 model ProcurementApprovalConfig {
@@ -5904,9 +6252,10 @@ model FiscalPeriod {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  fiscalYear         FiscalYear           @relation(fields: [fiscalYearId], references: [id], onDelete: Cascade)
+  fiscalYear         FiscalYear            @relation(fields: [fiscalYearId], references: [id], onDelete: Cascade)
   moduleLocks        ModulePeriodLock[]
   periodLockAuditLog PeriodLockAuditLog[]
+  closeTasks         AccountingCloseTask[]
 
   @@unique([fiscalYearId, periodNumber], map: "fiscal_periods_year_num_key")
   @@index([startDate, endDate], map: "fiscal_periods_start_end_idx")
@@ -5992,6 +6341,37 @@ model PeriodLockAuditLog {
   @@index([createdAt], map: "period_lock_audit_logs_created_idx")
   @@index([actionType], map: "period_lock_audit_logs_action_idx")
   @@map("period_lock_audit_logs")
+}
+
+/// Period-close checklist item gating a fiscal period lock. Task checklist only — the actual
+/// lock/commit engine lives in PeriodLockService; canLockPeriod() here just reports readiness.
+model AccountingCloseTask {
+  id             String    @id @default(cuid())
+  fiscalPeriodId String    @map("fiscal_period_id")
+  workstream     String    @db.VarChar(64)
+  task           String    @db.VarChar(255)
+  ownerId        String?   @map("owner_id")
+  dueAt          DateTime? @map("due_at")
+  /// OPEN | IN_PROGRESS | COMPLETE — plain string (not a Prisma enum) for flexibility.
+  status         String    @default("OPEN") @db.VarChar(32)
+  dependsOnId    String?   @map("depends_on_id")
+  completedById  String?   @map("completed_by_id")
+  completedAt    DateTime? @map("completed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  fiscalPeriod FiscalPeriod          @relation(fields: [fiscalPeriodId], references: [id], onDelete: Cascade)
+  owner        User?                 @relation("AccountingCloseTaskOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  completedBy  User?                 @relation("AccountingCloseTaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  /// Self-relation: Prisma requires NoAction/NoAction here (cyclic-referential-actions rule); the
+  /// actual DB FK (see scripts/run-accounting-close-tasks-migration.ts) is ON DELETE SET NULL.
+  dependsOn    AccountingCloseTask?  @relation("AccountingCloseTaskDependency", fields: [dependsOnId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dependents   AccountingCloseTask[] @relation("AccountingCloseTaskDependency")
+
+  @@index([fiscalPeriodId], map: "accounting_close_tasks_fp_idx")
+  @@index([status], map: "accounting_close_tasks_status_idx")
+  @@index([dependsOnId], map: "accounting_close_tasks_depends_on_idx")
+  @@map("accounting_close_tasks")
 }
 
 /// Singleton-style settings row (`id` = `default`). Posting mode and optional fiscal timezone for STI accrual cron.
@@ -7258,6 +7638,28 @@ model FundDocument {
 
   @@index([fundId], map: "fund_documents_fund_idx")
   @@map("fund_documents")
+}
+
+/// Company-wide accounting document vault (accounting-v52 "Document Vault"). Flat — not scoped to a
+/// fund or any other parent record — categorized only by a free-string `category` (real values used
+/// by the frontend: Close evidence, Financial reports, Tax & compliance, Payment controls,
+/// Accounting policies, Audit room), same shape as FundDocument otherwise.
+model AccountingDocument {
+  id            String   @id @default(cuid())
+  name          String   @db.VarChar(255)
+  category      String   @default("General") @db.VarChar(64)
+  fileUrl       String   @map("file_url") @db.Text
+  storagePath   String?  @map("storage_path") @db.VarChar(512)
+  mimeType      String?  @map("mime_type") @db.VarChar(128)
+  fileSizeBytes Int?     @map("file_size_bytes")
+  uploadedById  String?  @map("uploaded_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  uploadedBy User? @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([category], map: "accounting_documents_category_idx")
+  @@map("accounting_documents")
 }
 
 model ListedEquityValuationSnapshot {
@@ -10844,6 +11246,7 @@ model TaxReturnPack {
   status             String    @default("DRAFT") @db.VarChar(24)
   periodStart        DateTime  @map("period_start") @db.Date
   periodEnd          DateTime  @map("period_end") @db.Date
+  filingDueDate      DateTime? @map("filing_due_date") @db.Date
   accountingProfit   Decimal?  @map("accounting_profit") @db.Decimal(15, 2)
   taxableIncome      Decimal?  @map("taxable_income") @db.Decimal(15, 2)
   citLiability       Decimal?  @map("cit_liability") @db.Decimal(15, 2)
@@ -10853,6 +11256,9 @@ model TaxReturnPack {
   citLiabilityZig    Decimal?  @map("cit_liability_zig") @db.Decimal(15, 2)
   weightedEtr        Decimal?  @map("weighted_etr") @db.Decimal(8, 4)
   closingFxRate      Decimal?  @map("closing_fx_rate") @db.Decimal(18, 6)
+  vatOutputTax       Decimal?  @map("vat_output_tax") @db.Decimal(15, 2)
+  vatInputTax        Decimal?  @map("vat_input_tax") @db.Decimal(15, 2)
+  vatNetPayable      Decimal?  @map("vat_net_payable") @db.Decimal(15, 2)
   liabilitySnapshot  Json?     @map("liability_snapshot")
   failureReason      String?   @map("failure_reason") @db.Text
   compiledById       String?   @map("compiled_by_id")
@@ -11624,4 +12030,224 @@ model SpCashBreakComment {
 
   @@index([breakId], map: "sp_cash_break_comments_break_idx")
   @@map("sp_cash_break_comments")
+}
+
+/// Lightweight internal/client work-item lookup for timesheet tracking. Deliberately NOT the
+/// investment Fund model — entries here mix real fund names with plain internal work items
+/// (e.g. "Corporate Close", "Workshop ERP"), so this is its own catalog, not fund-domain data.
+model Project {
+  id          String   @id @default(cuid())
+  name        String   @db.VarChar(255)
+  clientName  String?  @map("client_name") @db.VarChar(255)
+  projectType String?  @map("project_type") @db.VarChar(64)
+  budget      Decimal? @db.Decimal(14, 2)
+  status      String   @default("ACTIVE") @db.VarChar(32)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  createdBy User?            @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  entries   TimesheetEntry[]
+
+  @@map("projects")
+}
+
+/// Weekly timesheet header, one per user per week-ending date. Day-by-day hours live on
+/// TimesheetEntry so they stay independently queryable for billing/WIP reporting later.
+model Timesheet {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  weekEnding   DateTime  @map("week_ending") @db.Date
+  /// DRAFT | SUBMITTED | APPROVED | RETURNED
+  status       String    @default("DRAFT") @db.VarChar(32)
+  submittedAt  DateTime? @map("submitted_at")
+  approvedById String?   @map("approved_by_id")
+  approvedAt   DateTime? @map("approved_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  user       User             @relation("TimesheetUser", fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy User?            @relation("TimesheetApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  entries    TimesheetEntry[]
+
+  @@unique([userId, weekEnding])
+  @@map("timesheets")
+}
+
+/// One project/day line on a Timesheet — real FK to both header and Project (not a JSON blob),
+/// so hours are independently queryable for billing/WIP reporting.
+model TimesheetEntry {
+  id          String   @id @default(cuid())
+  timesheetId String   @map("timesheet_id")
+  projectId   String   @map("project_id")
+  date        DateTime @db.Date
+  hours       Decimal  @db.Decimal(5, 2)
+  billable    Boolean  @default(false)
+  notes       String?  @db.VarChar(500)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  timesheet Timesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+  project   Project   @relation(fields: [projectId], references: [id])
+
+  @@map("timesheet_entries")
+}
+
+/// Performance module corrective-action register (ID / Action / Trigger / Owner / Severity / Progress / Target).
+/// Table created by scripts/run-performance-corrective-actions-migration.ts.
+model PerformanceCorrectiveAction {
+  id           String    @id @default(cuid())
+  /// Short human code, e.g. CA-001. Auto-allocated by CorrectiveActionService when not supplied.
+  reference    String    @unique @db.VarChar(32)
+  title        String    @db.VarChar(255)
+  description  String?   @db.Text
+  /// What raised the action. Column is `trigger_source` - TRIGGER is a MySQL reserved word.
+  trigger      String?   @map("trigger_source") @db.Text
+  ownerId      String?   @map("owner_id")
+  departmentId String?   @map("department_id")
+  /// low | medium | high | critical - plain string (not a Prisma enum) for flexibility.
+  severity     String    @default("medium") @db.VarChar(16)
+  /// open | in_progress | blocked | closed - plain string (not a Prisma enum) for flexibility.
+  status       String    @default("open") @db.VarChar(32)
+  /// 0-100. NULL means progress has not been reported.
+  progress     Int?
+  targetDate   DateTime? @map("target_date")
+  closedAt     DateTime? @map("closed_at")
+  createdById  String    @map("created_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  owner      User?       @relation("PerformanceCorrectiveActionOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdBy  User        @relation("PerformanceCorrectiveActionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([status], map: "performance_corrective_actions_status_idx")
+  @@index([ownerId], map: "performance_corrective_actions_owner_idx")
+  @@index([departmentId], map: "performance_corrective_actions_department_idx")
+  /// relationMode = "prisma" implies no FK-backed index, and Prisma warns on any un-indexed
+  /// relation scalar. The migration creates it.
+  @@index([createdById], map: "performance_corrective_actions_created_by_idx")
+  @@map("performance_corrective_actions")
+}
+
+/// Performance module alert register. Table created by scripts/run-performance-alerts-migration.ts.
+model PerformanceAlert {
+  id              String    @id @default(cuid())
+  reference       String    @unique @db.VarChar(64)
+  title           String    @db.VarChar(255)
+  description     String?   @db.Text
+  /// Free text - where the alert came from, e.g. "KPI threshold", "Review overdue", "Manual".
+  source          String    @default("Manual") @db.VarChar(191)
+  /// info | warning | critical - plain string (not a Prisma enum), matching the rest of Performance.
+  severity        String    @default("warning") @db.VarChar(32)
+  /// open | acknowledged | escalated | resolved
+  status          String    @default("open") @db.VarChar(32)
+  ownerId         String?   @map("owner_id")
+  departmentId    String?   @map("department_id")
+  escalationLevel Int       @default(0) @map("escalation_level")
+  raisedAt        DateTime  @default(now()) @map("raised_at")
+  acknowledgedAt  DateTime? @map("acknowledged_at")
+  resolvedAt      DateTime? @map("resolved_at")
+  createdById     String    @map("created_by_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  /// NOTE: there is deliberately no `elapsed` column. Elapsed time is derived from raisedAt
+  /// by PerformanceAlertService on every read (elapsedMinutes), so it can never go stale.
+  owner      User?       @relation("PerformanceAlertOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  department Department? @relation("PerformanceAlertDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  createdBy  User        @relation("PerformanceAlertCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([status], map: "performance_alerts_status_idx")
+  @@index([severity], map: "performance_alerts_severity_idx")
+  @@index([ownerId], map: "performance_alerts_owner_idx")
+  @@index([departmentId], map: "performance_alerts_department_idx")
+  @@index([createdById], map: "performance_alerts_created_by_idx")
+  @@map("performance_alerts")
+}
+
+/// Employee Scorecard workspace apparatus (notes / evidence / update history / publish events).
+/// One append-only event log per employee+period, discriminated by `kind`, rather than four
+/// separate tables - mirrors how the scorecard UI already treats these as one activity stream.
+/// Table created by scripts/run-performance-scorecard-entries-migration.ts.
+model PerformanceScorecardEntry {
+  id       String @id @default(cuid())
+  /// The employee (User) whose scorecard this entry is attached to - not necessarily the actor.
+  employeeId String @map("employee_id")
+  /// Free-text scorecard period label, matching the UI's own periods (e.g. "Q3 FY2026").
+  period   String @db.VarChar(64)
+  /// note | evidence | history | publish
+  kind     String @db.VarChar(16)
+  /// note only: the note's category (e.g. "Manager note", "Employee response").
+  noteType String? @map("note_type") @db.VarChar(64)
+  /// note/history: free text body.
+  text     String? @db.Text
+  /// evidence only: Firebase Storage URL/path/mime/size, same shape as PerformanceDocument.
+  fileUrl       String? @map("file_url") @db.VarChar(1024)
+  storagePath   String? @map("storage_path") @db.VarChar(1024)
+  mimeType      String? @map("mime_type") @db.VarChar(191)
+  fileSizeBytes Int?    @map("file_size_bytes")
+  actorId  String   @map("actor_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  employee User @relation("PerformanceScorecardEntryEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  actor    User @relation("PerformanceScorecardEntryActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, period], map: "performance_scorecard_entries_employee_period_idx")
+  @@index([kind], map: "performance_scorecard_entries_kind_idx")
+  @@index([actorId], map: "performance_scorecard_entries_actor_idx")
+  @@map("performance_scorecard_entries")
+}
+
+/// Performance Document Vault (performance module "Documents"). Company-wide store - not scoped to
+/// a performance contract, review or scorecard - organised by a free-string folder (the vault's
+/// folder bar: Contracts, Reviews, Evidence, Policies) with a versioned lifecycle (version +
+/// status) and an optional retention date.
+model PerformanceDocument {
+  id             String    @id @default(cuid())
+  name           String    @db.VarChar(255)
+  folder         String    @default("General") @db.VarChar(64)
+  category       String?   @db.VarChar(64)
+  version        String    @default("v1") @db.VarChar(32)
+  /// draft | in_review | approved | archived
+  status         String    @default("draft") @db.VarChar(24)
+  fileUrl        String    @map("file_url") @db.Text
+  storagePath    String?   @map("storage_path") @db.VarChar(512)
+  mimeType       String?   @map("mime_type") @db.VarChar(128)
+  fileSizeBytes  Int?      @map("file_size_bytes")
+  ownerId        String?   @map("owner_id")
+  departmentId   String?   @map("department_id")
+  retentionUntil DateTime? @map("retention_until")
+  uploadedById   String?   @map("uploaded_by_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  owner      User?       @relation("PerformanceDocumentOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  department Department? @relation("PerformanceDocumentDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  uploadedBy User?       @relation("PerformanceDocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([folder], map: "performance_documents_folder_idx")
+  @@index([status], map: "performance_documents_status_idx")
+  @@index([ownerId], map: "performance_documents_owner_id_idx")
+  @@index([departmentId], map: "performance_documents_department_id_idx")
+  @@index([uploadedById], map: "performance_documents_uploaded_by_id_idx")
+  @@map("performance_documents")
+}
+
+/// Performance module settings - organisation-wide key/value store. See
+/// scripts/run-performance-settings-migration.ts for why a keyed store rather than a wide
+/// table: there is no written spec for the settings surface yet, so the schema stays stable
+/// while the field list is still being agreed.
+model PerformanceSetting {
+  id          String   @id @default(cuid())
+  settingKey  String   @unique @map("setting_key") @db.VarChar(191)
+  value       Json?
+  updatedById String?  @map("updated_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([updatedById], map: "performance_settings_updated_by_idx")
+  @@map("performance_settings")
 }

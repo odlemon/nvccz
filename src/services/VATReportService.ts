@@ -293,9 +293,11 @@ export class VATReportService {
   }
 
   /**
-   * Get VAT Input account (typically 2110)
+   * Get VAT Input account (typically 2110).
+   * Public (not private) so TaxReturnPackVatCompileService can resolve the exact same account
+   * this report aggregated against, instead of re-deriving the lookup independently.
    */
-  private static async getVATInputAccount() {
+  static async getVATInputAccount() {
     const account = await prisma.chartOfAccounts.findFirst({
       where: {
         OR: [
@@ -314,9 +316,11 @@ export class VATReportService {
   }
 
   /**
-   * Get VAT Output account (typically 2100)
+   * Get VAT Output account (typically 2100).
+   * Public (not private) so TaxReturnPackVatCompileService can resolve the exact same account
+   * this report aggregated against, instead of re-deriving the lookup independently.
    */
-  private static async getVATOutputAccount() {
+  static async getVATOutputAccount() {
     const account = await prisma.chartOfAccounts.findFirst({
       where: {
         OR: [

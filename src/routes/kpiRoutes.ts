@@ -2,8 +2,12 @@
 import express from "express";
 import { KPIController } from "../controllers/KPIController";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 
 const router = express.Router();
+const READ_KEYS = ["performance.kpi.view", "performance.kpi.manage"]
+const WRITE_KEYS = ["performance.kpi.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 /**
  * @swagger
@@ -133,7 +137,7 @@ const router = express.Router();
  *       401:
  *         description: Unauthorized
  */
-router.post("/", authenticate, KPIController.createKPI);
+router.post("/", authenticate, guard, KPIController.createKPI);
 
 /**
  * @swagger
@@ -170,7 +174,7 @@ router.post("/", authenticate, KPIController.createKPI);
  *       401:
  *         description: Unauthorized
  */
-router.get("/", authenticate, KPIController.getAllKPIs);
+router.get("/", authenticate, guard, KPIController.getAllKPIs);
 
 /**
  * @swagger
@@ -186,7 +190,7 @@ router.get("/", authenticate, KPIController.getAllKPIs);
  *       401:
  *         description: Unauthorized
  */
-router.get("/statistics", authenticate, KPIController.getKPIStatistics);
+router.get("/statistics", authenticate, guard, KPIController.getKPIStatistics);
 
 /**
  * @swagger
@@ -282,7 +286,7 @@ router.get("/statistics", authenticate, KPIController.getKPIStatistics);
  *       400:
  *         description: Bad request
  */
-router.get("/tracking", authenticate, KPIController.getKPITracking);
+router.get("/tracking", authenticate, guard, KPIController.getKPITracking);
 
 /**
  * @swagger
@@ -380,7 +384,7 @@ router.get("/tracking", authenticate, KPIController.getKPITracking);
  *       400:
  *         description: Bad request
  */
-router.get("/analytics/summary", authenticate, KPIController.getKPIAnalyticsSummary);
+router.get("/analytics/summary", authenticate, guard, KPIController.getKPIAnalyticsSummary);
 
 /**
  * @swagger
@@ -405,7 +409,7 @@ router.get("/analytics/summary", authenticate, KPIController.getKPIAnalyticsSumm
  *       401:
  *         description: Unauthorized
  */
-router.get("/:id", authenticate, KPIController.getKPIById);
+router.get("/:id", authenticate, guard, KPIController.getKPIById);
 
 /**
  * @swagger
@@ -454,7 +458,7 @@ router.get("/:id", authenticate, KPIController.getKPIById);
  *       401:
  *         description: Unauthorized
  */
-router.put("/:id", authenticate, KPIController.updateKPI);
+router.put("/:id", authenticate, guard, KPIController.updateKPI);
 
 /**
  * @swagger
@@ -478,6 +482,6 @@ router.put("/:id", authenticate, KPIController.updateKPI);
  *       401:
  *         description: Unauthorized
  */
-router.delete("/:id", authenticate, KPIController.deleteKPI);
+router.delete("/:id", authenticate, guard, KPIController.deleteKPI);
 
 export default router;

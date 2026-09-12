@@ -6,8 +6,44 @@ import { EmailNotificationService } from "./EmailNotificationService";
 import { loadCapitalCallAccountingLetterhead } from "../utils/capitalCallAccountingLetterhead";
 
 const ELIGIBLE_COMMITMENT_STATUSES = ["ACTIVE", "PENDING"];
-const ALLOWED_SOURCES = new Set(["DIVIDEND", "EXIT_PROCEEDS", "INTEREST", "OTHER"]);
-/** Source-of-funds income (Cr at declaration). */
+/**
+ * SRD section 11: "Supported types include return of capital, realisation proceeds, dividend,
+ * interest, income and other." RETURN_OF_CAPITAL and INCOME were previously rejected on creation
+ * even though the LP portal already displays both. REALISATION_PROCEEDS is accepted as an alias
+ * for the stored EXIT_PROCEEDS so the SRD's own wording works at the API.
+ */
+const ALLOWED_SOURCES = new Set([
+  "DIVIDEND",
+  "EXIT_PROCEEDS",
+  "REALISATION_PROCEEDS",
+  "INTEREST",
+  "INCOME",
+  "RETURN_OF_CAPITAL",
+  "OTHER",
+]);
+
+/**
+ * Which account a declaration debits, by source.
+ *
+ * This used to be a single constant: every distribution debited `4100 Dividend Income` whatever
+ * it was, so a realisation of an investment and an interest receipt were both booked as dividend
+ * income. Declaration reclassifies the amount out of wherever it was recognised and into the
+ * payable to LPs, so the debit has to be the account that actually carries it.
+ *
+ * RETURN_OF_CAPITAL is the important one: returning contributed capital reduces partners' equity
+ * and is not income at all, so it must never touch a revenue account.
+ */
+const SOURCE_DEBIT_ACCOUNT: Record<string, string> = {
+  DIVIDEND: "4100",              // Dividend Income
+  INTEREST: "4110",              // Interest Income
+  EXIT_PROCEEDS: "4120",         // Realised Gain on Investments
+  REALISATION_PROCEEDS: "4120",  // same
+  INCOME: "4130",                // Other Investment Income
+  OTHER: "4130",                 // Other Investment Income
+  RETURN_OF_CAPITAL: "3020",     // Partners Capital - Contributed (equity, not income)
+};
+
+/** Source-of-funds income (Cr at declaration). Fallback when a mapped account is absent. */
 const CR_DIVIDEND_INCOME = "4100";
 /** Distributions payable to LPs (Cr at declaration, Dr at payout). */
 const DIST_PAYABLE = "2400";
@@ -347,11 +383,17 @@ export class DistributionService {
       });
     }
 
-    const [incomeId, payableId, carryCrId] = await Promise.all([
-      findCoaByAccountNo(CR_DIVIDEND_INCOME),
+    // Debit the account that matches what this distribution actually is. If the mapped account is
+    // missing from the chart of accounts (an environment that has not run
+    // `scripts/create-distribution-source-accounts.ts` yet), fall back to the previous behaviour
+    // rather than failing the declaration.
+    const debitAccountNo = SOURCE_DEBIT_ACCOUNT[source] || CR_DIVIDEND_INCOME;
+    let [incomeId, payableId, carryCrId] = await Promise.all([
+      findCoaByAccountNo(debitAccountNo).catch(() => null),
       findCoaByAccountNo(DIST_PAYABLE),
       findCoaByAccountNo(CR_PERF_FEE_REVENUE),
     ]);
+    if (!incomeId) incomeId = await findCoaByAccountNo(CR_DIVIDEND_INCOME);
 
     const txDate = toDate(params.distributionDate, "distributionDate");
     const referenceNumber = `DIST-${params.fundId.slice(0, 6)}-${Date.now()}`;
@@ -376,7 +418,7 @@ export class DistributionService {
             chartOfAccountId: incomeId,
             debitAmount: roundMoney(gross),
             creditAmount: new Decimal(0),
-            description: `${CR_DIVIDEND_INCOME} — Reclassify to LP distribution (${fund.name})`,
+            description: `${debitAccountNo} — Reclassify to LP distribution (${source}, ${fund.name})`,
           },
           {
             journalEntryId: journalEntry.id,

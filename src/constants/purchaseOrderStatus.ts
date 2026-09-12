@@ -42,14 +42,20 @@ export function isPoPartiallyDelivered(status: string | null | undefined): boole
   return PARTIAL_DELIVERED_EQUIV.has(String(status || ""));
 }
 
-/** Vendor may submit a procurement invoice against this PO. */
+/**
+ * Vendor may submit a procurement invoice against this PO.
+ * Delivered POs stay open: suppliers usually invoice after the goods arrive, and the GRN moves the
+ * PO to PARTIALLY_DELIVERED / DELIVERED before that happens. Only BILLED (and DRAFT) close it.
+ */
 export function canVendorSubmitProcurementInvoice(status: string | null | undefined): boolean {
   const s = String(status || "");
   return (
     s === PO_STATUS.SENT ||
     s === PO_STATUS.APPROVED ||
     s === PO_STATUS.PENDING ||
-    s === PO_STATUS.ACKNOWLEDGED
+    s === PO_STATUS.ACKNOWLEDGED ||
+    isPoPartiallyDelivered(s) ||
+    isPoFullyDelivered(s)
   );
 }
 

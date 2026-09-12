@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { Request, Response } from 'express';
+import { PayrollAuditService } from "../services/payroll/PayrollAuditService";
 import { PrismaClient } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PayrollService } from '../services/PayrollService';
@@ -309,6 +310,15 @@ export class PayrollController {
         }
       });
 
+      await PayrollAuditService.record({
+        action: 'PAYROLL_RUN_CREATED',
+        eventClass: 'Change',
+        entityType: 'payroll_run',
+        entityId: (payrollRun as any)?.id ?? null,
+        entityLabel: (payrollRun as any)?.name ?? null,
+        detail: `Created payroll run for ${(payrollRun as any)?.payPeriod ?? 'an unnamed period'}`,
+        actor: (req as any).user,
+      });
       res.status(201).json({
         success: true,
         message: 'Payroll run created successfully',
@@ -336,6 +346,15 @@ export class PayrollController {
 
       const payrollRun = await PayrollService.getPayrollRunSummary(payrollRunId);
 
+      await PayrollAuditService.record({
+        action: 'PAYROLL_RUN_PROCESSED',
+        eventClass: 'Change',
+        entityType: 'payroll_run',
+        entityId: payrollRunId,
+        entityLabel: (payrollRun as any)?.name ?? null,
+        detail: `Calculated payroll and generated payslips: gross ${(payrollRun as any)?.totalGrossPay ?? '0'}, net ${(payrollRun as any)?.totalNetPay ?? '0'}`,
+        actor: (req as any).user,
+      });
       res.json({
         success: true,
         message: 'Payroll run processed successfully',
@@ -1930,9 +1949,59 @@ export class PayrollController {
         where: whereClause
       });
 
+      // Per-currency components, from the legs.
+      //
+      // The module's command centre shows a "USD component" and a "local
+      // component" card for the latest run, and neither figure existed in this
+      // payload. The UI fell back to totalGrossPay for USD -- which is the
+      // COMBINED figure, so it overstated the USD component by the converted
+      // ZiG -- and computed ZiG as gross * fxRate gated on `dualCurrency`, a
+      // flag that is false on every run in this database. So ZiG rendered as 0
+      // while each run carried 155,772.24 ZiG in legs.
+      //
+      // employee_payroll_legs is the only place the real split lives.
+      const runIds = payrollRuns.map((r: any) => r.id);
+      const legTotals: any[] = runIds.length
+        ? await prisma.$queryRawUnsafe(
+            `SELECT ep.payrollRunId AS runId, l.currency_code AS currencyCode,
+                    SUM(l.gross_pay) AS gross, SUM(l.net_pay) AS net,
+                    SUM(l.total_deductions) AS deductions
+               FROM employee_payroll_legs l
+               JOIN employee_payrolls ep ON ep.id = l.employee_payroll_id
+              WHERE ep.payrollRunId IN (${runIds.map(() => '?').join(',')})
+              GROUP BY ep.payrollRunId, l.currency_code`,
+            ...runIds
+          )
+        : [];
+
+      const componentsByRun = new Map<string, Record<string, any>>();
+      for (const row of legTotals) {
+        const forRun = componentsByRun.get(row.runId) || {};
+        forRun[String(row.currencyCode).toUpperCase()] = {
+          gross: Number(row.gross) || 0,
+          net: Number(row.net) || 0,
+          deductions: Number(row.deductions) || 0,
+        };
+        componentsByRun.set(row.runId, forRun);
+      }
+
+      const runsWithComponents = payrollRuns.map((r: any) => {
+        const components = componentsByRun.get(r.id) || {};
+        const currencies = Object.keys(components);
+        return {
+          ...r,
+          currencyComponents: components,
+          // null, not 0, when the run has no legs in that currency at all —
+          // so the UI can say "not recorded" rather than assert a zero.
+          grossUsdComponent: components.USD ? components.USD.gross : null,
+          grossZigComponent: components.ZIG ? components.ZIG.gross : null,
+          isDualCurrency: currencies.length > 1,
+        };
+      });
+
       res.json({
         success: true,
-        data: payrollRuns,
+        data: runsWithComponents,
         pagination: {
           page: Number(page),
           limit: Number(limit),

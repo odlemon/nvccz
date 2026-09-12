@@ -32,7 +32,16 @@ export class TaxReturnPackPdfService {
         doc.fillColor("#000000").moveDown(0.5);
       }
 
-      doc.font("Helvetica-Bold").fontSize(16).text("ZIMRA Tax Return Pack", { align: "center" });
+      const isVat = pack.taxRegime === "ZIMRA_VAT";
+      const isWht = pack.taxRegime === "ZIMRA_WHT";
+      const headingText = isVat
+        ? "ZIMRA VAT Return Pack"
+        : isWht
+        ? "ZIMRA Withholding Tax Schedule"
+        : "ZIMRA Tax Return Pack";
+      const summaryHeading = isVat ? "VAT201 Summary" : isWht ? "WHT Schedule Summary" : "ITF 12C Summary";
+
+      doc.font("Helvetica-Bold").fontSize(16).text(headingText, { align: "center" });
       doc.moveDown(0.5);
       doc
         .font("Helvetica")
@@ -40,19 +49,37 @@ export class TaxReturnPackPdfService {
         .text(`${pack.forecastEntity?.name || "Entity"} — ${pack.taxPeriod} ${pack.taxYear}`, { align: "center" });
       doc.moveDown(1);
 
-      const summary: Array<[string, string]> = [
-        ["Pack ID", pack.id],
-        ["Tax regime", pack.taxRegime],
-        ["Period", `${pack.periodStart?.toISOString?.().slice(0, 10) ?? pack.periodStart} — ${pack.periodEnd?.toISOString?.().slice(0, 10) ?? pack.periodEnd}`],
-        ["Accounting profit", fmtAmount(Number(pack.accountingProfit), pack.baseCurrency)],
-        ["Taxable income", fmtAmount(Number(pack.taxableIncome), pack.baseCurrency)],
-        ["CIT liability", fmtAmount(Number(pack.citLiability), pack.baseCurrency)],
-        ["CGT liability", fmtAmount(Number(pack.cgtLiability), pack.baseCurrency)],
-        ["Total tax liability", fmtAmount(Number(pack.totalTaxLiability), pack.baseCurrency)],
-        ["Weighted ETR", pack.weightedEtr != null ? `${Number(pack.weightedEtr).toFixed(2)}%` : "N/A"],
-      ];
+      const periodLabel = `${pack.periodStart?.toISOString?.().slice(0, 10) ?? pack.periodStart} — ${pack.periodEnd?.toISOString?.().slice(0, 10) ?? pack.periodEnd}`;
 
-      doc.font("Helvetica-Bold").fontSize(12).text("ITF 12C Summary");
+      const summary: Array<[string, string]> = isVat
+        ? [
+            ["Pack ID", pack.id],
+            ["Tax regime", pack.taxRegime],
+            ["Period", periodLabel],
+            ["VAT Output tax", fmtAmount(Number(pack.vatOutputTax), pack.baseCurrency)],
+            ["VAT Input tax", fmtAmount(Number(pack.vatInputTax), pack.baseCurrency)],
+            ["Net VAT payable / (refundable)", fmtAmount(Number(pack.vatNetPayable), pack.baseCurrency)],
+          ]
+        : isWht
+        ? [
+            ["Pack ID", pack.id],
+            ["Tax regime", pack.taxRegime],
+            ["Period", periodLabel],
+            ["Scope", "Evidence/tracking pass only — no auto-computed liability (see reconciliation lines below)"],
+          ]
+        : [
+            ["Pack ID", pack.id],
+            ["Tax regime", pack.taxRegime],
+            ["Period", periodLabel],
+            ["Accounting profit", fmtAmount(Number(pack.accountingProfit), pack.baseCurrency)],
+            ["Taxable income", fmtAmount(Number(pack.taxableIncome), pack.baseCurrency)],
+            ["CIT liability", fmtAmount(Number(pack.citLiability), pack.baseCurrency)],
+            ["CGT liability", fmtAmount(Number(pack.cgtLiability), pack.baseCurrency)],
+            ["Total tax liability", fmtAmount(Number(pack.totalTaxLiability), pack.baseCurrency)],
+            ["Weighted ETR", pack.weightedEtr != null ? `${Number(pack.weightedEtr).toFixed(2)}%` : "N/A"],
+          ];
+
+      doc.font("Helvetica-Bold").fontSize(12).text(summaryHeading);
       doc.moveDown(0.3);
       doc.font("Helvetica").fontSize(10);
       for (const [label, value] of summary) {

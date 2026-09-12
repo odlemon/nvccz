@@ -1470,14 +1470,112 @@ export class FundraisingSrdService {
     return row;
   }
 
+  /**
+   * Approval requests, each resolved into the names the approvals screen renders.
+   *
+   * The stored row holds only ids — objectType/objectId plus requestedById/decidedById — so
+   * the screen's Request, Campaign, Investor and Requester columns had nothing to display
+   * and every row read "Name unavailable". Resolve them here, in batched lookups per object
+   * type, rather than making the client issue a request per row.
+   */
   static async listApprovals(filters: { status?: string; objectType?: string }) {
     const where: any = {};
     if (filters.status) where.status = filters.status;
     if (filters.objectType) where.objectType = filters.objectType;
-    return prisma.fundraisingApprovalRequest.findMany({
+    const rows = await prisma.fundraisingApprovalRequest.findMany({
       where,
       orderBy: { createdAt: "desc" },
       take: 200,
+    });
+    if (rows.length === 0) return rows;
+
+    const idsFor = (type: string) =>
+      rows.filter((r) => String(r.objectType).toUpperCase() === type).map((r) => r.objectId);
+
+    const [users, opportunities, commitments, campaigns, closings] = await Promise.all([
+      prisma.user.findMany({
+        where: {
+          id: {
+            in: [
+              ...new Set(
+                rows.flatMap((r) => [r.requestedById, r.decidedById]).filter(Boolean) as string[]
+              ),
+            ],
+          },
+        },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      }),
+      prisma.fundraisingOpportunity.findMany({
+        where: { id: { in: idsFor("OPPORTUNITY") } },
+        select: {
+          id: true,
+          campaign: { select: { id: true, name: true } },
+          investor: { select: { id: true, legalName: true } },
+        },
+      }),
+      prisma.fundraisingCommitment.findMany({
+        where: { id: { in: idsFor("COMMITMENT") } },
+        select: {
+          id: true,
+          campaign: { select: { id: true, name: true } },
+          investor: { select: { id: true, legalName: true } },
+        },
+      }),
+      prisma.fundraisingCampaign.findMany({
+        where: { id: { in: idsFor("CAMPAIGN") } },
+        select: { id: true, name: true },
+      }),
+      prisma.fundraisingClosing.findMany({
+        where: { id: { in: idsFor("CLOSING") } },
+        select: { id: true, name: true, campaign: { select: { id: true, name: true } } },
+      }),
+    ]);
+
+    const userName = (id?: string | null) => {
+      if (!id) return null;
+      const u = users.find((x) => x.id === id);
+      if (!u) return null;
+      return `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email || null;
+    };
+
+    const oppById = new Map(opportunities.map((o) => [o.id, o]));
+    const commitById = new Map(commitments.map((c) => [c.id, c]));
+    const campById = new Map(campaigns.map((c) => [c.id, c]));
+    const closeById = new Map(closings.map((c) => [c.id, c]));
+
+    return rows.map((r) => {
+      const type = String(r.objectType).toUpperCase();
+      let campaignName: string | null = null;
+      let investorName: string | null = null;
+      let objectName: string | null = null;
+
+      if (type === "OPPORTUNITY") {
+        const o = oppById.get(r.objectId);
+        campaignName = o?.campaign?.name ?? null;
+        investorName = o?.investor?.legalName ?? null;
+        objectName = investorName && campaignName ? `${investorName} — ${campaignName}` : null;
+      } else if (type === "COMMITMENT") {
+        const c = commitById.get(r.objectId);
+        campaignName = c?.campaign?.name ?? null;
+        investorName = c?.investor?.legalName ?? null;
+        objectName = investorName && campaignName ? `${investorName} — ${campaignName}` : null;
+      } else if (type === "CAMPAIGN") {
+        campaignName = campById.get(r.objectId)?.name ?? null;
+        objectName = campaignName;
+      } else if (type === "CLOSING") {
+        const c = closeById.get(r.objectId);
+        campaignName = c?.campaign?.name ?? null;
+        objectName = c?.name ?? null;
+      }
+
+      return {
+        ...r,
+        objectName,
+        campaignName,
+        investorName,
+        requestedByName: userName(r.requestedById),
+        decidedByName: userName(r.decidedById),
+      };
     });
   }
 
@@ -1842,12 +1940,48 @@ export class FundraisingSrdService {
 
   // ── Data rooms ────────────────────────────────────────────────
 
+  /**
+   * Data rooms for a campaign, each with its document/access counts and its view and
+   * download activity over the last 7 days.
+   *
+   * The activity counts are served here because the data-room screen renders "Views (7d)"
+   * and "Downloads (7d)" tiles per room and for the campaign as a whole. Without them the
+   * frontend had nothing to read and the tiles were permanently zero.
+   */
   static async listDataRooms(campaignId: string) {
-    return prisma.fundraisingDataRoom.findMany({
+    const rooms = await prisma.fundraisingDataRoom.findMany({
       where: { campaignId },
       include: { _count: { select: { documents: true, access: true } } },
       orderBy: { createdAt: "desc" },
     });
+    if (rooms.length === 0) return rooms;
+
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const activity = await prisma.fundraisingDataRoomAccessLog.groupBy({
+      by: ["dataRoomId", "action"],
+      where: {
+        dataRoomId: { in: rooms.map((r) => r.id) },
+        success: true,
+        createdAt: { gte: since },
+      },
+      _count: { _all: true },
+    });
+
+    const counts = new Map<string, { views7d: number; downloads7d: number }>();
+    for (const row of activity) {
+      const entry = counts.get(row.dataRoomId) ?? { views7d: 0, downloads7d: 0 };
+      const action = String(row.action || "").toUpperCase();
+      const n = row._count._all;
+      if (action === "DOWNLOAD") entry.downloads7d += n;
+      else if (action === "VIEW" || action === "PREVIEW") entry.views7d += n;
+      counts.set(row.dataRoomId, entry);
+    }
+
+    return rooms.map((r) => ({
+      ...r,
+      views7d: counts.get(r.id)?.views7d ?? 0,
+      downloads7d: counts.get(r.id)?.downloads7d ?? 0,
+    }));
   }
 
   static async createDataRoom(userId: string, campaignId: string, body: any, req?: any) {
@@ -1991,18 +2125,51 @@ export class FundraisingSrdService {
       throw FundraisingIrError.forbidden("No data room access", "ACCESS_DENIED");
     }
 
-    const buffer = await remoteUploadService.downloadFile(doc.storagePath || doc.fileUrl!);
+    // The log write used to sit AFTER the fetch, so a failed download left no
+    // trace at all -- and the table carries `success` and `failureReason`
+    // columns that nothing populated. An access log that records only the
+    // successful reads is not an access log. Every attempt is recorded now,
+    // and a logging failure never masks the download result.
+    const logAttempt = async (success: boolean, failureReason?: string) => {
+      try {
+        await prisma.fundraisingDataRoomAccessLog.create({
+          data: {
+            dataRoomId,
+            documentId,
+            userId,
+            action: "DOWNLOAD",
+            success,
+            failureReason: failureReason ? String(failureReason).slice(0, 255) : null,
+            ipAddress: reqMeta(req).ipAddress,
+            device: reqMeta(req).device,
+          },
+        });
+      } catch (logError: any) {
+        console.error("[data-room] failed to write access log:", logError?.message || logError);
+      }
+    };
 
-    await prisma.fundraisingDataRoomAccessLog.create({
-      data: {
-        dataRoomId,
-        documentId,
-        userId,
-        action: "DOWNLOAD",
-        ipAddress: reqMeta(req).ipAddress,
-        device: reqMeta(req).device,
-      },
-    });
+    // `doc.fileUrl!` asserted non-null on a nullable column. A document row with
+    // neither a storage path nor a URL reached RemoteUploadService and threw
+    // "Cannot read properties of null (reading 'split')" as an unhandled 500.
+    const storageRef = doc.storagePath || doc.fileUrl;
+    if (!storageRef) {
+      await logAttempt(false, "DOCUMENT_FILE_MISSING");
+      throw FundraisingIrError.notFound(
+        "This document has no stored file",
+        "DOCUMENT_FILE_MISSING"
+      );
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = await remoteUploadService.downloadFile(storageRef);
+    } catch (e: any) {
+      await logAttempt(false, e?.message || "DOWNLOAD_FAILED");
+      throw e;
+    }
+
+    await logAttempt(true);
 
     return {
       buffer,
@@ -2588,6 +2755,28 @@ export class FundraisingSrdService {
       byOwner[owner].signedAmount += Number(o.signedAmount ?? 0);
       byOwner[owner].fundedAmount += Number(o.fundedAmount ?? 0);
     }
+
+    // The map is keyed by user id, which is all the "Owner performance" table had to show.
+    // Attach the owner's name so the screen can label the row with a person rather than a
+    // cuid, and so a chart legend is readable.
+    const ownerIds = Object.keys(byOwner).filter((id) => id !== "UNASSIGNED");
+    if (ownerIds.length) {
+      const users = await prisma.user.findMany({
+        where: { id: { in: ownerIds } },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      });
+      for (const u of users) {
+        const name = `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email;
+        if (byOwner[u.id]) byOwner[u.id].ownerName = name || null;
+      }
+    }
+    for (const [id, row] of Object.entries(byOwner)) {
+      if (!(row as any).ownerName) {
+        (row as any).ownerName = id === "UNASSIGNED" ? "Unassigned" : null;
+      }
+      (row as any).ownerId = id;
+    }
+
     return { campaignId: filters.campaignId ?? null, byOwner };
   }
 
@@ -2686,17 +2875,57 @@ export class FundraisingSrdService {
         prisma.fundraisingAuditLog.count({ where }),
       ]);
       return {
-        items,
+        items: await FundraisingSrdService.attachAuditActors(items),
         total,
         page: filters.page ? Number(filters.page) : Math.floor(skip / take) + 1,
         pageSize: take,
       };
     }
 
-    return prisma.fundraisingAuditLog.findMany({
+    const rows = await prisma.fundraisingAuditLog.findMany({
       where,
       orderBy: { timestamp: "desc" },
       take: Math.min(Number(filters.limit) || 100, 500),
+    });
+    return FundraisingSrdService.attachAuditActors(rows);
+  }
+
+  /**
+   * Resolve the acting user for each audit row into `userName` / `userRole`.
+   *
+   * SRD §34 requires the audit trail to identify the user and role, but
+   * `fundraising_audit_logs.user_id` is a plain column with no Prisma relation, so the rows
+   * carried only an opaque id and every activity feed rendered "Name unavailable". Look the
+   * users up in one batched query rather than adding a relation, which would be a schema
+   * change for a read-side concern.
+   *
+   * `role` on the row is the role recorded at the time of the action and is preferred when
+   * present; the user's current role is only a fallback.
+   */
+  private static async attachAuditActors<T extends { userId: string; role?: string | null }>(
+    rows: T[]
+  ): Promise<Array<T & { userName: string | null; userRole: string | null }>> {
+    if (rows.length === 0) return [];
+
+    const ids = [...new Set(rows.map((r) => r.userId).filter(Boolean))];
+    const users = ids.length
+      ? await prisma.user.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            role: { select: { name: true } },
+          },
+        })
+      : [];
+
+    const byId = new Map(users.map((u) => [u.id, u]));
+    return rows.map((r) => {
+      const u = byId.get(r.userId);
+      const name = u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email : null;
+      return { ...r, userName: name || null, userRole: r.role ?? u?.role?.name ?? null };
     });
   }
 

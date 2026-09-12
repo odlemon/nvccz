@@ -2,8 +2,12 @@
 import express from "express";
 import { PerformanceReviewController } from "../controllers/PerformanceReviewController";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 
 const router = express.Router();
+const READ_KEYS = ["performance.reviews.view", "performance.reviews.manage"]
+const WRITE_KEYS = ["performance.reviews.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 /**
  * @swagger-disabled-legacy
@@ -229,7 +233,7 @@ const router = express.Router();
  *       500:
  *         description: Internal server error
  */
-router.post("/", authenticate, PerformanceReviewController.createPerformanceReview);
+router.post("/", authenticate, guard, PerformanceReviewController.createPerformanceReview);
 
 /**
  * @swagger-disabled-legacy
@@ -328,7 +332,7 @@ router.post("/", authenticate, PerformanceReviewController.createPerformanceRevi
  *       500:
  *         description: Internal server error
  */
-router.get("/", authenticate, PerformanceReviewController.getAllPerformanceReviews);
+router.get("/", authenticate, guard, PerformanceReviewController.getAllPerformanceReviews);
 
 /**
  * @swagger-disabled-legacy
@@ -412,7 +416,7 @@ router.get("/", authenticate, PerformanceReviewController.getAllPerformanceRevie
  *       500:
  *         description: Internal server error
  */
-router.get("/analytics", authenticate, PerformanceReviewController.getPerformanceReviewAnalytics);
+router.get("/analytics", authenticate, guard, PerformanceReviewController.getPerformanceReviewAnalytics);
 
 /**
  * @swagger-disabled-legacy
@@ -461,7 +465,7 @@ router.get("/analytics", authenticate, PerformanceReviewController.getPerformanc
  *       500:
  *         description: Internal server error
  */
-router.get("/completion-rates", authenticate, PerformanceReviewController.getPerformanceReviewCompletionRates);
+router.get("/completion-rates", authenticate, guard, PerformanceReviewController.getPerformanceReviewCompletionRates);
 
 /**
  * @swagger-disabled-legacy
@@ -519,7 +523,7 @@ router.get("/completion-rates", authenticate, PerformanceReviewController.getPer
  *                   type: string
  *                   format: date-time
  */
-router.get("/reports/rating-distribution", authenticate, PerformanceReviewController.getDepartmentRatingDistribution);
+router.get("/reports/rating-distribution", authenticate, guard, PerformanceReviewController.getDepartmentRatingDistribution);
 
 /**
  * @swagger-disabled-legacy
@@ -560,7 +564,7 @@ router.get("/reports/rating-distribution", authenticate, PerformanceReviewContro
  *       500:
  *         description: Internal server error
  */
-router.get("/:id", authenticate, PerformanceReviewController.getPerformanceReviewById);
+router.get("/:id", authenticate, guard, PerformanceReviewController.getPerformanceReviewById);
 
 /**
  * @swagger-disabled-legacy
@@ -679,7 +683,7 @@ router.get("/:id", authenticate, PerformanceReviewController.getPerformanceRevie
  *       500:
  *         description: Internal server error
  */
-router.put("/:id", authenticate, PerformanceReviewController.updatePerformanceReview);
+router.put("/:id", authenticate, guard, PerformanceReviewController.updatePerformanceReview);
 
 /**
  * @swagger-disabled-legacy
@@ -724,7 +728,7 @@ router.put("/:id", authenticate, PerformanceReviewController.updatePerformanceRe
  *       500:
  *         description: Internal server error
  */
-router.delete("/:id", authenticate, PerformanceReviewController.deletePerformanceReview);
+router.delete("/:id", authenticate, guard, PerformanceReviewController.deletePerformanceReview);
 
 // ===== PERFORMANCE REVIEW FEEDBACK ROUTES =====
 
@@ -793,7 +797,7 @@ router.delete("/:id", authenticate, PerformanceReviewController.deletePerformanc
  *       500:
  *         description: Internal server error
  */
-router.post("/feedback", authenticate, PerformanceReviewController.createPerformanceReviewFeedback);
+router.post("/feedback", authenticate, guard, PerformanceReviewController.createPerformanceReviewFeedback);
 
 /**
  * @swagger-disabled-legacy
@@ -859,7 +863,7 @@ router.post("/feedback", authenticate, PerformanceReviewController.createPerform
  *       500:
  *         description: Internal server error
  */
-router.put("/feedback/:id", authenticate, PerformanceReviewController.updatePerformanceReviewFeedback);
+router.put("/feedback/:id", authenticate, guard, PerformanceReviewController.updatePerformanceReviewFeedback);
 
 /**
  * @swagger-disabled-legacy
@@ -904,7 +908,7 @@ router.put("/feedback/:id", authenticate, PerformanceReviewController.updatePerf
  *       500:
  *         description: Internal server error
  */
-router.delete("/feedback/:id", authenticate, PerformanceReviewController.deletePerformanceReviewFeedback);
+router.delete("/feedback/:id", authenticate, guard, PerformanceReviewController.deletePerformanceReviewFeedback);
 
 /**
  * @swagger-disabled-legacy
@@ -963,7 +967,7 @@ router.delete("/feedback/:id", authenticate, PerformanceReviewController.deleteP
  *                   type: string
  *                   format: date-time
  */
-router.post("/cycles/:cycleId/initiate", authenticate, PerformanceReviewController.initiateCycleForAllEmployees);
+router.post("/cycles/:cycleId/initiate", authenticate, guard, PerformanceReviewController.initiateCycleForAllEmployees);
 
 /**
  * @swagger-disabled-legacy
@@ -999,7 +1003,7 @@ router.post("/cycles/:cycleId/initiate", authenticate, PerformanceReviewControll
  *                   type: string
  *                   format: date-time
  */
-router.post("/:id/autopopulate", authenticate, PerformanceReviewController.autopopulateQuantitativeSnapshot);
+router.post("/:id/autopopulate", authenticate, guard, PerformanceReviewController.autopopulateQuantitativeSnapshot);
 
 /**
  * @swagger-disabled-legacy
@@ -1068,10 +1072,11 @@ router.post("/:id/autopopulate", authenticate, PerformanceReviewController.autop
 router.post(
   "/:id/complete-stage",
   authenticate,
+  guard,
   PerformanceReviewController.completePerformanceReviewStage
 );
 
-router.post("/:id/finalize", authenticate, PerformanceReviewController.finalizePerformanceReview);
+router.post("/:id/finalize", authenticate, guard, PerformanceReviewController.finalizePerformanceReview);
 
 /**
  * @swagger-disabled-legacy
@@ -1109,7 +1114,7 @@ router.post("/:id/finalize", authenticate, PerformanceReviewController.finalizeP
  *       403:
  *         description: Forbidden
  */
-router.get("/:id/document", authenticate, PerformanceReviewController.getPerformanceReviewDocument);
+router.get("/:id/document", authenticate, guard, PerformanceReviewController.getPerformanceReviewDocument);
 
 /**
  * @swagger-disabled-legacy
@@ -1143,7 +1148,7 @@ router.get("/:id/document", authenticate, PerformanceReviewController.getPerform
  *       404:
  *         description: Not found
  */
-router.get("/:id/document.pdf", authenticate, PerformanceReviewController.downloadPerformanceReviewPdf);
+router.get("/:id/document.pdf", authenticate, guard, PerformanceReviewController.downloadPerformanceReviewPdf);
 
 export default router;
 

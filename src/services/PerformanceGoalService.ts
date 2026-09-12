@@ -742,6 +742,13 @@ export class PerformanceGoalService {
           })(),
           ...(scorecardPillarDb
             ? { scorecardPillar: scorecardPillarDb, pillarId: pillarIdDb ?? null }
+            : {}),
+          // Governance indicator section (A1/A2/B/C/D) for Board/CEO contracts. The controller
+          // already accepted this field but the create() call never persisted it, so every
+          // Board/CEO indicator was silently written with scorecardSection=null and never
+          // showed up in the board/CEO scorecard's section grouping.
+          ...(request.scorecardSection != null && String(request.scorecardSection).trim() !== ""
+            ? { scorecardSection: String(request.scorecardSection).trim() }
             : {})
         },
         include: {

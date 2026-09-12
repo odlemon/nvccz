@@ -3,8 +3,12 @@ import express from "express";
 import multer from "multer";
 import { PerformanceGoalController } from "../controllers/PerformanceGoalController";
 import { authenticate } from "../middleware/authenticate";
+import { methodGuard } from "../middleware/methodGuard"
 
 const router = express.Router();
+const READ_KEYS = ["performance.goals.view", "performance.goals.manage"]
+const WRITE_KEYS = ["performance.goals.manage"]
+const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -165,7 +169,7 @@ const upload = multer({
  *       401:
  *         description: Unauthorized
  */
-router.post("/", authenticate, PerformanceGoalController.createPerformanceGoal);
+router.post("/", authenticate, guard, PerformanceGoalController.createPerformanceGoal);
 
 /**
  * @swagger
@@ -234,7 +238,7 @@ router.post("/", authenticate, PerformanceGoalController.createPerformanceGoal);
  *       401:
  *         description: Unauthorized
  */
-router.get("/", authenticate, PerformanceGoalController.getAllPerformanceGoals);
+router.get("/", authenticate, guard, PerformanceGoalController.getAllPerformanceGoals);
 
 /**
  * @swagger
@@ -260,7 +264,7 @@ router.get("/", authenticate, PerformanceGoalController.getAllPerformanceGoals);
  *       401:
  *         description: Unauthorized
  */
-router.get("/by-kpi/:kpiId", authenticate, PerformanceGoalController.getGoalsByKpiId);
+router.get("/by-kpi/:kpiId", authenticate, guard, PerformanceGoalController.getGoalsByKpiId);
 
 /**
  * @swagger
@@ -276,7 +280,7 @@ router.get("/by-kpi/:kpiId", authenticate, PerformanceGoalController.getGoalsByK
  *       401:
  *         description: Unauthorized
  */
-router.get("/statistics", authenticate, PerformanceGoalController.getPerformanceGoalStatistics);
+router.get("/statistics", authenticate, guard, PerformanceGoalController.getPerformanceGoalStatistics);
 
 /**
  * @swagger
@@ -322,9 +326,9 @@ router.get("/statistics", authenticate, PerformanceGoalController.getPerformance
  *       401:
  *         description: Unauthorized
  */
-router.put("/:id/progress", authenticate, PerformanceGoalController.updateGoalProgress);
-router.post("/:id/attachments/base64", authenticate, PerformanceGoalController.uploadGoalAttachmentBase64);
-router.post("/:id/attachments", authenticate, upload.array("attachments", 10), PerformanceGoalController.uploadGoalAttachments);
+router.put("/:id/progress", authenticate, guard, PerformanceGoalController.updateGoalProgress);
+router.post("/:id/attachments/base64", authenticate, guard, PerformanceGoalController.uploadGoalAttachmentBase64);
+router.post("/:id/attachments", authenticate, guard, upload.array("attachments", 10), PerformanceGoalController.uploadGoalAttachments);
 
 /**
  * @swagger
@@ -349,7 +353,7 @@ router.post("/:id/attachments", authenticate, upload.array("attachments", 10), P
  *       401:
  *         description: Unauthorized
  */
-router.get("/:id", authenticate, PerformanceGoalController.getPerformanceGoalById);
+router.get("/:id", authenticate, guard, PerformanceGoalController.getPerformanceGoalById);
 
 /**
  * @swagger
@@ -434,9 +438,9 @@ router.get("/:id", authenticate, PerformanceGoalController.getPerformanceGoalByI
  *       401:
  *         description: Unauthorized
  */
-router.put("/:id", authenticate, PerformanceGoalController.updatePerformanceGoal);
+router.put("/:id", authenticate, guard, PerformanceGoalController.updatePerformanceGoal);
 /** Same handler as PUT — frontend edit forms use PATCH. */
-router.patch("/:id", authenticate, PerformanceGoalController.updatePerformanceGoal);
+router.patch("/:id", authenticate, guard, PerformanceGoalController.updatePerformanceGoal);
 
 /**
  * @swagger
@@ -463,7 +467,7 @@ router.patch("/:id", authenticate, PerformanceGoalController.updatePerformanceGo
  *       401:
  *         description: Unauthorized
  */
-router.delete("/:id", authenticate, PerformanceGoalController.deletePerformanceGoal);
+router.delete("/:id", authenticate, guard, PerformanceGoalController.deletePerformanceGoal);
 
 export default router;
 

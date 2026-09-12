@@ -224,6 +224,10 @@ const UPLOAD_TYPE_MAP: Record<string, string> = {
   "deal-execution-pack": "financial-reports",
   "deal-execution-packs": "financial-reports",
   
+  // Payroll document vault. Unmapped types fall back to "temp", which is the wrong
+  // home for bank files and employee contracts.
+  "payroll-documents": "payroll-documents",
+
   // Default/temp
   "temp": "temp",
   "default": "temp"

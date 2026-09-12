@@ -52,6 +52,8 @@ export interface CreateManualJournalEntryParams {
     currencyId?: string;
   }>;
   createdById: string;
+  /** Marks this journal as a Group Consolidation elimination entry (see ConsolidatedReportService.getConsolidationSummary). Manual tagging only — no automated matching engine exists. */
+  isEliminationEntry?: boolean;
   /** Optional: for system audit log (user and IP) */
   ipAddress?: string | null;
   userAgent?: string | null;
@@ -376,6 +378,7 @@ export class JournalEntryService {
         currencyId,
         journalEntryLines,
         createdById,
+        isEliminationEntry,
         ipAddress,
         userAgent,
       } = params;
@@ -400,6 +403,7 @@ export class JournalEntryService {
           currencyId,
           status: "PENDING",
           createdById,
+          ...(isEliminationEntry ? { isEliminationEntry: true } : {}),
         });
 
         const createdLines = [];

@@ -8,6 +8,8 @@ import { LpPortalVaultService } from "../services/lpPortal/LpPortalVaultService"
 import { LpPortalReportsService } from "../services/lpPortal/LpPortalReportsService";
 import { LpPortalColleagueService } from "../services/lpPortal/LpPortalColleagueService";
 import { LpPortalAdminService } from "../services/lpPortal/LpPortalAdminService";
+import { LpPortalRequestAdminService } from "../services/lpPortal/LpPortalRequestAdminService";
+import { LpPortalNoticeAdminService } from "../services/lpPortal/LpPortalNoticeAdminService";
 import { LpPortalSessionService } from "../services/lpPortal/LpPortalSessionService";
 import { LpPortalCapitalActivityService } from "../services/lpPortal/LpPortalCapitalActivityService";
 import { LpPortalDealingService } from "../services/lpPortal/LpPortalDealingService";
@@ -935,6 +937,78 @@ export class LpPortalController {
   }
 
   // —— Admin ——
+  // --- Investor notices, staff side (SRD section 23) ----------------------------------------
+
+  static async listAdminNotices(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      res.json(successBody(await LpPortalNoticeAdminService.list(req.query as any)));
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  static async createAdminNotice(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      const data = await LpPortalNoticeAdminService.create({
+        title: req.body?.title,
+        body: req.body?.body,
+        category: req.body?.category ?? null,
+        targetType: req.body?.targetType,
+        fundId: req.body?.fundId ?? null,
+        clientId: req.body?.clientId ?? null,
+        userId: req.body?.userId ?? null,
+        shareClass: req.body?.shareClass ?? null,
+      });
+      res.status(201).json(successBody(data));
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  // --- Investor service desk, staff side (SRD sections 21 and 5) ---------------------------
+  // These are NOT investor-scoped and are mounted behind requireGpAdmin only.
+
+  static async listAdminRequests(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      res.json(successBody(await LpPortalRequestAdminService.list(req.query as any)));
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  static async getAdminRequest(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      res.json(successBody(await LpPortalRequestAdminService.getByReference(req.params.reference)));
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  static async updateAdminRequest(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      const data = await LpPortalRequestAdminService.update(req.params.reference, {
+        status: req.body?.status,
+        assignedToId: req.body?.assignedToId,
+        priority: req.body?.priority,
+      });
+      res.json(successBody(data));
+    } catch (e) {
+      next(e);
+    }
+  }
+
+  static async replyAdminRequest(req: LpPortalRequest, res: Response, next: NextFunction) {
+    try {
+      const data = await LpPortalRequestAdminService.reply(req.params.reference, {
+        body: req.body?.body,
+        authorId: (req as any).user?.id ?? null,
+      });
+      res.json(successBody(data));
+    } catch (e) {
+      next(e);
+    }
+  }
+
   static async listAdminMemberships(req: LpPortalRequest, res: Response, next: NextFunction) {
     try {
       const data = await LpPortalAdminService.listMemberships(req.query.clientId as string);
@@ -948,7 +1022,12 @@ export class LpPortalController {
     try {
       const data = await LpPortalAdminService.createMembership({
         clientId: req.body.clientId,
+        // Either identifies an existing account or, with `email`, onboards a new investor:
+        // creates the user and emails an activation link. See LpPortalInviteService.
         userId: req.body.userId,
+        email: req.body.email,
+        firstName: req.body.firstName,
+        lastName: req.body.lastName,
         lpRole: req.body.lpRole,
         fundIds: req.body.fundIds,
         invitedById: req.user!.id,

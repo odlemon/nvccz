@@ -270,6 +270,17 @@ export class ProcurementService {
           ? normalizeVendorCategory(sourcingCategory)
           : undefined;
 
+      // Line estimates are the requester's internal figure: they give the department head a value to
+      // approve against and are never copied onto an RFQ (see prItemsToNormalizedRfqLines).
+      const estimateOf = (item: any) => {
+        const n = Number(item?.unitPrice ?? item?.estimatedUnitPrice ?? 0);
+        return Number.isFinite(n) && n > 0 ? n : 0;
+      };
+      const requisitionEstimateTotal = items.reduce(
+        (sum, item) => sum + estimateOf(item) * Number(item.quantity || 0),
+        0
+      );
+
       const requisition = await prisma.purchaseRequisition.create({
         data: {
           requisitionNumber: await nextProcurementRequisitionNumber(prisma as any, new Date()),
@@ -286,15 +297,15 @@ export class ProcurementService {
             ? { useOfFundsDocumentUrl: String(useOfFundsDocumentUrl).trim() }
             : {}),
           ...(drawdownDec ? { drawdownRequestAmount: drawdownDec } : {}),
-          totalAmount: new Decimal(0), // No prices yet, will be determined after vendor quotes
+          totalAmount: new Decimal(requisitionEstimateTotal),
           status: "DRAFT",
           items: {
             create: items.map(item => ({
               itemName: item.itemName,
               description: item.description,
               quantity: new Decimal(item.quantity),
-              unitPrice: new Decimal(0), // No price yet - will get from vendor quotes
-              totalPrice: new Decimal(0), // No price yet
+              unitPrice: new Decimal(estimateOf(item)),
+              totalPrice: new Decimal(estimateOf(item) * Number(item.quantity || 0)),
               unit: item.unit,
               specifications: item.specifications
             }))
@@ -761,14 +772,18 @@ export class ProcurementService {
     const updated = await prisma.$transaction(async (tx) => {
       if (body.items) {
         await tx.purchaseRequisitionItem.deleteMany({ where: { requisitionId } });
+        const lineEstimate = (item: any) => {
+          const n = Number(item?.unitPrice ?? item?.estimatedUnitPrice ?? 0);
+          return Number.isFinite(n) && n > 0 ? n : 0;
+        };
         await tx.purchaseRequisitionItem.createMany({
           data: body.items.map((item) => ({
             requisitionId,
             itemName: item.itemName,
             description: item.description ?? null,
             quantity: new Decimal(item.quantity),
-            unitPrice: new Decimal(0),
-            totalPrice: new Decimal(0),
+            unitPrice: new Decimal(lineEstimate(item)),
+            totalPrice: new Decimal(lineEstimate(item) * Number(item.quantity || 0)),
             unit: item.unit ?? null,
             specifications: item.specifications as object | undefined,
           })),
@@ -2690,6 +2705,69 @@ export class ProcurementService {
   }
 
   /**
+   * Reject a procurement invoice that is still awaiting approval. Stores the reason and a content
+   * fingerprint, clears any approval stamp and writes a REJECT audit event. Nothing is posted: an
+   * invoice creates accounting entries only when it is paid, and a rejected one never is.
+   */
+  static async rejectProcurementInvoice(invoiceId: string, rejectedById: string, rejectionReason: string) {
+    const reason = String(rejectionReason || "").trim();
+    if (!reason) {
+      throw new Error("Rejection reason is required");
+    }
+
+    const existing = await prisma.procurementInvoice.findUnique({
+      where: { id: invoiceId },
+      include: { items: true },
+    });
+    if (!existing) {
+      throw new Error("Invoice not found");
+    }
+    const status = String(existing.status || "").toUpperCase();
+    if (status === "REJECTED") {
+      throw new Error("Invoice is already rejected");
+    }
+    if (!["DRAFT", "PENDING", "PENDING_APPROVAL", "MATCHED", "DISCREPANCY"].includes(status)) {
+      throw new Error(`Only an invoice awaiting approval can be rejected (status: ${existing.status})`);
+    }
+
+    const { computeProcurementInvoiceRejectionFingerprint } = await import(
+      "../utils/procurementEntityRejectionFingerprint"
+    );
+    const rejectionContentFingerprint = computeProcurementInvoiceRejectionFingerprint({
+      ...existing,
+      status: "REJECTED",
+    });
+
+    const updated = await prisma.procurementInvoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: "REJECTED",
+        rejectionReason: reason,
+        rejectionContentFingerprint,
+        approvedById: null,
+        approvedAt: null,
+      },
+      include: {
+        vendor: { select: { id: true, name: true, email: true } },
+        purchaseOrder: { select: { id: true, poNumber: true, status: true } },
+        currency: { select: { id: true, code: true, symbol: true } },
+        items: true,
+      },
+    });
+
+    await AuditService.log({
+      userId: rejectedById,
+      action: "REJECT",
+      entityType: "ProcurementInvoice",
+      entityId: invoiceId,
+      oldValues: { status: existing.status },
+      newValues: { status: "REJECTED", rejectionReason: reason },
+    });
+
+    return updated;
+  }
+
+  /**
    * Approve a procurement invoice and create journal entry
    * @param invoiceId - ID of the invoice to approve
    * @param approvedById - ID of the user approving the invoice
@@ -3549,6 +3627,18 @@ export class ProcurementService {
         });
       }
 
+      // Three-way match the new invoice against its PO and the receipts so far; a failure here is
+      // logged and never blocks the invoice itself.
+      {
+        const { ProcurementInvoiceMatchService } = await import("./ProcurementInvoiceMatchService");
+        if (await ProcurementInvoiceMatchService.evaluateQuietly(invoice.id)) {
+          invoice = await prisma.procurementInvoice.findUnique({
+            where: { id: invoice.id },
+            include: procurementInvoiceInclude,
+          });
+        }
+      }
+
       // Audit log
       await AuditService.log({
         userId: createdById ?? finalCreatedById,
@@ -3765,6 +3855,12 @@ export class ProcurementService {
         console.log(`   ✅ PO status → ${PO_STATUS.PARTIALLY_DELIVERED} (GRN ${grn.grnNumber})`);
       }
 
+      // The PO's receipts changed: re-match on create so its open invoices reflect them.
+      {
+        const { ProcurementInvoiceMatchService } = await import("./ProcurementInvoiceMatchService");
+        await ProcurementInvoiceMatchService.evaluateForPurchaseOrder(purchaseOrderId);
+      }
+
       // Audit log
       await AuditService.log({
         userId: receivedById,
@@ -3885,6 +3981,12 @@ export class ProcurementService {
       },
     });
 
+    // The PO's receipts changed: re-match on approve so its open invoices reflect them.
+    {
+      const { ProcurementInvoiceMatchService } = await import("./ProcurementInvoiceMatchService");
+      await ProcurementInvoiceMatchService.evaluateForPurchaseOrder(updated?.purchaseOrderId);
+    }
+
     await AuditService.log({
       userId: approvedById,
       action: "APPROVE",
@@ -3977,6 +4079,12 @@ export class ProcurementService {
         },
       },
     });
+
+    // The PO's receipts changed: re-match on reject so its open invoices stop counting this GRN.
+    {
+      const { ProcurementInvoiceMatchService } = await import("./ProcurementInvoiceMatchService");
+      await ProcurementInvoiceMatchService.evaluateForPurchaseOrder(updated?.purchaseOrderId);
+    }
 
     await AuditService.log({
       userId: rejectedById,

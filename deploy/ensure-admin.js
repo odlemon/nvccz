@@ -13,15 +13,25 @@ async function main() {
       });
     }
     const hash = await bcrypt.hash(password, 10);
+    // roleCode is set alongside roleId because User Management reads roleCode
+    // for its Role Code column and its role filter. This bootstrap path bypasses
+    // the admin user form (where department, department role and role code are
+    // required fields), so accounts it creates previously showed "N/A" there —
+    // admin@nvccz.co.zw had no roleCode at all.
+    //
+    // Department and departmentRole are deliberately left unset: those describe
+    // where a person sits in the organisation and are not something this script
+    // can infer. Assign them through User Management.
     await prisma.user.upsert({
       where: { email },
-      update: { password: hash, roleId: role.id },
+      update: { password: hash, roleId: role.id, roleCode: "admin" },
       create: {
         firstName: "Admin",
         lastName: "NTS",
         email,
         password: hash,
         roleId: role.id,
+        roleCode: "admin",
       },
     });
     console.log("[arcus-api] admin ready", email);
