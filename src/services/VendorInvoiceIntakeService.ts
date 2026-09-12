@@ -63,6 +63,33 @@ export class VendorInvoiceIntakeService {
   }
 
   /**
+   * V23 "AI invoice capture": the PDF is dropped in before a goods receipt exists, and often
+   * before anyone has picked the purchase order, so only the vendor is required here (the
+   * schema makes both links nullable). The row is a real intake, so the verification queue and
+   * the per-vendor correction map keep working for invoices captured this way.
+   */
+  static async createCaptureIntake(params: {
+    documentUrl: string;
+    vendorId: string;
+    sourcePurchaseOrderId?: string | null;
+    goodsReceivedNoteId?: string | null;
+    createdById: string;
+  }) {
+    const intakeNumber = await this.generateIntakeNumber();
+    return prisma.vendorInvoiceIntake.create({
+      data: {
+        intakeNumber,
+        documentUrl: this.normalizeDocumentUrl(params.documentUrl),
+        vendorId: params.vendorId,
+        sourcePurchaseOrderId: params.sourcePurchaseOrderId || null,
+        goodsReceivedNoteId: params.goodsReceivedNoteId || null,
+        status: "DRAFT",
+        createdById: params.createdById,
+      },
+    });
+  }
+
+  /**
    * Update stored PDF URL and links (e.g. after POST …/intakes/:id/document replaces the PDF).
    */
   static async updateIntakeBeforeExtract(params: {

@@ -177,6 +177,58 @@ router.post("/intakes/:id/extract", requireAnyPermission([PROC_PERMS.intakeManag
 
 /**
  * @swagger
+ * /procurement/suite06/extract-for-capture:
+ *   post:
+ *     summary: Extract a vendor invoice PDF for the procurement capture form (one call)
+ *     description: |
+ *       **Content-Type:** `multipart/form-data`. Upload **`document`** (PDF, max 15MB) and get the
+ *       extracted fields back in the same response — no goods receipt and no prior intake needed.
+ *
+ *       Used by Procurement → AI Invoice Capture: the extracted invoice number, date, currency and
+ *       lines prefill the operator's capture form, which they check and correct before saving. The
+ *       invoice itself is still written by **POST /procurement/invoices**, so matching, approval and
+ *       payment are unchanged.
+ *
+ *       When the vendor is known (passed directly, or resolved from `purchaseOrderId`) a
+ *       `VendorInvoiceIntake` row is stored, so the extraction shows up in the verification queue and
+ *       feeds the per-vendor correction map. Without a vendor the PDF is still parsed; nothing is stored.
+ *     tags: [Procurement — AI invoice intake (Suite 06)]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [document]
+ *             properties:
+ *               document:
+ *                 type: string
+ *                 format: binary
+ *                 description: PDF invoice (field name **document**, max 15MB).
+ *               purchaseOrderId:
+ *                 type: string
+ *                 description: Optional. The purchase order the invoice is being captured against; the vendor is resolved from it.
+ *               vendorId:
+ *                 type: string
+ *                 description: Optional. Overrides the vendor resolved from the purchase order.
+ *     responses:
+ *       200:
+ *         description: Extracted fields (`{ success, data: { payload, documentUrl, intake, storedIntake, lowConfidence, threshold } }`)
+ *       400:
+ *         description: No PDF, or the PDF carried no readable text
+ *       503:
+ *         description: Extraction is not configured on this server
+ */
+router.post(
+  "/extract-for-capture", requireAnyPermission([PROC_PERMS.intakeManage]),
+  uploadVendorInvoicePdf.single("document"),
+  ProcurementSuite06Controller.extractForCapture
+);
+
+/**
+ * @swagger
  * /procurement/suite06/intakes/{id}/document:
  *   post:
  *     summary: Replace PDF stored on intake
