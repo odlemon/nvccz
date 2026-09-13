@@ -121,7 +121,7 @@ const ENDPOINTS = [
   ["blacklist via vendor update", "PUT", `/accounting/vendors/${FAKE}`, { isBlacklisted: true }, G.vendorsApprove.filter((p) => G.vendorsManage.includes(p))],
   ["blacklist vendor", "POST", `/accounting/vendors/${FAKE}/blacklist`, {}, G.vendorsApprove],
   // Vendor self-registrations from the vendor portal: the review queue, and the decision on each.
-  ["list vendor self-registrations", "GET", "/accounting/vendors/pending-review", null, G.vendorsView],
+  ["list vendor self-registrations", "GET", "/accounting/vendors/pending-review", undefined, G.vendorsView],
   ["approve vendor registration", "PUT", `/accounting/vendors/${FAKE}/approve-registration`, {}, G.vendorsApprove],
   ["decline vendor registration", "PUT", `/accounting/vendors/${FAKE}/decline-registration`, { reason: "probe" }, G.vendorsApprove],
   ["add vendor bank", "POST", `/accounting/vendors/${FAKE}/banks`, {}, G.vendorBanksManage],
