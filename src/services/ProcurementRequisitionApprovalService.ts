@@ -82,13 +82,14 @@ export class ProcurementRequisitionApprovalService {
   }
 
   /** Who decides a step and when it applies, in the words the approval screens use. */
-  static describe(stage: any, roleNames: Map<string, string>) {
+  static describe(stage: any, roleNames: Map<string, string>, requisitionDepartment?: string | null) {
     const aboveAmount = stage.amountThreshold != null ? Number(stage.amountThreshold) : null;
     if (stage.stepType === "USER") {
       return { kind: "USER", who: stage.user ? personName(stage.user) : stage.stepName, aboveAmount };
     }
     if (stage.stepType === "DEPARTMENT") {
-      const department = stage.department?.name || stage.requiredUserDepartment || null;
+      // On a requisition's own route, "the requester's department" is that requisition's department by name.
+      const department = stage.department?.name || stage.requiredUserDepartment || requisitionDepartment || null;
       const title = stage.requiredDepartmentRole === "DEPUTY" ? "Deputy head" : "Head";
       return { kind: "DEPARTMENT_HEAD", who: `${title} of ${department ?? "the requester's department"}`, aboveAmount };
     }
@@ -114,7 +115,7 @@ export class ProcurementRequisitionApprovalService {
     const steps = [...byStep.entries()]
       .sort((x, y) => x[0] - y[0])
       .map(([stepNumber, s], i) => {
-        const d = this.describe(s.stage, roleNames);
+        const d = this.describe(s.stage, roleNames, request.entityData?.department ?? null);
         const decided = s.rows.find((r) => r.status === "APPROVED" || r.status === "REJECTED");
         const status = decided
           ? decided.status
