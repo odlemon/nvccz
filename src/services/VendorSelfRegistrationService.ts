@@ -43,6 +43,11 @@ export class VendorSelfRegistrationService {
     taxClearanceExpiryDate?: string | Date;
     banks: PublicVendorRegistrationBankInput[];
   }) {
+    // The vendor portal's form has sent `industry` and `phoneNumber`; without these a self-registered vendor had no category
+    // (so no RFQ could ever invite it) and no phone.
+    const loose = body as any;
+    if ((body.category == null || String(body.category).trim() === "") && loose.industry) body.category = String(loose.industry);
+    if ((body.phone == null || String(body.phone).trim() === "") && loose.phoneNumber) body.phone = String(loose.phoneNumber);
     const name = String(body.name || "").trim();
     const email = String(body.email || "").trim();
     if (!name) throw new Error("name is required");
