@@ -207,6 +207,10 @@ router.put("/approval-matrix", ProcurementApprovalMatrixController.saveMatrix);
 // Whether an exactly matching invoice is approved without a person (SRD §6.6); read with the matrix.
 router.put("/invoice-auto-approval", ProcurementApprovalMatrixController.saveInvoiceAutoApproval);
 
+// What a requester needs to fill in a requisition: the projects it can be charged to (every employee raises
+// requisitions, so no procurement grant is required).
+router.get("/requisition-projects", ProcurementController.listRequisitionProjects);
+
 // The procurement audit trail, newest first, from the audit_logs rows the services write.
 router.get("/audit-events", requireAnyPermission([PROC_PERMS.auditView]), ProcurementAuditController.listEvents);
 
@@ -388,6 +392,8 @@ router.get("/requisitions/my", ProcurementController.getMyPurchaseRequisitions);
  *       401:
  *         description: Unauthorized or user is not a department head
  */
+// Items bought before (last price, vendors) as a requisition line is typed; ahead of /requisitions/:id.
+router.get("/requisitions/line-suggestions", ProcurementController.requisitionLineSuggestions);
 router.get("/requisitions/pending-approval", ProcurementController.getPendingRequisitionsForDepartmentHead);
 router.get(
   "/requisitions/investee/sla-breached",
@@ -898,6 +904,9 @@ router.post("/invoices/:id/match", requireAnyPermission([PROC_PERMS.invoicesAppr
 // Read the invoice's supplier document with the LLM now and compare it with the captured invoice. Invoices that arrive
 // with a document are read on their own; this re-reads one (older, or its reading failed) for an approver or AP.
 router.post("/invoices/:id/read", requireAnyPermission([PROC_PERMS.invoicesApprove, PROC_PERMS.intakeManage]), ProcurementController.readProcurementInvoice);
+
+// SRD §7 Invoice Processing "Flag for Review": an open invoice marked for review with why; its reviewers are alerted.
+router.post("/invoices/:id/flag", requireAnyPermission([PROC_PERMS.invoicesApprove, PROC_PERMS.intakeManage]), ProcurementController.flagProcurementInvoice);
 
 /**
  * @swagger

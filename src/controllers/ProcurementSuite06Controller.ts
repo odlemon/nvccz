@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { VendorInvoiceIntakeService } from "../services/VendorInvoiceIntakeService";
 import { VendorInvoiceExtractionService } from "../services/VendorInvoiceExtractionService";
+import { InvoiceDocumentPreviewService } from "../services/InvoiceDocumentPreviewService";
 import { ThreeWayMatchService } from "../services/ThreeWayMatchService";
 import { getSuite06MatchConfidenceThreshold } from "../config/suite06Config";
 
@@ -151,6 +152,9 @@ export class ProcurementSuite06Controller {
       );
 
       const threshold = getSuite06MatchConfidenceThreshold();
+      // The invoice as page images with word positions, for the viewer beside the fields (SRD §7 Invoice Processing);
+      // rendered alongside the reading and finished with the values it returns.
+      const previewWork = InvoiceDocumentPreviewService.pagesQuietly(file.buffer, file.mimetype);
 
       if (vendorId) {
         const intake = await VendorInvoiceIntakeService.createCaptureIntake({
@@ -179,6 +183,7 @@ export class ProcurementSuite06Controller {
             storedIntake: true,
             lowConfidence: extracted.status === "PENDING_VERIFICATION",
             threshold,
+            preview: InvoiceDocumentPreviewService.finish(await previewWork, extracted.extractedPayloadJson),
           },
         });
       }
@@ -202,6 +207,7 @@ export class ProcurementSuite06Controller {
           storedIntake: false,
           lowConfidence: Number(payload?.overallConfidence ?? 0) < threshold,
           threshold,
+          preview: InvoiceDocumentPreviewService.finish(await previewWork, payload),
         },
       });
     } catch (e: any) {

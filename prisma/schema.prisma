@@ -2845,6 +2845,8 @@ model PurchaseRequisition {
   createdAt                   DateTime                  @default(now())
   updatedAt                   DateTime                  @updatedAt
   department                  String?
+  /// SRD §7 requisition form "Project/Cost Center": a row of the projects register (Accounting), or null.
+  projectId                   String?                   @map("project_id") @db.VarChar(191)
   requestedBy                 User                      @relation("RequisitionRequestedBy", fields: [requestedById], references: [id])
   approvedBy                  User?                     @relation("RequisitionApprovedBy", fields: [approvedById], references: [id])
   currency                    Currency?                 @relation("RequisitionCurrency", fields: [currencyId], references: [id])
@@ -3183,6 +3185,10 @@ model ProcurementInvoice {
   approvedAt                  DateTime?
   /// MANUAL (a person approved it) or AUTOMATIC (an exact match, when the organisation has switched that on).
   approvalSource              String?                  @map("approval_source") @db.VarChar(16)
+  /// SRD §7 Invoice Processing: a person flagged the invoice for review, with why, when and who.
+  reviewNote                  String?                  @map("review_note") @db.Text
+  reviewFlaggedAt             DateTime?                @map("review_flagged_at")
+  reviewFlaggedById           String?                  @map("review_flagged_by_id") @db.VarChar(191)
   rejectionReason             String?                  @map("rejection_reason") @db.Text
   rejectionContentFingerprint String?                  @map("rejection_content_fingerprint") @db.VarChar(64)
   paymentStatus               String                   @default("PENDING")

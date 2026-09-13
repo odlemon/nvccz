@@ -29,10 +29,45 @@ export class ProcurementInvoiceAlertService {
     }
   }
 
+  /**
+   * SRD §7 Invoice Processing Screen, "Flag for Review": a person marks an open invoice for review and says why. It joins
+   * Invoices to review with that reason, and the invoice reviewers are alerted as for any other flag.
+   */
+  static async flagForReview(invoiceId: string, userId: string, note: string) {
+    const text = String(note ?? "").trim();
+    const fail = (message: string, status: number) => Object.assign(new Error(message), { status });
+    if (!text) throw fail("Say why the invoice needs review.", 400);
+    if (text.length > 1000) throw fail("Keep the reason under 1,000 characters.", 400);
+    const invoice = await prisma.procurementInvoice.findUnique({
+      where: { id: invoiceId },
+      select: { id: true, status: true, invoiceNumber: true },
+    });
+    if (!invoice) throw fail("Invoice not found", 404);
+    if (!OPEN_STATUSES.includes(String(invoice.status).toUpperCase())) {
+      throw fail(`${invoice.invoiceNumber} is already ${String(invoice.status).toLowerCase()}, so there is nothing left to review.`, 400);
+    }
+    const updated = await prisma.procurementInvoice.update({
+      where: { id: invoiceId },
+      data: { reviewNote: text, reviewFlaggedAt: new Date(), reviewFlaggedById: userId },
+    });
+    const { default: AuditService } = await import("./AuditService");
+    await AuditService.log({
+      userId,
+      action: "FLAG_FOR_REVIEW",
+      entityType: "ProcurementInvoice",
+      entityId: invoiceId,
+      newValues: { reviewNote: text },
+    });
+    await this.alertQuietly(invoiceId);
+    return updated;
+  }
+
   /** Each reason the invoice needs a person's eyes, in words a reviewer can act on. */
   static reasonsFor(invoice: any): { code: string; message: string }[] {
     const money = (v: any) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const out = [];
+    // A person flagged it for review on the invoice processing screen (SRD §7), with why.
+    if (invoice?.reviewNote) out.push({ code: "FLAGGED_FOR_REVIEW", message: `Flagged for review: ${invoice.reviewNote}` });
     for (const f of invoice?.aiDiscrepancies?.flags || []) {
       switch (f?.type) {
         case "LINE_NOT_ON_PO":

@@ -47,6 +47,8 @@ export interface CreatePurchaseRequisitionParams {
   justification?: string;
   /** Aligns with vendor.category for RFQ vendor filtering (e.g. AGROTECH, SOLAR, IT_SERVICES). */
   sourcingCategory?: string;
+  /** SRD §7 "Project/Cost Center": a row of the projects register, or none. */
+  projectId?: string | null;
   /** Investee portal (Suite 02): portfolio company for drawdown cap. */
   portfolioCompanyId?: string;
   fundId?: string;
@@ -213,6 +215,7 @@ export class ProcurementService {
         priority = "MEDIUM",
         justification,
         sourcingCategory,
+        projectId,
         portfolioCompanyId,
         fundId: fundIdParam,
         useOfFundsDocumentUrl,
@@ -224,6 +227,9 @@ export class ProcurementService {
       if (!items || items.length === 0) {
         throw new Error("At least one item is required");
       }
+
+      const { ProcurementRequisitionAssistService } = await import("./ProcurementRequisitionAssistService");
+      const resolvedProjectId = await ProcurementRequisitionAssistService.assertProject(projectId);
 
       // Validate department
       if (!Object.values(Department).includes(department)) {
@@ -294,6 +300,7 @@ export class ProcurementService {
           priority,
           justification,
           ...(normalizedSourcing ? { sourcingCategory: normalizedSourcing } : {}),
+          ...(resolvedProjectId ? { projectId: resolvedProjectId } : {}),
           ...(resolvedPortfolioId ? { portfolioCompanyId: resolvedPortfolioId } : {}),
           ...(resolvedFundId ? { fundId: resolvedFundId } : {}),
           ...(useOfFundsDocumentUrl != null && String(useOfFundsDocumentUrl).trim() !== ""
@@ -698,6 +705,7 @@ export class ProcurementService {
       fundId?: string | null;
       useOfFundsDocumentUrl?: string | null;
       drawdownRequestAmount?: number | string | null;
+      projectId?: string | null;
     },
     opts?: { restrictToPortfolioCompanyId?: string }
   ) {
@@ -764,6 +772,13 @@ export class ProcurementService {
           : null
         : undefined;
 
+    // null or "" clears the project; undefined leaves it as it was.
+    let projectUpdate: string | null | undefined;
+    if (body.projectId !== undefined) {
+      const { ProcurementRequisitionAssistService } = await import("./ProcurementRequisitionAssistService");
+      projectUpdate = await ProcurementRequisitionAssistService.assertProject(body.projectId);
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
       if (body.items) {
         await tx.purchaseRequisitionItem.deleteMany({ where: { requisitionId } });
@@ -806,6 +821,7 @@ export class ProcurementService {
             ? { useOfFundsDocumentUrl: body.useOfFundsDocumentUrl }
             : {}),
           ...(body.fundId !== undefined ? { fundId: body.fundId } : {}),
+          ...(projectUpdate !== undefined ? { projectId: projectUpdate } : {}),
           ...(drawdownDec ? { drawdownRequestAmount: drawdownDec } : {}),
           totalAmount,
         },

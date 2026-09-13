@@ -25,6 +25,7 @@ export class ProcurementController {
         priority,
         justification,
         sourcingCategory,
+        projectId,
         items,
         portfolioCompanyId,
         fundId,
@@ -63,6 +64,7 @@ export class ProcurementController {
         priority,
         justification,
         sourcingCategory,
+        projectId,
         portfolioCompanyId,
         fundId,
         useOfFundsDocumentUrl,
@@ -1101,6 +1103,7 @@ export class ProcurementController {
         documentType,
         attachmentIds,
         readingIntakeId,
+        reviewNote,
         items
       } = req.body;
 
@@ -1167,6 +1170,12 @@ export class ProcurementController {
         items
       });
 
+      // Captured and flagged for review in one step from the invoice processing screen (SRD §7).
+      if (isStaff && typeof reviewNote === "string" && reviewNote.trim() && invoice?.id) {
+        const { ProcurementInvoiceAlertService } = await import("../services/ProcurementInvoiceAlertService");
+        await ProcurementInvoiceAlertService.flagForReview(invoice.id, createdById, reviewNote);
+      }
+
       res.status(201).json({
         success: true,
         message: "Procurement invoice created successfully",
@@ -1215,6 +1224,37 @@ export class ProcurementController {
     } catch (error: any) {
       console.error("Error reading procurement invoice:", error);
       return res.status(400).json({ success: false, message: publicErrorMessage(error, "Could not read the invoice document") });
+    }
+  }
+
+  /** POST /procurement/invoices/:id/flag {note}: SRD §7 "Flag for Review", with why. */
+  static async flagProcurementInvoice(req: Request, res: Response) {
+    try {
+      const { ProcurementInvoiceAlertService } = await import("../services/ProcurementInvoiceAlertService");
+      const invoice = await ProcurementInvoiceAlertService.flagForReview(req.params.id, req.user?.id, req.body?.note);
+      return res.json({ success: true, message: `${invoice.invoiceNumber} flagged for review`, data: invoice });
+    } catch (error: any) {
+      return res.status(error?.status || 400).json({ success: false, message: publicErrorMessage(error, "Could not flag the invoice") });
+    }
+  }
+
+  /** GET /procurement/requisition-projects: the projects a requisition can be charged to (SRD §7 "Project/Cost Center"). */
+  static async listRequisitionProjects(req: Request, res: Response) {
+    try {
+      const { ProcurementRequisitionAssistService } = await import("../services/ProcurementRequisitionAssistService");
+      return res.json({ success: true, data: await ProcurementRequisitionAssistService.projects() });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: publicErrorMessage(error, "Could not load the projects") });
+    }
+  }
+
+  /** GET /procurement/requisitions/line-suggestions?q=: items bought before, with their last price and vendors (SRD §3). */
+  static async requisitionLineSuggestions(req: Request, res: Response) {
+    try {
+      const { ProcurementRequisitionAssistService } = await import("../services/ProcurementRequisitionAssistService");
+      return res.json({ success: true, data: await ProcurementRequisitionAssistService.lineSuggestions(String(req.query?.q ?? "")) });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: publicErrorMessage(error, "Could not load suggestions") });
     }
   }
 

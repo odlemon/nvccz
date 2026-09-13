@@ -157,6 +157,12 @@ export class ProcurementRequisitionApprovalService {
     const list = (Array.isArray(requisitions) ? requisitions : [requisitions]).filter(Boolean) as any[];
     const ids = list.filter((r) => r.id && String(r.status || "").toUpperCase() !== "DRAFT").map((r) => r.id);
     for (const r of list) r.approvalRoute = null;
+    // And the project each is charged to (SRD §7 "Project/Cost Center"), by name; drafts included.
+    const projectIds = [...new Set(list.map((r) => r.projectId).filter(Boolean))];
+    const projects = projectIds.length
+      ? await prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, name: true, clientName: true } })
+      : [];
+    for (const r of list) r.project = projects.find((p) => p.id === r.projectId) ?? null;
     if (!ids.length) return requisitions;
     const requests = await prisma.approvalRequest.findMany({
       where: { entityId: { in: ids }, stageType: STAGE, status: { in: ["PENDING", "APPROVED", "REJECTED"] } },
