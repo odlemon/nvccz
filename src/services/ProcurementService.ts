@@ -133,6 +133,8 @@ export interface CreateProcurementInvoiceParams {
   documentType?: string;
   /** Phase 2 — staged upload ids from document-attachments portal upload */
   attachmentIds?: string[];
+  /** Staff capture from AI Invoice Capture: the intake whose reading of this document is reused. */
+  readingIntakeId?: string;
   createdById?: string; // Optional for public vendor submissions
   items: {
     itemName: string;
@@ -3405,6 +3407,7 @@ export class ProcurementService {
         documentPath,
         documentType,
         attachmentIds,
+        readingIntakeId,
         createdById,
         items
       } = params;
@@ -3636,6 +3639,29 @@ export class ProcurementService {
             where: { id: invoice.id },
             include: procurementInvoiceInclude,
           });
+        }
+      }
+
+      // Read the supplier's document with the LLM and compare it with what was captured. A staff capture made from AI
+      // Invoice Capture reuses that reading (no second call); a vendor's submission is read in the background, so the
+      // vendor is not kept waiting and a slow or failed reading never blocks the invoice.
+      if (invoice.documentPath || readingIntakeId) {
+        const { ProcurementInvoiceReadingService } = await import("./ProcurementInvoiceReadingService");
+        if (readingIntakeId) {
+          try {
+            await ProcurementInvoiceReadingService.readInvoice(invoice.id, {
+              intakeId: readingIntakeId,
+              actorUserId: createdById ?? finalCreatedById,
+            });
+            invoice = await prisma.procurementInvoice.findUnique({
+              where: { id: invoice.id },
+              include: procurementInvoiceInclude,
+            });
+          } catch (readErr) {
+            console.error("⚠️  Reading the captured invoice's document failed:", (readErr as Error)?.message || readErr);
+          }
+        } else {
+          ProcurementInvoiceReadingService.scheduleRead(invoice.id, { actorUserId: createdById ?? finalCreatedById });
         }
       }
 

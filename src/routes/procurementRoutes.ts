@@ -38,10 +38,12 @@ const uploadProofOfPayment = multer({
 const uploadPublicVendorInvoicePdf = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 },
+  // A PDF, or a scan or photo of the invoice: every invoice document is read by the LLM, OCR first for images.
   fileFilter: (_req, file, cb) => {
     const ok =
-      file.mimetype === "application/pdf" || /\.pdf$/i.test(String(file.originalname || ""));
-    cb(ok ? null : new Error("Only PDF files are allowed"), ok);
+      /^(application\/pdf|image\/(png|jpe?g|webp|tiff))$/i.test(String(file.mimetype || "")) ||
+      /\.(pdf|png|jpe?g|webp|tiff?)$/i.test(String(file.originalname || ""));
+    cb(ok ? null : new Error("Upload the invoice as a PDF, or as a scan or photo (PNG, JPEG, WEBP or TIFF)"), ok);
   },
 });
 
@@ -876,6 +878,10 @@ router.put("/invoices/:id/reject", requireAnyPermission([PROC_PERMS.invoicesAppr
 // Re-run the three-way match. It also runs on its own when an invoice is created and when a GRN
 // on the same PO is recorded, approved or rejected; this is for an approver who wants it now.
 router.post("/invoices/:id/match", requireAnyPermission([PROC_PERMS.invoicesApprove, PROC_PERMS.intakeManage]), ProcurementController.matchProcurementInvoice);
+
+// Read the invoice's supplier document with the LLM now and compare it with the captured invoice. Invoices that arrive
+// with a document are read on their own; this re-reads one (older, or its reading failed) for an approver or AP.
+router.post("/invoices/:id/read", requireAnyPermission([PROC_PERMS.invoicesApprove, PROC_PERMS.intakeManage]), ProcurementController.readProcurementInvoice);
 
 /**
  * @swagger

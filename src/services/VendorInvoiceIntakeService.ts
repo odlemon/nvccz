@@ -127,13 +127,14 @@ export class VendorInvoiceIntakeService {
     }
 
     const hints = await this.getCorrectionMap(intake.vendorId);
-    const rawText = await VendorInvoiceExtractionService.extractTextFromUrl(
+    // A scan or photo is read with OCR first; the model is told, so it resolves misread digits with the arithmetic.
+    const { text: rawText, ocr } = await VendorInvoiceExtractionService.extractTextFromUrlDetailed(
       intake.documentUrl,
       "invoice.pdf"
     );
     const { payload, rawAssistant } = await VendorInvoiceExtractionService.parseExtractedTextWithLlm(
       rawText,
-      { correctionHints: hints }
+      { correctionHints: hints, ocr }
     );
 
     const threshold = getSuite06MatchConfidenceThreshold();
@@ -154,7 +155,7 @@ export class VendorInvoiceIntakeService {
       data: {
         rawExtractedText: rawText.slice(0, 65000),
         extractedPayloadJson: payload as object,
-        llmMetaJson: { rawAssistantLength: rawAssistant.length } as object,
+        llmMetaJson: { rawAssistantLength: rawAssistant.length, ocr } as object,
         overallConfidence: new Decimal(payload.overallConfidence),
         status,
         taxParseStatus,

@@ -42,7 +42,7 @@ export class ProcurementSuite06Controller {
       if (!file?.buffer?.length) {
         return res.status(400).json({
           success: false,
-          message: "PDF file is required (multipart field name: document)",
+          message: "An invoice file is required: a PDF, or a scan or photo (multipart field name: document)",
         });
       }
 
@@ -117,7 +117,7 @@ export class ProcurementSuite06Controller {
       if (!file?.buffer?.length) {
         return res.status(400).json({
           success: false,
-          message: "PDF file is required (multipart field name: document)",
+          message: "An invoice file is required: a PDF, or a scan or photo (multipart field name: document)",
         });
       }
 
@@ -159,9 +159,10 @@ export class ProcurementSuite06Controller {
           sourcePurchaseOrderId: purchaseOrderId || null,
           createdById: userId,
         });
+        // A scan or photo is read with OCR before the model reads it, which takes longer than a text PDF.
         const extracted = await ProcurementSuite06Controller.withTimeout(
           "Extract vendor invoice",
-          150_000,
+          240_000,
           VendorInvoiceIntakeService.runExtraction(intake.id)
         );
         return res.json({
@@ -182,15 +183,15 @@ export class ProcurementSuite06Controller {
         });
       }
 
-      const rawText = await ProcurementSuite06Controller.withTimeout(
-        "Read vendor invoice PDF",
-        90_000,
-        VendorInvoiceExtractionService.extractTextFromUrl(documentUrl, file.originalname || "invoice.pdf")
+      const { text: rawText, ocr } = await ProcurementSuite06Controller.withTimeout(
+        "Read vendor invoice",
+        150_000,
+        VendorInvoiceExtractionService.extractTextFromUrlDetailed(documentUrl, file.originalname || "invoice.pdf")
       );
       const { payload } = await ProcurementSuite06Controller.withTimeout(
         "Extract vendor invoice",
         150_000,
-        VendorInvoiceExtractionService.parseExtractedTextWithLlm(rawText)
+        VendorInvoiceExtractionService.parseExtractedTextWithLlm(rawText, { ocr })
       );
       return res.json({
         success: true,
@@ -216,6 +217,14 @@ export class ProcurementSuite06Controller {
       const isUnreadable =
         !isTimeout && !isUnreachable && /no (readable )?text|empty|could not (be )?(read|parsed)|unsupported/i.test(msg);
 
+      // OCR tools missing on this server: a configuration fault, said as such.
+      if (/not installed on this server/i.test(msg)) {
+        console.error("[Suite06] invoice OCR unavailable", { msg });
+        return res.status(503).json({
+          success: false,
+          message: `${msg}, so nothing was read and nothing was saved. Capture this invoice by hand, or ask an administrator to install it.`,
+        });
+      }
       if (isUnreachable || isTimeout) {
         console.error("[Suite06] invoice extraction unavailable", { code, msg });
         return res.status(503).json({
@@ -319,7 +328,7 @@ export class ProcurementSuite06Controller {
       if (!file?.buffer?.length) {
         return res.status(400).json({
           success: false,
-          message: "PDF file is required (multipart field name: document)",
+          message: "An invoice file is required: a PDF, or a scan or photo (multipart field name: document)",
         });
       }
       const intake = await prisma.vendorInvoiceIntake.findUnique({ where: { id: intakeId }, select: { id: true } });

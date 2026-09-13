@@ -17,10 +17,12 @@ router.use(requireInternalStaffUser());
 const uploadVendorInvoicePdf = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 },
+  // A PDF, or a scan or photo of the invoice, which is read with OCR first.
   fileFilter: (_req, file, cb) => {
     const ok =
-      file.mimetype === "application/pdf" || /\.pdf$/i.test(String(file.originalname || ""));
-    cb(ok ? null : new Error("Only PDF files are allowed"), ok);
+      /^(application\/pdf|image\/(png|jpe?g|webp|tiff))$/i.test(String(file.mimetype || "")) ||
+      /\.(pdf|png|jpe?g|webp|tiff?)$/i.test(String(file.originalname || ""));
+    cb(ok ? null : new Error("Upload the invoice as a PDF, or as a scan or photo (PNG, JPEG, WEBP or TIFF)"), ok);
   },
 });
 
@@ -373,7 +375,7 @@ router.use((err: any, _req: express.Request, res: express.Response, _next: expre
   if (err instanceof multer.MulterError) {
     const msg =
       err.code === "LIMIT_FILE_SIZE"
-        ? "PDF is too large (max 15MB)"
+        ? "The invoice file is too large (max 15MB)"
         : err.message || "Upload failed";
     return res.status(400).json({ success: false, message: msg, error: err.code });
   }

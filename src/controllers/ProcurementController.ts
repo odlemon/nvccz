@@ -1089,6 +1089,7 @@ export class ProcurementController {
         documentPath,
         documentType,
         attachmentIds,
+        readingIntakeId,
         items
       } = req.body;
 
@@ -1150,6 +1151,8 @@ export class ProcurementController {
         documentType,
         attachmentIds: Array.isArray(attachmentIds) ? attachmentIds : undefined,
         createdById: createdById || undefined, // Pass undefined if null
+        // A staff capture made from AI Invoice Capture names the reading it came from, so the document is not read twice.
+        readingIntakeId: isStaff && typeof readingIntakeId === "string" && readingIntakeId.trim() ? readingIntakeId.trim() : undefined,
         items
       });
 
@@ -1164,6 +1167,43 @@ export class ProcurementController {
         success: false,
         message: publicErrorMessage(error, "Failed to create procurement invoice")
       });
+    }
+  }
+
+  /**
+   * POST /procurement/invoices/:id/read — read the invoice's supplier document with the LLM now and compare it with the
+   * captured invoice. Invoices that arrive with a document are read on their own; this is for one that was not (created
+   * before reading existed, or its reading failed) and for an approver who wants it read again.
+   */
+  static async readProcurementInvoice(req: Request, res: Response) {
+    try {
+      const { ProcurementInvoiceReadingService } = await import("../services/ProcurementInvoiceReadingService");
+      const invoice = await prisma.procurementInvoice.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, documentPath: true },
+      });
+      if (!invoice) return res.status(404).json({ success: false, message: "Invoice not found" });
+      if (!invoice.documentPath) {
+        return res.status(400).json({ success: false, message: "This invoice has no supplier document to read" });
+      }
+      const reading = await ProcurementInvoiceReadingService.readInvoice(invoice.id, { actorUserId: req.user?.id ?? null });
+      if (!reading) {
+        return res.status(409).json({ success: false, message: "This invoice is already being read; try again in a moment" });
+      }
+      const differences = reading.comparison?.differences?.length ?? 0;
+      return res.json({
+        success: true,
+        message:
+          reading.status !== "READ"
+            ? reading.message || "The document could not be read"
+            : differences
+              ? `The document differs from the captured invoice in ${differences} place${differences === 1 ? "" : "s"}`
+              : "The document agrees with the captured invoice",
+        data: reading,
+      });
+    } catch (error: any) {
+      console.error("Error reading procurement invoice:", error);
+      return res.status(400).json({ success: false, message: publicErrorMessage(error, "Could not read the invoice document") });
     }
   }
 
