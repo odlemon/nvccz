@@ -481,6 +481,7 @@
     "db:migrate:accounting-documents": "ts-node --transpile-only scripts/run-accounting-documents-migration.ts",
     "db:migrate:timesheets-projects": "ts-node scripts/run-timesheets-projects-migration.ts",
     "db:migrate:payroll-v6-permissions": "ts-node --transpile-only -r dotenv/config scripts/run-payroll-v6-permissions-migration.ts",
+    "db:migrate:procurement-approval-orphans": "ts-node --transpile-only -r dotenv/config scripts/run-procurement-approval-orphans-migration.ts",
     "db:migrate:procurement-permissions": "ts-node --transpile-only -r dotenv/config scripts/run-procurement-permissions-migration.ts",
     "db:migrate:procurement-registers": "ts-node --transpile-only -r dotenv/config scripts/run-procurement-registers-migration.ts",
     "db:migrate:procurement-rfq-award-backfill": "ts-node --transpile-only -r dotenv/config scripts/run-procurement-rfq-award-backfill.ts",

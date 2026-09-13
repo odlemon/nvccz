@@ -5,6 +5,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
 import JournalEntryService from "./JournalEntryService";
 import AuditService from "./AuditService";
+import { ProcurementRequisitionApprovalService } from "./ProcurementRequisitionApprovalService";
 import { ApprovalService } from "./ApprovalService";
 import { CashbookService } from "./CashbookService";
 import VATService from "./VATService";
@@ -387,6 +388,7 @@ export class ProcurementService {
         }
       });
 
+      await ProcurementRequisitionApprovalService.attachRoutes(requisitions);
       console.log(`✅ Found ${requisitions.length} requisition(s)`);
       console.log("════════════════════════════════════════════════════════════════");
       console.log("");
@@ -430,21 +432,20 @@ export class ProcurementService {
         throw new Error("User not found");
       }
 
-      if (!user.userDepartment) {
-        throw new Error("User is not assigned to any department");
-      }
+      // Waiting on this person: requisitions at a step of their approval route that this person decides, and, for a
+      // department head or deputy, their department's pending requisitions that have no route (submitted before
+      // routes were enforced). Anyone can be an approver on a route step, so nobody is refused the queue.
+      const routedIds = await ProcurementRequisitionApprovalService.awaitingIds(userId);
+      const isDepartmentApprover =
+        !!user.userDepartment &&
+        (user.departmentRole === DepartmentRole.HEAD || user.departmentRole === DepartmentRole.DEPUTY);
+      const unroutedIds = isDepartmentApprover
+        ? await ProcurementRequisitionApprovalService.unroutedPendingIds(user.userDepartment)
+        : [];
 
-      if (!user.departmentRole || (user.departmentRole !== DepartmentRole.HEAD && user.departmentRole !== DepartmentRole.DEPUTY)) {
-        throw new Error("Only department HEAD or DEPUTY can approve requisitions");
-      }
-
-      console.log(`🏢 Department: ${user.userDepartment}`);
-      console.log(`👔 Role: ${user.departmentRole}`);
-
-      // Get requisitions for this department that are pending approval
       const requisitions = await prisma.purchaseRequisition.findMany({
         where: {
-          department: user.userDepartment,
+          id: { in: [...new Set([...routedIds, ...unroutedIds])] },
           status: "PENDING_APPROVAL"
         },
         include: {
@@ -471,7 +472,8 @@ export class ProcurementService {
         }
       });
 
-      console.log(`✅ Found ${requisitions.length} pending requisition(s) for ${user.userDepartment}`);
+      await ProcurementRequisitionApprovalService.attachRoutes(requisitions);
+      console.log(`✅ Found ${requisitions.length} requisition(s) awaiting ${user.firstName} ${user.lastName}`);
       console.log("════════════════════════════════════════════════════════════════");
       console.log("");
 
@@ -643,21 +645,12 @@ export class ProcurementService {
       console.log("════════════════════════════════════════════════════════════════");
       console.log("");
 
-      // Send email notifications
-      try {
-        const { ProcurementApprovalConfigService } = await import('./ProcurementApprovalConfigService');
-        await ProcurementApprovalConfigService.sendApprovalStepNotifications(
-          approvalRequest.id,
-          defaultStage,
-          params.stageType
-        );
-      } catch (emailError: any) {
-        console.error("⚠️  Error sending approval notifications:", emailError.message || emailError);
-        // Don't throw - email failure shouldn't block approval request creation
-      }
-
       return { approvalRequest, approvals };
     });
+
+    // After the commit, so the approver rows are visible: the step's approvers are told in the app and by email.
+    // Sent from inside the transaction, the email found no pending rows and fell back to a guess at the approvers.
+    await ProcurementRequisitionApprovalService.notifyCurrentStepQuietly(result.approvalRequest.id);
 
     return result;
   }
@@ -1016,6 +1009,11 @@ export class ProcurementService {
           console.log("✅ Approval request created successfully");
         }
       } catch (error: any) {
+        // Only a missing configuration falls back to the department-head route. A route that exists but cannot be
+        // followed (a step nobody can decide) is the requester's to hear about, not to be quietly replaced.
+        if (!/No active approval configuration/i.test(String(error?.message || ""))) {
+          throw error;
+        }
         console.log("⚠️  No active approval configuration found - using default workflow (Department HEAD approval)");
         console.log(`   Error: ${error.message || error}`);
         
@@ -1084,6 +1082,7 @@ export class ProcurementService {
         newValues: updatedRequisition,
       });
 
+      await ProcurementRequisitionApprovalService.attachRoutes(updatedRequisition);
       return updatedRequisition;
     } catch (error) {
       console.error("Error submitting purchase requisition:", error);
@@ -1239,7 +1238,15 @@ export class ProcurementService {
         throw new Error("Requisition is not pending approval");
       }
 
-      // Check if the approver is the department head or deputy
+      // A requisition submitted through its approval route is decided step by step, by each step's own approvers.
+      const routed = await ProcurementRequisitionApprovalService.decide({
+        requisitionId,
+        actorId: approvedById,
+        decision: "APPROVE",
+      });
+      if (routed) return routed;
+
+      // No open route (submitted before routes were enforced): the requisition's department head or deputy decides.
       const approver = await prisma.user.findUnique({
         where: { id: approvedById },
         select: {
@@ -1420,6 +1427,14 @@ export class ProcurementService {
       if (requisition.status !== "PENDING_APPROVAL") {
         throw new Error("Requisition is not pending approval");
       }
+
+      const routed = await ProcurementRequisitionApprovalService.decide({
+        requisitionId,
+        actorId: rejectedById,
+        decision: "REJECT",
+        reason: rejectionReason,
+      });
+      if (routed) return routed;
 
       const approver = await prisma.user.findUnique({
         where: { id: rejectedById },

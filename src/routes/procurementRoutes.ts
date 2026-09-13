@@ -2,6 +2,7 @@
 import express from "express";
 import { ProcurementController } from "../controllers/ProcurementController";
 import { ProcurementAccessController } from "../controllers/ProcurementAccessController";
+import { ProcurementApprovalMatrixController } from "../controllers/ProcurementApprovalMatrixController";
 import { ProcurementAuditController } from "../controllers/ProcurementAuditController";
 import procurementRegistersRoutes from "./procurementRegistersRoutes";
 import { authenticate } from "../middleware/authenticate";
@@ -198,6 +199,11 @@ router.use(requireInternalStaffUser());
 
 // The caller's effective procurement grants, which the V23 workspace gates its controls on.
 router.get("/me/access", ProcurementAccessController.getMyAccess);
+
+// The requisition approval matrix: who decides a requisition, step by step. Staff read it; an administrator or the
+// CFO changes it (the service refuses anyone else).
+router.get("/approval-matrix", ProcurementApprovalMatrixController.getMatrix);
+router.put("/approval-matrix", ProcurementApprovalMatrixController.saveMatrix);
 
 // The procurement audit trail, newest first, from the audit_logs rows the services write.
 router.get("/audit-events", requireAnyPermission([PROC_PERMS.auditView]), ProcurementAuditController.listEvents);

@@ -168,6 +168,11 @@ export class ProcurementController {
           })
         : await ProcurementService.getPendingRequisitionsForDepartmentHead(userId);
 
+      if (isAdmin) {
+        const { ProcurementRequisitionApprovalService } = await import("../services/ProcurementRequisitionApprovalService");
+        await ProcurementRequisitionApprovalService.attachRoutes(requisitions);
+      }
+
       res.status(200).json({
         success: true,
         message: isAdmin
@@ -314,6 +319,9 @@ export class ProcurementController {
         take: parseInt(limit as string),
         skip: parseInt(offset as string)
       });
+
+      const { ProcurementRequisitionApprovalService } = await import("../services/ProcurementRequisitionApprovalService");
+      await ProcurementRequisitionApprovalService.attachRoutes(requisitions);
 
       res.status(200).json({
         success: true,
@@ -525,7 +533,10 @@ export class ProcurementController {
 
       res.status(200).json({
         success: true,
-        message: "Purchase requisition approved successfully",
+        message:
+          requisition?.status === "PENDING_APPROVAL"
+            ? `Approved at this step; it now waits for ${requisition?.approvalRoute?.waitingOn?.who ?? "the next step"}`
+            : "Purchase requisition approved successfully",
         data: requisition
       });
     } catch (error: any) {
