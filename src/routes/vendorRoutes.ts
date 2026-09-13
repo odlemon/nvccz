@@ -54,7 +54,7 @@ router.get("/for-rfq", VendorController.listVendorsForRfq);
  *       200:
  *         description: OK
  */
-router.get("/pending-review", VendorController.listPendingReviewVendors);
+router.get("/pending-review", requireAnyPermission([PROC_PERMS.vendorsView]), VendorController.listPendingReviewVendors);
 
 /**
  * @swagger
@@ -95,6 +95,38 @@ router.get("/kyc-documents/:documentId/download", requireAnyPermission([PROC_PER
  *         description: OK
  */
 router.put("/:id/approve-registration", requireAnyPermission([PROC_PERMS.vendorsApprove]), VendorController.approveVendorRegistration);
+
+/**
+ * @swagger
+ * /accounting/vendors/{id}/decline-registration:
+ *   put:
+ *     summary: Decline vendor self-registration with a reason (deactivates the vendor and tells them why)
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: OK
+ *       400:
+ *         description: No reason, or the vendor is not awaiting review
+ */
+router.put("/:id/decline-registration", requireAnyPermission([PROC_PERMS.vendorsApprove]), VendorController.declineVendorRegistration);
 
 /**
  * @swagger

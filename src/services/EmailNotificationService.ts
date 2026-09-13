@@ -1707,6 +1707,50 @@ export class EmailNotificationService {
     }
   }
 
+  /** Tells a vendor who registered on the vendor portal that the registration was declined, and why. */
+  static async sendVendorRegistrationDeclinedEmail(data: {
+    vendorEmail: string;
+    vendorName: string;
+    contactPerson?: string | null;
+    reason: string;
+  }): Promise<void> {
+    const esc = (s: string) =>
+      String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    let companyName = process.env.COMPANY_NAME_SHORT || "NVCCZ";
+    let contactEmail: string | null = null;
+    try {
+      const branding = await getEmailBrandingCached();
+      companyName = branding.companyName || companyName;
+      contactEmail = branding.contactEmail || null;
+    } catch {
+      /* the company name from the environment is enough */
+    }
+    const addressee = String(data.contactPerson || "").trim() || data.vendorName;
+    const subject = `${companyName}: vendor registration not approved`;
+    const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;max-width:640px;margin:0 auto;font-family:Helvetica,Arial,sans-serif;">
+      <tr><td style="background:linear-gradient(135deg,#0f172a 0%,#1e3a8a 100%);padding:24px 28px;color:#ffffff;">
+        <div style="font-size:20px;font-weight:700;">${esc(companyName)}</div>
+        <div style="margin-top:4px;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:0.85;">Vendor registration not approved</div>
+      </td></tr>
+      <tr><td style="padding:24px 28px;font-family:Georgia,'Times New Roman',serif;font-size:16px;line-height:1.7;color:#1f2937;">
+        <p style="margin:0 0 16px 0;">Dear ${esc(addressee)},</p>
+        <p style="margin:0 0 16px 0;">Thank you for registering <strong>${esc(data.vendorName)}</strong> on our vendor portal. After review, the registration has <strong>not been approved</strong>.</p>
+        <p style="margin:0 0 8px 0;">The reason given:</p>
+        <blockquote style="margin:0 0 16px 0;padding:12px 16px;border-left:4px solid #1e3a8a;background:#f1f5f9;">${esc(data.reason)}</blockquote>
+        <p style="margin:0 0 16px 0;">You are welcome to register again on the vendor portal once this has been addressed${contactEmail ? `, or contact us at ${esc(contactEmail)}` : ""}.</p>
+        <p style="margin:24px 0 0 0;">Kind regards,<br/><strong>${esc(companyName)}</strong></p>
+      </td></tr>
+    </table>`;
+    const from = getFromAddress("procurement");
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: `"${addressee}" <${data.vendorEmail}>`,
+      subject,
+      html,
+    });
+    console.log(`Vendor registration declined email sent to ${data.vendorEmail}`);
+  }
+
   private static async buildVendorRegistrationApprovedBrandedDocument(data: {
     vendorEmail: string;
     vendorName: string;

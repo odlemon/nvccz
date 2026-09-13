@@ -313,4 +313,26 @@ export class VendorSelfRegistrationService {
       },
     });
   }
+
+  /**
+   * Decline a self-registration awaiting review: the vendor is deactivated (so it is neither listed nor invited) and its
+   * portal token is closed. The reason is kept in the audit trail and sent to the vendor.
+   */
+  static async declinePendingVendor(vendorId: string, reason: string) {
+    const why = String(reason || "").trim();
+    if (!why) throw new Error("A reason is required to decline a registration");
+    const v = await prisma.vendor.findUnique({ where: { id: vendorId } });
+    if (!v) throw new Error("Vendor not found");
+    if (v.registrationStatus !== "PENDING_REVIEW") {
+      throw new Error("Vendor is not in PENDING_REVIEW status");
+    }
+    return prisma.vendor.update({
+      where: { id: vendorId },
+      data: {
+        registrationStatus: "DECLINED",
+        isActive: false,
+        selfRegistrationToken: null,
+      },
+    });
+  }
 }

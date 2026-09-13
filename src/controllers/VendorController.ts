@@ -659,8 +659,11 @@ export class VendorController {
       const rows = await prisma.vendor.findMany({
         where: { registrationStatus: "PENDING_REVIEW" },
         orderBy: { createdAt: "desc" },
+        include: { _count: { select: { banks: true, kycDocuments: true } } },
       });
-      res.status(200).json({ success: true, data: rows });
+      // The self-registration token lets the vendor upload documents without signing in; staff never need it.
+      const data = rows.map(({ selfRegistrationToken, ...rest }: any) => rest);
+      res.status(200).json({ success: true, data });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -670,6 +673,14 @@ export class VendorController {
     try {
       const { id } = req.params;
       const vendor = await VendorSelfRegistrationService.approvePendingVendor(id);
+      await AuditService.log({
+        userId: req.user!.id,
+        action: "APPROVE_REGISTRATION",
+        entityType: "Vendor",
+        entityId: id,
+        oldValues: { registrationStatus: "PENDING_REVIEW" },
+        newValues: { registrationStatus: "ACTIVE" },
+      }).catch(() => undefined);
       const email = vendor.email && String(vendor.email).trim();
       if (email) {
         try {
@@ -683,6 +694,42 @@ export class VendorController {
             "[vendor] Registration approved but approval email failed:",
             emailErr?.message || emailErr
           );
+        }
+      }
+      res.status(200).json({ success: true, data: vendor });
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /** Decline a self-registration: the vendor is deactivated, the reason audited and emailed to the vendor. */
+  static async declineVendorRegistration(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const reason = String(req.body?.reason ?? "").trim();
+      if (!reason) {
+        return res.status(400).json({ success: false, message: "Say why the registration is declined; the vendor is told." });
+      }
+      const vendor = await VendorSelfRegistrationService.declinePendingVendor(id, reason);
+      await AuditService.log({
+        userId: req.user!.id,
+        action: "DECLINE_REGISTRATION",
+        entityType: "Vendor",
+        entityId: id,
+        oldValues: { registrationStatus: "PENDING_REVIEW" },
+        newValues: { registrationStatus: "DECLINED", reason },
+      }).catch(() => undefined);
+      const email = vendor.email && String(vendor.email).trim();
+      if (email) {
+        try {
+          await EmailNotificationService.sendVendorRegistrationDeclinedEmail({
+            vendorEmail: email,
+            vendorName: vendor.name,
+            contactPerson: vendor.contactPerson,
+            reason,
+          });
+        } catch (emailErr: any) {
+          console.warn("[vendor] Registration declined but the email failed:", emailErr?.message || emailErr);
         }
       }
       res.status(200).json({ success: true, data: vendor });
