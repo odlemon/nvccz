@@ -103,6 +103,12 @@ export class ProcurementInvoiceReadingService {
           fromOcr,
         },
       });
+      // The reading gives the supplier's own invoice number, which the duplicate check needs, and its differences are
+      // reasons to alert: match again, then alert (once per set of reasons).
+      const { ProcurementInvoiceMatchService } = await import("./ProcurementInvoiceMatchService");
+      await ProcurementInvoiceMatchService.evaluateQuietly(invoiceId);
+      const { ProcurementInvoiceAlertService } = await import("./ProcurementInvoiceAlertService");
+      await ProcurementInvoiceAlertService.alertQuietly(invoiceId);
       return ocrData;
     } catch (e: any) {
       const message = String(e?.message || e).slice(0, 300);

@@ -1145,6 +1145,65 @@ export class EmailNotificationService {
   }
 
   /**
+   * A procurement invoice was flagged (three-way match, possible duplicate, or the supplier's document disagreeing with
+   * the capture): tell its reviewers why (SRD §3, §6.6).
+   */
+  static async sendProcurementInvoiceFlagged(data: {
+    recipients: { email: string; name: string }[];
+    vendorName: string;
+    invoiceNumber: string;
+    poNumber?: string | null;
+    totalAmount: number;
+    currencyCode: string;
+    reasons: string[];
+  }): Promise<void> {
+    if (!data.recipients.length) return;
+    const branding = await getEmailBrandingCached();
+    const he = (s: string) =>
+      String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const totalLabel = `${data.currencyCode} ${Number(data.totalAmount).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+    const subject = `Invoice ${data.invoiceNumber} flagged for review`;
+    const from = getFromAddress("procurement");
+    const reasons = data.reasons.map((r) => `<li style="margin:4px 0">${he(r)}</li>`).join("");
+    for (const r of data.recipients) {
+      try {
+        const bodyInner = `
+        <p>Dear ${he(r.name || "Colleague")},</p>
+        <p>A supplier invoice needs review before it is approved for payment.</p>
+        <div style="background:#fff7ed;border-left:4px solid #ea580c;padding:14px 18px;margin:18px 0;border-radius:4px;">
+          <div><strong>Invoice:</strong> ${he(data.invoiceNumber)}</div>
+          <div><strong>Vendor:</strong> ${he(data.vendorName)}</div>
+          ${data.poNumber ? `<div><strong>Purchase order:</strong> ${he(String(data.poNumber))}</div>` : ""}
+          <div><strong>Total:</strong> ${totalLabel}</div>
+        </div>
+        <p><strong>Why it was flagged</strong></p>
+        <ul style="padding-left:18px">${reasons}</ul>
+        <p>Open Procurement → Invoices &amp; 3-Way Match to review it.</p>`;
+        const htmlContent = EmailNotificationService.composeNewsletterTransactionalHtml({
+          branding,
+          pageTitle: `Invoice flagged — ${branding.companyName}`,
+          preheader: `${subject} — ${branding.companyName}`,
+          emailHeading: "Invoice flagged for review",
+          headerTagline: "Procurement",
+          bodyInnerHtml: bodyInner,
+          teamLabel: "Procurement Team",
+        });
+        await emailTransport.sendMail({
+          from: `"${from.name}" <${from.address}>`,
+          to: `"${r.name}" <${r.email}>`,
+          subject,
+          html: htmlContent,
+        });
+      } catch (oneErr) {
+        console.error(`❌ Flagged invoice email failed for ${r.email}:`, (oneErr as Error)?.message || oneErr);
+      }
+    }
+  }
+
+  /**
    * Notify PR owner when their linked RFQ is awarded (no portal links).
    */
   static async sendRfqAwardedToSubmitter(data: {

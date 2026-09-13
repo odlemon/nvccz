@@ -1,0 +1,145 @@
+//@ts-nocheck
+import crypto from "crypto";
+import { prisma } from "../utils/database";
+import { logger } from "../utils/logger";
+
+/** Invoices still awaiting a decision; a flag on an approved, paid or rejected invoice alerts nobody. */
+const OPEN_STATUSES = ["DRAFT", "PENDING", "PENDING_APPROVAL"];
+/** Who reviews a flagged invoice: those who capture and those who approve supplier invoices. */
+const REVIEW_GRANTS = ["procurement.invoices.approve", "procurement.intake.manage"];
+const NOTIFICATION_TYPE = "PROCUREMENT_INVOICE_FLAGGED";
+
+/**
+ * SRD §3 and §6.6: when an invoice is flagged — the three-way match finds a price or quantity over the order or the
+ * receipts, a line not on the order, a possible duplicate, or the supplier's own document disagrees with the capture —
+ * the procurement officers who review invoices are told, in the app and by email. Until now the flags were stored and
+ * nobody was notified.
+ *
+ * An alert names the reasons. The same set of reasons is not sent twice to the same person (a fingerprint of the
+ * reasons is kept on the notification), so re-running the match after every receipt does not repeat it; a new or
+ * changed reason alerts again.
+ */
+export class ProcurementInvoiceAlertService {
+  static async alertQuietly(invoiceId: string) {
+    try {
+      return await this.alert(invoiceId);
+    } catch (e: any) {
+      logger.error("Flagged invoice alert failed", { invoiceId, error: String(e?.message || e) });
+      return null;
+    }
+  }
+
+  /** Each reason the invoice needs a person's eyes, in words a reviewer can act on. */
+  static reasonsFor(invoice: any): { code: string; message: string }[] {
+    const money = (v: any) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const out = [];
+    for (const f of invoice?.aiDiscrepancies?.flags || []) {
+      switch (f?.type) {
+        case "LINE_NOT_ON_PO":
+          out.push({ code: f.type, message: `Line ${f.line}: "${f.itemName}" is not on the purchase order` });
+          break;
+        case "PRICE_OVER_PO":
+          out.push({ code: f.type, message: `Line ${f.line}: "${f.itemName}" is invoiced at ${money(f.invoiceUnitPrice)}; the order says ${money(f.poUnitPrice)} (+${f.variancePct}%)` });
+          break;
+        case "QTY_OVER_ORDERED":
+          out.push({ code: f.type, message: `Line ${f.line}: "${f.itemName}" invoices ${f.invoicedQty}; the order has ${f.orderedQty}` });
+          break;
+        case "QTY_OVER_RECEIVED":
+          out.push({ code: f.type, message: `Line ${f.line}: "${f.itemName}" invoices ${f.invoicedQty}; receipts accepted ${f.acceptedQty}` });
+          break;
+        case "POSSIBLE_DUPLICATE":
+          out.push({ code: f.type, message: `Possible duplicate of ${f.otherInvoiceNumber}: ${f.reason}` });
+          break;
+      }
+    }
+    const reading = invoice?.ocrData;
+    if (reading?.status === "READ" && reading.comparison && reading.comparison.agrees === false) {
+      for (const d of reading.comparison.differences || []) {
+        out.push({ code: `DOCUMENT_${String(d?.field || "difference").toUpperCase()}`, message: `Supplier's document: ${d?.message}` });
+      }
+    }
+    return out;
+  }
+
+  /** The reviewers: users whose role holds an invoice review grant, and whoever raised the purchase order. */
+  static async recipients(invoice: any) {
+    const users = await prisma.user.findMany({
+      select: { id: true, email: true, firstName: true, lastName: true, role: { select: { permissions: true } } },
+    });
+    return users.filter((u) => {
+      if (invoice?.purchaseOrder?.createdById && u.id === invoice.purchaseOrder.createdById) return true;
+      const perms = Array.isArray(u.role?.permissions) ? u.role.permissions : [];
+      return perms.some((p: any) => REVIEW_GRANTS.includes(p?.name) && p?.value === true);
+    });
+  }
+
+  static async alert(invoiceId: string) {
+    const invoice = await prisma.procurementInvoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        vendor: { select: { name: true } },
+        purchaseOrder: { select: { poNumber: true, createdById: true } },
+        currency: { select: { code: true } },
+      },
+    });
+    if (!invoice || !OPEN_STATUSES.includes(String(invoice.status).toUpperCase())) return null;
+    const reasons = this.reasonsFor(invoice);
+    if (!reasons.length) return null;
+
+    const fingerprint = crypto.createHash("sha256").update(reasons.map((r) => r.message).sort().join("|")).digest("hex").slice(0, 24);
+    const people = await this.recipients(invoice);
+    const title = `Invoice ${invoice.invoiceNumber} needs review`.slice(0, 180);
+    // The column holds a short line; every reason goes in the notification's data and the email.
+    const message = `${invoice.vendor?.name ?? "A vendor"}: ${reasons.length} reason${reasons.length === 1 ? "" : "s"} to check${invoice.purchaseOrder?.poNumber ? ` against ${invoice.purchaseOrder.poNumber}` : ""}`.slice(0, 180);
+
+    const notified = [];
+    for (const u of people) {
+      const last = await prisma.notification.findFirst({
+        where: { userId: u.id, relatedEntityId: invoiceId, type: NOTIFICATION_TYPE },
+        orderBy: { createdAt: "desc" },
+        select: { data: true },
+      });
+      if (last?.data?.fingerprint === fingerprint) continue;
+      await prisma.notification.create({
+        data: {
+          userId: u.id,
+          type: NOTIFICATION_TYPE,
+          title,
+          message,
+          relatedEntity: "ProcurementInvoice",
+          relatedEntityId: invoiceId,
+          data: {
+            path: "/procurement-v23/invoices",
+            invoiceId,
+            invoiceNumber: invoice.invoiceNumber,
+            poNumber: invoice.purchaseOrder?.poNumber ?? null,
+            reasons: reasons.map((r) => r.message),
+            fingerprint,
+          },
+        },
+      });
+      notified.push(u);
+    }
+
+    if (notified.length) {
+      try {
+        const { EmailNotificationService } = await import("./EmailNotificationService");
+        await EmailNotificationService.sendProcurementInvoiceFlagged({
+          recipients: notified
+            .filter((u) => u.email)
+            .map((u) => ({ email: u.email, name: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email })),
+          vendorName: invoice.vendor?.name ?? "Vendor",
+          invoiceNumber: invoice.invoiceNumber,
+          poNumber: invoice.purchaseOrder?.poNumber ?? null,
+          totalAmount: Number(invoice.totalAmount),
+          currencyCode: invoice.currency?.code ?? "USD",
+          reasons: reasons.map((r) => r.message),
+        });
+      } catch (e: any) {
+        logger.error("Flagged invoice email failed", { invoiceId, error: String(e?.message || e) });
+      }
+    }
+    logger.info("Flagged invoice alert", { invoiceId, reasons: reasons.length, notified: notified.length });
+    return { notified: notified.length, reasons, fingerprint };
+  }
+}

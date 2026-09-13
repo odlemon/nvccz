@@ -74,7 +74,7 @@ export class VendorInvoiceExtractionService {
         ? `\nKnown vendor-specific corrections (apply when reconciling ambiguous fields):\n${JSON.stringify(hints, null, 2)}\n`
         : "";
     const ocrBlock = options?.ocr
-      ? "\nThe text below was produced by OCR from a scan or photo of the invoice, so characters may be misread (O/0, l/1, S/5, B/8, commas and full stops) and columns may be shifted.\n"
+      ? "\nThe text below was produced by OCR from a scan or photo of the invoice, so characters may be misread (O/0, l/1, S/5, B/8, commas and full stops) and columns may be shifted. Each page was read twice: pass 1 follows the page layout (better for the letterhead, supplier name and the blocks beside it), pass 2 reads uniform rows (better for table lines and figures). Reconcile the two: take each field from the pass where it is complete and consistent, and use the arithmetic to settle figures that differ.\n"
       : "";
 
     const system = `You are an expert accounts-payable clerk. Extract structured vendor invoice data from noisy OCR/plain text.

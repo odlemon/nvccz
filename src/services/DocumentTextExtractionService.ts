@@ -228,12 +228,12 @@ export class DocumentTextExtractionService {
     }
   }
 
-  /** Tesseract on one image. Page segmentation 6 keeps a table row's description and figures on one line. */
-  private static async tesseract(imagePath: string): Promise<string> {
+  /** Tesseract on one image with the given page segmentation mode. */
+  private static async tesseract(imagePath: string, psm: '4' | '6'): Promise<string> {
     try {
       const { stdout } = await execFileAsync(
         'tesseract',
-        [imagePath, 'stdout', '-l', process.env.VENDOR_INVOICE_OCR_LANG || 'eng', '--psm', '6', '-c', 'preserve_interword_spaces=1'],
+        [imagePath, 'stdout', '-l', process.env.VENDOR_INVOICE_OCR_LANG || 'eng', '--psm', psm, '-c', 'preserve_interword_spaces=1'],
         { timeout: 90000, maxBuffer: 20 * 1024 * 1024 }
       );
       return stdout || '';
@@ -245,11 +245,25 @@ export class DocumentTextExtractionService {
     }
   }
 
+  /**
+   * Two OCR passes over one image. Segmentation mode 4 (a column of text of varying sizes) keeps a letterhead's name and
+   * the blocks beside it; mode 6 (one uniform block) keeps a table row's description and figures on one line. On dev's
+   * test invoices each mode lost what the other kept — mode 6 dropped the scan's invoice number and half the photo's
+   * supplier name, mode 4 garbled the photo's figures — so the model is given both and reconciles them.
+   * Returns '' when neither pass found anything.
+   */
+  private static async ocrBothPasses(imagePath: string): Promise<string> {
+    const layout = (await this.tesseract(imagePath, '4')).trim();
+    const rows = (await this.tesseract(imagePath, '6')).trim();
+    if (!this.meaningfulChars(layout) && !this.meaningfulChars(rows)) return '';
+    return `[OCR pass 1 — page layout]\n${layout}\n\n[OCR pass 2 — table rows]\n${rows}`;
+  }
+
   private static async ocrImage(buffer: Buffer): Promise<string> {
     return this.withTempDir(async (dir) => {
       const file = path.join(dir, 'invoice-image');
       await fs.writeFile(file, buffer);
-      return this.tesseract(file);
+      return this.ocrBothPasses(file);
     });
   }
 
@@ -271,7 +285,10 @@ export class DocumentTextExtractionService {
         .filter((f) => /^page-\d+\.png$/.test(f))
         .sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
       const texts = [];
-      for (const page of pages) texts.push(await this.tesseract(path.join(dir, page)));
+      for (const [i, page] of pages.entries()) {
+        const text = await this.ocrBothPasses(path.join(dir, page));
+        if (text) texts.push(pages.length > 1 ? `[Page ${i + 1}]\n${text}` : text);
+      }
       return texts.join('\n\n');
     });
   }

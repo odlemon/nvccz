@@ -79,7 +79,15 @@ const uploadPublicVendorInvoicePdf = multer({
  */
 router.post(
   "/invoices/upload-document",
-  uploadPublicVendorInvoicePdf.single("document"),
+  // A refused file type or an oversized file is the uploader's mistake, said as a 400; it reached Express's default
+  // handler and answered 500.
+  (req, res, next) =>
+    uploadPublicVendorInvoicePdf.single("document")(req, res, (err: any) => {
+      if (!err) return next();
+      const message =
+        err?.code === "LIMIT_FILE_SIZE" ? "The invoice file is too large (max 15MB)" : err?.message || "The invoice file could not be uploaded";
+      return res.status(400).json({ success: false, message });
+    }),
   ProcurementController.uploadVendorInvoiceDocument
 );
 
