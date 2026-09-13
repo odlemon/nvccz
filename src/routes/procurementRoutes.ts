@@ -174,6 +174,10 @@ router.post("/invoices", staffCaptureWhenAuthenticated, ProcurementController.cr
 // can show the order and prefill its lines. `?token=` is the signed PO_VENDOR_INVOICE token.
 router.get("/vendor-portal/purchase-order", ProcurementController.getVendorPortalPurchaseOrder);
 
+// PUBLIC, token-scoped: the RFQ behind a vendor's emailed quotation link, so the quotation form can show what is
+// being bought and prefill the lines and the vendor's own details. `?token=` is the signed RFQ_SUBMIT token.
+router.get("/vendor-portal/rfq", ProcurementController.getVendorPortalRfq);
+
 // All routes below require authentication
 router.use(authenticate);
 // Internal staff only. Every route below is staff procurement data or a staff action;

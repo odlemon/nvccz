@@ -1269,6 +1269,109 @@ export class ProcurementController {
   }
 
   /**
+   * PUBLIC, token-scoped: what an invited vendor is quoting for.
+   *
+   * The quotation form opened blank apart from the RFQ number, so a vendor retyped the lines from the email and
+   * could not see the closing date or delivery terms. This returns the RFQ and its lines, the vendor's own master
+   * details to prefill, the buying organisation's name, and the quotation this vendor already sent, if any.
+   * `?token=` is the signed RFQ_SUBMIT token from the invitation email (payload v = vendor, r = RFQ id).
+   */
+  static async getVendorPortalRfq(req: Request, res: Response) {
+    const raw = String(req.query.token || req.query.vendorPortalToken || "").trim();
+    if (!raw) {
+      return res.status(400).json({ success: false, message: "This quotation link is missing its token" });
+    }
+    try {
+      const { verifyVendorPortalToken, VENDOR_PORTAL_KIND_RFQ_SUBMIT } = await import("../utils/vendorPortalToken");
+      let payload;
+      try {
+        payload = verifyVendorPortalToken(raw);
+      } catch (err: any) {
+        return res.status(400).json({ success: false, message: err?.message || "Invalid quotation link" });
+      }
+      if (payload.k !== VENDOR_PORTAL_KIND_RFQ_SUBMIT) {
+        return res.status(400).json({ success: false, message: "This link is not a request for quotation link" });
+      }
+
+      const rfq = await prisma.procurementRfq.findUnique({
+        where: { id: payload.r },
+        select: {
+          id: true,
+          rfqNumber: true,
+          title: true,
+          description: true,
+          status: true,
+          visibility: true,
+          closingAt: true,
+          deliveryAddress: true,
+          expectedDeliveryDate: true,
+          specialRequirements: true,
+          itemsSnapshot: true,
+          reportingCurrency: { select: { code: true } },
+          requisition: { select: { items: true } },
+          invitations: { where: { vendorId: payload.v }, select: { id: true } },
+        },
+      });
+      // The link names a vendor; only an invited vendor (or anyone, on a publicly listed RFQ) may read it.
+      if (!rfq || (!rfq.invitations.length && rfq.visibility !== "PUBLIC_LISTING")) {
+        return res.status(404).json({ success: false, message: "No request for quotation matches this link" });
+      }
+      const [vendor, profile, submission] = await Promise.all([
+        prisma.vendor.findUnique({
+          where: { id: payload.v },
+          select: { name: true, email: true, contactPerson: true, phone: true, taxNumber: true, address: true },
+        }),
+        prisma.companyProfile.findFirst({ select: { legalName: true } }),
+        prisma.vendorQuotation.findFirst({
+          where: { procurementRfqId: rfq.id, vendorId: payload.v, status: { not: "DRAFT" } },
+          orderBy: { createdAt: "desc" },
+          select: { quotationNumber: true, status: true, createdAt: true },
+        }),
+      ]);
+      if (!vendor) {
+        return res.status(404).json({ success: false, message: "No vendor matches this link" });
+      }
+
+      // The lines as the RFQ was issued (its snapshot), else the requisition's. Prices are never sent: the vendor quotes them.
+      const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
+      const snapshot = Array.isArray(rfq.itemsSnapshot) ? (rfq.itemsSnapshot as any[]) : [];
+      const lines = (snapshot.length ? snapshot : ((rfq.requisition?.items as any[]) ?? [])).map((it: any) => ({
+        itemName: String(it?.itemName ?? it?.name ?? "").trim(),
+        description: it?.description ?? null,
+        quantity: num(it?.quantity),
+        unit: it?.unit ?? null,
+      }));
+      const closed = rfq.closingAt ? rfq.closingAt.getTime() < Date.now() : false;
+
+      return res.json({
+        success: true,
+        data: {
+          organisation: profile?.legalName?.trim() || null,
+          rfqNumber: rfq.rfqNumber,
+          title: rfq.title,
+          description: rfq.description,
+          status: rfq.status,
+          open: String(rfq.status).toUpperCase() === "OPEN" && !closed,
+          closingAt: rfq.closingAt,
+          deliveryAddress: rfq.deliveryAddress,
+          expectedDeliveryDate: rfq.expectedDeliveryDate,
+          specialRequirements: rfq.specialRequirements,
+          currencyCode: rfq.reportingCurrency?.code ?? null,
+          items: lines.filter((l) => l.itemName),
+          vendor,
+          submission: submission
+            ? { quotationNumber: submission.quotationNumber, status: submission.status, submittedAt: submission.createdAt }
+            : null,
+          tokenExpiresAt: new Date(payload.exp * 1000).toISOString(),
+        },
+      });
+    } catch (error: any) {
+      console.error("Error loading vendor portal RFQ:", error);
+      return res.status(500).json({ success: false, message: "Could not load this request for quotation" });
+    }
+  }
+
+  /**
    * Process OCR data for invoice
    */
   static async processOCRData(req: Request, res: Response) {
