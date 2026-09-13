@@ -1324,8 +1324,8 @@ export class ProcurementController {
         prisma.companyProfile.findFirst({ select: { legalName: true } }),
         prisma.vendorQuotation.findFirst({
           where: { procurementRfqId: rfq.id, vendorId: payload.v, status: { not: "DRAFT" } },
-          orderBy: { createdAt: "desc" },
-          select: { quotationNumber: true, status: true, createdAt: true },
+          orderBy: { submittedAt: "desc" },
+          select: { quotationNumber: true, status: true, submittedAt: true },
         }),
       ]);
       if (!vendor) {
@@ -1360,7 +1360,7 @@ export class ProcurementController {
           items: lines.filter((l) => l.itemName),
           vendor,
           submission: submission
-            ? { quotationNumber: submission.quotationNumber, status: submission.status, submittedAt: submission.createdAt }
+            ? { quotationNumber: submission.quotationNumber, status: submission.status, submittedAt: submission.submittedAt }
             : null,
           tokenExpiresAt: new Date(payload.exp * 1000).toISOString(),
         },
