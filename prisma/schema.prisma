@@ -3084,6 +3084,10 @@ model ProcurementSettings {
   id                       String   @id @default("default")
   overDeliveryTolerancePct Decimal  @default(5.00) @map("over_delivery_tolerance_pct") @db.Decimal(5, 2)
   poValidityGraceDays      Int      @default(30) @map("po_validity_grace_days")
+  /// SRD §6.6: an exact three-way match, with the supplier's document agreeing, is approved without a person.
+  autoApproveMatchedInvoices Boolean  @default(false) @map("auto_approve_matched_invoices")
+  /// The largest invoice total approved automatically; null for no limit.
+  autoApproveInvoiceLimit    Decimal? @map("auto_approve_invoice_limit") @db.Decimal(15, 2)
   updatedAt                DateTime @updatedAt @map("updated_at")
 
   @@map("procurement_settings")
@@ -3177,6 +3181,8 @@ model ProcurementInvoice {
   documentType                String?
   approvedById                String?
   approvedAt                  DateTime?
+  /// MANUAL (a person approved it) or AUTOMATIC (an exact match, when the organisation has switched that on).
+  approvalSource              String?                  @map("approval_source") @db.VarChar(16)
   rejectionReason             String?                  @map("rejection_reason") @db.Text
   rejectionContentFingerprint String?                  @map("rejection_content_fingerprint") @db.VarChar(64)
   paymentStatus               String                   @default("PENDING")

@@ -266,5 +266,12 @@ export class ProcurementInvoiceMatchService {
       const { ProcurementInvoiceAlertService } = await import("./ProcurementInvoiceAlertService");
       await ProcurementInvoiceAlertService.alertQuietly(invoice.id);
     }
+    // SRD §6.6: an exact match goes into the payment queue without a person, when the organisation has switched that on
+    // and the supplier's document agrees. The reading re-runs this match once it is read, so a document read after
+    // capture is considered then.
+    if (result.status === "MATCHED" && !result.flags.length) {
+      const { ProcurementInvoiceAutoApprovalService } = await import("./ProcurementInvoiceAutoApprovalService");
+      await ProcurementInvoiceAutoApprovalService.considerQuietly(invoice.id);
+    }
   }
 }

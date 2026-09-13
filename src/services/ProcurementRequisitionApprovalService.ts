@@ -520,8 +520,11 @@ export class ProcurementRequisitionApprovalService {
     const roleCounts = new Map<string, number>();
     for (const u of staff) if (u.roleCode) roleCounts.set(u.roleCode, (roleCounts.get(u.roleCode) || 0) + 1);
 
+    const { ProcurementInvoiceAutoApprovalService } = await import("./ProcurementInvoiceAutoApprovalService");
     return {
       canEdit,
+      // Invoice approval is decided by permission, except an exact match when this is on (SRD §6.6).
+      invoiceAutoApproval: await ProcurementInvoiceAutoApprovalService.settings(),
       configId: config?.id ?? null,
       updatedAt: config?.updatedAt ?? null,
       steps: stages.map((s) => this.matrixStep(s, roleNames, staff, departments)),

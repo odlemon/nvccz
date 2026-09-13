@@ -2792,10 +2792,12 @@ export class ProcurementService {
    */
   static async approveProcurementInvoice(
     invoiceId: string, 
-    approvedById: string,
+    approvedById: string | null,
     approvalData?: {
       isTaxable?: boolean;
-    }
+    },
+    /** An exact match approved without a person (ProcurementInvoiceAutoApprovalService); approvedById is null. */
+    options?: { automatic?: boolean; reason?: string }
   ) {
     try {
       console.log("\n");
@@ -2902,6 +2904,7 @@ export class ProcurementService {
           status: "APPROVED",
           approvedById,
           approvedAt: new Date(),
+          approvalSource: options?.automatic ? "AUTOMATIC" : "MANUAL",
           paymentStatus: "PENDING",
           subtotal: new Decimal(finalSubtotal),
           taxAmount: new Decimal(finalTaxAmount),
@@ -2927,10 +2930,10 @@ export class ProcurementService {
       console.log("\n📊 Step 5: Creating audit log...");
       await AuditService.log({
         userId: approvedById,
-        action: "APPROVE",
+        action: options?.automatic ? "AUTO_APPROVE" : "APPROVE",
         entityType: "ProcurementInvoice",
         entityId: invoiceId,
-        newValues: updatedInvoice,
+        newValues: options?.automatic ? { ...updatedInvoice, approvalReason: options.reason ?? null } : updatedInvoice,
       });
       console.log("   ✅ Audit log created");
 

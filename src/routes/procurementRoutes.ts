@@ -204,6 +204,8 @@ router.get("/me/access", ProcurementAccessController.getMyAccess);
 // CFO changes it (the service refuses anyone else).
 router.get("/approval-matrix", ProcurementApprovalMatrixController.getMatrix);
 router.put("/approval-matrix", ProcurementApprovalMatrixController.saveMatrix);
+// Whether an exactly matching invoice is approved without a person (SRD §6.6); read with the matrix.
+router.put("/invoice-auto-approval", ProcurementApprovalMatrixController.saveInvoiceAutoApproval);
 
 // The procurement audit trail, newest first, from the audit_logs rows the services write.
 router.get("/audit-events", requireAnyPermission([PROC_PERMS.auditView]), ProcurementAuditController.listEvents);

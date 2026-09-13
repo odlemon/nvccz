@@ -33,4 +33,23 @@ export class ProcurementApprovalMatrixController {
       });
     }
   }
+
+  /** PUT /procurement/invoice-auto-approval {enabled, limit}: administrator or CFO. */
+  static async saveInvoiceAutoApproval(req: Request, res: Response) {
+    try {
+      const { ProcurementInvoiceAutoApprovalService } = await import("../services/ProcurementInvoiceAutoApprovalService");
+      const data = await ProcurementInvoiceAutoApprovalService.saveSettings((req as any).user, req.body);
+      return res.json({
+        success: true,
+        message: data.enabled ? "Invoices that match exactly are approved automatically" : "Automatic invoice approval is off",
+        data,
+      });
+    } catch (error: any) {
+      console.error("Error saving automatic invoice approval:", error);
+      return res.status(error?.status || 500).json({
+        success: false,
+        message: error?.status ? error.message : "Failed to save automatic invoice approval",
+      });
+    }
+  }
 }
