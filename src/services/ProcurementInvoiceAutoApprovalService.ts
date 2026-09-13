@@ -151,7 +151,7 @@ export class ProcurementInvoiceAutoApprovalService {
           relatedEntity: "ProcurementInvoice",
           relatedEntityId: invoice.id,
           data: {
-            path: "/procurement-v23/invoices",
+            path: "/procurement/invoices",
             invoiceId: invoice.id,
             invoiceNumber: invoice.invoiceNumber,
             poNumber: invoice.purchaseOrder?.poNumber ?? null,

@@ -8,8 +8,8 @@ import AuditService from "./AuditService";
 const STAGE = "PURCHASE_REQUISITION";
 const STEP_NOTIFICATION = "PROCUREMENT_REQUISITION_APPROVAL";
 const DECISION_NOTIFICATION = "PROCUREMENT_REQUISITION_DECISION";
-const APPROVALS_PATH = "/procurement-v23/approvals";
-const REQUISITIONS_PATH = "/procurement-v23/requisitions";
+const APPROVALS_PATH = "/procurement/approvals";
+const REQUISITIONS_PATH = "/procurement/requisitions";
 /** Departments a requisition is raised for; the approval configuration validates against the same list. */
 export const REQUISITION_DEPARTMENTS = ["Finance", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"];
 const MAX_STEPS = 6;

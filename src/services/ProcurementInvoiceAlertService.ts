@@ -144,7 +144,7 @@ export class ProcurementInvoiceAlertService {
           relatedEntity: "ProcurementInvoice",
           relatedEntityId: invoiceId,
           data: {
-            path: "/procurement-v23/invoices",
+            path: "/procurement/invoices",
             invoiceId,
             invoiceNumber: invoice.invoiceNumber,
             poNumber: invoice.purchaseOrder?.poNumber ?? null,
