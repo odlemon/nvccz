@@ -343,7 +343,9 @@ router.get("/:id/kyc-documents", requireAnyPermission([PROC_PERMS.vendorsView]),
  *       401:
  *         description: Unauthorized
  */
-router.post("/", VendorController.createVendor);
+// Vendor master data is maintained by roles that hold procurement.vendors.manage; `authenticate` alone let any internal
+// staff account create a vendor. (Self-registration from the vendor portal has its own route.)
+router.post("/", requireAnyPermission([PROC_PERMS.vendorsManage]), VendorController.createVendor);
 
 /**
  * @swagger
@@ -476,7 +478,8 @@ router.get("/:id", VendorController.getVendorById);
  *       401:
  *         description: Unauthorized
  */
-router.put("/:id", VendorController.updateVendor);
+// The same for changes; blacklisting and registration status also need procurement.vendors.approve (checked in the controller).
+router.put("/:id", requireAnyPermission([PROC_PERMS.vendorsManage]), VendorController.updateVendor);
 
 /**
  * @swagger

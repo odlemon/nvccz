@@ -14,6 +14,8 @@ import { VendorKycService } from "../services/VendorKycService";
 import { listVendorsEligibleForRfqQuery } from "../services/VendorProcurementListService";
 import { VendorSelfRegistrationService } from "../services/VendorSelfRegistrationService";
 import AuditService from "../services/AuditService";
+import { userHasEffectivePermission } from "../config/cfoModulePermissions";
+import { PROCUREMENT_PERMISSIONS as PROC_PERMS } from "../config/procurementPermissions";
 import { EmailNotificationService } from "../services/EmailNotificationService";
 
 /** KYC fields for API responses (never expose encryption IV / auth tag). */
@@ -375,6 +377,18 @@ export class VendorController {
             ? vatNumber
             : undefined;
 
+      // Blacklisting and registration status are decisions for a role that approves vendors (they have their own
+      // routes, guarded by procurement.vendors.approve); the plain update must not be a way round that.
+      if (
+        (isBlacklisted !== undefined || blacklistReason !== undefined || registrationStatus !== undefined) &&
+        !userHasEffectivePermission(req.user, PROC_PERMS.vendorsApprove)
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "Blacklisting a vendor or changing its registration status needs vendor approval rights.",
+        });
+      }
+
       // Check if vendor exists
       const existingVendor = await prisma.vendor.findUnique({
         where: { id }
@@ -479,6 +493,20 @@ export class VendorController {
         where: { id },
         data: updateData
       });
+
+      const changed = Object.keys(updateData).filter(
+        (k) => String((existingVendor as any)[k] ?? "") !== String((vendor as any)[k] ?? "")
+      );
+      if (changed.length) {
+        await AuditService.log({
+          userId: req.user!.id,
+          action: "UPDATE",
+          entityType: "Vendor",
+          entityId: id,
+          oldValues: Object.fromEntries(changed.map((k) => [k, (existingVendor as any)[k] ?? null])),
+          newValues: Object.fromEntries(changed.map((k) => [k, (vendor as any)[k] ?? null])),
+        }).catch(() => undefined);
+      }
 
       if (hasItfInput && vendor.taxComplianceStatus === "ACTIVE") {
         await maybeSendImmediateTaxAlertForNewVendor({
