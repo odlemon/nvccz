@@ -210,6 +210,7 @@ router.put("/invoice-auto-approval", ProcurementApprovalMatrixController.saveInv
 // What a requester needs to fill in a requisition: the projects it can be charged to (every employee raises
 // requisitions, so no procurement grant is required).
 router.get("/requisition-projects", ProcurementController.listRequisitionProjects);
+router.get("/currencies", requireAnyPermission([PROC_PERMS.rfqManage, PROC_PERMS.rfqView]), ProcurementController.listRfqCurrencies);
 
 // The procurement audit trail, newest first, from the audit_logs rows the services write.
 router.get("/audit-events", requireAnyPermission([PROC_PERMS.auditView]), ProcurementAuditController.listEvents);

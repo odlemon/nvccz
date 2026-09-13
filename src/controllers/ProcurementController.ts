@@ -704,6 +704,16 @@ export class ProcurementController {
   /**
    * Create and send RFQ to multiple vendors
    */
+  /** The currencies an RFQ can be quoted in: the active ones set up in Accounting (code and name). */
+  static async listRfqCurrencies(_req: Request, res: Response) {
+    try {
+      const rows = await prisma.currency.findMany({ where: { isActive: true }, select: { code: true, name: true }, orderBy: { code: "asc" } });
+      res.json({ success: true, data: rows });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error?.message || "Could not list currencies" });
+    }
+  }
+
   static async createAndSendRFQ(req: Request, res: Response) {
     try {
       const createdById = req.user?.id;
@@ -734,6 +744,17 @@ export class ProcurementController {
       } = req.body;
 
       const requisitionId = requisitionIdRaw || purchaseRequisitionId;
+
+      // The RFQ builder names the quoting currency by code (USD, ZiG, ZAR); the RFQ keeps the currency's id.
+      let rfqCurrencyId = reportingCurrencyId;
+      const rfqCurrencyCode = String(req.body?.reportingCurrencyCode ?? "").trim();
+      if (!rfqCurrencyId && rfqCurrencyCode) {
+        const currency = await prisma.currency.findFirst({ where: { code: rfqCurrencyCode } });
+        if (!currency) {
+          return res.status(400).json({ success: false, message: `Currency ${rfqCurrencyCode} is not set up.` });
+        }
+        rfqCurrencyId = currency.id;
+      }
 
       // Validation: title + vendors always; items optional when requisitionId (PR lines used)
       if (!title) {
@@ -772,7 +793,7 @@ export class ProcurementController {
         createdById,
         items,
         visibility,
-        reportingCurrencyId,
+        reportingCurrencyId: rfqCurrencyId,
         priceWeight,
         technicalWeight,
       });
