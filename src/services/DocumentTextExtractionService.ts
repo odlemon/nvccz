@@ -180,7 +180,24 @@ export class DocumentTextExtractionService {
   private static async extractTextFromBuffer(buffer: Buffer, fileName: string, allowOcr = false): Promise<BufferText> {
     switch (this.sniffKind(buffer, fileName)) {
       case 'pdf': {
-        const text = await this.extractFromPdf(buffer);
+        let text: string;
+        try {
+          text = await this.extractFromPdf(buffer);
+        } catch (error: any) {
+          // pdf.js (via pdf-parse) can throw on large/complex content streams — e.g. its lexer's
+          // "Command token too long" limit — even though the PDF itself is perfectly valid. Rather
+          // than fail the whole extraction, treat a parse failure the same as a missing text layer
+          // and fall back to rendering the pages and reading them with OCR, when that fallback is
+          // available for this document. If OCR is not allowed here, or OCR itself then fails, the
+          // failure is real and must still surface — it is not swallowed.
+          if (!allowOcr) throw error;
+          logger.info('Invoice PDF failed to parse; reading it with OCR instead', { fileName, error: error.message });
+          try {
+            return { text: await this.ocrPdf(buffer), ocr: true };
+          } catch (ocrError: any) {
+            throw new Error(`${error.message}; OCR fallback also failed: ${ocrError.message}`);
+          }
+        }
         if (allowOcr && this.meaningfulChars(text) < MIN_PDF_TEXT_CHARS) {
           logger.info('Invoice PDF has no usable text layer; reading it with OCR', { fileName, textChars: this.meaningfulChars(text) });
           return { text: await this.ocrPdf(buffer), ocr: true };
