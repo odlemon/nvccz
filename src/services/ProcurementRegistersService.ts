@@ -418,6 +418,31 @@ export const ProcurementPlans = {
     return planOut(await planOrThrow(id));
   },
 
+  async updateItem(id: string, itemId: string, body: any, userId: string) {
+    const plan = await planOrThrow(id);
+    if (!EDITABLE_PLAN.includes(plan.status)) throw conflict(`${plan.planNumber} is ${plan.status}; lines are edited on a draft or rejected plan`);
+    const item = plan.items.find((i) => i.id === itemId);
+    if (!item) throw notFound("Plan line");
+    const data: any = {};
+    if (body.description !== undefined) {
+      const d = str(body.description);
+      if (!d) throw bad("A line description is required");
+      data.description = d.slice(0, 255);
+    }
+    if (body.category !== undefined) data.category = str(body.category) ?? null;
+    if (body.quarter !== undefined) {
+      const quarter = str(body.quarter);
+      if (quarter && !/^Q[1-4]$/i.test(quarter)) throw bad("quarter must be Q1, Q2, Q3 or Q4");
+      data.quarter = quarter ? quarter.toUpperCase() : null;
+    }
+    if (body.method !== undefined) data.method = str(body.method) ?? null;
+    if (body.estimatedValue !== undefined) data.estimatedValue = money(body.estimatedValue, "estimatedValue");
+    if (body.department !== undefined) data.department = str(body.department) ?? null;
+    await prisma.procurementPlanItem.update({ where: { id: itemId }, data });
+    await audit(userId, "UPDATE", "ProcurementPlan", id, { editedLine: item.description });
+    return planOut(await planOrThrow(id));
+  },
+
   async removeItem(id: string, itemId: string, userId: string) {
     const plan = await planOrThrow(id);
     if (!EDITABLE_PLAN.includes(plan.status)) throw conflict(`${plan.planNumber} is ${plan.status}; lines are removed from a draft or rejected plan`);
