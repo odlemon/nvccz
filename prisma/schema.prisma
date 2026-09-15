@@ -355,6 +355,9 @@ model Role {
   @@map("roles")
 }
 
+/// Shared by the Home hub's News feed and Forums: `category` null = a News/company post,
+/// a real category = a Forum discussion filed under it. `isSolved` is Forums-only (a News
+/// post never sets it).
 model Post {
   id         String    @id @default(cuid())
   title      String
@@ -363,6 +366,8 @@ model Post {
   expiresAt  DateTime?
   isNotified Boolean   @default(false)
   isActive   Boolean   @default(true)
+  category   String?
+  isSolved   Boolean   @default(false)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   author     User      @relation(fields: [authorId], references: [id], onDelete: Cascade)

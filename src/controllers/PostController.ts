@@ -3,11 +3,30 @@ import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
 
+/**
+ * `category`/`isSolved` were added to `posts` by a raw-SQL migration (this worktree's Prisma
+ * client is generated from the pre-migration schema and can't be regenerated here — junctioned
+ * node_modules shared with the main checkout — so the typed client silently omits these two
+ * columns from every query). Patched in via a small side query rather than touching the rest of
+ * this controller's relation-heavy Prisma calls.
+ */
+async function attachPostExtras<T extends { id: string }>(posts: T[]): Promise<(T & { category: string | null; isSolved: boolean })[]> {
+  if (posts.length === 0) return posts as (T & { category: string | null; isSolved: boolean })[];
+  const ids = posts.map((p) => p.id);
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: string; category: string | null; isSolved: number | boolean }>>(
+    `SELECT id, category, isSolved FROM posts WHERE id IN (${placeholders})`,
+    ...ids
+  );
+  const byId = new Map(rows.map((r) => [r.id, { category: r.category, isSolved: Boolean(r.isSolved) }]));
+  return posts.map((p) => ({ ...p, ...(byId.get(p.id) || { category: null, isSolved: false }) }));
+}
+
 export const postController = {
   // Create a new post
   async createPost(req: AuthRequest, res: Response) {
     try {
-      const { title, content, expiresAt, isNotified } = req.body;
+      const { title, content, expiresAt, isNotified, category } = req.body;
       const authorId = req.user.id;
 
       // Update user's last seen
@@ -67,6 +86,13 @@ export const postController = {
           }
         }
       });
+
+      const normalizedCategory = category ? String(category).trim().slice(0, 64) : null;
+      if (normalizedCategory) {
+        await prisma.$executeRawUnsafe(`UPDATE posts SET category = ? WHERE id = ?`, normalizedCategory, post.id);
+      }
+      (post as any).category = normalizedCategory;
+      (post as any).isSolved = false;
 
       // Create notification for all users if isNotified is true
       if (isNotified) {
@@ -177,7 +203,7 @@ export const postController = {
 
       res.status(200).json({
         success: true,
-        data: posts
+        data: await attachPostExtras(posts)
       });
     } catch (error: any) {
       console.error("Error fetching posts:", error);
@@ -245,6 +271,9 @@ export const postController = {
         return;
       }
 
+      const [postWithExtras] = await attachPostExtras([post]);
+      Object.assign(post, { category: postWithExtras.category, isSolved: postWithExtras.isSolved });
+
       // Function to enhance reply with nested replies
       const enhanceReply = (reply: any) => ({
         ...reply,
@@ -290,7 +319,7 @@ export const postController = {
   async updatePost(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
-      const { title, content, expiresAt, isNotified } = req.body;
+      const { title, content, expiresAt, isNotified, category, isSolved } = req.body;
       const userId = req.user.id;
 
       // Check if post exists and user is author
@@ -365,6 +394,21 @@ export const postController = {
           }
         }
       });
+
+      const [existingExtras] = await attachPostExtras([existingPost]);
+      const nextCategory =
+        category !== undefined ? (category ? String(category).trim().slice(0, 64) : null) : existingExtras.category;
+      const nextIsSolved = isSolved !== undefined ? Boolean(isSolved) : existingExtras.isSolved;
+      if (nextCategory !== existingExtras.category || nextIsSolved !== existingExtras.isSolved) {
+        await prisma.$executeRawUnsafe(
+          `UPDATE posts SET category = ?, isSolved = ? WHERE id = ?`,
+          nextCategory,
+          nextIsSolved,
+          id
+        );
+      }
+      (updatedPost as any).category = nextCategory;
+      (updatedPost as any).isSolved = nextIsSolved;
 
       // Log activity
       await prisma.userActivity.create({
