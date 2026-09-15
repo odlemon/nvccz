@@ -191,9 +191,9 @@ const router = express.Router();
  *                     totalPages:
  *                       type: integer
  */
-router.get('/signed-term-sheets', 
-  authenticate, 
-  authorize(['admin', 'fund_manager']), 
+router.get('/signed-term-sheets',
+  authenticate,
+  authorize(['admin', 'fund_manager', 'portfolio_mgr', 'inv_analyst']),
   InvestmentImplementationController.getApplicationsWithSignedTermSheets
 );
 
@@ -314,9 +314,9 @@ router.get('/signed-term-sheets',
  *                 message:
  *                   type: string
  */
-router.post('/initiate', 
-  authenticate, 
-  authorize(['admin', 'fund_manager']), 
+router.post('/initiate',
+  authenticate,
+  authorize(['admin', 'fund_manager', 'portfolio_mgr']),
   InvestmentImplementationController.initiateInvestmentImplementation
 );
 
@@ -467,9 +467,9 @@ router.get('/:portfolioCompanyId',
  *                 message:
  *                   type: string
  */
-router.put('/:portfolioCompanyId/checklist', 
-  authenticate, 
-  authorize(['admin', 'fund_manager']), 
+router.put('/:portfolioCompanyId/checklist',
+  authenticate,
+  authorize(['admin', 'fund_manager', 'portfolio_mgr']),
   InvestmentImplementationController.updateImplementationChecklist
 );
 
@@ -526,9 +526,9 @@ router.put('/:portfolioCompanyId/checklist',
  *                 message:
  *                   type: string
  */
-router.post('/:portfolioCompanyId/milestones', 
-  authenticate, 
-  authorize(['admin', 'fund_manager']), 
+router.post('/:portfolioCompanyId/milestones',
+  authenticate,
+  authorize(['admin', 'fund_manager', 'portfolio_mgr']),
   InvestmentImplementationController.addMilestone
 );
 
@@ -570,9 +570,9 @@ router.post('/:portfolioCompanyId/milestones',
  *                 message:
  *                   type: string
  */
-router.post('/milestones/:milestoneId/complete', 
-  authenticate, 
-  authorize(['admin', 'fund_manager']), 
+router.post('/milestones/:milestoneId/complete',
+  authenticate,
+  authorize(['admin', 'fund_manager', 'portfolio_mgr']),
   InvestmentImplementationController.completeMilestone
 );
 
@@ -970,9 +970,9 @@ router.post('/disbursements/:disbursementId/disburse',
  *                     totalPages:
  *                       type: integer
  */
-router.get('/', 
-  authenticate, 
-  authorize(['admin', 'fund_manager']), 
+router.get('/',
+  authenticate,
+  authorize(['admin', 'fund_manager', 'portfolio_mgr', 'inv_analyst']),
   InvestmentImplementationController.getAllInvestmentImplementations
 );
 
