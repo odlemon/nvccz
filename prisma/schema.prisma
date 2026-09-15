@@ -199,6 +199,7 @@ model User {
   homePreference                        HomePreference?
   homeWallpapers                        HomeWallpaper[]
   serviceRequests                       ServiceRequest[]
+  calendarEntries                       CalendarEntry[]
   cashbookReconSessionsCreated          CashbookReconciliationSession[] @relation("CashbookReconSessionCreatedBy")
   cashbookReconSessionsFinished         CashbookReconciliationSession[] @relation("CashbookReconSessionFinishedBy")
   capitalCallsInitiated                 CapitalCall[]                   @relation("CapitalCallCreator")
@@ -312,6 +313,28 @@ model ServiceRequest {
 
   @@index([userId, createdAt])
   @@map("service_requests")
+}
+
+/// Personal calendar entries (Home hub's Calendar page) — meetings, focus blocks, personal
+/// reminders. Deliberately separate from the real `Event` model: that one is a company-wide
+/// events/RSVP system whose `createEvent` notifies every user in the app, which is exactly
+/// wrong for "block an hour for focus time." Calendar reads real `Event` rows read-only
+/// alongside these for company-wide items; only entries created here are ever written by /home.
+model CalendarEntry {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  title       String   @db.VarChar(255)
+  description String?  @db.Text
+  startDate   DateTime @map("start_date")
+  endDate     DateTime @map("end_date")
+  location    String?  @db.VarChar(255)
+  entryType   String   @default("meeting") @map("entry_type") @db.VarChar(32)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startDate])
+  @@map("calendar_entries")
 }
 
 model Role {

@@ -293,6 +293,7 @@
     "db:migrate:home-preferences": "ts-node scripts/run-home-preferences-migration.ts",
     "db:migrate:service-requests": "ts-node scripts/run-service-requests-migration.ts",
     "db:migrate:home-wallpapers": "ts-node scripts/run-home-wallpapers-migration.ts",
+    "db:migrate:calendar-entries": "ts-node scripts/run-calendar-entries-migration.ts",
     "db:void:duplicate-kpi-journals": "ts-node scripts/void-duplicate-kpi-achievement-journals.ts",
     "db:purge:kpi-achievement-journals": "ts-node --transpile-only -r dotenv/config scripts/purge-kpi-achievement-journals-and-resync.ts",
     "db:resync:payroll-goals": "ts-node --transpile-only -r dotenv/config scripts/purge-kpi-achievement-journals-and-resync.ts -- --resync-only",
