@@ -8,7 +8,22 @@ import { mergeTaskNotificationData } from "../utils/taskNotificationDeepLink";
 import { PerformanceConfigService } from "../services/PerformanceConfigService";
 import { eventWithValidAuthorWhere } from "../utils/eventQuerySupport";
 
-const DEFAULT_HOME_PREFERENCE = { coverTheme: "Porcelain", coverWallpaper: "auto", rotationIntervalMinutes: 1440 };
+const DEFAULT_HOME_PREFERENCE = { coverTheme: "Porcelain", coverWallpaper: "auto", rotationIntervalMinutes: 1440, settings: null };
+
+// mysql2 returns a JSON column already parsed as an object/array; guard against a raw string too
+// in case that ever changes, and never let a corrupt value break the whole preferences response.
+function parseSettingsJson(value: unknown): Record<string, unknown> | null {
+  if (value == null) return null;
+  if (typeof value === "object") return value as Record<string, unknown>;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
 
 // Helper function to get relative time
 function getTimeAgo(date: Date): string {
@@ -527,26 +542,33 @@ export const homepageController = {
       const userId = req.user.id;
       const rows: any[] = await prisma.$queryRawUnsafe(
         `SELECT cover_theme AS coverTheme, cover_wallpaper AS coverWallpaper,
-                rotation_interval_minutes AS rotationIntervalMinutes
+                rotation_interval_minutes AS rotationIntervalMinutes, settings AS settings
          FROM home_preferences WHERE user_id = ?`,
         userId
       );
-      res.status(200).json({ success: true, data: rows[0] || DEFAULT_HOME_PREFERENCE });
+      const row = rows[0];
+      if (row) row.settings = parseSettingsJson(row.settings);
+      res.status(200).json({ success: true, data: row || DEFAULT_HOME_PREFERENCE });
     } catch (error: any) {
       console.error("Error fetching home preference:", error);
       res.status(500).json({ success: false, message: "Internal server error" });
     }
   },
 
-  // Upsert the signed-in user's home-hub preferences.
+  // Upsert the signed-in user's home-hub preferences. `settings` is the Settings-modal blob
+  // (language/timezone/density/notification toggles/etc) — stored opaquely as JSON since its
+  // shape is owned by the frontend runtime, not this API. A partial object here REPLACES the
+  // whole column rather than merging (the frontend always submits the full settings object
+  // together, per its one <form> submit handler), matching how coverTheme/coverWallpaper/
+  // rotationIntervalMinutes are each independently-settable but not deep-merged either.
   async updateMyHomePreference(req: AuthRequest, res: Response) {
     try {
       const userId = req.user.id;
-      const { coverTheme, coverWallpaper, rotationIntervalMinutes } = req.body || {};
-      if (coverTheme == null && coverWallpaper == null && rotationIntervalMinutes == null) {
+      const { coverTheme, coverWallpaper, rotationIntervalMinutes, settings } = req.body || {};
+      if (coverTheme == null && coverWallpaper == null && rotationIntervalMinutes == null && settings == null) {
         res.status(400).json({
           success: false,
-          message: "coverTheme, coverWallpaper or rotationIntervalMinutes is required",
+          message: "coverTheme, coverWallpaper, rotationIntervalMinutes or settings is required",
         });
         return;
       }
@@ -559,29 +581,42 @@ export const homepageController = {
         }
         rotationValue = Math.round(n);
       }
+      let settingsJson: string | null = null;
+      if (settings != null) {
+        if (typeof settings !== "object" || Array.isArray(settings)) {
+          res.status(400).json({ success: false, message: "settings must be an object" });
+          return;
+        }
+        settingsJson = JSON.stringify(settings).slice(0, 20000);
+      }
       await prisma.$executeRawUnsafe(
-        `INSERT INTO home_preferences (id, user_id, cover_theme, cover_wallpaper, rotation_interval_minutes)
-         VALUES (?, ?, COALESCE(?, 'Porcelain'), COALESCE(?, 'auto'), COALESCE(?, 1440))
+        `INSERT INTO home_preferences (id, user_id, cover_theme, cover_wallpaper, rotation_interval_minutes, settings)
+         VALUES (?, ?, COALESCE(?, 'Porcelain'), COALESCE(?, 'auto'), COALESCE(?, 1440), ?)
          ON DUPLICATE KEY UPDATE
            cover_theme = COALESCE(?, cover_theme),
            cover_wallpaper = COALESCE(?, cover_wallpaper),
-           rotation_interval_minutes = COALESCE(?, rotation_interval_minutes)`,
+           rotation_interval_minutes = COALESCE(?, rotation_interval_minutes),
+           settings = COALESCE(?, settings)`,
         randomUUID(),
         userId,
         coverTheme ?? null,
         coverWallpaper ?? null,
         rotationValue,
+        settingsJson,
         coverTheme ?? null,
         coverWallpaper ?? null,
-        rotationValue
+        rotationValue,
+        settingsJson
       );
       const rows: any[] = await prisma.$queryRawUnsafe(
         `SELECT cover_theme AS coverTheme, cover_wallpaper AS coverWallpaper,
-                rotation_interval_minutes AS rotationIntervalMinutes
+                rotation_interval_minutes AS rotationIntervalMinutes, settings AS settings
          FROM home_preferences WHERE user_id = ?`,
         userId
       );
-      res.status(200).json({ success: true, data: rows[0] || DEFAULT_HOME_PREFERENCE });
+      const row = rows[0];
+      if (row) row.settings = parseSettingsJson(row.settings);
+      res.status(200).json({ success: true, data: row || DEFAULT_HOME_PREFERENCE });
     } catch (error: any) {
       console.error("Error updating home preference:", error);
       res.status(500).json({ success: false, message: "Internal server error" });

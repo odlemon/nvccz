@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
 import { computeAchievementPercent } from "./performanceGoalRollupUtils";
 import { PerformanceGoalService } from "./PerformanceGoalService";
+import { filterUsersByNotificationPreference } from "./NotificationPreferenceService";
 
 export interface GoalTrackingResult {
   goalId: string;
@@ -771,9 +772,18 @@ export class EnhancedGoalTrackingService {
         );
 
         if (entries.length > 0) {
-          await prisma.notification.createMany({
-            data: entries
-          });
+          const notifiableIds = new Set(
+            await filterUsersByNotificationPreference(
+              entries.map((e) => e.userId),
+              "performanceReminders"
+            )
+          );
+          const filteredEntries = entries.filter((e) => notifiableIds.has(e.userId));
+          if (filteredEntries.length > 0) {
+            await prisma.notification.createMany({
+              data: filteredEntries
+            });
+          }
         }
       }
 
@@ -808,9 +818,18 @@ export class EnhancedGoalTrackingService {
           }));
 
         if (entries.length > 0) {
-          await prisma.notification.createMany({
-            data: entries
-          });
+          const notifiableIds = new Set(
+            await filterUsersByNotificationPreference(
+              entries.map((e) => e.userId),
+              "performanceReminders"
+            )
+          );
+          const filteredEntries = entries.filter((e) => notifiableIds.has(e.userId));
+          if (filteredEntries.length > 0) {
+            await prisma.notification.createMany({
+              data: filteredEntries
+            });
+          }
         }
       }
 

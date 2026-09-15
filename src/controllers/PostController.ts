@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
+import { filterUsersByNotificationPreference } from "../services/NotificationPreferenceService";
 
 /**
  * `category`/`isSolved` were added to `posts` by a raw-SQL migration (this worktree's Prisma
@@ -94,18 +95,25 @@ export const postController = {
       (post as any).category = normalizedCategory;
       (post as any).isSolved = false;
 
-      // Create notification for all users if isNotified is true
+      // Create notification for all users if isNotified is true, honouring each recipient's
+      // News digest / Forum activity Settings toggle (same split the frontend uses to route a
+      // post into News vs Forums: no category -> news, any category -> forum).
       if (isNotified) {
         try {
           // Get ALL users (including the author)
           const allUsers = await prisma.user.findMany();
+          const preferenceKey = normalizedCategory ? "forumMentions" : "newsDigest";
+          const notifiableIds = await filterUsersByNotificationPreference(
+            allUsers.map(u => u.id),
+            preferenceKey
+          );
 
-          if (allUsers.length > 0) {
-            const notifications = allUsers.map(user => ({
+          if (notifiableIds.length > 0) {
+            const notifications = notifiableIds.map(userId => ({
               title: `New Company Post: ${title}`,
               message: `A new post has been created by ${req.user.firstName} ${req.user.lastName}`,
               type: 'post',
-              userId: user.id,
+              userId,
               data: {
                 postId: post.id,
                 authorId: authorId,
