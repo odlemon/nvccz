@@ -197,6 +197,8 @@ model User {
   passwordResetTokens                   PasswordResetToken[]
   savedFilterFavorites                  SavedFilterFavorite[]
   homePreference                        HomePreference?
+  homeWallpapers                        HomeWallpaper[]
+  serviceRequests                       ServiceRequest[]
   cashbookReconSessionsCreated          CashbookReconciliationSession[] @relation("CashbookReconSessionCreatedBy")
   cashbookReconSessionsFinished         CashbookReconciliationSession[] @relation("CashbookReconSessionFinishedBy")
   capitalCallsInitiated                 CapitalCall[]                   @relation("CapitalCallCreator")
@@ -262,12 +264,54 @@ model HomePreference {
   userId         String   @unique @map("user_id")
   coverTheme     String   @default("Porcelain") @map("cover_theme") @db.VarChar(64)
   coverWallpaper String   @default("auto") @map("cover_wallpaper") @db.VarChar(64)
+  /// Only meaningful when coverWallpaper = "auto": how often the background rotates, in
+  /// minutes. 1440 (default) matches the original "changes automatically each day" copy;
+  /// the UI also offers short intervals (3/5/15 min, 1 hr) for a Windows-lockscreen-style feel.
+  rotationIntervalMinutes Int      @default(1440) @map("rotation_interval_minutes")
   settings       Json?
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("home_preferences")
+}
+
+/// A user's own uploaded Daily Cover background images (design-refs/home-page/execution-plan.md
+/// Phase 2b). One row per image — matches this schema's established child-table-per-file
+/// convention (Document, VendorDocumentAttachment) rather than a JSON array column. When
+/// coverWallpaper = "auto", rotation cycles through these if the user has any, else the built-in
+/// preset scenes.
+model HomeWallpaper {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  url       String   @db.VarChar(1024)
+  label     String?  @db.VarChar(120)
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sortOrder])
+  @@map("home_wallpapers")
+}
+
+/// Employee self-service requests (Home hub's Services page): leave, expense claims, IT,
+/// travel, facilities, training enrolment. No pre-existing self-service model covers this —
+/// LeaveBalance/Payslip (payroll) and Expense (accounting GL) are both real but neither is a
+/// personal request/ticket concept. `amount` only applies to expense-type requests.
+model ServiceRequest {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  type       String   @db.VarChar(32)
+  summary    String   @db.VarChar(255)
+  amount     Decimal? @db.Decimal(15, 2)
+  status     String   @default("pending") @db.VarChar(32)
+  nextAction String?  @map("next_action") @db.VarChar(255)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("service_requests")
 }
 
 model Role {
