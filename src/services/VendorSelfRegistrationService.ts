@@ -229,7 +229,6 @@ export class VendorSelfRegistrationService {
     {
       const { dispatchProcurementNotification } = await import("./ProcurementNotificationService");
       const approvers = await prisma.user.findMany({
-        where: { isActive: true, role: { isNot: null } },
         select: { id: true, role: { select: { permissions: true } } },
       });
       const approverIds = approvers
