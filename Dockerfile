@@ -11,7 +11,9 @@ RUN npx prisma generate && npx tsc
 FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apt-get update && apt-get install -y --no-install-recommends openssl curl \
+# tesseract-ocr and poppler-utils (pdftoppm): supplier invoices that arrive as scans or photos are read with OCR before
+# the LLM reads them (DocumentTextExtractionService).
+RUN apt-get update && apt-get install -y --no-install-recommends openssl curl tesseract-ocr tesseract-ocr-eng poppler-utils \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app /app
 RUN sed -i 's/\r$//' /app/deploy/docker-entrypoint.sh \

@@ -30,6 +30,7 @@ import { publicErrorMessage } from "../utils/publicErrorMessage";
  *   POST   /procurement/plans                       {name, department, fiscalYear, budget, currencyCode, notes}
  *   PUT    /procurement/plans/:id                   draft or rejected only
  *   POST   /procurement/plans/:id/items             {description, category, quarter, method, estimatedValue, department}
+ *   PUT    /procurement/plans/:id/items/:itemId      same fields, all optional; draft or rejected plan only
  *   DELETE /procurement/plans/:id/items/:itemId
  *   POST   /procurement/plans/:id/submit
  *   POST   /procurement/plans/:id/approve           procurement.plans.approve; not by the plan's author
@@ -80,6 +81,7 @@ router.get("/plans", requireAnyPermission([P.plansView, P.plansManage, P.plansAp
 router.post("/plans", requireAnyPermission([P.plansManage]), run((req) => ProcurementPlans.create(req.body ?? {}, uid(req)), 201));
 router.put("/plans/:id", requireAnyPermission([P.plansManage]), run((req) => ProcurementPlans.update(req.params.id, req.body ?? {}, uid(req))));
 router.post("/plans/:id/items", requireAnyPermission([P.plansManage]), run((req) => ProcurementPlans.addItem(req.params.id, req.body ?? {}, uid(req)), 201));
+router.put("/plans/:id/items/:itemId", requireAnyPermission([P.plansManage]), run((req) => ProcurementPlans.updateItem(req.params.id, req.params.itemId, req.body ?? {}, uid(req))));
 router.delete("/plans/:id/items/:itemId", requireAnyPermission([P.plansManage]), run((req) => ProcurementPlans.removeItem(req.params.id, req.params.itemId, uid(req))));
 router.post("/plans/:id/submit", requireAnyPermission([P.plansManage]), run((req) => ProcurementPlans.submit(req.params.id, uid(req))));
 router.post("/plans/:id/approve", requireAnyPermission([P.plansApprove]), run((req) => ProcurementPlans.decide(req.params.id, "APPROVED", uid(req))));

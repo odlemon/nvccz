@@ -22,6 +22,7 @@ import {
   type ZigLineBreakdown,
 } from "../utils/manualJournalZigEquivalence";
 import PeriodLockService from "./PeriodLockService";
+import { userHasEffectivePermission, isModulePrivilegedUser } from "../config/cfoModulePermissions";
 
 export interface CreateExpenseJournalEntryParams {
   vendorId: string;
@@ -1753,6 +1754,22 @@ export class JournalEntryService {
 
       if (journalEntry.status === "VOID") {
         throw new Error("Cannot post a voided journal entry");
+      }
+
+      // Posting is the checker half of maker-checker: it must be gated the same way regardless of
+      // which module's UI calls this (Accounting's own approval queue, or another module's shortcut
+      // to it) — a permission-only check here would still let the preparer approve their own entry.
+      const actingUser = options?.user;
+      if (!isModulePrivilegedUser(actingUser) && !userHasEffectivePermission(actingUser, "manage_ledger")) {
+        throw new Error("You do not have authority to post journal entries to the general ledger.");
+      }
+      if (
+        !isModulePrivilegedUser(actingUser) &&
+        performedById &&
+        journalEntry.createdById &&
+        performedById === journalEntry.createdById
+      ) {
+        throw new Error("The preparer of a journal entry cannot also post it. An independent reviewer must post this entry.");
       }
 
       // Validate that the journal entry is balanced

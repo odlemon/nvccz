@@ -115,8 +115,15 @@ const ENDPOINTS = [
   // Shared with the vendor portal: no token is a vendor submission, which needs its signed
   // vendorPortalToken (400), not a login (401).
   ["capture invoice (staff)", "POST", "/procurement/invoices", {}, G.intakeManage, { noToken: 400 }],
-  ["create vendor", "POST", "/accounting/vendors", {}, "staff"],
+  ["create vendor", "POST", "/accounting/vendors", {}, G.vendorsManage],
+  ["update vendor", "PUT", `/accounting/vendors/${FAKE}`, {}, G.vendorsManage],
+  // Blacklisting through the plain update needs approval rights as well as maintenance rights.
+  ["blacklist via vendor update", "PUT", `/accounting/vendors/${FAKE}`, { isBlacklisted: true }, G.vendorsApprove.filter((p) => G.vendorsManage.includes(p))],
   ["blacklist vendor", "POST", `/accounting/vendors/${FAKE}/blacklist`, {}, G.vendorsApprove],
+  // Vendor self-registrations from the vendor portal: the review queue, and the decision on each.
+  ["list vendor self-registrations", "GET", "/accounting/vendors/pending-review", undefined, G.vendorsView],
+  ["approve vendor registration", "PUT", `/accounting/vendors/${FAKE}/approve-registration`, {}, G.vendorsApprove],
+  ["decline vendor registration", "PUT", `/accounting/vendors/${FAKE}/decline-registration`, { reason: "probe" }, G.vendorsApprove],
   ["add vendor bank", "POST", `/accounting/vendors/${FAKE}/banks`, {}, G.vendorBanksManage],
   ["create approval config", "POST", "/procurement-approval-configs", {}, ["sysadmin"]],
 ]

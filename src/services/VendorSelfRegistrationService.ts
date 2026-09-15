@@ -43,6 +43,11 @@ export class VendorSelfRegistrationService {
     taxClearanceExpiryDate?: string | Date;
     banks: PublicVendorRegistrationBankInput[];
   }) {
+    // The vendor portal's form has sent `industry` and `phoneNumber`; without these a self-registered vendor had no category
+    // (so no RFQ could ever invite it) and no phone.
+    const loose = body as any;
+    if ((body.category == null || String(body.category).trim() === "") && loose.industry) body.category = String(loose.industry);
+    if ((body.phone == null || String(body.phone).trim() === "") && loose.phoneNumber) body.phone = String(loose.phoneNumber);
     const name = String(body.name || "").trim();
     const email = String(body.email || "").trim();
     if (!name) throw new Error("name is required");
@@ -221,6 +226,30 @@ export class VendorSelfRegistrationService {
       });
     }
 
+    {
+      const { dispatchProcurementNotification } = await import("./ProcurementNotificationService");
+      const approvers = await prisma.user.findMany({
+        select: { id: true, role: { select: { permissions: true } } },
+      });
+      const approverIds = approvers
+        .filter((u) =>
+          Array.isArray(u.role?.permissions) &&
+          (u.role!.permissions as Array<{ name: string; value: boolean }>).some(
+            (p) => p?.name === "procurement.vendors.approve" && p?.value === true
+          )
+        )
+        .map((u) => u.id);
+      await dispatchProcurementNotification({
+        userIds: approverIds,
+        title: `New vendor registration: ${result.vendor.name}`,
+        message: `${result.vendor.name} (${result.vendor.email}) registered through the vendor portal and is awaiting review.`,
+        type: "PROCUREMENT_VENDOR_REGISTRATION_SUBMITTED",
+        relatedEntity: "Vendor",
+        relatedEntityId: result.vendor.id,
+        data: { path: "/procurement/vendors", vendorName: result.vendor.name },
+      }).catch((e) => console.error("dispatchProcurementNotification (vendor registration submitted):", e?.message || e));
+    }
+
     return { vendor: result.vendor, token, banks: result.bankRows };
   }
 
@@ -309,6 +338,28 @@ export class VendorSelfRegistrationService {
       where: { id: vendorId },
       data: {
         registrationStatus: "ACTIVE",
+        selfRegistrationToken: null,
+      },
+    });
+  }
+
+  /**
+   * Decline a self-registration awaiting review: the vendor is deactivated (so it is neither listed nor invited) and its
+   * portal token is closed. The reason is kept in the audit trail and sent to the vendor.
+   */
+  static async declinePendingVendor(vendorId: string, reason: string) {
+    const why = String(reason || "").trim();
+    if (!why) throw new Error("A reason is required to decline a registration");
+    const v = await prisma.vendor.findUnique({ where: { id: vendorId } });
+    if (!v) throw new Error("Vendor not found");
+    if (v.registrationStatus !== "PENDING_REVIEW") {
+      throw new Error("Vendor is not in PENDING_REVIEW status");
+    }
+    return prisma.vendor.update({
+      where: { id: vendorId },
+      data: {
+        registrationStatus: "DECLINED",
+        isActive: false,
         selfRegistrationToken: null,
       },
     });

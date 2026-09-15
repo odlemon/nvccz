@@ -24,7 +24,8 @@ export type ProcurementMatchFlag =
   | { type: "LINE_NOT_ON_PO"; line: number; itemName: string }
   | { type: "PRICE_OVER_PO"; line: number; itemName: string; poUnitPrice: number; invoiceUnitPrice: number; variancePct: number }
   | { type: "QTY_OVER_RECEIVED"; line: number; itemName: string; invoicedQty: number; acceptedQty: number }
-  | { type: "QTY_OVER_ORDERED"; line: number; itemName: string; invoicedQty: number; orderedQty: number };
+  | { type: "QTY_OVER_ORDERED"; line: number; itemName: string; invoicedQty: number; orderedQty: number }
+  | { type: "POSSIBLE_DUPLICATE"; otherInvoiceId: string; otherInvoiceNumber: string; reason: string };
 
 export type ProcurementMatchResult = {
   status: "MATCHED" | "DISCREPANCY" | "AWAITING_RECEIPT" | "NO_PO";
@@ -51,7 +52,7 @@ export class ProcurementInvoiceMatchService {
     if (!invoice.purchaseOrderId) {
       const result: ProcurementMatchResult = {
         status: "NO_PO",
-        flags: [],
+        flags: await this.duplicateFlags(invoice),
         detail: { evaluatedAt, reason: "The invoice is not linked to a purchase order." },
       };
       await this.persist(invoice, result, new Map());
@@ -153,6 +154,9 @@ export class ProcurementInvoiceMatchService {
       };
     });
 
+    // SRD §2: flag potential duplicate invoices.
+    flags.push(...(await this.duplicateFlags(invoice)));
+
     const status: ProcurementMatchResult["status"] = flags.length ? "DISCREPANCY" : grns.length ? "MATCHED" : "AWAITING_RECEIPT";
     const result: ProcurementMatchResult = {
       status,
@@ -168,6 +172,45 @@ export class ProcurementInvoiceMatchService {
     };
     await this.persist(invoice, result, pairing);
     return result;
+  }
+
+  /**
+   * Another invoice from the same vendor that looks like this one: the same supplier invoice number (read off the
+   * supplier's document by the LLM), or the same purchase order and total dated within a week. Rejected invoices do not
+   * count. Flagged as possible, for a person to decide.
+   */
+  static async duplicateFlags(invoice: any): Promise<ProcurementMatchFlag[]> {
+    const others = await prisma.procurementInvoice.findMany({
+      where: { vendorId: invoice.vendorId, id: { not: invoice.id }, status: { not: "REJECTED" } },
+      select: { id: true, invoiceNumber: true, ocrData: true, totalAmount: true, invoiceDate: true, purchaseOrderId: true },
+    });
+    const ref = (o: any) => String(o?.ocrData?.supplierInvoiceNumber ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const mine = ref(invoice);
+    const week = 7 * 86400000;
+    const flags: ProcurementMatchFlag[] = [];
+    for (const o of others) {
+      if (mine && ref(o) === mine) {
+        flags.push({
+          type: "POSSIBLE_DUPLICATE",
+          otherInvoiceId: o.id,
+          otherInvoiceNumber: o.invoiceNumber,
+          reason: `the same supplier invoice number (${invoice.ocrData.supplierInvoiceNumber})`,
+        });
+      } else if (
+        invoice.purchaseOrderId &&
+        o.purchaseOrderId === invoice.purchaseOrderId &&
+        Math.abs(Number(o.totalAmount) - Number(invoice.totalAmount)) < 0.01 &&
+        Math.abs(new Date(o.invoiceDate).getTime() - new Date(invoice.invoiceDate).getTime()) <= week
+      ) {
+        flags.push({
+          type: "POSSIBLE_DUPLICATE",
+          otherInvoiceId: o.id,
+          otherInvoiceNumber: o.invoiceNumber,
+          reason: "the same purchase order and total, dated within a week",
+        });
+      }
+    }
+    return flags;
   }
 
   /** Re-evaluate every open invoice on a purchase order, after its receipts change. Never throws. */
@@ -218,5 +261,17 @@ export class ProcurementInvoiceMatchService {
         },
       }),
     ]);
+    // SRD §3: a flagged invoice alerts its reviewers (once per set of reasons).
+    if (result.flags.length) {
+      const { ProcurementInvoiceAlertService } = await import("./ProcurementInvoiceAlertService");
+      await ProcurementInvoiceAlertService.alertQuietly(invoice.id);
+    }
+    // SRD §6.6: an exact match goes into the payment queue without a person, when the organisation has switched that on
+    // and the supplier's document agrees. The reading re-runs this match once it is read, so a document read after
+    // capture is considered then.
+    if (result.status === "MATCHED" && !result.flags.length) {
+      const { ProcurementInvoiceAutoApprovalService } = await import("./ProcurementInvoiceAutoApprovalService");
+      await ProcurementInvoiceAutoApprovalService.considerQuietly(invoice.id);
+    }
   }
 }
