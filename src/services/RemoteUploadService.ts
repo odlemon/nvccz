@@ -232,6 +232,10 @@ const UPLOAD_TYPE_MAP: Record<string, string> = {
   "home-wallpapers": "home-wallpapers",
   "home-wallpaper": "home-wallpapers",
 
+  // Home hub My Profile — employee's own certifications/education/other documents
+  "profile-documents": "profile-documents",
+  "profile-document": "profile-documents",
+
   // Default/temp
   "temp": "temp",
   "default": "temp"

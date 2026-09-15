@@ -4,6 +4,7 @@ import multer from "multer";
 import rateLimit from "express-rate-limit";
 import { homepageController } from "../controllers/HomepageController";
 import { homeWallpaperController } from "../controllers/HomeWallpaperController";
+import { profileDocumentController } from "../controllers/ProfileDocumentController";
 import { authenticate } from "../middleware/authenticate";
 
 const router = express.Router();
@@ -17,6 +18,13 @@ const wallpaperUpload = multer({
     if (file.mimetype.startsWith("image/")) cb(null, true);
     else cb(new Error("Only image files are allowed"));
   },
+});
+
+// Profile documents (My Profile "Add document") — no image-only restriction, unlike wallpapers;
+// same 8MB limit, one file per request (matches the frontend's single-file form).
+const documentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
 });
 
 // Rate limiting for homepage endpoints
@@ -420,5 +428,62 @@ router.put("/preferences", homepageController.updateMyHomePreference);
 router.get("/wallpapers", homeWallpaperController.listMine);
 router.post("/wallpapers", wallpaperUpload.array("images", 6), homeWallpaperController.upload);
 router.delete("/wallpapers/:id", homeWallpaperController.remove);
+
+/**
+ * @swagger
+ * /homepage/documents:
+ *   get:
+ *     summary: List the signed-in user's own profile documents
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Documents retrieved successfully
+ *   post:
+ *     summary: Upload a profile document (certification, education record, etc.)
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file, name, category]
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *               name:
+ *                 type: string
+ *               category:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Document uploaded successfully
+ *       400:
+ *         description: Missing file, name, or category
+ * /homepage/documents/{id}:
+ *   delete:
+ *     summary: Remove one of the signed-in user's own profile documents
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Document removed
+ *       404:
+ *         description: Document not found
+ */
+router.get("/documents", profileDocumentController.listMine);
+router.post("/documents", documentUpload.array("file", 1), profileDocumentController.upload);
+router.delete("/documents/:id", profileDocumentController.remove);
 
 export default router;

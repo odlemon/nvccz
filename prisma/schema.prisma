@@ -199,6 +199,8 @@ model User {
   homePreference                        HomePreference?
   homeWallpapers                        HomeWallpaper[]
   serviceRequests                       ServiceRequest[]
+  appAccessRequests                     AppAccessRequest[]
+  profileDocuments                      ProfileDocument[]
   calendarEntries                       CalendarEntry[]
   cashbookReconSessionsCreated          CashbookReconciliationSession[] @relation("CashbookReconSessionCreatedBy")
   cashbookReconSessionsFinished         CashbookReconciliationSession[] @relation("CashbookReconSessionFinishedBy")
@@ -313,6 +315,42 @@ model ServiceRequest {
 
   @@index([userId, createdAt])
   @@map("service_requests")
+}
+
+/// Employee requests to access another Matanho module (Home hub's Apps page "Request access"
+/// flow). A lightweight request record only — approving one is a manual admin action elsewhere
+/// (module/role permissions are granted through the existing user-management flow); this just
+/// tracks that the request was made, mirroring ServiceRequest's shape.
+model AppAccessRequest {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  appId     String   @map("app_id") @db.VarChar(64)
+  reason    String?  @db.VarChar(500)
+  status    String   @default("pending") @db.VarChar(32)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("app_access_requests")
+}
+
+/// Employee's own profile documents (Home hub's My Profile "Add document" flow) —
+/// certifications, education records, etc. Stored via the same RemoteUploadService every other
+/// upload in this app uses; see HomeWallpaperController for the pattern this mirrors.
+model ProfileDocument {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  name      String   @db.VarChar(255)
+  category  String   @db.VarChar(64)
+  url       String   @db.VarChar(1024)
+  sizeBytes Int?     @map("size_bytes")
+  mimeType  String?  @map("mime_type") @db.VarChar(120)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("profile_documents")
 }
 
 /// Personal calendar entries (Home hub's Calendar page) — meetings, focus blocks, personal
