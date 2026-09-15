@@ -226,6 +226,31 @@ export class VendorSelfRegistrationService {
       });
     }
 
+    {
+      const { dispatchProcurementNotification } = await import("./ProcurementNotificationService");
+      const approvers = await prisma.user.findMany({
+        where: { isActive: true, role: { isNot: null } },
+        select: { id: true, role: { select: { permissions: true } } },
+      });
+      const approverIds = approvers
+        .filter((u) =>
+          Array.isArray(u.role?.permissions) &&
+          (u.role!.permissions as Array<{ name: string; value: boolean }>).some(
+            (p) => p?.name === "procurement.vendors.approve" && p?.value === true
+          )
+        )
+        .map((u) => u.id);
+      await dispatchProcurementNotification({
+        userIds: approverIds,
+        title: `New vendor registration: ${result.vendor.name}`,
+        message: `${result.vendor.name} (${result.vendor.email}) registered through the vendor portal and is awaiting review.`,
+        type: "PROCUREMENT_VENDOR_REGISTRATION_SUBMITTED",
+        relatedEntity: "Vendor",
+        relatedEntityId: result.vendor.id,
+        data: { path: "/procurement/vendors", vendorName: result.vendor.name },
+      }).catch((e) => console.error("dispatchProcurementNotification (vendor registration submitted):", e?.message || e));
+    }
+
     return { vendor: result.vendor, token, banks: result.bankRows };
   }
 
