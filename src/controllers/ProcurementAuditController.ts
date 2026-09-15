@@ -1,7 +1,11 @@
 import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 
-/** Entity types the procurement services write to audit_logs. */
+/**
+ * Entity types the procurement services write to audit_logs. The registers (plans, contracts, the
+ * document vault) and AI invoice capture were writing rows from the day they shipped, but were not
+ * listed here, so the Internal Auditor's trail never showed a plan approval or a contract activation.
+ */
 const PROCUREMENT_ENTITY_TYPES = [
   "PurchaseRequisition",
   "ProcurementRfq",
@@ -11,6 +15,10 @@ const PROCUREMENT_ENTITY_TYPES = [
   "GoodsReceivedNote",
   "ProcurementInvoice",
   "Vendor",
+  "ProcurementPlan",
+  "ProcurementContract",
+  "ProcurementDocument",
+  "VendorInvoiceIntake",
 ];
 
 export class ProcurementAuditController {
@@ -36,7 +44,7 @@ export class ProcurementAuditController {
       const idsOf = (...types: string[]) => [
         ...new Set(rows.filter((r) => types.includes(r.entityType)).map((r) => r.entityId)),
       ];
-      const [requisitions, rfqs, quotations, orders, grns, invoices, vendors] = await Promise.all([
+      const [requisitions, rfqs, quotations, orders, grns, invoices, vendors, plans, contracts, documents, intakes] = await Promise.all([
         prisma.purchaseRequisition.findMany({
           where: { id: { in: idsOf("PurchaseRequisition") } },
           select: { id: true, requisitionNumber: true, title: true },
@@ -65,6 +73,22 @@ export class ProcurementAuditController {
           where: { id: { in: idsOf("Vendor") } },
           select: { id: true, name: true },
         }),
+        prisma.procurementPlan.findMany({
+          where: { id: { in: idsOf("ProcurementPlan") } },
+          select: { id: true, planNumber: true, name: true },
+        }),
+        prisma.procurementContract.findMany({
+          where: { id: { in: idsOf("ProcurementContract") } },
+          select: { id: true, contractNumber: true, title: true },
+        }),
+        prisma.procurementDocument.findMany({
+          where: { id: { in: idsOf("ProcurementDocument") } },
+          select: { id: true, name: true },
+        }),
+        prisma.vendorInvoiceIntake.findMany({
+          where: { id: { in: idsOf("VendorInvoiceIntake") } },
+          select: { id: true, intakeNumber: true },
+        }),
       ]);
 
       const label = new Map<string, string>();
@@ -75,6 +99,18 @@ export class ProcurementAuditController {
       grns.forEach((g) => label.set(g.id, g.grnNumber));
       invoices.forEach((i) => label.set(i.id, i.invoiceNumber));
       vendors.forEach((v) => label.set(v.id, v.name));
+      plans.forEach((p) => label.set(p.id, `${p.planNumber} · ${p.name}`));
+      contracts.forEach((c) => label.set(c.id, `${c.contractNumber} · ${c.title}`));
+      documents.forEach((d) => label.set(d.id, d.name));
+      intakes.forEach((i) => label.set(i.id, i.intakeNumber));
+
+      // Rows written without a signed-in user (a vendor submitting through their link) name the actor in
+      // newValues.actor.
+      const recordedActor = (values: unknown): string | null => {
+        if (!values || typeof values !== "object" || Array.isArray(values)) return null;
+        const actor = (values as Record<string, unknown>).actor;
+        return typeof actor === "string" && actor.trim() ? actor.trim() : null;
+      };
 
       return res.json({
         success: true,
@@ -87,7 +123,7 @@ export class ProcurementAuditController {
           entityLabel: label.get(r.entityId) ?? null,
           actorName: r.user
             ? `${r.user.firstName ?? ""} ${r.user.lastName ?? ""}`.trim() || r.user.email
-            : null,
+            : recordedActor(r.newValues),
         })),
       });
     } catch (error) {

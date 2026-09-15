@@ -150,9 +150,37 @@ export class ApprovalService {
 
         // Create approval records for each stage
         const approvals = [];
+        const isProcurementStage = PROCUREMENT_APPROVAL_STAGES.has(params.stageType);
+        // What an amount condition is measured against: the requisition's or the purchase order's total.
+        let entityAmount = 0;
+        if (params.stageType === "PURCHASE_ORDER") {
+          const po = await tx.purchaseOrder.findUnique({
+            where: { id: params.entityId },
+            select: { totalAmount: true },
+          });
+          entityAmount = po ? Number(po.totalAmount) : 0;
+        } else if (params.stageType === "PURCHASE_REQUISITION") {
+          const pr = await tx.purchaseRequisition.findUnique({
+            where: { id: params.entityId },
+            select: { totalAmount: true },
+          });
+          entityAmount = pr ? Number(pr.totalAmount) : 0;
+        }
         for (const stage of stages) {
           // Determine approver(s) based on stepType
           let approverIds: string[] = [];
+
+          // A procurement step carrying an amount applies only above it: a larger requisition needs a further level
+          // (SRD §3). AMOUNT_THRESHOLD steps always meant this; a department, role or named-person step may carry it too.
+          if (
+            isProcurementStage &&
+            stage.stepType !== "AMOUNT_THRESHOLD" &&
+            stage.amountThreshold != null &&
+            entityAmount <= Number(stage.amountThreshold)
+          ) {
+            console.log(`   ⏭️  Step ${stage.stepNumber} applies above ${Number(stage.amountThreshold)}; amount ${entityAmount}, not needed`);
+            continue;
+          }
 
           if (stage.stepType === "USER" && stage.userId) {
             // Validate user meets department and role requirements
@@ -196,40 +224,29 @@ export class ApprovalService {
               });
             }
           } else if (stage.stepType === "DEPARTMENT") {
+            const departmentUsers = async (where: any) => {
+              const found = await tx.user.findMany({
+                where: {
+                  ...where,
+                  ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {}),
+                },
+                select: { id: true },
+              });
+              // A procurement department with no head is decided by its deputy, as the default route always has been.
+              if (!found.length && isProcurementStage && stage.requiredDepartmentRole === "HEAD") {
+                return tx.user.findMany({ where: { ...where, departmentRole: "DEPUTY" }, select: { id: true } });
+              }
+              return found;
+            };
             if (stage.departmentId) {
-              const deptUsers = await tx.user.findMany({
-                where: {
-                  departmentId: stage.departmentId,
-                  ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {}),
-                },
-                select: { id: true },
-              });
-              approverIds = deptUsers.map((u) => u.id);
+              approverIds = (await departmentUsers({ departmentId: stage.departmentId })).map((u) => u.id);
             } else if (stage.requiredUserDepartment) {
-              const deptUsers = await tx.user.findMany({
-                where: {
-                  userDepartment: stage.requiredUserDepartment,
-                  ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {}),
-                },
-                select: { id: true },
-              });
-              approverIds = deptUsers.map((u) => u.id);
+              approverIds = (await departmentUsers({ userDepartment: stage.requiredUserDepartment })).map((u) => u.id);
+            } else if (isProcurementStage && params.department) {
+              // No fixed department: the head of the department the request is raised for.
+              approverIds = (await departmentUsers({ userDepartment: params.department })).map((u) => u.id);
             }
           } else if (stage.stepType === "AMOUNT_THRESHOLD") {
-            let entityAmount = 0;
-            if (params.stageType === "PURCHASE_ORDER") {
-              const po = await tx.purchaseOrder.findUnique({
-                where: { id: params.entityId },
-                select: { totalAmount: true },
-              });
-              entityAmount = po ? Number(po.totalAmount) : 0;
-            } else if (params.stageType === "PURCHASE_REQUISITION") {
-              const pr = await tx.purchaseRequisition.findUnique({
-                where: { id: params.entityId },
-                select: { totalAmount: true },
-              });
-              entityAmount = pr ? Number(pr.totalAmount) : 0;
-            }
             const threshold =
               stage.amountThreshold != null ? Number(stage.amountThreshold) : Number.POSITIVE_INFINITY;
             if (entityAmount <= threshold) {
@@ -249,6 +266,16 @@ export class ApprovalService {
             );
           }
 
+          // A requisition step nobody can decide would leave the requisition waiting for ever. Refuse the submission
+          // and name the step, so the requester can say what is missing and an administrator can put it right.
+          if (params.stageType === "PURCHASE_REQUISITION" && approverIds.length === 0) {
+            throw new Error(
+              `Nobody can approve step ${stage.stepNumber} of the requisition approval route ("${stage.stepName}")` +
+                `${params.department ? ` for the ${params.department} department` : ""}. ` +
+                `An administrator can assign someone or change the approval matrix in Procurement, Configuration.`
+            );
+          }
+
           // Create approval records for each approver
           for (const approverId of approverIds) {
             const approval = await tx.approval.create({
@@ -264,6 +291,25 @@ export class ApprovalService {
           }
         }
 
+        if (params.stageType === "PURCHASE_REQUISITION" && approvals.length === 0) {
+          throw new Error(
+            "No step of the requisition approval route applies to this requisition. An administrator must give the route a first step that applies to every requisition."
+          );
+        }
+        if (isProcurementStage && approvals.length > 0) {
+          // The steps this request actually has. A step whose amount condition did not apply is not a step of this
+          // request, so "step 2 of 2" never counts a level that will not come, and the request cannot wait on it.
+          const steps = [...new Set(approvals.map((a) => stages.find((s) => s.id === a.stageId)?.stepNumber))]
+            .filter((n) => n != null)
+            .sort((a, b) => a - b);
+          await tx.approvalRequest.update({
+            where: { id: approvalRequest.id },
+            data: { totalSteps: steps.length, currentStep: steps[0] },
+          });
+          approvalRequest.totalSteps = steps.length;
+          approvalRequest.currentStep = steps[0];
+        }
+
         console.log("");
         console.log(`✅ Created ${approvals.length} approval record(s)`);
         console.log("════════════════════════════════════════════════════════════════");
@@ -273,6 +319,12 @@ export class ApprovalService {
       });
 
       // After commit: notify first-step approvers (pending rows visible; sendApprovalStepNotifications reads DB)
+      if (params.stageType === "PURCHASE_REQUISITION") {
+        // The requisition route tells the approvers of its first step, in the app and by email, which step they decide.
+        const { ProcurementRequisitionApprovalService } = await import("./ProcurementRequisitionApprovalService");
+        await ProcurementRequisitionApprovalService.notifyCurrentStepQuietly(result.approvalRequest.id);
+        return result;
+      }
       try {
         const firstStage = stages.find((s) => s.stepNumber === 1);
         if (firstStage && result.approvals.length > 0) {
@@ -362,6 +414,26 @@ export class ApprovalService {
         ]
       });
 
+      // A procurement request is decided one step at a time: an approver on a later step sees it once the earlier
+      // steps are decided, not the moment it is submitted.
+      const procurementRequestIds = [
+        ...new Set(approvals.filter((a) => PROCUREMENT_APPROVAL_STAGES.has(String(a.request.stageType))).map((a) => a.requestId)),
+      ];
+      if (procurementRequestIds.length) {
+        const waitingStep = new Map();
+        const pendingRows = await prisma.approval.findMany({
+          where: { requestId: { in: procurementRequestIds }, status: "PENDING" },
+          select: { requestId: true, stage: { select: { stepNumber: true } } },
+        });
+        for (const r of pendingRows) {
+          waitingStep.set(r.requestId, Math.min(waitingStep.get(r.requestId) ?? Infinity, r.stage.stepNumber));
+        }
+        const due = approvals.filter(
+          (a) => !PROCUREMENT_APPROVAL_STAGES.has(String(a.request.stageType)) || a.stage.stepNumber === waitingStep.get(a.requestId)
+        );
+        approvals.splice(0, approvals.length, ...due);
+      }
+
       console.log(`✅ Found ${approvals.length} pending approval(s)`);
       console.log("════════════════════════════════════════════════════════════════");
       console.log("");
@@ -433,6 +505,15 @@ export class ApprovalService {
           throw new Error(`Approval request already ${approval.request.status.toLowerCase()}`);
         }
 
+        const procurementRoute = PROCUREMENT_APPROVAL_STAGES.has(String(approval.request.stageType));
+        if (procurementRoute) {
+          // Steps are decided in order: an approver on a later step cannot decide before the earlier step has.
+          const waiting = approval.request.approvals.filter((a) => a.status === "PENDING").map((a) => a.stage.stepNumber);
+          if (waiting.length && approval.stage.stepNumber > Math.min(...waiting)) {
+            throw new Error("This approval is not due yet: an earlier step of the approval route has not been decided.");
+          }
+        }
+
         // Update approval status
         const updatedApproval = await tx.approval.update({
           where: { id: params.approvalId },
@@ -440,7 +521,9 @@ export class ApprovalService {
             status: "APPROVED",
             approvedAt: new Date(),
             comments: params.comments,
-            signatureData: params.signatureData
+            signatureData: params.signatureData,
+            // An administrator deciding a step assigned to someone else is recorded as the person who acted.
+            ...(approval.approverId !== params.approverId ? { delegatedToId: params.approverId, delegatedAt: new Date() } : {}),
           }
         });
 
@@ -466,7 +549,35 @@ export class ApprovalService {
 
         let updatedRequest;
 
-        if (allCurrentStepApproved && currentStepNumber === approval.request.totalSteps) {
+        if (procurementRoute) {
+          // One decision settles a step: whichever of the step's approvers acts first decides it, and the step's other
+          // rows close. The request then waits on the next step that has approvers, or is approved when none is left.
+          await tx.approval.updateMany({
+            where: { requestId: approval.requestId, stageId: approval.stageId, status: "PENDING", id: { not: params.approvalId } },
+            data: { status: "SKIPPED", comments: "Decided by another approver on this step" },
+          });
+          const later = approval.request.approvals
+            .filter((a) => a.status === "PENDING" && a.stage.stepNumber > currentStepNumber)
+            .map((a) => a.stage.stepNumber);
+          if (later.length) {
+            updatedRequest = await tx.approvalRequest.update({
+              where: { id: approval.requestId },
+              data: { currentStep: Math.min(...later) },
+            });
+          } else {
+            updatedRequest = await tx.approvalRequest.update({
+              where: { id: approval.requestId },
+              data: { status: "APPROVED", completedAt: new Date() },
+            });
+            await this.updateEntityStatusAfterApproval(
+              tx,
+              approval.request.stageType,
+              approval.request.entityId,
+              approval.request.entityData,
+              approval.request.requestedById
+            );
+          }
+        } else if (allCurrentStepApproved && currentStepNumber === approval.request.totalSteps) {
           // This was the last step - mark request as approved
           updatedRequest = await tx.approvalRequest.update({
             where: { id: approval.requestId },
@@ -510,6 +621,14 @@ export class ApprovalService {
           _entityId: approval.request.entityId,
         };
       });
+
+      if (result._stageType === "PURCHASE_REQUISITION" && result.request?.id) {
+        const { ProcurementRequisitionApprovalService } = await import("./ProcurementRequisitionApprovalService");
+        await ProcurementRequisitionApprovalService.afterDecisionQuietly(result.request.id, {
+          actorId: params.approverId,
+          outcome: result.request.status === "APPROVED" ? "APPROVED" : "STEP_APPROVED",
+        });
+      }
 
       if (result.request?.status === "APPROVED" && result._stageType === "GRN" && result._entityId) {
         const { VendorRatingService } = await import("./VendorRatingService");
@@ -579,15 +698,35 @@ export class ApprovalService {
           throw new Error(`Approval request already ${approval.request.status.toLowerCase()}`);
         }
 
+        const procurementRoute = PROCUREMENT_APPROVAL_STAGES.has(String(approval.request.stageType));
+        if (procurementRoute) {
+          const waiting = await tx.approval.findMany({
+            where: { requestId: approval.requestId, status: "PENDING" },
+            select: { stage: { select: { stepNumber: true } } },
+          });
+          const current = waiting.length ? Math.min(...waiting.map((a) => a.stage.stepNumber)) : approval.stage.stepNumber;
+          if (approval.stage.stepNumber > current) {
+            throw new Error("This approval is not due yet: an earlier step of the approval route has not been decided.");
+          }
+        }
+
         // Update approval status
         const updatedApproval = await tx.approval.update({
           where: { id: params.approvalId },
           data: {
             status: "REJECTED",
             rejectedAt: new Date(),
-            comments: params.comments
+            comments: params.comments,
+            ...(approval.approverId !== params.approverId ? { delegatedToId: params.approverId, delegatedAt: new Date() } : {}),
           }
         });
+        if (procurementRoute) {
+          // A rejection ends the route; nobody else is left waiting to decide it.
+          await tx.approval.updateMany({
+            where: { requestId: approval.requestId, status: "PENDING" },
+            data: { status: "CANCELLED", comments: "Closed: the request was rejected" },
+          });
+        }
 
         console.log(`❌ Approval ${params.approvalId} marked as REJECTED`);
 
@@ -611,6 +750,15 @@ export class ApprovalService {
 
         return { approval: updatedApproval, request: updatedRequest };
       });
+
+      if (result.request?.stageType === "PURCHASE_REQUISITION") {
+        const { ProcurementRequisitionApprovalService } = await import("./ProcurementRequisitionApprovalService");
+        await ProcurementRequisitionApprovalService.afterDecisionQuietly(result.request.id, {
+          actorId: params.approverId,
+          outcome: "REJECTED",
+          reason: params.comments,
+        });
+      }
 
       return result;
     } catch (error) {

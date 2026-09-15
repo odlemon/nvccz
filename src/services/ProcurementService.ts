@@ -5,6 +5,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
 import JournalEntryService from "./JournalEntryService";
 import AuditService from "./AuditService";
+import { ProcurementRequisitionApprovalService } from "./ProcurementRequisitionApprovalService";
 import { ApprovalService } from "./ApprovalService";
 import { CashbookService } from "./CashbookService";
 import VATService from "./VATService";
@@ -46,6 +47,8 @@ export interface CreatePurchaseRequisitionParams {
   justification?: string;
   /** Aligns with vendor.category for RFQ vendor filtering (e.g. AGROTECH, SOLAR, IT_SERVICES). */
   sourcingCategory?: string;
+  /** SRD §7 "Project/Cost Center": a row of the projects register, or none. */
+  projectId?: string | null;
   /** Investee portal (Suite 02): portfolio company for drawdown cap. */
   portfolioCompanyId?: string;
   fundId?: string;
@@ -133,6 +136,8 @@ export interface CreateProcurementInvoiceParams {
   documentType?: string;
   /** Phase 2 — staged upload ids from document-attachments portal upload */
   attachmentIds?: string[];
+  /** Staff capture from AI Invoice Capture: the intake whose reading of this document is reused. */
+  readingIntakeId?: string;
   createdById?: string; // Optional for public vendor submissions
   items: {
     itemName: string;
@@ -210,6 +215,7 @@ export class ProcurementService {
         priority = "MEDIUM",
         justification,
         sourcingCategory,
+        projectId,
         portfolioCompanyId,
         fundId: fundIdParam,
         useOfFundsDocumentUrl,
@@ -221,6 +227,9 @@ export class ProcurementService {
       if (!items || items.length === 0) {
         throw new Error("At least one item is required");
       }
+
+      const { ProcurementRequisitionAssistService } = await import("./ProcurementRequisitionAssistService");
+      const resolvedProjectId = await ProcurementRequisitionAssistService.assertProject(projectId);
 
       // Validate department
       if (!Object.values(Department).includes(department)) {
@@ -291,6 +300,7 @@ export class ProcurementService {
           priority,
           justification,
           ...(normalizedSourcing ? { sourcingCategory: normalizedSourcing } : {}),
+          ...(resolvedProjectId ? { projectId: resolvedProjectId } : {}),
           ...(resolvedPortfolioId ? { portfolioCompanyId: resolvedPortfolioId } : {}),
           ...(resolvedFundId ? { fundId: resolvedFundId } : {}),
           ...(useOfFundsDocumentUrl != null && String(useOfFundsDocumentUrl).trim() !== ""
@@ -385,6 +395,7 @@ export class ProcurementService {
         }
       });
 
+      await ProcurementRequisitionApprovalService.attachRoutes(requisitions);
       console.log(`✅ Found ${requisitions.length} requisition(s)`);
       console.log("════════════════════════════════════════════════════════════════");
       console.log("");
@@ -428,21 +439,20 @@ export class ProcurementService {
         throw new Error("User not found");
       }
 
-      if (!user.userDepartment) {
-        throw new Error("User is not assigned to any department");
-      }
+      // Waiting on this person: requisitions at a step of their approval route that this person decides, and, for a
+      // department head or deputy, their department's pending requisitions that have no route (submitted before
+      // routes were enforced). Anyone can be an approver on a route step, so nobody is refused the queue.
+      const routedIds = await ProcurementRequisitionApprovalService.awaitingIds(userId);
+      const isDepartmentApprover =
+        !!user.userDepartment &&
+        (user.departmentRole === DepartmentRole.HEAD || user.departmentRole === DepartmentRole.DEPUTY);
+      const unroutedIds = isDepartmentApprover
+        ? await ProcurementRequisitionApprovalService.unroutedPendingIds(user.userDepartment)
+        : [];
 
-      if (!user.departmentRole || (user.departmentRole !== DepartmentRole.HEAD && user.departmentRole !== DepartmentRole.DEPUTY)) {
-        throw new Error("Only department HEAD or DEPUTY can approve requisitions");
-      }
-
-      console.log(`🏢 Department: ${user.userDepartment}`);
-      console.log(`👔 Role: ${user.departmentRole}`);
-
-      // Get requisitions for this department that are pending approval
       const requisitions = await prisma.purchaseRequisition.findMany({
         where: {
-          department: user.userDepartment,
+          id: { in: [...new Set([...routedIds, ...unroutedIds])] },
           status: "PENDING_APPROVAL"
         },
         include: {
@@ -469,7 +479,8 @@ export class ProcurementService {
         }
       });
 
-      console.log(`✅ Found ${requisitions.length} pending requisition(s) for ${user.userDepartment}`);
+      await ProcurementRequisitionApprovalService.attachRoutes(requisitions);
+      console.log(`✅ Found ${requisitions.length} requisition(s) awaiting ${user.firstName} ${user.lastName}`);
       console.log("════════════════════════════════════════════════════════════════");
       console.log("");
 
@@ -641,21 +652,12 @@ export class ProcurementService {
       console.log("════════════════════════════════════════════════════════════════");
       console.log("");
 
-      // Send email notifications
-      try {
-        const { ProcurementApprovalConfigService } = await import('./ProcurementApprovalConfigService');
-        await ProcurementApprovalConfigService.sendApprovalStepNotifications(
-          approvalRequest.id,
-          defaultStage,
-          params.stageType
-        );
-      } catch (emailError: any) {
-        console.error("⚠️  Error sending approval notifications:", emailError.message || emailError);
-        // Don't throw - email failure shouldn't block approval request creation
-      }
-
       return { approvalRequest, approvals };
     });
+
+    // After the commit, so the approver rows are visible: the step's approvers are told in the app and by email.
+    // Sent from inside the transaction, the email found no pending rows and fell back to a guess at the approvers.
+    await ProcurementRequisitionApprovalService.notifyCurrentStepQuietly(result.approvalRequest.id);
 
     return result;
   }
@@ -703,6 +705,7 @@ export class ProcurementService {
       fundId?: string | null;
       useOfFundsDocumentUrl?: string | null;
       drawdownRequestAmount?: number | string | null;
+      projectId?: string | null;
     },
     opts?: { restrictToPortfolioCompanyId?: string }
   ) {
@@ -769,6 +772,13 @@ export class ProcurementService {
           : null
         : undefined;
 
+    // null or "" clears the project; undefined leaves it as it was.
+    let projectUpdate: string | null | undefined;
+    if (body.projectId !== undefined) {
+      const { ProcurementRequisitionAssistService } = await import("./ProcurementRequisitionAssistService");
+      projectUpdate = await ProcurementRequisitionAssistService.assertProject(body.projectId);
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
       if (body.items) {
         await tx.purchaseRequisitionItem.deleteMany({ where: { requisitionId } });
@@ -811,6 +821,7 @@ export class ProcurementService {
             ? { useOfFundsDocumentUrl: body.useOfFundsDocumentUrl }
             : {}),
           ...(body.fundId !== undefined ? { fundId: body.fundId } : {}),
+          ...(projectUpdate !== undefined ? { projectId: projectUpdate } : {}),
           ...(drawdownDec ? { drawdownRequestAmount: drawdownDec } : {}),
           totalAmount,
         },
@@ -1014,6 +1025,11 @@ export class ProcurementService {
           console.log("✅ Approval request created successfully");
         }
       } catch (error: any) {
+        // Only a missing configuration falls back to the department-head route. A route that exists but cannot be
+        // followed (a step nobody can decide) is the requester's to hear about, not to be quietly replaced.
+        if (!/No active approval configuration/i.test(String(error?.message || ""))) {
+          throw error;
+        }
         console.log("⚠️  No active approval configuration found - using default workflow (Department HEAD approval)");
         console.log(`   Error: ${error.message || error}`);
         
@@ -1082,6 +1098,7 @@ export class ProcurementService {
         newValues: updatedRequisition,
       });
 
+      await ProcurementRequisitionApprovalService.attachRoutes(updatedRequisition);
       return updatedRequisition;
     } catch (error) {
       console.error("Error submitting purchase requisition:", error);
@@ -1237,7 +1254,15 @@ export class ProcurementService {
         throw new Error("Requisition is not pending approval");
       }
 
-      // Check if the approver is the department head or deputy
+      // A requisition submitted through its approval route is decided step by step, by each step's own approvers.
+      const routed = await ProcurementRequisitionApprovalService.decide({
+        requisitionId,
+        actorId: approvedById,
+        decision: "APPROVE",
+      });
+      if (routed) return routed;
+
+      // No open route (submitted before routes were enforced): the requisition's department head or deputy decides.
       const approver = await prisma.user.findUnique({
         where: { id: approvedById },
         select: {
@@ -1418,6 +1443,14 @@ export class ProcurementService {
       if (requisition.status !== "PENDING_APPROVAL") {
         throw new Error("Requisition is not pending approval");
       }
+
+      const routed = await ProcurementRequisitionApprovalService.decide({
+        requisitionId,
+        actorId: rejectedById,
+        decision: "REJECT",
+        reason: rejectionReason,
+      });
+      if (routed) return routed;
 
       const approver = await prisma.user.findUnique({
         where: { id: rejectedById },
@@ -2764,6 +2797,34 @@ export class ProcurementService {
       newValues: { status: "REJECTED", rejectionReason: reason },
     });
 
+    {
+      const { dispatchProcurementNotification } = await import("./ProcurementNotificationService");
+      const vendorName = updated.vendor?.name || "the vendor";
+      const poNumber = updated.purchaseOrder?.poNumber;
+      await dispatchProcurementNotification({
+        userIds: existing.createdById ? [existing.createdById] : undefined,
+        title: `Invoice rejected: ${updated.invoiceNumber}`,
+        message: `${updated.invoiceNumber} from ${vendorName}${poNumber ? ` (${poNumber})` : ""} was rejected: ${reason}`,
+        type: "PROCUREMENT_INVOICE_REJECTED",
+        relatedEntity: "ProcurementInvoice",
+        relatedEntityId: invoiceId,
+        data: { path: "/procurement/invoices", invoiceNumber: updated.invoiceNumber },
+        email: updated.vendor?.email
+          ? {
+              to: [updated.vendor.email],
+              subject: `Invoice ${updated.invoiceNumber} — action required`,
+              bodyInnerHtml: `
+                <p>Dear ${vendorName},</p>
+                <p>Your invoice <strong>${updated.invoiceNumber}</strong>${poNumber ? ` against purchase order <strong>${poNumber}</strong>` : ""} has been reviewed and could not be accepted as submitted.</p>
+                <p><strong>Reason:</strong> ${reason}</p>
+                <p>Please correct and resubmit the invoice, or contact your procurement contact if you have questions.</p>
+              `,
+              preheader: `Invoice ${updated.invoiceNumber} was rejected: ${reason}`,
+            }
+          : undefined,
+      }).catch((e) => console.error("dispatchProcurementNotification (invoice rejected):", e?.message || e));
+    }
+
     return updated;
   }
 
@@ -2775,10 +2836,12 @@ export class ProcurementService {
    */
   static async approveProcurementInvoice(
     invoiceId: string, 
-    approvedById: string,
+    approvedById: string | null,
     approvalData?: {
       isTaxable?: boolean;
-    }
+    },
+    /** An exact match approved without a person (ProcurementInvoiceAutoApprovalService); approvedById is null. */
+    options?: { automatic?: boolean; reason?: string }
   ) {
     try {
       console.log("\n");
@@ -2885,6 +2948,7 @@ export class ProcurementService {
           status: "APPROVED",
           approvedById,
           approvedAt: new Date(),
+          approvalSource: options?.automatic ? "AUTOMATIC" : "MANUAL",
           paymentStatus: "PENDING",
           subtotal: new Decimal(finalSubtotal),
           taxAmount: new Decimal(finalTaxAmount),
@@ -2910,10 +2974,10 @@ export class ProcurementService {
       console.log("\n📊 Step 5: Creating audit log...");
       await AuditService.log({
         userId: approvedById,
-        action: "APPROVE",
+        action: options?.automatic ? "AUTO_APPROVE" : "APPROVE",
         entityType: "ProcurementInvoice",
         entityId: invoiceId,
-        newValues: updatedInvoice,
+        newValues: options?.automatic ? { ...updatedInvoice, approvalReason: options.reason ?? null } : updatedInvoice,
       });
       console.log("   ✅ Audit log created");
 
@@ -3295,8 +3359,10 @@ export class ProcurementService {
           paymentReference: paymentData.paymentReference || receiptNumber,
           journalEntryId: expenseJournalEntry.journalEntry.id,
           cashbookEntryId: cashbookResult.transaction.id,
-          documentPath: paymentData.proofOfPaymentPath || invoice.documentPath,
-          documentType: paymentData.proofOfPaymentPath ? (paymentData.proofOfPaymentPath.endsWith('.pdf') ? 'PDF' : 'IMAGE') : invoice.documentType
+          proofOfPaymentPath: paymentData.proofOfPaymentPath || invoice.proofOfPaymentPath,
+          proofOfPaymentType: paymentData.proofOfPaymentPath
+            ? (paymentData.proofOfPaymentPath.endsWith('.pdf') ? 'PDF' : 'IMAGE')
+            : invoice.proofOfPaymentType
         },
         include: {
           vendor: true,
@@ -3405,6 +3471,7 @@ export class ProcurementService {
         documentPath,
         documentType,
         attachmentIds,
+        readingIntakeId,
         createdById,
         items
       } = params;
@@ -3636,6 +3703,29 @@ export class ProcurementService {
             where: { id: invoice.id },
             include: procurementInvoiceInclude,
           });
+        }
+      }
+
+      // Read the supplier's document with the LLM and compare it with what was captured. A staff capture made from AI
+      // Invoice Capture reuses that reading (no second call); a vendor's submission is read in the background, so the
+      // vendor is not kept waiting and a slow or failed reading never blocks the invoice.
+      if (invoice.documentPath || readingIntakeId) {
+        const { ProcurementInvoiceReadingService } = await import("./ProcurementInvoiceReadingService");
+        if (readingIntakeId) {
+          try {
+            await ProcurementInvoiceReadingService.readInvoice(invoice.id, {
+              intakeId: readingIntakeId,
+              actorUserId: createdById ?? finalCreatedById,
+            });
+            invoice = await prisma.procurementInvoice.findUnique({
+              where: { id: invoice.id },
+              include: procurementInvoiceInclude,
+            });
+          } catch (readErr) {
+            console.error("⚠️  Reading the captured invoice's document failed:", (readErr as Error)?.message || readErr);
+          }
+        } else {
+          ProcurementInvoiceReadingService.scheduleRead(invoice.id, { actorUserId: createdById ?? finalCreatedById });
         }
       }
 
@@ -3902,7 +3992,22 @@ export class ProcurementService {
         },
       });
 
-      return grnFresh ?? grn;
+      const grnResult = grnFresh ?? grn;
+      if (purchaseOrder.createdById) {
+        const { dispatchProcurementNotification } = await import("./ProcurementNotificationService");
+        const vendorName = grnResult.purchaseOrder?.vendor?.name || "the vendor";
+        await dispatchProcurementNotification({
+          userIds: [purchaseOrder.createdById],
+          title: `Goods receipt recorded: ${grnResult.grnNumber}`,
+          message: `${grnResult.grnNumber} was recorded against ${purchaseOrder.poNumber} (${vendorName}) and is awaiting quality inspection.`,
+          type: "PROCUREMENT_GRN_RECORDED",
+          relatedEntity: "GoodsReceivedNote",
+          relatedEntityId: grnResult.id,
+          data: { path: "/procurement/goods-received", grnNumber: grnResult.grnNumber, poNumber: purchaseOrder.poNumber },
+        }).catch((e) => console.error("dispatchProcurementNotification (GRN created):", e?.message || e));
+      }
+
+      return grnResult;
     } catch (error) {
       console.error("Error creating goods received note:", error);
       throw error;
@@ -4003,6 +4108,20 @@ export class ProcurementService {
       `✅ GRN ${existing.grnNumber} QC approved (qualityStatus=PASSED, status=${nextHeaderStatus})`
     );
 
+    if (updated?.purchaseOrder?.createdById) {
+      const { dispatchProcurementNotification } = await import("./ProcurementNotificationService");
+      const vendorName = updated.purchaseOrder.vendor?.name || "the vendor";
+      await dispatchProcurementNotification({
+        userIds: [updated.purchaseOrder.createdById],
+        title: `Goods receipt approved: ${existing.grnNumber}`,
+        message: `${existing.grnNumber} against ${updated.purchaseOrder.poNumber} (${vendorName}) passed quality inspection.`,
+        type: "PROCUREMENT_GRN_APPROVED",
+        relatedEntity: "GoodsReceivedNote",
+        relatedEntityId: grnId,
+        data: { path: "/procurement/goods-received", grnNumber: existing.grnNumber, poNumber: updated.purchaseOrder.poNumber },
+      }).catch((e) => console.error("dispatchProcurementNotification (GRN approved):", e?.message || e));
+    }
+
     return updated;
   }
 
@@ -4101,6 +4220,20 @@ export class ProcurementService {
     console.log(
       `❌ GRN ${existing.grnNumber} QC rejected (qualityStatus=FAILED, status=REJECTED)`
     );
+
+    if (updated?.purchaseOrder?.createdById) {
+      const { dispatchProcurementNotification } = await import("./ProcurementNotificationService");
+      const vendorName = updated.purchaseOrder.vendor?.name || "the vendor";
+      await dispatchProcurementNotification({
+        userIds: [updated.purchaseOrder.createdById],
+        title: `Goods receipt rejected: ${existing.grnNumber}`,
+        message: `${existing.grnNumber} against ${updated.purchaseOrder.poNumber} (${vendorName}) failed quality inspection: ${reason}`,
+        type: "PROCUREMENT_GRN_REJECTED",
+        relatedEntity: "GoodsReceivedNote",
+        relatedEntityId: grnId,
+        data: { path: "/procurement/goods-received", grnNumber: existing.grnNumber, poNumber: updated.purchaseOrder.poNumber },
+      }).catch((e) => console.error("dispatchProcurementNotification (GRN rejected):", e?.message || e));
+    }
 
     return updated;
   }

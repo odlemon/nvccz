@@ -25,6 +25,7 @@ export class ProcurementController {
         priority,
         justification,
         sourcingCategory,
+        projectId,
         items,
         portfolioCompanyId,
         fundId,
@@ -63,6 +64,7 @@ export class ProcurementController {
         priority,
         justification,
         sourcingCategory,
+        projectId,
         portfolioCompanyId,
         fundId,
         useOfFundsDocumentUrl,
@@ -167,6 +169,11 @@ export class ProcurementController {
             orderBy: { createdAt: "desc" },
           })
         : await ProcurementService.getPendingRequisitionsForDepartmentHead(userId);
+
+      if (isAdmin) {
+        const { ProcurementRequisitionApprovalService } = await import("../services/ProcurementRequisitionApprovalService");
+        await ProcurementRequisitionApprovalService.attachRoutes(requisitions);
+      }
 
       res.status(200).json({
         success: true,
@@ -314,6 +321,9 @@ export class ProcurementController {
         take: parseInt(limit as string),
         skip: parseInt(offset as string)
       });
+
+      const { ProcurementRequisitionApprovalService } = await import("../services/ProcurementRequisitionApprovalService");
+      await ProcurementRequisitionApprovalService.attachRoutes(requisitions);
 
       res.status(200).json({
         success: true,
@@ -525,7 +535,10 @@ export class ProcurementController {
 
       res.status(200).json({
         success: true,
-        message: "Purchase requisition approved successfully",
+        message:
+          requisition?.status === "PENDING_APPROVAL"
+            ? `Approved at this step; it now waits for ${requisition?.approvalRoute?.waitingOn?.who ?? "the next step"}`
+            : "Purchase requisition approved successfully",
         data: requisition
       });
     } catch (error: any) {
@@ -691,6 +704,16 @@ export class ProcurementController {
   /**
    * Create and send RFQ to multiple vendors
    */
+  /** The currencies an RFQ can be quoted in: the active ones set up in Accounting (code and name). */
+  static async listRfqCurrencies(_req: Request, res: Response) {
+    try {
+      const rows = await prisma.currency.findMany({ where: { isActive: true }, select: { code: true, name: true }, orderBy: { code: "asc" } });
+      res.json({ success: true, data: rows });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error?.message || "Could not list currencies" });
+    }
+  }
+
   static async createAndSendRFQ(req: Request, res: Response) {
     try {
       const createdById = req.user?.id;
@@ -721,6 +744,17 @@ export class ProcurementController {
       } = req.body;
 
       const requisitionId = requisitionIdRaw || purchaseRequisitionId;
+
+      // The RFQ builder names the quoting currency by code (USD, ZiG, ZAR); the RFQ keeps the currency's id.
+      let rfqCurrencyId = reportingCurrencyId;
+      const rfqCurrencyCode = String(req.body?.reportingCurrencyCode ?? "").trim();
+      if (!rfqCurrencyId && rfqCurrencyCode) {
+        const currency = await prisma.currency.findFirst({ where: { code: rfqCurrencyCode } });
+        if (!currency) {
+          return res.status(400).json({ success: false, message: `Currency ${rfqCurrencyCode} is not set up.` });
+        }
+        rfqCurrencyId = currency.id;
+      }
 
       // Validation: title + vendors always; items optional when requisitionId (PR lines used)
       if (!title) {
@@ -759,7 +793,7 @@ export class ProcurementController {
         createdById,
         items,
         visibility,
-        reportingCurrencyId,
+        reportingCurrencyId: rfqCurrencyId,
         priceWeight,
         technicalWeight,
       });
@@ -1089,6 +1123,8 @@ export class ProcurementController {
         documentPath,
         documentType,
         attachmentIds,
+        readingIntakeId,
+        reviewNote,
         items
       } = req.body;
 
@@ -1150,8 +1186,16 @@ export class ProcurementController {
         documentType,
         attachmentIds: Array.isArray(attachmentIds) ? attachmentIds : undefined,
         createdById: createdById || undefined, // Pass undefined if null
+        // A staff capture made from AI Invoice Capture names the reading it came from, so the document is not read twice.
+        readingIntakeId: isStaff && typeof readingIntakeId === "string" && readingIntakeId.trim() ? readingIntakeId.trim() : undefined,
         items
       });
+
+      // Captured and flagged for review in one step from the invoice processing screen (SRD §7).
+      if (isStaff && typeof reviewNote === "string" && reviewNote.trim() && invoice?.id) {
+        const { ProcurementInvoiceAlertService } = await import("../services/ProcurementInvoiceAlertService");
+        await ProcurementInvoiceAlertService.flagForReview(invoice.id, createdById, reviewNote);
+      }
 
       res.status(201).json({
         success: true,
@@ -1164,6 +1208,74 @@ export class ProcurementController {
         success: false,
         message: publicErrorMessage(error, "Failed to create procurement invoice")
       });
+    }
+  }
+
+  /**
+   * POST /procurement/invoices/:id/read — read the invoice's supplier document with the LLM now and compare it with the
+   * captured invoice. Invoices that arrive with a document are read on their own; this is for one that was not (created
+   * before reading existed, or its reading failed) and for an approver who wants it read again.
+   */
+  static async readProcurementInvoice(req: Request, res: Response) {
+    try {
+      const { ProcurementInvoiceReadingService } = await import("../services/ProcurementInvoiceReadingService");
+      const invoice = await prisma.procurementInvoice.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, documentPath: true },
+      });
+      if (!invoice) return res.status(404).json({ success: false, message: "Invoice not found" });
+      if (!invoice.documentPath) {
+        return res.status(400).json({ success: false, message: "This invoice has no supplier document to read" });
+      }
+      const reading = await ProcurementInvoiceReadingService.readInvoice(invoice.id, { actorUserId: req.user?.id ?? null });
+      if (!reading) {
+        return res.status(409).json({ success: false, message: "This invoice is already being read; try again in a moment" });
+      }
+      const differences = reading.comparison?.differences?.length ?? 0;
+      return res.json({
+        success: true,
+        message:
+          reading.status !== "READ"
+            ? reading.message || "The document could not be read"
+            : differences
+              ? `The document differs from the captured invoice in ${differences} place${differences === 1 ? "" : "s"}`
+              : "The document agrees with the captured invoice",
+        data: reading,
+      });
+    } catch (error: any) {
+      console.error("Error reading procurement invoice:", error);
+      return res.status(400).json({ success: false, message: publicErrorMessage(error, "Could not read the invoice document") });
+    }
+  }
+
+  /** POST /procurement/invoices/:id/flag {note}: SRD §7 "Flag for Review", with why. */
+  static async flagProcurementInvoice(req: Request, res: Response) {
+    try {
+      const { ProcurementInvoiceAlertService } = await import("../services/ProcurementInvoiceAlertService");
+      const invoice = await ProcurementInvoiceAlertService.flagForReview(req.params.id, req.user?.id, req.body?.note);
+      return res.json({ success: true, message: `${invoice.invoiceNumber} flagged for review`, data: invoice });
+    } catch (error: any) {
+      return res.status(error?.status || 400).json({ success: false, message: publicErrorMessage(error, "Could not flag the invoice") });
+    }
+  }
+
+  /** GET /procurement/requisition-projects: the projects a requisition can be charged to (SRD §7 "Project/Cost Center"). */
+  static async listRequisitionProjects(req: Request, res: Response) {
+    try {
+      const { ProcurementRequisitionAssistService } = await import("../services/ProcurementRequisitionAssistService");
+      return res.json({ success: true, data: await ProcurementRequisitionAssistService.projects() });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: publicErrorMessage(error, "Could not load the projects") });
+    }
+  }
+
+  /** GET /procurement/requisitions/line-suggestions?q=: items bought before, with their last price and vendors (SRD §3). */
+  static async requisitionLineSuggestions(req: Request, res: Response) {
+    try {
+      const { ProcurementRequisitionAssistService } = await import("../services/ProcurementRequisitionAssistService");
+      return res.json({ success: true, data: await ProcurementRequisitionAssistService.lineSuggestions(String(req.query?.q ?? "")) });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: publicErrorMessage(error, "Could not load suggestions") });
     }
   }
 
@@ -1265,6 +1377,109 @@ export class ProcurementController {
     } catch (error: any) {
       console.error("Error loading vendor portal purchase order:", error);
       return res.status(500).json({ success: false, message: "Could not load this purchase order" });
+    }
+  }
+
+  /**
+   * PUBLIC, token-scoped: what an invited vendor is quoting for.
+   *
+   * The quotation form opened blank apart from the RFQ number, so a vendor retyped the lines from the email and
+   * could not see the closing date or delivery terms. This returns the RFQ and its lines, the vendor's own master
+   * details to prefill, the buying organisation's name, and the quotation this vendor already sent, if any.
+   * `?token=` is the signed RFQ_SUBMIT token from the invitation email (payload v = vendor, r = RFQ id).
+   */
+  static async getVendorPortalRfq(req: Request, res: Response) {
+    const raw = String(req.query.token || req.query.vendorPortalToken || "").trim();
+    if (!raw) {
+      return res.status(400).json({ success: false, message: "This quotation link is missing its token" });
+    }
+    try {
+      const { verifyVendorPortalToken, VENDOR_PORTAL_KIND_RFQ_SUBMIT } = await import("../utils/vendorPortalToken");
+      let payload;
+      try {
+        payload = verifyVendorPortalToken(raw);
+      } catch (err: any) {
+        return res.status(400).json({ success: false, message: err?.message || "Invalid quotation link" });
+      }
+      if (payload.k !== VENDOR_PORTAL_KIND_RFQ_SUBMIT) {
+        return res.status(400).json({ success: false, message: "This link is not a request for quotation link" });
+      }
+
+      const rfq = await prisma.procurementRfq.findUnique({
+        where: { id: payload.r },
+        select: {
+          id: true,
+          rfqNumber: true,
+          title: true,
+          description: true,
+          status: true,
+          visibility: true,
+          closingAt: true,
+          deliveryAddress: true,
+          expectedDeliveryDate: true,
+          specialRequirements: true,
+          itemsSnapshot: true,
+          reportingCurrency: { select: { code: true } },
+          requisition: { select: { items: true } },
+          invitations: { where: { vendorId: payload.v }, select: { id: true } },
+        },
+      });
+      // The link names a vendor; only an invited vendor (or anyone, on a publicly listed RFQ) may read it.
+      if (!rfq || (!rfq.invitations.length && rfq.visibility !== "PUBLIC_LISTING")) {
+        return res.status(404).json({ success: false, message: "No request for quotation matches this link" });
+      }
+      const [vendor, profile, submission] = await Promise.all([
+        prisma.vendor.findUnique({
+          where: { id: payload.v },
+          select: { name: true, email: true, contactPerson: true, phone: true, taxNumber: true, address: true },
+        }),
+        prisma.companyProfile.findFirst({ select: { legalName: true } }),
+        prisma.vendorQuotation.findFirst({
+          where: { procurementRfqId: rfq.id, vendorId: payload.v, status: { not: "DRAFT" } },
+          orderBy: { submittedAt: "desc" },
+          select: { quotationNumber: true, status: true, submittedAt: true },
+        }),
+      ]);
+      if (!vendor) {
+        return res.status(404).json({ success: false, message: "No vendor matches this link" });
+      }
+
+      // The lines as the RFQ was issued (its snapshot), else the requisition's. Prices are never sent: the vendor quotes them.
+      const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
+      const snapshot = Array.isArray(rfq.itemsSnapshot) ? (rfq.itemsSnapshot as any[]) : [];
+      const lines = (snapshot.length ? snapshot : ((rfq.requisition?.items as any[]) ?? [])).map((it: any) => ({
+        itemName: String(it?.itemName ?? it?.name ?? "").trim(),
+        description: it?.description ?? null,
+        quantity: num(it?.quantity),
+        unit: it?.unit ?? null,
+      }));
+      const closed = rfq.closingAt ? rfq.closingAt.getTime() < Date.now() : false;
+
+      return res.json({
+        success: true,
+        data: {
+          organisation: profile?.legalName?.trim() || null,
+          rfqNumber: rfq.rfqNumber,
+          title: rfq.title,
+          description: rfq.description,
+          status: rfq.status,
+          open: String(rfq.status).toUpperCase() === "OPEN" && !closed,
+          closingAt: rfq.closingAt,
+          deliveryAddress: rfq.deliveryAddress,
+          expectedDeliveryDate: rfq.expectedDeliveryDate,
+          specialRequirements: rfq.specialRequirements,
+          currencyCode: rfq.reportingCurrency?.code ?? null,
+          items: lines.filter((l) => l.itemName),
+          vendor,
+          submission: submission
+            ? { quotationNumber: submission.quotationNumber, status: submission.status, submittedAt: submission.submittedAt }
+            : null,
+          tokenExpiresAt: new Date(payload.exp * 1000).toISOString(),
+        },
+      });
+    } catch (error: any) {
+      console.error("Error loading vendor portal RFQ:", error);
+      return res.status(500).json({ success: false, message: "Could not load this request for quotation" });
     }
   }
 

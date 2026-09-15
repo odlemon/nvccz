@@ -1145,6 +1145,65 @@ export class EmailNotificationService {
   }
 
   /**
+   * A procurement invoice was flagged (three-way match, possible duplicate, or the supplier's document disagreeing with
+   * the capture): tell its reviewers why (SRD §3, §6.6).
+   */
+  static async sendProcurementInvoiceFlagged(data: {
+    recipients: { email: string; name: string }[];
+    vendorName: string;
+    invoiceNumber: string;
+    poNumber?: string | null;
+    totalAmount: number;
+    currencyCode: string;
+    reasons: string[];
+  }): Promise<void> {
+    if (!data.recipients.length) return;
+    const branding = await getEmailBrandingCached();
+    const he = (s: string) =>
+      String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const totalLabel = `${data.currencyCode} ${Number(data.totalAmount).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+    const subject = `Invoice ${data.invoiceNumber} flagged for review`;
+    const from = getFromAddress("procurement");
+    const reasons = data.reasons.map((r) => `<li style="margin:4px 0">${he(r)}</li>`).join("");
+    for (const r of data.recipients) {
+      try {
+        const bodyInner = `
+        <p>Dear ${he(r.name || "Colleague")},</p>
+        <p>A supplier invoice needs review before it is approved for payment.</p>
+        <div style="background:#fff7ed;border-left:4px solid #ea580c;padding:14px 18px;margin:18px 0;border-radius:4px;">
+          <div><strong>Invoice:</strong> ${he(data.invoiceNumber)}</div>
+          <div><strong>Vendor:</strong> ${he(data.vendorName)}</div>
+          ${data.poNumber ? `<div><strong>Purchase order:</strong> ${he(String(data.poNumber))}</div>` : ""}
+          <div><strong>Total:</strong> ${totalLabel}</div>
+        </div>
+        <p><strong>Why it was flagged</strong></p>
+        <ul style="padding-left:18px">${reasons}</ul>
+        <p>Open Procurement → Invoices &amp; 3-Way Match to review it.</p>`;
+        const htmlContent = EmailNotificationService.composeNewsletterTransactionalHtml({
+          branding,
+          pageTitle: `Invoice flagged — ${branding.companyName}`,
+          preheader: `${subject} — ${branding.companyName}`,
+          emailHeading: "Invoice flagged for review",
+          headerTagline: "Procurement",
+          bodyInnerHtml: bodyInner,
+          teamLabel: "Procurement Team",
+        });
+        await emailTransport.sendMail({
+          from: `"${from.name}" <${from.address}>`,
+          to: `"${r.name}" <${r.email}>`,
+          subject,
+          html: htmlContent,
+        });
+      } catch (oneErr) {
+        console.error(`❌ Flagged invoice email failed for ${r.email}:`, (oneErr as Error)?.message || oneErr);
+      }
+    }
+  }
+
+  /**
    * Notify PR owner when their linked RFQ is awarded (no portal links).
    */
   static async sendRfqAwardedToSubmitter(data: {
@@ -1646,6 +1705,50 @@ export class EmailNotificationService {
       console.error("Error sending vendor registration approved email:", error);
       throw error;
     }
+  }
+
+  /** Tells a vendor who registered on the vendor portal that the registration was declined, and why. */
+  static async sendVendorRegistrationDeclinedEmail(data: {
+    vendorEmail: string;
+    vendorName: string;
+    contactPerson?: string | null;
+    reason: string;
+  }): Promise<void> {
+    const esc = (s: string) =>
+      String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    let companyName = process.env.COMPANY_NAME_SHORT || "NVCCZ";
+    let contactEmail: string | null = null;
+    try {
+      const branding = await getEmailBrandingCached();
+      companyName = branding.companyName || companyName;
+      contactEmail = branding.contactEmail || null;
+    } catch {
+      /* the company name from the environment is enough */
+    }
+    const addressee = String(data.contactPerson || "").trim() || data.vendorName;
+    const subject = `${companyName}: vendor registration not approved`;
+    const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;max-width:640px;margin:0 auto;font-family:Helvetica,Arial,sans-serif;">
+      <tr><td style="background:linear-gradient(135deg,#0f172a 0%,#1e3a8a 100%);padding:24px 28px;color:#ffffff;">
+        <div style="font-size:20px;font-weight:700;">${esc(companyName)}</div>
+        <div style="margin-top:4px;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:0.85;">Vendor registration not approved</div>
+      </td></tr>
+      <tr><td style="padding:24px 28px;font-family:Georgia,'Times New Roman',serif;font-size:16px;line-height:1.7;color:#1f2937;">
+        <p style="margin:0 0 16px 0;">Dear ${esc(addressee)},</p>
+        <p style="margin:0 0 16px 0;">Thank you for registering <strong>${esc(data.vendorName)}</strong> on our vendor portal. After review, the registration has <strong>not been approved</strong>.</p>
+        <p style="margin:0 0 8px 0;">The reason given:</p>
+        <blockquote style="margin:0 0 16px 0;padding:12px 16px;border-left:4px solid #1e3a8a;background:#f1f5f9;">${esc(data.reason)}</blockquote>
+        <p style="margin:0 0 16px 0;">You are welcome to register again on the vendor portal once this has been addressed${contactEmail ? `, or contact us at ${esc(contactEmail)}` : ""}.</p>
+        <p style="margin:24px 0 0 0;">Kind regards,<br/><strong>${esc(companyName)}</strong></p>
+      </td></tr>
+    </table>`;
+    const from = getFromAddress("procurement");
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: `"${addressee}" <${data.vendorEmail}>`,
+      subject,
+      html,
+    });
+    console.log(`Vendor registration declined email sent to ${data.vendorEmail}`);
   }
 
   private static async buildVendorRegistrationApprovedBrandedDocument(data: {

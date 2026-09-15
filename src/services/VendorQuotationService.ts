@@ -541,6 +541,28 @@ export class VendorQuotationService {
         console.error("⚠️  Desk notification for new quotation failed:", (deskErr as Error)?.message || deskErr);
       }
 
+      // The submission reaches the procurement audit trail. It comes through the vendor's signed link, so
+      // there is no signed-in user; the vendor is named as the actor instead. A failed audit write must
+      // not lose a quotation the vendor has already been told was received.
+      if (quotation?.id) {
+        try {
+          await AuditService.log({
+            userId: null,
+            action: "SUBMIT",
+            entityType: "VendorQuotation",
+            entityId: quotation.id,
+            newValues: {
+              rfqNumber: quotation.rfqNumber,
+              companyName: quotation.companyName,
+              via: "vendor portal",
+              actor: `${quotation.companyName || "Vendor"} (vendor portal)`,
+            },
+          });
+        } catch (auditErr) {
+          console.error("audit VendorQuotation SUBMIT:", (auditErr as Error)?.message || auditErr);
+        }
+      }
+
       return quotation;
     } catch (error: any) {
       console.error("❌ Error creating vendor quotation:", error);

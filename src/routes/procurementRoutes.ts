@@ -2,6 +2,7 @@
 import express from "express";
 import { ProcurementController } from "../controllers/ProcurementController";
 import { ProcurementAccessController } from "../controllers/ProcurementAccessController";
+import { ProcurementApprovalMatrixController } from "../controllers/ProcurementApprovalMatrixController";
 import { ProcurementAuditController } from "../controllers/ProcurementAuditController";
 import procurementRegistersRoutes from "./procurementRegistersRoutes";
 import { authenticate } from "../middleware/authenticate";
@@ -38,10 +39,12 @@ const uploadProofOfPayment = multer({
 const uploadPublicVendorInvoicePdf = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 },
+  // A PDF, or a scan or photo of the invoice: every invoice document is read by the LLM, OCR first for images.
   fileFilter: (_req, file, cb) => {
     const ok =
-      file.mimetype === "application/pdf" || /\.pdf$/i.test(String(file.originalname || ""));
-    cb(ok ? null : new Error("Only PDF files are allowed"), ok);
+      /^(application\/pdf|image\/(png|jpe?g|webp|tiff))$/i.test(String(file.mimetype || "")) ||
+      /\.(pdf|png|jpe?g|webp|tiff?)$/i.test(String(file.originalname || ""));
+    cb(ok ? null : new Error("Upload the invoice as a PDF, or as a scan or photo (PNG, JPEG, WEBP or TIFF)"), ok);
   },
 });
 
@@ -77,7 +80,15 @@ const uploadPublicVendorInvoicePdf = multer({
  */
 router.post(
   "/invoices/upload-document",
-  uploadPublicVendorInvoicePdf.single("document"),
+  // A refused file type or an oversized file is the uploader's mistake, said as a 400; it reached Express's default
+  // handler and answered 500.
+  (req, res, next) =>
+    uploadPublicVendorInvoicePdf.single("document")(req, res, (err: any) => {
+      if (!err) return next();
+      const message =
+        err?.code === "LIMIT_FILE_SIZE" ? "The invoice file is too large (max 15MB)" : err?.message || "The invoice file could not be uploaded";
+      return res.status(400).json({ success: false, message });
+    }),
   ProcurementController.uploadVendorInvoiceDocument
 );
 
@@ -174,6 +185,10 @@ router.post("/invoices", staffCaptureWhenAuthenticated, ProcurementController.cr
 // can show the order and prefill its lines. `?token=` is the signed PO_VENDOR_INVOICE token.
 router.get("/vendor-portal/purchase-order", ProcurementController.getVendorPortalPurchaseOrder);
 
+// PUBLIC, token-scoped: the RFQ behind a vendor's emailed quotation link, so the quotation form can show what is
+// being bought and prefill the lines and the vendor's own details. `?token=` is the signed RFQ_SUBMIT token.
+router.get("/vendor-portal/rfq", ProcurementController.getVendorPortalRfq);
+
 // All routes below require authentication
 router.use(authenticate);
 // Internal staff only. Every route below is staff procurement data or a staff action;
@@ -184,6 +199,18 @@ router.use(requireInternalStaffUser());
 
 // The caller's effective procurement grants, which the V23 workspace gates its controls on.
 router.get("/me/access", ProcurementAccessController.getMyAccess);
+
+// The requisition approval matrix: who decides a requisition, step by step. Staff read it; an administrator or the
+// CFO changes it (the service refuses anyone else).
+router.get("/approval-matrix", ProcurementApprovalMatrixController.getMatrix);
+router.put("/approval-matrix", ProcurementApprovalMatrixController.saveMatrix);
+// Whether an exactly matching invoice is approved without a person (SRD §6.6); read with the matrix.
+router.put("/invoice-auto-approval", ProcurementApprovalMatrixController.saveInvoiceAutoApproval);
+
+// What a requester needs to fill in a requisition: the projects it can be charged to (every employee raises
+// requisitions, so no procurement grant is required).
+router.get("/requisition-projects", ProcurementController.listRequisitionProjects);
+router.get("/currencies", requireAnyPermission([PROC_PERMS.rfqManage, PROC_PERMS.rfqView]), ProcurementController.listRfqCurrencies);
 
 // The procurement audit trail, newest first, from the audit_logs rows the services write.
 router.get("/audit-events", requireAnyPermission([PROC_PERMS.auditView]), ProcurementAuditController.listEvents);
@@ -366,6 +393,8 @@ router.get("/requisitions/my", ProcurementController.getMyPurchaseRequisitions);
  *       401:
  *         description: Unauthorized or user is not a department head
  */
+// Items bought before (last price, vendors) as a requisition line is typed; ahead of /requisitions/:id.
+router.get("/requisitions/line-suggestions", ProcurementController.requisitionLineSuggestions);
 router.get("/requisitions/pending-approval", ProcurementController.getPendingRequisitionsForDepartmentHead);
 router.get(
   "/requisitions/investee/sla-breached",
@@ -872,6 +901,13 @@ router.put("/invoices/:id/reject", requireAnyPermission([PROC_PERMS.invoicesAppr
 // Re-run the three-way match. It also runs on its own when an invoice is created and when a GRN
 // on the same PO is recorded, approved or rejected; this is for an approver who wants it now.
 router.post("/invoices/:id/match", requireAnyPermission([PROC_PERMS.invoicesApprove, PROC_PERMS.intakeManage]), ProcurementController.matchProcurementInvoice);
+
+// Read the invoice's supplier document with the LLM now and compare it with the captured invoice. Invoices that arrive
+// with a document are read on their own; this re-reads one (older, or its reading failed) for an approver or AP.
+router.post("/invoices/:id/read", requireAnyPermission([PROC_PERMS.invoicesApprove, PROC_PERMS.intakeManage]), ProcurementController.readProcurementInvoice);
+
+// SRD §7 Invoice Processing "Flag for Review": an open invoice marked for review with why; its reviewers are alerted.
+router.post("/invoices/:id/flag", requireAnyPermission([PROC_PERMS.invoicesApprove, PROC_PERMS.intakeManage]), ProcurementController.flagProcurementInvoice);
 
 /**
  * @swagger
