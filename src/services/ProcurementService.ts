@@ -3359,8 +3359,10 @@ export class ProcurementService {
           paymentReference: paymentData.paymentReference || receiptNumber,
           journalEntryId: expenseJournalEntry.journalEntry.id,
           cashbookEntryId: cashbookResult.transaction.id,
-          documentPath: paymentData.proofOfPaymentPath || invoice.documentPath,
-          documentType: paymentData.proofOfPaymentPath ? (paymentData.proofOfPaymentPath.endsWith('.pdf') ? 'PDF' : 'IMAGE') : invoice.documentType
+          proofOfPaymentPath: paymentData.proofOfPaymentPath || invoice.proofOfPaymentPath,
+          proofOfPaymentType: paymentData.proofOfPaymentPath
+            ? (paymentData.proofOfPaymentPath.endsWith('.pdf') ? 'PDF' : 'IMAGE')
+            : invoice.proofOfPaymentType
         },
         include: {
           vendor: true,
