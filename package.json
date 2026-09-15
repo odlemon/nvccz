@@ -290,6 +290,7 @@
     "db:migrate:cashbook-receipt-attachment": "ts-node scripts/run-cashbook-receipt-attachment-migration.ts",
     "db:migrate:inventory-settings": "ts-node scripts/run-inventory-settings-migration.ts",
     "db:migrate:saved-filter-favorites": "ts-node scripts/run-saved-filter-favorites-migration.ts",
+    "db:migrate:home-preferences": "ts-node scripts/run-home-preferences-migration.ts",
     "db:void:duplicate-kpi-journals": "ts-node scripts/void-duplicate-kpi-achievement-journals.ts",
     "db:purge:kpi-achievement-journals": "ts-node --transpile-only -r dotenv/config scripts/purge-kpi-achievement-journals-and-resync.ts",
     "db:resync:payroll-goals": "ts-node --transpile-only -r dotenv/config scripts/purge-kpi-achievement-journals-and-resync.ts -- --resync-only",

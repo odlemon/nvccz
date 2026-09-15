@@ -1,11 +1,14 @@
 // @ts-nocheck
 import { Request, Response } from "express";
+import { randomUUID } from "crypto";
 import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
 import { emitToUser } from "../services/RealtimeSocketService";
 import { mergeTaskNotificationData } from "../utils/taskNotificationDeepLink";
 import { PerformanceConfigService } from "../services/PerformanceConfigService";
 import { eventWithValidAuthorWhere } from "../utils/eventQuerySupport";
+
+const DEFAULT_HOME_PREFERENCE = { coverTheme: "Porcelain", coverWallpaper: "auto" };
 
 // Helper function to get relative time
 function getTimeAgo(date: Date): string {
@@ -510,5 +513,59 @@ export const homepageController = {
         message: "Internal server error"
       });
     }
+  },
+
+  // Get the signed-in user's home-hub preferences (Daily Cover theme/wallpaper today; a
+  // `settings` json column exists on the table for the Settings modal later).
+  //
+  // Queried with raw SQL rather than `prisma.homePreference` — the generated Prisma Client
+  // in this checkout's node_modules is junctioned/shared with another in-progress agent's
+  // checkout, so this table was added without a `prisma generate` run. See
+  // design-refs/home-page/execution-plan.md in the frontend repo for the full reasoning.
+  async getMyHomePreference(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user.id;
+      const rows: any[] = await prisma.$queryRawUnsafe(
+        `SELECT cover_theme AS coverTheme, cover_wallpaper AS coverWallpaper FROM home_preferences WHERE user_id = ?`,
+        userId
+      );
+      res.status(200).json({ success: true, data: rows[0] || DEFAULT_HOME_PREFERENCE });
+    } catch (error: any) {
+      console.error("Error fetching home preference:", error);
+      res.status(500).json({ success: false, message: "Internal server error" });
+    }
+  },
+
+  // Upsert the signed-in user's home-hub preferences.
+  async updateMyHomePreference(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user.id;
+      const { coverTheme, coverWallpaper } = req.body || {};
+      if (coverTheme == null && coverWallpaper == null) {
+        res.status(400).json({ success: false, message: "coverTheme or coverWallpaper is required" });
+        return;
+      }
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO home_preferences (id, user_id, cover_theme, cover_wallpaper)
+         VALUES (?, ?, COALESCE(?, 'Porcelain'), COALESCE(?, 'auto'))
+         ON DUPLICATE KEY UPDATE
+           cover_theme = COALESCE(?, cover_theme),
+           cover_wallpaper = COALESCE(?, cover_wallpaper)`,
+        randomUUID(),
+        userId,
+        coverTheme ?? null,
+        coverWallpaper ?? null,
+        coverTheme ?? null,
+        coverWallpaper ?? null
+      );
+      const rows: any[] = await prisma.$queryRawUnsafe(
+        `SELECT cover_theme AS coverTheme, cover_wallpaper AS coverWallpaper FROM home_preferences WHERE user_id = ?`,
+        userId
+      );
+      res.status(200).json({ success: true, data: rows[0] || DEFAULT_HOME_PREFERENCE });
+    } catch (error: any) {
+      console.error("Error updating home preference:", error);
+      res.status(500).json({ success: false, message: "Internal server error" });
+    }
   }
-}; 
+};

@@ -315,4 +315,40 @@ router.put("/notifications/read-all", homepageController.markAllNotificationsAsR
  */
 router.get("/notifications/debug", homepageController.getAllNotificationsDebug);
 
-export default router; 
+/**
+ * @swagger
+ * /homepage/preferences:
+ *   get:
+ *     summary: Get the signed-in user's home-hub preferences
+ *     description: Daily Cover theme/wallpaper, defaulting to Porcelain/auto if never set.
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Preferences retrieved successfully
+ *   put:
+ *     summary: Update the signed-in user's home-hub preferences
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               coverTheme:
+ *                 type: string
+ *               coverWallpaper:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Preferences updated successfully
+ *       400:
+ *         description: Neither coverTheme nor coverWallpaper was provided
+ */
+router.get("/preferences", homepageController.getMyHomePreference);
+router.put("/preferences", homepageController.updateMyHomePreference);
+
+export default router;

@@ -196,6 +196,7 @@ model User {
   transactionsPosted                    CashbookEntry[]                 @relation("TransactionPostedBy")
   passwordResetTokens                   PasswordResetToken[]
   savedFilterFavorites                  SavedFilterFavorite[]
+  homePreference                        HomePreference?
   cashbookReconSessionsCreated          CashbookReconciliationSession[] @relation("CashbookReconSessionCreatedBy")
   cashbookReconSessionsFinished         CashbookReconciliationSession[] @relation("CashbookReconSessionFinishedBy")
   capitalCallsInitiated                 CapitalCall[]                   @relation("CapitalCallCreator")
@@ -250,6 +251,23 @@ model SavedFilterFavorite {
   @@unique([userId, name], map: "saved_filter_favorites_user_name")
   @@index([userId, routeKey], map: "saved_filter_favorites_user_route")
   @@map("saved_filter_favorites")
+}
+
+/// Home V3 hub personalisation, one row per employee. `coverTheme`/`coverWallpaper` back
+/// Daily Cover (design-refs/home-page/execution-plan.md Phase 2); `settings` is a JSON
+/// catch-all reserved for Phase 8 (the Settings modal: language, timezone, density,
+/// notification toggles) so that phase does not need its own migration.
+model HomePreference {
+  id             String   @id @default(cuid())
+  userId         String   @unique @map("user_id")
+  coverTheme     String   @default("Porcelain") @map("cover_theme") @db.VarChar(64)
+  coverWallpaper String   @default("auto") @map("cover_wallpaper") @db.VarChar(64)
+  settings       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("home_preferences")
 }
 
 model Role {
