@@ -33,6 +33,7 @@ import newsletterRoutes from "./routes/newsletterRoutes"
 import newsletterSubscriptionRoutes from "./routes/newsletterSubscriptionRoutes"
 import eventRoutes from "./routes/eventRoutes"
 import homepageRoutes from "./routes/homepageRoutes"
+import serviceRequestRoutes from "./routes/serviceRequestRoutes"
 import currencyRoutes from "./routes/currencyRoutes"
 import vendorRoutes from "./routes/vendorRoutes"
 import vendorPublicRegistrationRoutes from "./routes/vendorPublicRegistrationRoutes"
@@ -611,6 +612,7 @@ app.use("/api/newsletters", newsletterRoutes)
 app.use("/api/newsletter", newsletterSubscriptionRoutes)
 app.use("/api/events", eventRoutes)
 app.use("/api/homepage", homepageRoutes)
+app.use("/api/service-requests", serviceRequestRoutes)
 
 // Public vendor self-registration (no JWT)
 app.use("/api/public", vendorPublicRegistrationRoutes)
