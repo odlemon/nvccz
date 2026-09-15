@@ -514,17 +514,25 @@ export interface UpdateTaskRequest {
   applicationId?: string | null;
   fromDueDiligence?: boolean;
   category?: string;
-  
+
   // Performance-related fields
   goalId?: string;
   performanceCategory?: string;
   isPerformanceTask?: boolean;
-  
+
   // Target Values (Absolute Value System)
   targetValue?: number;
   targetUnit?: string;
   currentValue?: number;
-  
+
+  // Achievement fields — absolute set here, unlike updateTaskStage's achievements param which adds
+  // to the existing value. The controller already destructures and forwards these; this interface
+  // and the update() call below were the missing link.
+  monetaryValue?: number;
+  percentValue?: number;
+  monetaryValueAchieved?: number;
+  percentValueAchieved?: number;
+
   // KPI Integration
   kpi?: {
     id: string;
@@ -930,7 +938,13 @@ export class TaskService {
           ...(request.targetValue !== undefined && { targetValue: request.targetValue }),
           ...(request.targetUnit !== undefined && { targetUnit: request.targetUnit }),
           ...(request.currentValue !== undefined && { currentValue: request.currentValue }),
-          
+
+          // Achievement fields (absolute set — see UpdateTaskRequest's doc comment on these four)
+          ...(request.monetaryValue !== undefined && { monetaryValue: request.monetaryValue }),
+          ...(request.percentValue !== undefined && { percentValue: request.percentValue }),
+          ...(request.monetaryValueAchieved !== undefined && { monetaryValueAchieved: request.monetaryValueAchieved }),
+          ...(request.percentValueAchieved !== undefined && { percentValueAchieved: request.percentValueAchieved }),
+
           // KPI Integration
           kpi: kpiData,
 
