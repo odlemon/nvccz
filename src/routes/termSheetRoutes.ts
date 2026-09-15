@@ -273,7 +273,7 @@ const upload = multer({
  */
 router.get('/my', authenticate, TermSheetController.getMyTermSheets);
 
-router.post('/:applicationId', authenticate, authorize(['admin', 'fund_manager']), upload.single('document'), TermSheetController.createTermSheet);
+router.post('/:applicationId', authenticate, authorize(['admin', 'fund_manager', 'portfolio_mgr']), upload.single('document'), TermSheetController.createTermSheet);
 
 /**
  * @swagger
@@ -353,7 +353,7 @@ router.get('/:applicationId', authenticate, TermSheetController.getTermSheetByAp
  *       403:
  *         description: Forbidden
  */
-router.put('/:applicationId', authenticate, authorize(['admin', 'fund_manager']), TermSheetController.updateTermSheet);
+router.put('/:applicationId', authenticate, authorize(['admin', 'fund_manager', 'portfolio_mgr']), TermSheetController.updateTermSheet);
 
 /**
  * @swagger
@@ -391,7 +391,7 @@ router.put('/:applicationId', authenticate, authorize(['admin', 'fund_manager'])
  *       403:
  *         description: Forbidden
  */
-router.post('/:applicationId/finalize', authenticate, authorize(['admin', 'fund_manager']), TermSheetController.markAsFinal);
+router.post('/:applicationId/finalize', authenticate, authorize(['admin', 'fund_manager', 'portfolio_mgr']), TermSheetController.markAsFinal);
 
 /**
  * @swagger
@@ -486,6 +486,6 @@ router.post('/:applicationId/sign', authenticate, upload.single('signature'), Te
  *       403:
  *         description: Forbidden
  */
-router.get('/', authenticate, authorize(['admin', 'fund_manager']), TermSheetController.getAllTermSheets);
+router.get('/', authenticate, authorize(['admin', 'fund_manager', 'portfolio_mgr', 'inv_analyst']), TermSheetController.getAllTermSheets);
 
 export default router;
