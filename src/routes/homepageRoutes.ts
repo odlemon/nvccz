@@ -1,10 +1,23 @@
 // @ts-nocheck
 import express from "express";
+import multer from "multer";
 import rateLimit from "express-rate-limit";
 import { homepageController } from "../controllers/HomepageController";
+import { homeWallpaperController } from "../controllers/HomeWallpaperController";
 import { authenticate } from "../middleware/authenticate";
 
 const router = express.Router();
+
+// Same shape as newsletterRoutes.ts's image upload config (memoryStorage, image-only
+// fileFilter) — 8MB per file, up to 6 at once, matching the frontend's own picker limits.
+const wallpaperUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024, files: 6 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) cb(null, true);
+    else cb(new Error("Only image files are allowed"));
+  },
+});
 
 // Rate limiting for homepage endpoints
 const homepageRateLimit = rateLimit({
@@ -342,13 +355,70 @@ router.get("/notifications/debug", homepageController.getAllNotificationsDebug);
  *                 type: string
  *               coverWallpaper:
  *                 type: string
+ *               rotationIntervalMinutes:
+ *                 type: integer
+ *                 description: Only meaningful when coverWallpaper is "auto"
  *     responses:
  *       200:
  *         description: Preferences updated successfully
  *       400:
- *         description: Neither coverTheme nor coverWallpaper was provided
+ *         description: None of coverTheme, coverWallpaper or rotationIntervalMinutes was provided
  */
 router.get("/preferences", homepageController.getMyHomePreference);
 router.put("/preferences", homepageController.updateMyHomePreference);
+
+/**
+ * @swagger
+ * /homepage/wallpapers:
+ *   get:
+ *     summary: List the signed-in user's own uploaded Daily Cover wallpapers
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Wallpapers retrieved successfully
+ *   post:
+ *     summary: Upload one or more Daily Cover wallpaper images (max 6 per request, 8MB each)
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               images:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       201:
+ *         description: Wallpaper(s) uploaded successfully
+ *       400:
+ *         description: No images provided, or the per-user wallpaper limit would be exceeded
+ * /homepage/wallpapers/{id}:
+ *   delete:
+ *     summary: Remove one of the signed-in user's uploaded wallpapers
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Wallpaper removed
+ *       404:
+ *         description: Wallpaper not found (or not owned by the signed-in user)
+ */
+router.get("/wallpapers", homeWallpaperController.listMine);
+router.post("/wallpapers", wallpaperUpload.array("images", 6), homeWallpaperController.upload);
+router.delete("/wallpapers/:id", homeWallpaperController.remove);
 
 export default router;

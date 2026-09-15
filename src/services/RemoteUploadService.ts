@@ -228,6 +228,10 @@ const UPLOAD_TYPE_MAP: Record<string, string> = {
   // home for bank files and employee contracts.
   "payroll-documents": "payroll-documents",
 
+  // Home hub Daily Cover — user-uploaded rotating background images
+  "home-wallpapers": "home-wallpapers",
+  "home-wallpaper": "home-wallpapers",
+
   // Default/temp
   "temp": "temp",
   "default": "temp"

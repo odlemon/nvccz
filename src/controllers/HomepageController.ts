@@ -8,7 +8,7 @@ import { mergeTaskNotificationData } from "../utils/taskNotificationDeepLink";
 import { PerformanceConfigService } from "../services/PerformanceConfigService";
 import { eventWithValidAuthorWhere } from "../utils/eventQuerySupport";
 
-const DEFAULT_HOME_PREFERENCE = { coverTheme: "Porcelain", coverWallpaper: "auto" };
+const DEFAULT_HOME_PREFERENCE = { coverTheme: "Porcelain", coverWallpaper: "auto", rotationIntervalMinutes: 1440 };
 
 // Helper function to get relative time
 function getTimeAgo(date: Date): string {
@@ -526,7 +526,9 @@ export const homepageController = {
     try {
       const userId = req.user.id;
       const rows: any[] = await prisma.$queryRawUnsafe(
-        `SELECT cover_theme AS coverTheme, cover_wallpaper AS coverWallpaper FROM home_preferences WHERE user_id = ?`,
+        `SELECT cover_theme AS coverTheme, cover_wallpaper AS coverWallpaper,
+                rotation_interval_minutes AS rotationIntervalMinutes
+         FROM home_preferences WHERE user_id = ?`,
         userId
       );
       res.status(200).json({ success: true, data: rows[0] || DEFAULT_HOME_PREFERENCE });
@@ -540,26 +542,43 @@ export const homepageController = {
   async updateMyHomePreference(req: AuthRequest, res: Response) {
     try {
       const userId = req.user.id;
-      const { coverTheme, coverWallpaper } = req.body || {};
-      if (coverTheme == null && coverWallpaper == null) {
-        res.status(400).json({ success: false, message: "coverTheme or coverWallpaper is required" });
+      const { coverTheme, coverWallpaper, rotationIntervalMinutes } = req.body || {};
+      if (coverTheme == null && coverWallpaper == null && rotationIntervalMinutes == null) {
+        res.status(400).json({
+          success: false,
+          message: "coverTheme, coverWallpaper or rotationIntervalMinutes is required",
+        });
         return;
       }
+      let rotationValue: number | null = null;
+      if (rotationIntervalMinutes != null) {
+        const n = Number(rotationIntervalMinutes);
+        if (!Number.isFinite(n) || n < 1 || n > 43200) {
+          res.status(400).json({ success: false, message: "rotationIntervalMinutes must be between 1 and 43200" });
+          return;
+        }
+        rotationValue = Math.round(n);
+      }
       await prisma.$executeRawUnsafe(
-        `INSERT INTO home_preferences (id, user_id, cover_theme, cover_wallpaper)
-         VALUES (?, ?, COALESCE(?, 'Porcelain'), COALESCE(?, 'auto'))
+        `INSERT INTO home_preferences (id, user_id, cover_theme, cover_wallpaper, rotation_interval_minutes)
+         VALUES (?, ?, COALESCE(?, 'Porcelain'), COALESCE(?, 'auto'), COALESCE(?, 1440))
          ON DUPLICATE KEY UPDATE
            cover_theme = COALESCE(?, cover_theme),
-           cover_wallpaper = COALESCE(?, cover_wallpaper)`,
+           cover_wallpaper = COALESCE(?, cover_wallpaper),
+           rotation_interval_minutes = COALESCE(?, rotation_interval_minutes)`,
         randomUUID(),
         userId,
         coverTheme ?? null,
         coverWallpaper ?? null,
+        rotationValue,
         coverTheme ?? null,
-        coverWallpaper ?? null
+        coverWallpaper ?? null,
+        rotationValue
       );
       const rows: any[] = await prisma.$queryRawUnsafe(
-        `SELECT cover_theme AS coverTheme, cover_wallpaper AS coverWallpaper FROM home_preferences WHERE user_id = ?`,
+        `SELECT cover_theme AS coverTheme, cover_wallpaper AS coverWallpaper,
+                rotation_interval_minutes AS rotationIntervalMinutes
+         FROM home_preferences WHERE user_id = ?`,
         userId
       );
       res.status(200).json({ success: true, data: rows[0] || DEFAULT_HOME_PREFERENCE });
