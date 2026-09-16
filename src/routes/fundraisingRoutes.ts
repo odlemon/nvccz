@@ -242,6 +242,11 @@ router.post(
   requireFundraisingClose,
   FundraisingSrdController.fundCommitment
 );
+router.post(
+  "/commitments/:commitmentId/provision-lp",
+  requireFundraisingClose,
+  FundraisingSrdController.provisionLp
+);
 
 router.get("/closings", FundraisingSrdController.listClosings);
 router.post("/closings", requireFundraisingEdit, FundraisingSrdController.createClosing);

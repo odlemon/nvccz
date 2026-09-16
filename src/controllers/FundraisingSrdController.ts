@@ -6,6 +6,7 @@ import { FundraisingSrdService } from "../services/fundraising/FundraisingSrdSer
 import { FundraisingIrInvestorService } from "../services/fundraising/FundraisingIrInvestorService";
 import { FundraisingFeGapsService } from "../services/fundraising/FundraisingFeGapsService";
 import { FundraisingRequirementsService } from "../services/fundraising/FundraisingRequirementsService";
+import { FundraisingCloseService } from "../services/fundraising/FundraisingCloseService";
 import { remoteUploadService } from "../services/RemoteUploadService";
 
 function sendError(res: Response, e: any) {
@@ -171,6 +172,14 @@ export class FundraisingSrdController {
       req.params.commitmentId,
       req.body,
       req
+    );
+    res.json({ success: true, data });
+  });
+
+  static provisionLp = wrap(async (req, res) => {
+    const data = await FundraisingCloseService.provisionLpFromCommitment(
+      req.params.commitmentId,
+      req.user!.id
     );
     res.json({ success: true, data });
   });
