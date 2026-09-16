@@ -18,13 +18,40 @@ function toNum(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function ownerDisplayName(user: { firstName?: string; lastName?: string } | null | undefined): string | null {
+  if (!user) return null;
+  const name = `${user.firstName || ""} ${user.lastName || ""}`.trim();
+  return name || null;
+}
+
+async function withOwnerName<T extends { campaignOwnerId?: string | null }>(campaign: T): Promise<T & { campaignOwnerName: string | null }> {
+  if (!campaign.campaignOwnerId) return { ...campaign, campaignOwnerName: null };
+  const owner = await prisma.user.findUnique({
+    where: { id: campaign.campaignOwnerId },
+    select: { firstName: true, lastName: true },
+  });
+  return { ...campaign, campaignOwnerName: ownerDisplayName(owner) };
+}
+
+async function withOwnerNames<T extends { campaignOwnerId?: string | null }>(campaigns: T[]): Promise<Array<T & { campaignOwnerName: string | null }>> {
+  const ownerIds = [...new Set(campaigns.map((c) => c.campaignOwnerId).filter(Boolean))] as string[];
+  const owners = ownerIds.length
+    ? await prisma.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, firstName: true, lastName: true } })
+    : [];
+  const ownerById = new Map(owners.map((u) => [u.id, ownerDisplayName(u)]));
+  return campaigns.map((c) => ({
+    ...c,
+    campaignOwnerName: c.campaignOwnerId ? ownerById.get(c.campaignOwnerId) ?? null : null,
+  }));
+}
+
 export class FundraisingIrCampaignService {
   static async list(filters: { campaignType?: string; status?: string; fundId?: string } = {}) {
     const where: any = {};
     if (filters.campaignType) where.campaignType = filters.campaignType;
     if (filters.status) where.status = filters.status;
     if (filters.fundId) where.fundId = filters.fundId;
-    return prisma.fundraisingCampaign.findMany({
+    const campaigns = await prisma.fundraisingCampaign.findMany({
       where,
       include: {
         fund: { select: { id: true, name: true } },
@@ -32,6 +59,7 @@ export class FundraisingIrCampaignService {
       },
       orderBy: { createdAt: "desc" },
     });
+    return withOwnerNames(campaigns);
   }
 
   static async get(campaignId: string) {
@@ -48,7 +76,7 @@ export class FundraisingIrCampaignService {
       },
     });
     if (!campaign) throw FundraisingIrError.notFound("Campaign not found", "CAMPAIGN_NOT_FOUND");
-    return campaign;
+    return withOwnerName(campaign);
   }
 
   static async create(userId: string, body: any) {
