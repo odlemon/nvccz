@@ -1,10 +1,31 @@
 // @ts-nocheck
 import express from "express";
+import multer from "multer";
 import rateLimit from "express-rate-limit";
 import { homepageController } from "../controllers/HomepageController";
+import { homeWallpaperController } from "../controllers/HomeWallpaperController";
+import { profileDocumentController } from "../controllers/ProfileDocumentController";
 import { authenticate } from "../middleware/authenticate";
 
 const router = express.Router();
+
+// Same shape as newsletterRoutes.ts's image upload config (memoryStorage, image-only
+// fileFilter) — 8MB per file, up to 6 at once, matching the frontend's own picker limits.
+const wallpaperUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024, files: 6 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) cb(null, true);
+    else cb(new Error("Only image files are allowed"));
+  },
+});
+
+// Profile documents (My Profile "Add document") — no image-only restriction, unlike wallpapers;
+// same 8MB limit, one file per request (matches the frontend's single-file form).
+const documentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+});
 
 // Rate limiting for homepage endpoints
 const homepageRateLimit = rateLimit({
@@ -315,4 +336,154 @@ router.put("/notifications/read-all", homepageController.markAllNotificationsAsR
  */
 router.get("/notifications/debug", homepageController.getAllNotificationsDebug);
 
-export default router; 
+/**
+ * @swagger
+ * /homepage/preferences:
+ *   get:
+ *     summary: Get the signed-in user's home-hub preferences
+ *     description: Daily Cover theme/wallpaper, defaulting to Porcelain/auto if never set.
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Preferences retrieved successfully
+ *   put:
+ *     summary: Update the signed-in user's home-hub preferences
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               coverTheme:
+ *                 type: string
+ *               coverWallpaper:
+ *                 type: string
+ *               rotationIntervalMinutes:
+ *                 type: integer
+ *                 description: Only meaningful when coverWallpaper is "auto"
+ *     responses:
+ *       200:
+ *         description: Preferences updated successfully
+ *       400:
+ *         description: None of coverTheme, coverWallpaper or rotationIntervalMinutes was provided
+ */
+router.get("/preferences", homepageController.getMyHomePreference);
+router.put("/preferences", homepageController.updateMyHomePreference);
+
+/**
+ * @swagger
+ * /homepage/wallpapers:
+ *   get:
+ *     summary: List the signed-in user's own uploaded Daily Cover wallpapers
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Wallpapers retrieved successfully
+ *   post:
+ *     summary: Upload one or more Daily Cover wallpaper images (max 6 per request, 8MB each)
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               images:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       201:
+ *         description: Wallpaper(s) uploaded successfully
+ *       400:
+ *         description: No images provided, or the per-user wallpaper limit would be exceeded
+ * /homepage/wallpapers/{id}:
+ *   delete:
+ *     summary: Remove one of the signed-in user's uploaded wallpapers
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Wallpaper removed
+ *       404:
+ *         description: Wallpaper not found (or not owned by the signed-in user)
+ */
+router.get("/wallpapers", homeWallpaperController.listMine);
+router.post("/wallpapers", wallpaperUpload.array("images", 6), homeWallpaperController.upload);
+router.delete("/wallpapers/:id", homeWallpaperController.remove);
+
+/**
+ * @swagger
+ * /homepage/documents:
+ *   get:
+ *     summary: List the signed-in user's own profile documents
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Documents retrieved successfully
+ *   post:
+ *     summary: Upload a profile document (certification, education record, etc.)
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file, name, category]
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *               name:
+ *                 type: string
+ *               category:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Document uploaded successfully
+ *       400:
+ *         description: Missing file, name, or category
+ * /homepage/documents/{id}:
+ *   delete:
+ *     summary: Remove one of the signed-in user's own profile documents
+ *     tags: [Homepage]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Document removed
+ *       404:
+ *         description: Document not found
+ */
+router.get("/documents", profileDocumentController.listMine);
+router.post("/documents", documentUpload.array("file", 1), profileDocumentController.upload);
+router.delete("/documents/:id", profileDocumentController.remove);
+
+export default router;

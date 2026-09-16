@@ -196,6 +196,12 @@ model User {
   transactionsPosted                    CashbookEntry[]                 @relation("TransactionPostedBy")
   passwordResetTokens                   PasswordResetToken[]
   savedFilterFavorites                  SavedFilterFavorite[]
+  homePreference                        HomePreference?
+  homeWallpapers                        HomeWallpaper[]
+  serviceRequests                       ServiceRequest[]
+  appAccessRequests                     AppAccessRequest[]
+  profileDocuments                      ProfileDocument[]
+  calendarEntries                       CalendarEntry[]
   cashbookReconSessionsCreated          CashbookReconciliationSession[] @relation("CashbookReconSessionCreatedBy")
   cashbookReconSessionsFinished         CashbookReconciliationSession[] @relation("CashbookReconSessionFinishedBy")
   capitalCallsInitiated                 CapitalCall[]                   @relation("CapitalCallCreator")
@@ -252,6 +258,123 @@ model SavedFilterFavorite {
   @@map("saved_filter_favorites")
 }
 
+/// Home V3 hub personalisation, one row per employee. `coverTheme`/`coverWallpaper` back
+/// Daily Cover (design-refs/home-page/execution-plan.md Phase 2); `settings` is a JSON
+/// catch-all reserved for Phase 8 (the Settings modal: language, timezone, density,
+/// notification toggles) so that phase does not need its own migration.
+model HomePreference {
+  id             String   @id @default(cuid())
+  userId         String   @unique @map("user_id")
+  coverTheme     String   @default("Porcelain") @map("cover_theme") @db.VarChar(64)
+  coverWallpaper String   @default("auto") @map("cover_wallpaper") @db.VarChar(64)
+  /// Only meaningful when coverWallpaper = "auto": how often the background rotates, in
+  /// minutes. 1440 (default) matches the original "changes automatically each day" copy;
+  /// the UI also offers short intervals (3/5/15 min, 1 hr) for a Windows-lockscreen-style feel.
+  rotationIntervalMinutes Int      @default(1440) @map("rotation_interval_minutes")
+  settings       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("home_preferences")
+}
+
+/// A user's own uploaded Daily Cover background images (design-refs/home-page/execution-plan.md
+/// Phase 2b). One row per image — matches this schema's established child-table-per-file
+/// convention (Document, VendorDocumentAttachment) rather than a JSON array column. When
+/// coverWallpaper = "auto", rotation cycles through these if the user has any, else the built-in
+/// preset scenes.
+model HomeWallpaper {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  url       String   @db.VarChar(1024)
+  label     String?  @db.VarChar(120)
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sortOrder])
+  @@map("home_wallpapers")
+}
+
+/// Employee self-service requests (Home hub's Services page): leave, expense claims, IT,
+/// travel, facilities, training enrolment. No pre-existing self-service model covers this —
+/// LeaveBalance/Payslip (payroll) and Expense (accounting GL) are both real but neither is a
+/// personal request/ticket concept. `amount` only applies to expense-type requests.
+model ServiceRequest {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  type       String   @db.VarChar(32)
+  summary    String   @db.VarChar(255)
+  amount     Decimal? @db.Decimal(15, 2)
+  status     String   @default("pending") @db.VarChar(32)
+  nextAction String?  @map("next_action") @db.VarChar(255)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("service_requests")
+}
+
+/// Employee requests to access another Matanho module (Home hub's Apps page "Request access"
+/// flow). A lightweight request record only — approving one is a manual admin action elsewhere
+/// (module/role permissions are granted through the existing user-management flow); this just
+/// tracks that the request was made, mirroring ServiceRequest's shape.
+model AppAccessRequest {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  appId     String   @map("app_id") @db.VarChar(64)
+  reason    String?  @db.VarChar(500)
+  status    String   @default("pending") @db.VarChar(32)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("app_access_requests")
+}
+
+/// Employee's own profile documents (Home hub's My Profile "Add document" flow) —
+/// certifications, education records, etc. Stored via the same RemoteUploadService every other
+/// upload in this app uses; see HomeWallpaperController for the pattern this mirrors.
+model ProfileDocument {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  name      String   @db.VarChar(255)
+  category  String   @db.VarChar(64)
+  url       String   @db.VarChar(1024)
+  sizeBytes Int?     @map("size_bytes")
+  mimeType  String?  @map("mime_type") @db.VarChar(120)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("profile_documents")
+}
+
+/// Personal calendar entries (Home hub's Calendar page) — meetings, focus blocks, personal
+/// reminders. Deliberately separate from the real `Event` model: that one is a company-wide
+/// events/RSVP system whose `createEvent` notifies every user in the app, which is exactly
+/// wrong for "block an hour for focus time." Calendar reads real `Event` rows read-only
+/// alongside these for company-wide items; only entries created here are ever written by /home.
+model CalendarEntry {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  title       String   @db.VarChar(255)
+  description String?  @db.Text
+  startDate   DateTime @map("start_date")
+  endDate     DateTime @map("end_date")
+  location    String?  @db.VarChar(255)
+  entryType   String   @default("meeting") @map("entry_type") @db.VarChar(32)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startDate])
+  @@map("calendar_entries")
+}
+
 model Role {
   id                           String                     @id @default(cuid())
   name                         String                     @unique
@@ -270,6 +393,9 @@ model Role {
   @@map("roles")
 }
 
+/// Shared by the Home hub's News feed and Forums: `category` null = a News/company post,
+/// a real category = a Forum discussion filed under it. `isSolved` is Forums-only (a News
+/// post never sets it).
 model Post {
   id         String    @id @default(cuid())
   title      String
@@ -278,6 +404,8 @@ model Post {
   expiresAt  DateTime?
   isNotified Boolean   @default(false)
   isActive   Boolean   @default(true)
+  category   String?
+  isSolved   Boolean   @default(false)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   author     User      @relation(fields: [authorId], references: [id], onDelete: Cascade)

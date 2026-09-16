@@ -1109,7 +1109,8 @@ export class ApplicantPortalController {
 
       const periodIsoList: string[] = [];
       for (const r of rows) {
-        periodIsoList.push(new Date(r.reportingPeriod).toISOString().split("T")[0]);
+        const d = new Date(r.reportingPeriod);
+        periodIsoList.push(Number.isNaN(d.getTime()) ? "" : d.toISOString().split("T")[0]);
       }
 
       let submittedSet = new Set<string>();
