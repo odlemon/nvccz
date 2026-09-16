@@ -192,7 +192,7 @@ const router = express.Router();
  *       409:
  *         description: Conflict - client already exists
  */
-router.post("/", authenticate, authorize(["admin"]), ClientController.createClient);
+router.post("/", authenticate, authorize(["admin", "portfolio_mgr"]), ClientController.createClient);
 
 /**
  * @swagger
@@ -282,7 +282,7 @@ router.post("/", authenticate, authorize(["admin"]), ClientController.createClie
  *                     totalPages:
  *                       type: integer
  */
-router.get("/", authenticate, authorize(["admin", "fund_manager"]), ClientController.getAllClients);
+router.get("/", authenticate, authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]), ClientController.getAllClients);
 
 /**
  * @swagger
@@ -320,7 +320,7 @@ router.get("/", authenticate, authorize(["admin", "fund_manager"]), ClientContro
  *                     totalCommitmentAmount:
  *                       type: number
  */
-router.get("/statistics", authenticate, authorize(["admin", "fund_manager"]), ClientController.getClientStatistics);
+router.get("/statistics", authenticate, authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]), ClientController.getClientStatistics);
 
 /**
  * @swagger
@@ -344,7 +344,7 @@ router.get("/statistics", authenticate, authorize(["admin", "fund_manager"]), Cl
  *       404:
  *         description: Client not found
  */
-router.get("/:id", authenticate, authorize(["admin", "fund_manager"]), ClientController.getClientById);
+router.get("/:id", authenticate, authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]), ClientController.getClientById);
 
 /**
  * @swagger
@@ -368,7 +368,7 @@ router.get("/:id", authenticate, authorize(["admin", "fund_manager"]), ClientCon
  *       404:
  *         description: Client not found
  */
-router.get("/investor/:investorId", authenticate, authorize(["admin", "fund_manager"]), ClientController.getClientByInvestorId);
+router.get("/investor/:investorId", authenticate, authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]), ClientController.getClientByInvestorId);
 
 /**
  * @swagger
@@ -462,8 +462,8 @@ router.get("/investor/:investorId", authenticate, authorize(["admin", "fund_mana
  *       409:
  *         description: Conflict - duplicate investor ID or email
  */
-router.put("/:id/link-user", authenticate, authorize(["admin", "fund_manager"]), ClientController.linkUser);
-router.put("/:id", authenticate, authorize(["admin"]), ClientController.updateClient);
+router.put("/:id/link-user", authenticate, authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]), ClientController.linkUser);
+router.put("/:id", authenticate, authorize(["admin", "portfolio_mgr"]), ClientController.updateClient);
 
 /**
  * @swagger

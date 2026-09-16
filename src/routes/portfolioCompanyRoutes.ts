@@ -1220,7 +1220,7 @@ router.post(
  *                         type: string
  *                         format: date-time
  */
-router.get("/with-investments", authenticate, authorize(["admin", "fund_manager"]), PortfolioCompanyController.getAllPortfolioCompaniesWithInvestments);
+router.get("/with-investments", authenticate, authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]), PortfolioCompanyController.getAllPortfolioCompaniesWithInvestments);
 
 /**
  * @swagger

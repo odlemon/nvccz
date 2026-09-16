@@ -3309,6 +3309,10 @@ model ProcurementInvoice {
   processedDate               DateTime?
   documentPath                String?
   documentType                String?
+  /// Separate from documentPath/documentType (the supplier's own captured invoice document) --
+  /// the payment's own proof-of-payment upload, so paying an invoice never overwrites its document.
+  proofOfPaymentPath          String?                  @map("proof_of_payment_path")
+  proofOfPaymentType          String?                  @map("proof_of_payment_type")
   approvedById                String?
   approvedAt                  DateTime?
   /// MANUAL (a person approved it) or AUTOMATIC (an exact match, when the organisation has switched that on).

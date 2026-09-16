@@ -2797,6 +2797,34 @@ export class ProcurementService {
       newValues: { status: "REJECTED", rejectionReason: reason },
     });
 
+    {
+      const { dispatchProcurementNotification } = await import("./ProcurementNotificationService");
+      const vendorName = updated.vendor?.name || "the vendor";
+      const poNumber = updated.purchaseOrder?.poNumber;
+      await dispatchProcurementNotification({
+        userIds: existing.createdById ? [existing.createdById] : undefined,
+        title: `Invoice rejected: ${updated.invoiceNumber}`,
+        message: `${updated.invoiceNumber} from ${vendorName}${poNumber ? ` (${poNumber})` : ""} was rejected: ${reason}`,
+        type: "PROCUREMENT_INVOICE_REJECTED",
+        relatedEntity: "ProcurementInvoice",
+        relatedEntityId: invoiceId,
+        data: { path: "/procurement/invoices", invoiceNumber: updated.invoiceNumber },
+        email: updated.vendor?.email
+          ? {
+              to: [updated.vendor.email],
+              subject: `Invoice ${updated.invoiceNumber} — action required`,
+              bodyInnerHtml: `
+                <p>Dear ${vendorName},</p>
+                <p>Your invoice <strong>${updated.invoiceNumber}</strong>${poNumber ? ` against purchase order <strong>${poNumber}</strong>` : ""} has been reviewed and could not be accepted as submitted.</p>
+                <p><strong>Reason:</strong> ${reason}</p>
+                <p>Please correct and resubmit the invoice, or contact your procurement contact if you have questions.</p>
+              `,
+              preheader: `Invoice ${updated.invoiceNumber} was rejected: ${reason}`,
+            }
+          : undefined,
+      }).catch((e) => console.error("dispatchProcurementNotification (invoice rejected):", e?.message || e));
+    }
+
     return updated;
   }
 
@@ -3331,8 +3359,10 @@ export class ProcurementService {
           paymentReference: paymentData.paymentReference || receiptNumber,
           journalEntryId: expenseJournalEntry.journalEntry.id,
           cashbookEntryId: cashbookResult.transaction.id,
-          documentPath: paymentData.proofOfPaymentPath || invoice.documentPath,
-          documentType: paymentData.proofOfPaymentPath ? (paymentData.proofOfPaymentPath.endsWith('.pdf') ? 'PDF' : 'IMAGE') : invoice.documentType
+          proofOfPaymentPath: paymentData.proofOfPaymentPath || invoice.proofOfPaymentPath,
+          proofOfPaymentType: paymentData.proofOfPaymentPath
+            ? (paymentData.proofOfPaymentPath.endsWith('.pdf') ? 'PDF' : 'IMAGE')
+            : invoice.proofOfPaymentType
         },
         include: {
           vendor: true,
@@ -3962,7 +3992,22 @@ export class ProcurementService {
         },
       });
 
-      return grnFresh ?? grn;
+      const grnResult = grnFresh ?? grn;
+      if (purchaseOrder.createdById) {
+        const { dispatchProcurementNotification } = await import("./ProcurementNotificationService");
+        const vendorName = grnResult.purchaseOrder?.vendor?.name || "the vendor";
+        await dispatchProcurementNotification({
+          userIds: [purchaseOrder.createdById],
+          title: `Goods receipt recorded: ${grnResult.grnNumber}`,
+          message: `${grnResult.grnNumber} was recorded against ${purchaseOrder.poNumber} (${vendorName}) and is awaiting quality inspection.`,
+          type: "PROCUREMENT_GRN_RECORDED",
+          relatedEntity: "GoodsReceivedNote",
+          relatedEntityId: grnResult.id,
+          data: { path: "/procurement/goods-received", grnNumber: grnResult.grnNumber, poNumber: purchaseOrder.poNumber },
+        }).catch((e) => console.error("dispatchProcurementNotification (GRN created):", e?.message || e));
+      }
+
+      return grnResult;
     } catch (error) {
       console.error("Error creating goods received note:", error);
       throw error;
@@ -4063,6 +4108,20 @@ export class ProcurementService {
       `✅ GRN ${existing.grnNumber} QC approved (qualityStatus=PASSED, status=${nextHeaderStatus})`
     );
 
+    if (updated?.purchaseOrder?.createdById) {
+      const { dispatchProcurementNotification } = await import("./ProcurementNotificationService");
+      const vendorName = updated.purchaseOrder.vendor?.name || "the vendor";
+      await dispatchProcurementNotification({
+        userIds: [updated.purchaseOrder.createdById],
+        title: `Goods receipt approved: ${existing.grnNumber}`,
+        message: `${existing.grnNumber} against ${updated.purchaseOrder.poNumber} (${vendorName}) passed quality inspection.`,
+        type: "PROCUREMENT_GRN_APPROVED",
+        relatedEntity: "GoodsReceivedNote",
+        relatedEntityId: grnId,
+        data: { path: "/procurement/goods-received", grnNumber: existing.grnNumber, poNumber: updated.purchaseOrder.poNumber },
+      }).catch((e) => console.error("dispatchProcurementNotification (GRN approved):", e?.message || e));
+    }
+
     return updated;
   }
 
@@ -4161,6 +4220,20 @@ export class ProcurementService {
     console.log(
       `❌ GRN ${existing.grnNumber} QC rejected (qualityStatus=FAILED, status=REJECTED)`
     );
+
+    if (updated?.purchaseOrder?.createdById) {
+      const { dispatchProcurementNotification } = await import("./ProcurementNotificationService");
+      const vendorName = updated.purchaseOrder.vendor?.name || "the vendor";
+      await dispatchProcurementNotification({
+        userIds: [updated.purchaseOrder.createdById],
+        title: `Goods receipt rejected: ${existing.grnNumber}`,
+        message: `${existing.grnNumber} against ${updated.purchaseOrder.poNumber} (${vendorName}) failed quality inspection: ${reason}`,
+        type: "PROCUREMENT_GRN_REJECTED",
+        relatedEntity: "GoodsReceivedNote",
+        relatedEntityId: grnId,
+        data: { path: "/procurement/goods-received", grnNumber: existing.grnNumber, poNumber: updated.purchaseOrder.poNumber },
+      }).catch((e) => console.error("dispatchProcurementNotification (GRN rejected):", e?.message || e));
+    }
 
     return updated;
   }

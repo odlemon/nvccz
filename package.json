@@ -491,6 +491,7 @@
     "db:migrate:procurement-approval-orphans": "ts-node --transpile-only -r dotenv/config scripts/run-procurement-approval-orphans-migration.ts",
     "db:migrate:procurement-invoice-auto-approval": "ts-node --transpile-only -r dotenv/config scripts/run-procurement-invoice-auto-approval-migration.ts",
     "db:migrate:procurement-invoice-review-flag": "ts-node --transpile-only -r dotenv/config scripts/run-procurement-invoice-review-flag-migration.ts",
+    "db:migrate:procurement-invoice-proof-of-payment": "ts-node --transpile-only -r dotenv/config scripts/run-procurement-invoice-proof-of-payment-migration.ts",
     "db:migrate:procurement-requisition-project": "ts-node --transpile-only -r dotenv/config scripts/run-procurement-requisition-project-migration.ts",
     "db:migrate:procurement-permissions": "ts-node --transpile-only -r dotenv/config scripts/run-procurement-permissions-migration.ts",
     "db:migrate:procurement-registers": "ts-node --transpile-only -r dotenv/config scripts/run-procurement-registers-migration.ts",

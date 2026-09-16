@@ -56,7 +56,7 @@ const fundDocumentUpload = multer({
  *       400:
  *         description: Validation or create error
  */
-router.post("/", authenticate, authorize(["admin"]), FundController.createFund);
+router.post("/", authenticate, authorize(["admin", "portfolio_mgr"]), FundController.createFund);
 
 /**
  * @swagger
@@ -104,7 +104,7 @@ router.post("/", authenticate, authorize(["admin"]), FundController.createFund);
  *                     page: { type: integer, example: 1 }
  *                     totalPages: { type: integer, example: 1 }
  */
-router.get("/", authenticate, authorize(["admin", "fund_manager"]), FundController.getAllFunds);
+router.get("/", authenticate, authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]), FundController.getAllFunds);
 
 /**
  * @swagger
@@ -134,7 +134,7 @@ router.get("/", authenticate, authorize(["admin", "fund_manager"]), FundControll
  *                     totalRemainingAmount: { type: number, example: 45000000 }
  *                     totalDisbursedAmount: { type: number, example: 75000000 }
  */
-router.get("/statistics", authenticate, authorize(["admin", "fund_manager"]), FundController.getFundStatistics);
+router.get("/statistics", authenticate, authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]), FundController.getFundStatistics);
 
 /**
  * Capital calls (LP drawdowns) — see Swagger tag **Capital Calls (LP drawdowns)** for schemas.
@@ -186,7 +186,7 @@ router.post(
  *       404:
  *         description: Fund not found
  */
-router.get("/:fundId", authenticate, authorize(["admin", "fund_manager"]), FundController.getFundById);
+router.get("/:fundId", authenticate, authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]), FundController.getFundById);
 
 /**
  * @swagger
@@ -235,7 +235,7 @@ router.get("/:fundId", authenticate, authorize(["admin", "fund_manager"]), FundC
  *       400:
  *         description: Update error
  */
-router.put("/:fundId", authenticate, authorize(["admin"]), FundController.updateFund);
+router.put("/:fundId", authenticate, authorize(["admin", "portfolio_mgr"]), FundController.updateFund);
 
 /**
  * @swagger
@@ -247,7 +247,7 @@ router.put("/:fundId", authenticate, authorize(["admin"]), FundController.update
 router.get(
   "/:fundId/performance-snapshots",
   authenticate,
-  authorize(["admin", "fund_manager"]),
+  authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]),
   FundController.getPerformanceSnapshots
 );
 
@@ -264,13 +264,13 @@ router.get(
 router.get(
   "/:fundId/documents",
   authenticate,
-  authorize(["admin", "fund_manager"]),
+  authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]),
   FundController.listDocuments
 );
 router.post(
   "/:fundId/documents",
   authenticate,
-  authorize(["admin", "fund_manager"]),
+  authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]),
   fundDocumentUpload.single("file"),
   FundController.uploadDocument
 );
@@ -300,7 +300,7 @@ router.post(
  *                 data: { $ref: '#/components/schemas/Fund' }
  *                 message: { type: string, example: 'Fund closed successfully' }
  */
-router.post("/:fundId/close", authenticate, authorize(["admin"]), FundController.closeFund);
+router.post("/:fundId/close", authenticate, authorize(["admin", "portfolio_mgr"]), FundController.closeFund);
 
 /**
  * @swagger
@@ -329,7 +329,7 @@ router.post("/:fundId/close", authenticate, authorize(["admin"]), FundController
  *                   type: array
  *                   items: { $ref: '#/components/schemas/Fund' }
  */
-router.get("/industry/:industry", authenticate, authorize(["admin", "fund_manager"]), FundController.getFundsByIndustry);
+router.get("/industry/:industry", authenticate, authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]), FundController.getFundsByIndustry);
 
 /**
  * @swagger
@@ -357,7 +357,7 @@ router.get("/industry/:industry", authenticate, authorize(["admin", "fund_manage
  *                   type: array
  *                   items: { $ref: '#/components/schemas/Fund' }
  */
-router.get("/status/:status", authenticate, authorize(["admin", "fund_manager"]), FundController.getFundsByStatus);
+router.get("/status/:status", authenticate, authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]), FundController.getFundsByStatus);
 
 /**
  * @swagger
@@ -394,7 +394,7 @@ router.get("/status/:status", authenticate, authorize(["admin", "fund_manager"])
 router.get(
   "/balance/:minBalance/:maxBalance",
   authenticate,
-  authorize(["admin", "fund_manager"]),
+  authorize(["admin", "fund_manager", "portfolio_mgr", "inv_analyst"]),
   FundController.getFundsByAvailableBalance
 );
 
