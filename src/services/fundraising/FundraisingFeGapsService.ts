@@ -343,7 +343,8 @@ export class FundraisingFeGapsService {
 
   // ── Meetings ──────────────────────────────────────────────────
 
-  static mapMeetingListItem(m: any) {
+  static mapMeetingListItem(m: any, ownerById?: Map<string, { firstName: string; lastName: string }>) {
+    const owner = m.ownerId ? ownerById?.get(m.ownerId) : null;
     return {
       id: m.id,
       title: m.title,
@@ -361,7 +362,7 @@ export class FundraisingFeGapsService {
       completedBy: m.completedById ? { id: m.completedById } : null,
       campaignId: m.campaignId,
       investor: m.investor ? { id: m.investor.id, legalName: m.investor.legalName } : null,
-      owner: m.ownerId ? { id: m.ownerId } : null,
+      owner: m.ownerId ? { id: m.ownerId, firstName: owner?.firstName, lastName: owner?.lastName } : null,
       attendeeCount: m._count?.attendees ?? m.attendees?.length ?? 0,
     };
   }
@@ -399,8 +400,14 @@ export class FundraisingFeGapsService {
       prisma.fundraisingMeeting.count({ where }),
     ]);
 
+    const ownerIds = [...new Set(items.map((m: any) => m.ownerId).filter(Boolean))];
+    const owners = ownerIds.length
+      ? await prisma.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, firstName: true, lastName: true } })
+      : [];
+    const ownerById = new Map(owners.map((u) => [u.id, u]));
+
     return {
-      items: items.map(FundraisingFeGapsService.mapMeetingListItem),
+      items: items.map((m: any) => FundraisingFeGapsService.mapMeetingListItem(m, ownerById)),
       page,
       pageSize,
       total,
@@ -471,7 +478,12 @@ export class FundraisingFeGapsService {
       },
     });
     if (!meeting) throw FundraisingIrError.notFound("Meeting not found", "MEETING_NOT_FOUND");
-    return meeting;
+    if (!meeting.ownerId) return { ...meeting, owner: null };
+    const owner = await prisma.user.findUnique({
+      where: { id: meeting.ownerId },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    return { ...meeting, owner };
   }
 
   static async patchMeeting(meetingId: string, body: any) {

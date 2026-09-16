@@ -322,8 +322,18 @@ export class FundraisingRequirementsService {
       prisma.investorContact.count({ where }),
     ]);
 
+    const ownerIds = [...new Set(items.map((c) => c.investor?.relationshipOwnerId).filter(Boolean))];
+    const owners = ownerIds.length
+      ? await prisma.user.findMany({ where: { id: { in: ownerIds as string[] } }, select: { id: true, firstName: true, lastName: true } })
+      : [];
+    const ownerById = new Map(owners.map((u) => [u.id, u]));
+    const enriched = items.map((c) => ({
+      ...c,
+      owner: c.investor?.relationshipOwnerId ? ownerById.get(c.investor.relationshipOwnerId) ?? null : null,
+    }));
+
     return {
-      items,
+      items: enriched,
       page,
       pageSize: take,
       total,

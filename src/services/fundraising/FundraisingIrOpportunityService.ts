@@ -33,6 +33,33 @@ function hasPositive(v: unknown): boolean {
   return n != null && n > 0;
 }
 
+function ownerDisplayName(user: { firstName?: string; lastName?: string } | null | undefined): string | null {
+  if (!user) return null;
+  const name = `${user.firstName || ""} ${user.lastName || ""}`.trim();
+  return name || null;
+}
+
+async function withOwnerName<T extends { opportunityOwnerId?: string | null }>(opp: T): Promise<T & { opportunityOwnerName: string | null }> {
+  if (!opp.opportunityOwnerId) return { ...opp, opportunityOwnerName: null };
+  const owner = await prisma.user.findUnique({
+    where: { id: opp.opportunityOwnerId },
+    select: { firstName: true, lastName: true },
+  });
+  return { ...opp, opportunityOwnerName: ownerDisplayName(owner) };
+}
+
+async function withOwnerNames<T extends { opportunityOwnerId?: string | null }>(opps: T[]): Promise<Array<T & { opportunityOwnerName: string | null }>> {
+  const ownerIds = [...new Set(opps.map((o) => o.opportunityOwnerId).filter(Boolean))] as string[];
+  const owners = ownerIds.length
+    ? await prisma.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, firstName: true, lastName: true } })
+    : [];
+  const ownerById = new Map(owners.map((u) => [u.id, ownerDisplayName(u)]));
+  return opps.map((o) => ({
+    ...o,
+    opportunityOwnerName: o.opportunityOwnerId ? ownerById.get(o.opportunityOwnerId) ?? null : null,
+  }));
+}
+
 export class FundraisingIrOpportunityService {
   static async list(filters: {
     campaignId?: string;
@@ -50,7 +77,7 @@ export class FundraisingIrOpportunityService {
       where.currentStage = { stageCode: filters.stageCode };
     }
 
-    return prisma.fundraisingOpportunity.findMany({
+    const opportunities = await prisma.fundraisingOpportunity.findMany({
       where,
       include: {
         investor: { select: { id: true, legalName: true, investorType: true, status: true } },
@@ -59,6 +86,7 @@ export class FundraisingIrOpportunityService {
       },
       orderBy: { updatedAt: "desc" },
     });
+    return withOwnerNames(opportunities);
   }
 
   static async get(id: string) {
@@ -84,7 +112,7 @@ export class FundraisingIrOpportunityService {
       },
     });
     if (!opp) throw FundraisingIrError.notFound("Opportunity not found", "OPPORTUNITY_NOT_FOUND");
-    return opp;
+    return withOwnerName(opp);
   }
 
   static async create(userId: string, body: any) {
