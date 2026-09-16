@@ -641,18 +641,35 @@ export class FundraisingSrdService {
       take: 100,
     });
 
+    const ownerIds = [
+      ...new Set(
+        filteredTasks
+          .map((t) => (t.taskMetadata as Record<string, unknown> | null)?.ownerId)
+          .filter((id): id is string => typeof id === "string" && id.length > 0)
+      ),
+    ];
+    const owners = ownerIds.length
+      ? await prisma.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, firstName: true, lastName: true } })
+      : [];
+    const ownerById = new Map(owners.map((u) => [u.id, `${u.firstName || ""} ${u.lastName || ""}`.trim() || null]));
+
     return {
-      performanceTasks: filteredTasks.map((t) => ({
-        id: t.id,
-        source: "Task",
-        title: t.title,
-        description: t.description,
-        stage: t.stage,
-        status: t.status,
-        date: t.date,
-        priority: t.priority,
-        taskMetadata: t.taskMetadata,
-      })),
+      performanceTasks: filteredTasks.map((t) => {
+        const meta = (t.taskMetadata || {}) as Record<string, unknown>;
+        const ownerId = typeof meta.ownerId === "string" ? meta.ownerId : null;
+        return {
+          id: t.id,
+          source: "Task",
+          title: t.title,
+          description: t.description,
+          stage: t.stage,
+          status: t.status,
+          date: t.date,
+          priority: t.priority,
+          taskMetadata: t.taskMetadata,
+          ownerName: ownerId ? ownerById.get(ownerId) ?? null : null,
+        };
+      }),
       internalTaskCommunications: fallbackTasks,
     };
   }
@@ -666,6 +683,7 @@ export class FundraisingSrdService {
       campaignId: body.campaignId ?? null,
       opportunityId: body.opportunityId ?? null,
       investorId: body.investorId ?? null,
+      ownerId: body.ownerId ?? null,
     };
 
     try {
