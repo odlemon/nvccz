@@ -3,8 +3,159 @@ import { prisma } from "../../utils/database";
 import { ClientService } from "../ClientService";
 import { LpFundMetricsService } from "../fundReporting/LpFundMetricsService";
 import { FundraisingGlPostingService } from "./FundraisingGlPostingService";
+import { FundraisingIrError } from "./FundraisingIrError";
+import { FundraisingSrdService } from "./FundraisingSrdService";
 
 export class FundraisingCloseService {
+  /**
+   * Provision a real Portfolio Client/LP from an admitted Fundraising commitment
+   * (the current IR pipeline — distinct from the legacy closeDeal()/FundraisingPipelineDeal
+   * flow above). Idempotent: re-calling after commitment.clientId is set just returns the
+   * existing client/commitment rather than creating a duplicate.
+   */
+  static async provisionLpFromCommitment(commitmentId: string, userId: string) {
+    const commitment = await prisma.fundraisingCommitment.findUnique({
+      where: { id: commitmentId },
+      include: {
+        investor: true,
+        opportunity: { include: { campaign: true } },
+      },
+    });
+    if (!commitment) throw FundraisingIrError.notFound("Commitment not found", "COMMITMENT_NOT_FOUND");
+
+    if (commitment.clientId) {
+      const client = await prisma.client.findUnique({
+        where: { id: commitment.clientId },
+        select: { id: true, legalName: true, investorId: true, email: true },
+      });
+      return { commitment, client, alreadyProvisioned: true };
+    }
+
+    if (commitment.status !== "ADMITTED_AT_CLOSE") {
+      throw FundraisingIrError.badRequest(
+        "Commitment must be admitted before it can be provisioned as an LP",
+        "NOT_ADMITTED"
+      );
+    }
+
+    const fundId = commitment.fundId || commitment.opportunity?.campaign?.fundId;
+    if (!fundId) {
+      throw FundraisingIrError.badRequest(
+        "This commitment's campaign has no linked fund — cannot provision an LP without one",
+        "NO_FUND_LINKED"
+      );
+    }
+    const fund = await prisma.fund.findUnique({ where: { id: fundId } });
+    if (!fund) throw FundraisingIrError.notFound("Fund not found", "FUND_NOT_FOUND");
+
+    const primaryContact = await prisma.investorContact.findFirst({
+      where: { investorId: commitment.investorId, status: "ACTIVE", email: { not: null } },
+      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    });
+    const email = primaryContact?.email?.trim();
+    if (!email) {
+      throw FundraisingIrError.badRequest(
+        "This investor has no contact with an email on file — add one before provisioning as an LP",
+        "NO_CONTACT_EMAIL"
+      );
+    }
+
+    const investor = commitment.investor;
+    const amount = Number(commitment.commitmentAmount ?? 0);
+    const effectiveDate = commitment.admissionDate ?? new Date();
+
+    let clientId: string | null = null;
+    const existingByEmail = await prisma.client.findUnique({ where: { email } });
+    if (existingByEmail) {
+      clientId = existingByEmail.id;
+    } else {
+      const investorId = await ClientService.allocateNextPartnerInvestorId(prisma);
+      const created = await prisma.client.create({
+        data: {
+          investorId,
+          type: "institutional",
+          legalName: investor.legalName,
+          email,
+          country: investor.countryCode || "ZW",
+          status: "ACTIVE",
+        },
+      });
+      clientId = created.id;
+    }
+
+    const existingCommitment = await prisma.investmentCommitment.findUnique({
+      where: { clientId_fundId: { clientId, fundId } },
+    });
+    if (!existingCommitment) {
+      await prisma.investmentCommitment.create({
+        data: {
+          clientId,
+          fundId,
+          amount,
+          currency: commitment.currency,
+          effectiveDate,
+          status: "ACTIVE",
+          notes: `Fundraising commitment ${commitmentId} (${investor.legalName})`,
+        },
+      });
+    } else {
+      await prisma.investmentCommitment.update({
+        where: { clientId_fundId: { clientId, fundId } },
+        data: { status: "ACTIVE" },
+      });
+    }
+
+    const portalUser = await prisma.user.findFirst({ where: { email }, select: { id: true } });
+    if (portalUser) {
+      try {
+        await ClientService.linkPortalUser(clientId, portalUser.id);
+      } catch {
+        // non-fatal if link fails (e.g. user already linked elsewhere)
+      }
+    }
+
+    await prisma.fundraisingCommitment.update({
+      where: { id: commitmentId },
+      data: { clientId },
+    });
+
+    try {
+      const asOf = new Date();
+      const periodStart = new Date(asOf);
+      periodStart.setFullYear(periodStart.getFullYear() - 1);
+      const metrics = await LpFundMetricsService.computeForClient({
+        fundId,
+        clientId,
+        periodStart,
+        periodEnd: asOf,
+      });
+      await prisma.lpPortalMetricSnapshot.upsert({
+        where: { clientId_fundId_asOfDate: { clientId, fundId, asOfDate: asOf } },
+        create: { clientId, fundId, asOfDate: asOf, metrics },
+        update: { metrics },
+      });
+    } catch {
+      // snapshot refresh is best-effort
+    }
+
+    await FundraisingSrdService.logAudit(
+      { id: userId },
+      "PROVISION_LP",
+      "FundraisingCommitment",
+      commitmentId,
+      { clientId: null },
+      { clientId },
+      null
+    );
+
+    const client = await prisma.client.findUnique({
+      where: { id: clientId },
+      select: { id: true, legalName: true, investorId: true, email: true },
+    });
+    const updatedCommitment = await prisma.fundraisingCommitment.findUnique({ where: { id: commitmentId } });
+    return { commitment: updatedCommitment, client, alreadyProvisioned: false };
+  }
+
   static async closeDeal(dealId: string, userId: string) {
     const deal = await prisma.fundraisingPipelineDeal.findUnique({
       where: { id: dealId },
