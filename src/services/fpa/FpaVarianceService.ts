@@ -176,9 +176,20 @@ export class FpaVarianceService {
         .filter((r) => String(r.lineItem?.code || "").toUpperCase() === code)
         .reduce((s, r) => s + Number(r.varianceAbs || 0), 0);
 
+    // No variance result is ever computed for the "OPEX" rollup itself on
+    // this model — only its EXPENSE-category leaf items (Payroll, Marketing,
+    // Technology, etc.) have variance rows — so byCode("OPEX") always came
+    // back 0 while the department table (summed from those same leaf rows)
+    // showed real variances. Sum the EXPENSE-category leaves as the fallback.
+    const byCategory = (category: string) =>
+      rows
+        .filter((r) => String(r.lineItem?.category || "").toUpperCase() === category)
+        .filter((r) => String(r.lineItem?.code || "").toUpperCase() !== "OPEX")
+        .reduce((s, r) => s + Number(r.varianceAbs || 0), 0);
+
     const kpis = {
       revenueVar: byCode("REVENUE"),
-      opexVar: byCode("OPEX") || byCode("EXPENSE"),
+      opexVar: byCode("OPEX") || byCategory("EXPENSE"),
       ebitdaVar: byCode("EBITDA"),
     };
 
