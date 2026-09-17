@@ -247,9 +247,23 @@ export class ClientService {
                   select: {
                     id: true,
                     name: true,
-                    status: true
+                    status: true,
+                    vintageYear: true
                   }
+                },
+                capitalCallAllocations: {
+                  select: { currentCallAmount: true, amountPaid: true }
+                },
+                distributionAllocations: {
+                  select: { shareAmount: true, amountPaid: true }
                 }
+              }
+            },
+            lpUserRelations: {
+              select: {
+                lpRole: true,
+                isActive: true,
+                user: { select: { firstName: true, lastName: true, email: true } }
               }
             }
           },
