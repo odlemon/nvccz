@@ -2914,6 +2914,118 @@ model KPI {
   @@map("kpis")
 }
 
+/// Performance <-> FP&A integration (SRD-4 §22-25): explicit, admin-configured
+/// mapping from an FP&A line item to a KPI, used to snapshot financial targets
+/// into Performance when the source FP&A version locks. Plain scalar FK
+/// columns (no Prisma @relation) — referential integrity is enforced at the
+/// DB level by the migration script, not here, so this model can be added
+/// without touching KPI/PerformanceGoal/PlanningModel's own definitions.
+model PerformanceFpaTargetMapping {
+  id                   String    @id @default(cuid())
+  kpiId                String    @map("kpi_id")
+  modelId              String    @map("model_id")
+  lineItemId           String    @map("line_item_id")
+  targetSourceVersionId String?  @map("target_source_version_id")
+  /// FULL_YEAR_VALUE | LATEST_PERIOD | AVERAGE — see PerformanceFpaBridge.
+  targetMappingMethod  String    @default("FULL_YEAR_VALUE") @map("target_mapping_method") @db.VarChar(32)
+  isActive             Boolean   @default(true) @map("is_active")
+  createdById          String    @map("created_by_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@index([kpiId], map: "performance_fpa_target_mappings_kpi_idx")
+  @@index([modelId], map: "performance_fpa_target_mappings_model_idx")
+  @@map("performance_fpa_target_mappings")
+}
+
+/// Maps a KPI to an FP&A driver (line item) so a KPI threshold breach can
+/// raise a Forecast Review Trigger for that driver — Performance never
+/// writes to FP&A directly (guardrail #2/#6 in the digest).
+model PerformanceFpaDriverMapping {
+  id                 String    @id @default(cuid())
+  kpiId              String    @map("kpi_id")
+  modelId            String    @map("model_id")
+  lineItemId         String    @map("line_item_id")
+  /// Achievement % below this triggers a review (e.g. 70.00 = "below 70%").
+  thresholdPct       Decimal   @default(70.00) @db.Decimal(7, 4) @map("threshold_pct")
+  /// Consecutive breaching periods required before triggering (digest example: 2).
+  consecutivePeriods Int       @default(1) @map("consecutive_periods")
+  isActive           Boolean   @default(true) @map("is_active")
+  createdById        String    @map("created_by_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([kpiId], map: "performance_fpa_driver_mappings_kpi_idx")
+  @@map("performance_fpa_driver_mappings")
+}
+
+/// A KPI underperformance event that needs human FP&A review — created by
+/// PerformanceFpaBridge when a mapped KPI breaches its Driver Mapping
+/// threshold. Never auto-resolved and never itself changes an FP&A value
+/// (guardrail #12): a human reviewer records a decision here, and only a
+/// separate, explicit FP&A action (outside this table) would change the
+/// forecast.
+model PerformanceForecastReviewTrigger {
+  id                        String    @id @default(cuid())
+  kpiId                     String    @map("kpi_id")
+  performanceGoalId         String    @map("performance_goal_id")
+  kpiOwnerId                String?   @map("kpi_owner_id")
+  performancePeriod         String    @db.VarChar(20) @map("performance_period")
+  targetValue               Decimal?  @db.Decimal(18, 6) @map("target_value")
+  actualValue                Decimal?  @db.Decimal(18, 6) @map("actual_value")
+  achievementPct            Decimal?  @db.Decimal(7, 4) @map("achievement_pct")
+  /// OPEN | UNDER_REVIEW | NO_FORECAST_CHANGE | FORECAST_CHANGE_PROPOSED | FORECAST_UPDATED | CLOSED
+  status                    String    @default("OPEN") @db.VarChar(32)
+  driverMappingId           String?   @map("driver_mapping_id")
+  currentDriverValue        Decimal?  @db.Decimal(18, 6) @map("current_driver_value")
+  triggerReason             String?   @db.Text @map("trigger_reason")
+  triggerDate               DateTime  @default(now()) @map("trigger_date")
+  fpaReviewerId             String?   @map("fpa_reviewer_id")
+  reviewStatus              String?   @map("review_status") @db.VarChar(32)
+  reviewDecision            String?   @db.Text @map("review_decision")
+  resultingForecastVersionId String?  @map("resulting_forecast_version_id")
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+
+  @@index([kpiId], map: "performance_forecast_review_triggers_kpi_idx")
+  @@index([status], map: "performance_forecast_review_triggers_status_idx")
+  @@map("performance_forecast_review_triggers")
+}
+
+/// Immutable snapshot of a target value read from a locked FP&A version.
+/// Rows are never updated — appliedToGoal records whether this specific
+/// snapshot was allowed to raise the goal's live target (guardrail #3: an
+/// original target must never be overwritten by a later, LOWER forecast).
+model PerformanceFinancialTargetSnapshot {
+  id                String   @id @default(cuid())
+  targetMappingId   String   @map("target_mapping_id")
+  performanceGoalId String?  @map("performance_goal_id")
+  sourceVersionId   String   @map("source_version_id")
+  snapshotValue     Decimal  @db.Decimal(18, 6) @map("snapshot_value")
+  appliedToGoal     Boolean  @default(false) @map("applied_to_goal")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([targetMappingId], map: "performance_financial_target_snapshots_mapping_idx")
+  @@map("performance_financial_target_snapshots")
+}
+
+/// Informational forecast snapshot shown alongside (never instead of) the
+/// target and actual on a KPI — created when an FP&A version locks, for any
+/// KPI with an active Target Mapping to that model (guardrail: forecast must
+/// never be treated as a performance target automatically).
+model PerformanceForecastSnapshot {
+  id                String   @id @default(cuid())
+  kpiId             String   @map("kpi_id")
+  performanceGoalId String?  @map("performance_goal_id")
+  modelId           String   @map("model_id")
+  sourceVersionId   String   @map("source_version_id")
+  forecastValue     Decimal  @db.Decimal(18, 6) @map("forecast_value")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([kpiId], map: "performance_forecast_snapshots_kpi_idx")
+  @@map("performance_forecast_snapshots")
+}
+
 /// Balanced Scorecard pillar configuration (DB-backed, editable labels/descriptions).
 /// System pillars are seeded with stable ids aligned to `ORG_BSC_CANONICAL_TO_PILLAR_ID`.
 model ScorecardPillar {

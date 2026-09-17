@@ -91,6 +91,7 @@ import targetTrackingRoutes from "./routes/targetTrackingRoutes"
 import auditRoutes from "./routes/auditRoutes"
 import systemAuditLogRoutes from "./routes/systemAuditLogRoutes"
 import performanceGoalRoutes from "./routes/performanceGoalRoutes"
+import performanceFpaIntegrationRoutes from "./routes/performanceFpaIntegrationRoutes"
 import performanceETLRoutes from "./routes/performanceETLRoutes"
 import performanceWorkflowRoutes from "./routes/performanceWorkflowRoutes"
 import performanceDashboardRoutes from "./routes/performanceDashboardRoutes"
@@ -735,6 +736,7 @@ app.use("/api/system-audit-log", systemAuditLogRoutes)
 
 // Performance Management routes
 app.use("/api/performance/goals", performanceGoalRoutes)
+app.use("/api/performance/fpa-integration", performanceFpaIntegrationRoutes)
 app.use("/api/performance/etl", performanceETLRoutes)
 app.use("/api/performance/dashboard", performanceDashboardRoutes)
 app.use("/api/performance/workflow", performanceWorkflowRoutes)

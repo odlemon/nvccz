@@ -4,6 +4,7 @@ import { FpaError } from "./FpaError";
 import { FpaAccessService } from "./FpaAccessService";
 import { FpaAuditService } from "./FpaAuditService";
 import { cellCoordKey } from "./FpaCellCanonical";
+import { PerformanceFpaBridge } from "../PerformanceFpaBridge";
 
 export class FpaVersionService {
   static async listByModel(modelId: string) {
@@ -262,6 +263,10 @@ export class FpaVersionService {
       reason,
       ip,
     });
+    // Direction 1/3 of the Performance <-> FP&A integration (SRD-4 §22):
+    // snapshot mapped targets and the informational forecast into
+    // Performance now that this version's numbers are final.
+    await PerformanceFpaBridge.onVersionLocked(version.modelId, versionId);
     return result;
   }
 

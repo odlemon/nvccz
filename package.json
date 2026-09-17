@@ -367,6 +367,7 @@
     "db:migrate:performance-scorecards": "ts-node scripts/run-performance-scorecards-migration.ts",
     "db:migrate:performance-goals-indexes": "ts-node scripts/run-performance-goals-indexes-migration.ts",
     "db:migrate:bsc-workflow-tables": "ts-node scripts/run-bsc-workflow-tables-migration.ts",
+    "db:migrate:performance-fpa-integration": "ts-node scripts/run-performance-fpa-integration-migration.ts",
     "db:revert:bsc-financial-roi-goal": "ts-node scripts/revert-bsc-financial-roi-goal.ts",
     "db:migrate:board-voting-disabled-flag": "ts-node scripts/run-board-voting-disabled-flag-migration.ts",
     "db:revert:bsc-governance-checklist-goal": "ts-node scripts/revert-bsc-governance-checklist-goal.ts",

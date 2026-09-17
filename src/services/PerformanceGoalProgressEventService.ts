@@ -9,6 +9,7 @@ import {
 import { resolveGoalEscalationStatus } from "./performanceScorecardSupport";
 import type { ProgressEventSource } from "./performanceGoalSyncUtils";
 import { glSyncSourceRef } from "./performanceGoalSyncUtils";
+import { PerformanceFpaBridge } from "./PerformanceFpaBridge";
 
 export type RecordProgressEventInput = {
   goalId: string;
@@ -158,6 +159,17 @@ export class PerformanceGoalProgressEventService {
         ...legacyData,
         updatedAt: new Date()
       }
+    });
+
+    // Direction 2 of the Performance <-> FP&A integration (SRD-4 §22): a
+    // breach here only ever creates a review trigger for a human FP&A
+    // reviewer, never writes back to FP&A itself.
+    await PerformanceFpaBridge.checkKpiBreach({
+      id: goalId,
+      kpiId: goal.kpiId,
+      targetValue: goal.targetValue,
+      currentValue: total,
+      assignedToId: goal.assignedToId
     });
 
     return total;
