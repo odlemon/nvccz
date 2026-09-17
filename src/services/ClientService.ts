@@ -252,10 +252,32 @@ export class ClientService {
                   }
                 },
                 capitalCallAllocations: {
-                  select: { currentCallAmount: true, amountPaid: true }
+                  select: {
+                    currentCallAmount: true,
+                    amountPaid: true,
+                    status: true,
+                    capitalCall: {
+                      select: {
+                        transactionDate: true,
+                        paymentDueDate: true,
+                        fund: { select: { name: true } }
+                      }
+                    }
+                  }
                 },
                 distributionAllocations: {
-                  select: { shareAmount: true, amountPaid: true }
+                  select: {
+                    shareAmount: true,
+                    amountPaid: true,
+                    status: true,
+                    distribution: {
+                      select: {
+                        distributionDate: true,
+                        source: true,
+                        fund: { select: { name: true } }
+                      }
+                    }
+                  }
                 }
               }
             },
@@ -265,6 +287,19 @@ export class ClientService {
                 isActive: true,
                 user: { select: { firstName: true, lastName: true, email: true } }
               }
+            },
+            lpPortalDocuments: {
+              select: {
+                id: true,
+                category: true,
+                title: true,
+                mimeType: true,
+                fileSizeBytes: true,
+                publishedAt: true,
+                createdAt: true,
+                fund: { select: { name: true } }
+              },
+              orderBy: { createdAt: 'desc' }
             }
           },
           orderBy: {
