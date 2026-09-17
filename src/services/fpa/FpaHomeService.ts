@@ -142,7 +142,12 @@ export class FpaHomeService {
 
     const revenue = sums.REVENUE || 0;
     const ebitda = sums.EBITDA || 0;
-    const closingCash = sums.CLOSING_CASH || 0;
+    // Closing Cash is a point-in-time balance, not a flow — summing it across
+    // every period (sumByCode's generic behaviour, correct for REVENUE/EBITDA/
+    // OPEX) produces a meaningless multiple of the real balance. Use the
+    // latest period's value instead, matching how the Cash Flow domain pack
+    // (FpaDomainService.cashPack) reads it.
+    const closingCash = cashByMonth.length ? cashByMonth[cashByMonth.length - 1].closing : sums.CLOSING_CASH || 0;
     const opex = sums.OPEX || sums.EXPENSE || 0;
     const monthlyBurn = Math.max(0, -Number(ebitda || 0) / 12) || Math.max(0, opex / Math.max(1, periods.length));
     const runwayMonths =

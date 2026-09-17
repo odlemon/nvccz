@@ -3,6 +3,7 @@ import { prisma } from "../../utils/database";
 
 const REVENUE_CODES = ["REVENUE", "NET_REVENUE", "GROSS_REVENUE"];
 const GROSS_MARGIN_CODES = ["GROSS_MARGIN", "GROSS_PROFIT"];
+const COGS_CODES = ["COGS", "COST_OF_GOODS_SOLD", "COST_OF_SALES"];
 const EBITDA_CODES = ["EBITDA"];
 
 async function sumCodes(
@@ -78,11 +79,29 @@ export class FpaPlanningSummaryService {
       versionId = working?.id || null;
     }
 
-    const [rev, gm, ebitda] = await Promise.all([
+    const [rev, gmRaw, ebitda, cogs] = await Promise.all([
       sumCodes(modelId, versionId, scenarioId, REVENUE_CODES),
       sumCodes(modelId, versionId, scenarioId, GROSS_MARGIN_CODES),
       sumCodes(modelId, versionId, scenarioId, EBITDA_CODES),
+      sumCodes(modelId, versionId, scenarioId, COGS_CODES),
     ]);
+    // No dedicated Gross Margin/Gross Profit line item on this model: fall
+    // back to Revenue − COGS. If there's no COGS line item either (a
+    // services/advisory business with no cost-of-sales concept), Gross
+    // Margin legitimately equals Revenue (0 COGS) rather than defaulting to
+    // $0 — showing $0 when Revenue is millions was the bug.
+    let gm = gmRaw
+    if (!gmRaw.matchedCode) {
+      const byPeriod: Record<string, number> = {}
+      for (const p of new Set([...Object.keys(rev.byPeriod), ...Object.keys(cogs.byPeriod)])) {
+        byPeriod[p] = (rev.byPeriod[p] || 0) - (cogs.byPeriod[p] || 0)
+      }
+      gm = {
+        total: rev.total - cogs.total,
+        matchedCode: cogs.matchedCode ? "REVENUE-COGS" : "REVENUE",
+        byPeriod,
+      }
+    }
 
     const grossMarginPct = rev.total !== 0 ? (gm.total / Math.abs(rev.total)) * 100 : null;
 

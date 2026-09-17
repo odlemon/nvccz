@@ -129,7 +129,7 @@ export class FpaRollingForecastService {
     if (!forecastStart) forecastStart = addMonths(actualsCutoff, 1);
 
     const lineItems = await prisma.planningLineItem.findMany({
-      where: { modelId, code: { in: ["REVENUE", "EBITDA", "CLOSING_CASH"] } },
+      where: { modelId, code: { in: ["REVENUE", "EBITDA", "CLOSING_CASH", "OPEX", "EXPENSE"] } },
     });
     const byCode = Object.fromEntries(lineItems.map((l) => [l.id, l.code]));
     const cellWhere: any = { modelId, lineItemId: { in: lineItems.map((l) => l.id) } };
@@ -140,14 +140,30 @@ export class FpaRollingForecastService {
       where: { modelId, lineItemId: { in: lineItems.map((l) => l.id) } },
     });
 
-    const sums: Record<string, number> = { REVENUE: 0, EBITDA: 0, CLOSING_CASH: 0 };
+    const sums: Record<string, number> = { REVENUE: 0, EBITDA: 0, CLOSING_CASH: 0, OPEX: 0, EXPENSE: 0 };
+    // Closing Cash is a point-in-time balance, not a flow — track it per period
+    // separately from the flow-type sums (Revenue/EBITDA/Opex, correctly
+    // summed across the year) so the KPI can use the latest balance instead
+    // of a meaningless sum-of-balances. Mirrors FpaHomeService.dashboard().
+    const closingCashByPeriod: Record<string, number> = {};
     for (const c of cells) {
       const code = byCode[c.lineItemId];
-      if (code) sums[code] += Number(c.value || 0);
+      if (!code) continue;
+      sums[code] += Number(c.value || 0);
+      if (code === "CLOSING_CASH") {
+        const k = iso(c.periodDate)!;
+        closingCashByPeriod[k] = (closingCashByPeriod[k] || 0) + Number(c.value || 0);
+      }
     }
-    const monthlyBurn = Math.max(0, -sums.EBITDA / 12);
+    const closingCashPeriods = Object.keys(closingCashByPeriod).sort();
+    const latestClosingCash = closingCashPeriods.length
+      ? closingCashByPeriod[closingCashPeriods[closingCashPeriods.length - 1]]
+      : sums.CLOSING_CASH;
+    const opexTotal = sums.OPEX || sums.EXPENSE || 0;
+    const monthlyBurn =
+      Math.max(0, -sums.EBITDA / 12) || Math.max(0, opexTotal / Math.max(1, closingCashPeriods.length || 12));
     const runwayMonths =
-      monthlyBurn > 0 ? Number((sums.CLOSING_CASH / monthlyBurn).toFixed(1)) : null;
+      monthlyBurn > 0 ? Number((latestClosingCash / monthlyBurn).toFixed(1)) : null;
 
     const periodSet = new Set<string>();
     for (const c of cells) periodSet.add(iso(c.periodDate)!);
@@ -177,7 +193,7 @@ export class FpaRollingForecastService {
         label: m.label,
         revenue: Number((sums.REVENUE * factor).toFixed(2)),
         ebitda: Number((sums.EBITDA * factor).toFixed(2)),
-        cash: Number((sums.CLOSING_CASH * factor).toFixed(2)),
+        cash: Number((latestClosingCash * factor).toFixed(2)),
       };
     });
 
@@ -206,7 +222,7 @@ export class FpaRollingForecastService {
       kpis: {
         revenue: sums.REVENUE,
         ebitda: sums.EBITDA,
-        cash: sums.CLOSING_CASH,
+        cash: latestClosingCash,
         runwayMonths,
         accuracyPct,
       },

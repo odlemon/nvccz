@@ -11,12 +11,18 @@ const METRIC_DEFS: Array<{
   higherIsFavourable: boolean;
 }> = [
   { codes: ["REVENUE", "NET_REVENUE", "GROSS_REVENUE"], code: "REVENUE", label: "Revenue", unit: "CURRENCY", higherIsFavourable: true },
-  { codes: ["GROSS_MARGIN", "GROSS_PROFIT"], code: "GROSS_MARGIN", label: "Gross Margin", unit: "CURRENCY", higherIsFavourable: true },
-  { codes: ["EBITDA"], code: "EBITDA", label: "EBITDA", unit: "CURRENCY", higherIsFavourable: true },
-  { codes: ["CLOSING_CASH"], code: "CLOSING_CASH", label: "Cash", unit: "CURRENCY", higherIsFavourable: true },
-  { codes: ["HEADCOUNT"], code: "HEADCOUNT", label: "Headcount", unit: "FTE", higherIsFavourable: false },
   { codes: ["COGS"], code: "COGS", label: "COGS", unit: "CURRENCY", higherIsFavourable: false },
+  { codes: ["GROSS_PROFIT", "GROSS_MARGIN"], code: "GROSS_PROFIT", label: "Gross Profit", unit: "CURRENCY", higherIsFavourable: true },
+  { codes: ["OPEX", "OPERATING_EXPENSES"], code: "OPEX", label: "Opex", unit: "CURRENCY", higherIsFavourable: false },
+  { codes: ["EBITDA"], code: "EBITDA", label: "EBITDA", unit: "CURRENCY", higherIsFavourable: true },
+  { codes: ["CAPEX", "CAPITAL_EXPENDITURE"], code: "CAPEX", label: "Capex", unit: "CURRENCY", higherIsFavourable: false },
+  { codes: ["HEADCOUNT"], code: "HEADCOUNT", label: "Headcount", unit: "FTE", higherIsFavourable: false },
+  { codes: ["CLOSING_CASH"], code: "CLOSING_CASH", label: "Cash", unit: "CURRENCY", higherIsFavourable: true },
 ];
+// Point-in-time balances (not flows) — summing across periods is meaningless;
+// use the latest period's value instead. Same fix applied independently to
+// FpaHomeService and FpaRollingForecastService for the same underlying bug.
+const BALANCE_CODES = new Set(["CLOSING_CASH"]);
 
 async function parentNamesByIds(ids: string[]): Promise<Record<string, string>> {
   const uniq = [...new Set(ids.filter(Boolean))];
@@ -49,6 +55,30 @@ async function sumMetricForScenario(
     `SELECT COALESCE(SUM(\`value\`), 0) AS total
      FROM \`planning_cells\`
      WHERE \`version_id\` = ? AND \`scenario_id\` = ? AND \`line_item_id\` IN (${lineItemIds.map(() => "?").join(",")})`,
+    versionId,
+    scenarioId,
+    ...lineItemIds
+  );
+  return Number(rows[0]?.total || 0);
+}
+
+async function latestPeriodMetricForScenario(
+  versionId: string,
+  scenarioId: string,
+  lineItemIds: string[]
+): Promise<number> {
+  if (!lineItemIds.length) return 0;
+  const rows = await prisma.$queryRawUnsafe<Array<{ total: any }>>(
+    `SELECT COALESCE(SUM(\`value\`), 0) AS total
+     FROM \`planning_cells\`
+     WHERE \`version_id\` = ? AND \`scenario_id\` = ? AND \`line_item_id\` IN (${lineItemIds.map(() => "?").join(",")})
+       AND \`period_date\` = (
+         SELECT MAX(\`period_date\`) FROM \`planning_cells\`
+         WHERE \`version_id\` = ? AND \`scenario_id\` = ? AND \`line_item_id\` IN (${lineItemIds.map(() => "?").join(",")})
+       )`,
+    versionId,
+    scenarioId,
+    ...lineItemIds,
     versionId,
     scenarioId,
     ...lineItemIds
@@ -310,7 +340,16 @@ export class FpaScenarioService {
       scenarioIds.map(async (sid) => {
         const vals: Record<string, number> = {};
         for (const def of METRIC_DEFS) {
-          vals[def.code] = await sumMetricForScenario(String(versionId), sid, idsByPreferred[def.code]);
+          vals[def.code] = BALANCE_CODES.has(def.code)
+            ? await latestPeriodMetricForScenario(String(versionId), sid, idsByPreferred[def.code])
+            : await sumMetricForScenario(String(versionId), sid, idsByPreferred[def.code]);
+        }
+        // No dedicated Gross Margin/Gross Profit line item: fall back to
+        // Revenue − COGS (0 COGS when there's no cost-of-sales concept for
+        // this business, so Gross Profit legitimately equals Revenue rather
+        // than defaulting to $0).
+        if (!idsByPreferred.GROSS_PROFIT.length) {
+          vals.GROSS_PROFIT = (vals.REVENUE || 0) - (vals.COGS || 0)
         }
         valuesByScenario[sid] = vals;
       })
@@ -341,6 +380,37 @@ export class FpaScenarioService {
         variancePct,
       };
     });
+
+    // Derived ratio rows — computable directly from metrics already fetched
+    // above, so they should never be blank once Revenue/EBITDA/Gross Margin
+    // are populated.
+    const byCode = Object.fromEntries(metrics.map((m) => [m.code, m]));
+    const ratioMetric = (
+      code: string,
+      label: string,
+      numerator: (typeof metrics)[number] | undefined,
+      denominator: (typeof metrics)[number] | undefined,
+    ) => {
+      if (!numerator || !denominator) return null;
+      const values: Record<string, number | null> = {}
+      for (const sid of scenarioIds) {
+        const denom = denominator.values[sid]
+        values[sid] = denom ? Number(((numerator.values[sid] / Math.abs(denom)) * 100).toFixed(1)) : null
+      }
+      const anchorPct = values[anchorId]
+      const varianceAbs: Record<string, number | null> = {}
+      for (const sid of scenarioIds) {
+        if (sid === anchorId) continue
+        varianceAbs[sid] = values[sid] != null && anchorPct != null ? Number((values[sid]! - anchorPct).toFixed(1)) : null
+      }
+      return { code, label, unit: "PERCENT", higherIsFavourable: true, values, varianceAbs, variancePct: {} }
+    }
+    const ebitdaMargin = ratioMetric("EBITDA_MARGIN", "EBITDA Margin", byCode.EBITDA, byCode.REVENUE)
+    const grossMargin = ratioMetric("GROSS_MARGIN", "Gross Margin", byCode.GROSS_PROFIT, byCode.REVENUE)
+    const ebitdaIdx = metrics.findIndex((m) => m.code === "EBITDA")
+    if (ebitdaMargin) metrics.splice(ebitdaIdx + 1, 0, ebitdaMargin as (typeof metrics)[number])
+    const gpIdx = metrics.findIndex((m) => m.code === "GROSS_PROFIT")
+    if (grossMargin) metrics.splice(gpIdx + 1, 0, grossMargin as (typeof metrics)[number])
 
     let assumptions: any[] = [];
     if (input.includeAssumptions !== false) {
