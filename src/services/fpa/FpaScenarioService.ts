@@ -19,10 +19,13 @@ const METRIC_DEFS: Array<{
   { codes: ["HEADCOUNT"], code: "HEADCOUNT", label: "Headcount", unit: "FTE", higherIsFavourable: false },
   { codes: ["CLOSING_CASH"], code: "CLOSING_CASH", label: "Cash", unit: "CURRENCY", higherIsFavourable: true },
 ];
-// Point-in-time balances (not flows) — summing across periods is meaningless;
-// use the latest period's value instead. Same fix applied independently to
-// FpaHomeService and FpaRollingForecastService for the same underlying bug.
-const BALANCE_CODES = new Set(["CLOSING_CASH"]);
+// Point-in-time balances/headcounts (not flows) — summing across periods is
+// meaningless; use the latest period's value instead. Same fix applied
+// independently to FpaHomeService and FpaRollingForecastService for
+// CLOSING_CASH's identical bug; Headcount has the same "stock, not flow"
+// shape (a company doesn't have 1,014 people just because 87/month × ~12
+// months were added together).
+const BALANCE_CODES = new Set(["CLOSING_CASH", "HEADCOUNT"]);
 
 async function parentNamesByIds(ids: string[]): Promise<Record<string, string>> {
   const uniq = [...new Set(ids.filter(Boolean))];
