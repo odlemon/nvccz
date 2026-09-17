@@ -32,6 +32,30 @@ function byPeriodMap(cells: any[]) {
   return m;
 }
 
+// Precise headcount-item match. Loose substring matching on "FTE" previously
+// also caught cost/dollar drivers like "Average Cost per FTE" (code
+// FTE_COST), summing dollar values into headcount counts and producing
+// garbage totals (e.g. 14,674 "headcount").
+function isHeadcountItem(code: unknown, name: unknown): boolean {
+  const c = String(code || "").toUpperCase().trim();
+  const n = String(name || "").toUpperCase().trim();
+  const exact = new Set(["HEADCOUNT", "HC", "FTE", "FTE_COUNT", "HC_COUNT"]);
+  if (exact.has(c) || exact.has(n)) return true;
+  return /(^|[_\s])HEADCOUNT([_\s]|$)/.test(c) || /(^|[_\s])HEADCOUNT([_\s]|$)/.test(n);
+}
+
+// A line item is a rollup/total (not an independent input) if it has its own
+// formula, or is explicitly typed as calculated. Domain-pack totals must sum
+// only leaf items — summing a rollup's cells alongside its own constituent
+// leaf items' cells double-counts the total (e.g. Revenue KPI reading 2x the
+// real total because a "Revenue" rollup line item was summed together with
+// the Client Mandates / Average Monthly Fee / etc. items that already sum to it).
+function isRollupLineItem(li: any): boolean {
+  if (Array.isArray(li.formulas) && li.formulas.length > 0) return true;
+  const t = String(li.lineItemType || "").toUpperCase();
+  return t === "CALCULATED" || t === "CALC";
+}
+
 function parsePeriod(value: any, field: string): Date | null {
   if (!value) return null;
   const d = new Date(String(value));
@@ -62,6 +86,7 @@ async function loadScoped(modelId: string, category: string, query: any) {
   const lineItems = await prisma.planningLineItem.findMany({
     where: { modelId, category },
     orderBy: { sortOrder: "asc" },
+    include: { formulas: { select: { id: true }, take: 1 } },
   });
   const liIds = lineItems.map((l) => l.id);
   const cellWhere: any = { modelId, lineItemId: { in: liIds } };
@@ -331,19 +356,15 @@ export class FpaDomainService {
 
   static async workforcePack(scoped: any, drivers: any[]) {
     const { cells, actuals, deptName, lineItems } = scoped;
-    const hcDrivers = drivers.filter((d) => /hc|headcount|fte/i.test(`${d.code} ${d.name}`));
+    const hcDrivers = drivers.filter((d) => isHeadcountItem(d.code, d.name));
     const hcByPeriod: Record<string, number> = {};
     for (const d of hcDrivers) {
       const k = iso(d.periodDate) || "total";
       hcByPeriod[k] = (hcByPeriod[k] || 0) + Number(d.value || 0);
     }
-    // Also treat WORKFORCE line items with HEADCOUNT/HC dataType or code
-    const hcLines = lineItems.filter(
-      (l) =>
-        /HC|HEADCOUNT|FTE/i.test(l.code) ||
-        String(l.dataType || "").toUpperCase() === "QUANTITY" ||
-        /headcount|fte/i.test(l.name)
-    );
+    // Also treat WORKFORCE line items whose code/name is precisely a
+    // headcount identifier (not a loose substring match — see isHeadcountItem).
+    const hcLines = lineItems.filter((l) => isHeadcountItem(l.code, l.name));
     for (const li of hcLines) {
       for (const c of cells.filter((x) => x.lineItemId === li.id)) {
         const k = iso(c.periodDate)!;
@@ -385,7 +406,7 @@ export class FpaDomainService {
       if (!byDept[c.departmentId]) byDept[c.departmentId] = { headcount: 0, cost: 0 };
       const v = Number(c.value || 0);
       const li = lineItems.find((l) => l.id === c.lineItemId);
-      if (li && (/HC|HEADCOUNT|FTE/i.test(li.code) || /headcount/i.test(li.name))) {
+      if (li && isHeadcountItem(li.code, li.name)) {
         byDept[c.departmentId].headcount += v;
       } else {
         byDept[c.departmentId].cost += v;
@@ -419,7 +440,14 @@ export class FpaDomainService {
   }
 
   static revenuePack(scoped: any) {
-    const { lineItems, cells, actuals, deptName } = scoped;
+    const { lineItems: allLineItems, cells: allCells, actuals, deptName } = scoped;
+    // Exclude rollup/total line items (e.g. a "Revenue" line item that is
+    // itself a formula summing the real streams) from the leaf-level totals
+    // and the streams table — otherwise the rollup's own cells get summed
+    // alongside the streams that already sum to it, doubling the total.
+    const rollupIds = new Set(allLineItems.filter(isRollupLineItem).map((l: any) => l.id));
+    const lineItems = allLineItems.filter((l: any) => !rollupIds.has(l.id));
+    const cells = allCells.filter((c: any) => !rollupIds.has(c.lineItemId));
     const periods = [...new Set(cells.map((c) => iso(c.periodDate)))].filter(Boolean).sort() as string[];
     const forecastByPeriod = byPeriodMap(cells);
     const actualByPeriod: Record<string, number> = {};

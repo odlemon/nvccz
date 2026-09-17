@@ -314,6 +314,34 @@ export class FpaModelPlanningCycleService {
       );
     }
 
+    // Any non-status field edit while the cycle remains approved/locked/closed
+    // must be rejected outright — not just the "structural" subset above.
+    // Reopening (a status transition that moves nextStatus out of
+    // IMMUTABLE_STATUSES in this same call) is still allowed to carry other
+    // field changes, matching the existing reopen flow.
+    const anyDataFieldTouched =
+      structuralFieldsTouched ||
+      body.name != null ||
+      body.actualsCutoffPeriod !== undefined ||
+      body.forecastStartPeriod !== undefined ||
+      body.planningHorizon != null ||
+      body.materialVariancePct != null ||
+      body.submissionDeadline !== undefined ||
+      body.approvalWorkflowId !== undefined ||
+      body.planningOwnerId !== undefined;
+
+    if (
+      anyDataFieldTouched &&
+      IMMUTABLE_STATUSES.includes(currentStatus as PlanningStatus) &&
+      IMMUTABLE_STATUSES.includes(nextStatus as PlanningStatus)
+    ) {
+      throw new FpaModelPlanningError(
+        `Cycle is ${currentStatus} and cannot be edited`,
+        403,
+        "CYCLE_LOCKED"
+      );
+    }
+
     const sourceModelId = body.sourceModelId != null ? String(body.sourceModelId) : existing.sourceModelId;
     if (body.sourceModelVersionId && body.sourceModelVersionId !== existing.sourceModelVersionId) {
       await assertPublishedSourceVersion(String(body.sourceModelVersionId), sourceModelId);
