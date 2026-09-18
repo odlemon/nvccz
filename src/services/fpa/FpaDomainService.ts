@@ -433,28 +433,42 @@ export class FpaDomainService {
       return { period, pct };
     });
 
-    const byDept: Record<string, { headcount: number; cost: number }> = {};
+    // Headcount is a point-in-time balance (a department doesn't have 446
+    // people just because ~37/month were added together across 12 months) -
+    // track per period per department and use the latest period only, same
+    // fix already applied to Closing Cash (FPA-003) and Scenario Comparison's
+    // Headcount (FPA-008 follow-up). Cost is a flow and stays summed.
+    const byDeptPeriod: Record<string, Record<string, { headcount: number; cost: number }>> = {};
     for (const c of cells) {
       if (!c.departmentId) continue;
-      if (!byDept[c.departmentId]) byDept[c.departmentId] = { headcount: 0, cost: 0 };
+      const period = iso(c.periodDate)!;
+      if (!byDeptPeriod[c.departmentId]) byDeptPeriod[c.departmentId] = {};
+      if (!byDeptPeriod[c.departmentId][period]) byDeptPeriod[c.departmentId][period] = { headcount: 0, cost: 0 };
       const v = Number(c.value || 0);
       const li = lineItems.find((l) => l.id === c.lineItemId);
       if (li && isHeadcountItem(li.code, li.name)) {
-        byDept[c.departmentId].headcount += v;
+        byDeptPeriod[c.departmentId][period].headcount += v;
       } else {
-        byDept[c.departmentId].cost += v;
+        byDeptPeriod[c.departmentId][period].cost += v;
       }
     }
-    const departments = Object.entries(byDept).map(([departmentId, v]) => ({
-      departmentId,
-      departmentName: deptName[departmentId] || null,
-      headcount: v.headcount || null,
-      budgetHeadcount: null,
-      hires: null,
-      attritionPct: null,
-      avgSalary: v.headcount > 0 && v.cost > 0 ? Number((v.cost / v.headcount).toFixed(0)) : avgSalary,
-      openRoles: null,
-    }));
+    const departments = Object.entries(byDeptPeriod).map(([departmentId, periodMap]) => {
+      const deptPeriods = Object.keys(periodMap).sort();
+      const latestPeriod = deptPeriods[deptPeriods.length - 1];
+      const latestHeadcount = latestPeriod ? periodMap[latestPeriod].headcount : 0;
+      const totalCost = deptPeriods.reduce((s, p) => s + periodMap[p].cost, 0);
+      return {
+        departmentId,
+        departmentName: deptName[departmentId] || null,
+        headcount: latestHeadcount || null,
+        budgetHeadcount: null,
+        hires: null,
+        attritionPct: null,
+        avgSalary:
+          latestHeadcount > 0 && totalCost > 0 ? Number((totalCost / latestHeadcount).toFixed(0)) : avgSalary,
+        openRoles: null,
+      };
+    });
 
     return {
       kpis: {
