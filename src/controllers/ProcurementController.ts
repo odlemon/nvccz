@@ -351,6 +351,58 @@ export class ProcurementController {
   }
 
   /**
+   * A requisition that targets a real department (i.e. is not an investee/fund-scoped Suite 02 record) may only be
+   * viewed by: its own requester; an administrator/CFO or a holder of the cross-department
+   * `procurement.requisitions.view` permission; a Procurement Manager (PROC_MGR); a member of the department the
+   * requisition was actually raised for; or someone who is a genuine cross-department approver on this specific
+   * requisition's route (a ROLE/USER/AMOUNT_THRESHOLD step — e.g. CFO, or a named person).
+   *
+   * A DEPARTMENT-type approval step does NOT by itself grant cross-department viewing: FINDING (security UAT,
+   * 2026-09-18) showed a department head who happened to hold a (misconfigured) DEPARTMENT-step Approval row for
+   * another department's requisition could view and approve it. Department-step approver rows must still match the
+   * requisition's own department — enforced here, and mirrored in ProcurementRequisitionApprovalService.decide()
+   * for approve/reject.
+   */
+  static async assertUserCanViewDepartmentPurchaseRequisition(
+    viewerUserId: string,
+    requisition: { id: string; department: string | null; requestedById: string }
+  ): Promise<void> {
+    if (requisition.requestedById === viewerUserId) return;
+
+    const viewer = await prisma.user.findUnique({
+      where: { id: viewerUserId },
+      select: { userDepartment: true, roleCode: true, role: { select: { permissions: true, name: true } } },
+    });
+    if (!viewer) {
+      throw new Error("Not authorized to view this requisition.");
+    }
+
+    if (isModulePrivilegedUser(viewer)) return;
+    if (userHasEffectivePermission(viewer, PROCUREMENT_PERMISSIONS.requisitionsViewAll)) return;
+    if (String(viewer.roleCode || "").trim().toUpperCase() === "PROC_MGR") return;
+    if (viewer.userDepartment && viewer.userDepartment === requisition.department) return;
+
+    // A named/role/threshold approver on this requisition's own route may see it outside their department
+    // (e.g. CFO on an amount-threshold step) — but a DEPARTMENT-type step does not, on its own, since that is
+    // exactly the misassignment this check exists to catch.
+    const crossDeptApproval = await prisma.approval.findFirst({
+      where: {
+        approverId: viewerUserId,
+        request: { entityId: requisition.id, stageType: "PURCHASE_REQUISITION" },
+        stage: { stepType: { not: "DEPARTMENT" } },
+      },
+      select: { id: true },
+    });
+    if (crossDeptApproval) return;
+
+    throw new Error(
+      requisition.department
+        ? `You are not authorized to view ${requisition.department} department requisitions.`
+        : "You are not authorized to view this requisition."
+    );
+  }
+
+  /**
    * Get purchase requisition by ID
    */
   static async getPurchaseRequisitionById(req: Request, res: Response) {
@@ -424,6 +476,15 @@ export class ProcurementController {
           fundId: requisition.fundId,
           requestedById: requisition.requestedById,
         });
+        if (!requisition.portfolioCompanyId) {
+          // The investee/fund-scoped check above is a no-op for an ordinary department requisition
+          // (it only guards Suite 02 investee-drawdown records) — department ownership is checked here.
+          await ProcurementController.assertUserCanViewDepartmentPurchaseRequisition(userId, {
+            id: requisition.id,
+            department: requisition.department,
+            requestedById: requisition.requestedById,
+          });
+        }
       } catch (accessErr: any) {
         return res.status(403).json({
           success: false,
