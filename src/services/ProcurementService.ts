@@ -1335,6 +1335,7 @@ export class ProcurementService {
           email: true,
           roleCode: true,
           role: true,
+          approvalLimit: true,
         },
       });
 
@@ -1359,6 +1360,20 @@ export class ProcurementService {
       // not call decide() and so does not inherit that check. Not waived for a privileged approver.
       if (requisition.requestedById === approvedById) {
         throw new Error("You cannot approve your own purchase requisition.");
+      }
+
+      // Same personal approval-ceiling rule as ProcurementRequisitionApprovalService.decide() (SRD §7 User
+      // Master "Approval Limit" / §70 "approval limits are enforced server-side"), applied here too since this
+      // legacy no-open-route branch doesn't call decide() and wouldn't otherwise inherit it. Null limit or a
+      // privileged approver behaves exactly as before this field existed.
+      if (!privilegedApprover && approver.approvalLimit != null) {
+        const limit = Number(approver.approvalLimit);
+        const amount = Number(requisition.totalAmount || 0);
+        if (amount > limit) {
+          throw new Error(
+            `Your approval limit is $${limit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}; this transaction is $${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Escalate to an approver with sufficient authority.`
+          );
+        }
       }
 
       const updatedRequisition = await prisma.purchaseRequisition.update({

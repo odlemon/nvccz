@@ -33,6 +33,11 @@ model User {
   mustChangePassword                    Boolean                         @default(false) @map("must_change_password")
   /// SRD User Master: ACTIVE | SUSPENDED | LOCKED | DEACTIVATED. Enforced at login.
   status                                String                          @default("ACTIVE") @db.VarChar(32)
+  /// SRD User Master "Approval Limit": this person's own approval ceiling, independent of workflow routing.
+  /// Null means no personal ceiling override -- decisions defer entirely to the approval matrix/workflow step
+  /// (AMOUNT_THRESHOLD, department, role, named person), exactly as before this field existed. Enforced at
+  /// decision time in ProcurementRequisitionApprovalService.decide().
+  approvalLimit                         Decimal?                        @db.Decimal(15, 2) @map("approval_limit")
   role                                  Role                            @relation(fields: [roleId], references: [id])
   posts                                 Post[]
   replies                               Reply[]

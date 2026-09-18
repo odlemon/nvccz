@@ -228,7 +228,7 @@ export class ProcurementRequisitionApprovalService {
     const decidingRow = own || atStep[0];
     const pr = await prisma.purchaseRequisition.findUnique({
       where: { id: params.requisitionId },
-      select: { department: true, requestedById: true },
+      select: { department: true, requestedById: true, totalAmount: true },
     });
 
     if (decidingRow.stage.stepType === "DEPARTMENT" && !isModulePrivilegedUser(actor)) {
@@ -251,6 +251,23 @@ export class ProcurementRequisitionApprovalService {
     // an escalation to a different approver.
     if (pr?.requestedById && pr.requestedById === params.actorId) {
       throw badRequest("You cannot approve or reject your own purchase requisition.", 403);
+    }
+
+    // SRD §7 "User Master" Approval Limit / §70 "approval limits are enforced server-side". A personal ceiling
+    // is independent of the shared workflow routing above -- holding a valid pending Approval row (right step,
+    // right department) only proves the matrix assigned this person the decision, not that their own authorized
+    // ceiling covers this amount. Null means the actor never had a personal limit configured, so behavior is
+    // exactly as before this field existed. Only gates APPROVE (rejecting never authorizes spend). Waived for a
+    // module-privileged actor (admin/CFO), the same bypass already used for the DEPARTMENT check above and the
+    // approval matrix itself -- full authority is intentional there, unlike the self-approval rule.
+    if (params.decision === "APPROVE" && actor.approvalLimit != null && !isModulePrivilegedUser(actor)) {
+      const limit = Number(actor.approvalLimit);
+      const amount = pr?.totalAmount != null ? Number(pr.totalAmount) : Number(request.entityData?.totalAmount ?? 0);
+      if (amount > limit) {
+        throw badRequest(
+          `Your approval limit is $${money(limit)}; this transaction is $${money(amount)}. Escalate to an approver with sufficient authority.`
+        );
+      }
     }
 
     const row = own || atStep[0];

@@ -182,7 +182,8 @@ export class UserController {
         roleCode,
         departmentRole,
         roleId,
-        status
+        status,
+        approvalLimit
       } = req.body;
 
       if (!id) {
@@ -202,7 +203,10 @@ export class UserController {
           roleCode,
           departmentRole,
           roleId,
-          status
+          status,
+          // Only forward when the caller actually sent the key -- `undefined` here means "leave it alone",
+          // while an explicit `null` in the body (still !== undefined) means "clear the personal limit".
+          ...(Object.prototype.hasOwnProperty.call(req.body, "approvalLimit") ? { approvalLimit } : {})
         },
         {
           actorUserId: req.user.id,
