@@ -12,8 +12,12 @@ function assertFpa(user: any) {
   FpaAccessService.assertCanApprove(user);
 }
 
+// CFO Approval is a distinct, narrower tier than FP&A review-accept - an
+// FP&A/Finance Manager can accept a submission into review, but only the
+// CFO (or equivalent) gives final sign-off. See FpaAccessService's
+// FINAL_APPROVE_CODES for why this was split out.
 function assertCfo(user: any) {
-  FpaAccessService.assertCanApprove(user);
+  FpaAccessService.assertCanFinalApprove(user);
 }
 
 function assertLock(user: any) {

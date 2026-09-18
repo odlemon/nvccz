@@ -37,6 +37,30 @@ const FPA_PREPARER_CODES = new Set([
   "FINANCE_MEMBER",
 ]);
 
+// Final sign-off tier: CFO-approval and locking, deliberately narrower than
+// APPROVE_LOCK_CODES. The frontend's own permission matrix
+// (lib/config/fpa-permissions.ts) already draws this line correctly - FIN_MGR
+// ("FP&A Manager") gets REVIEW_SUBMISSIONS but not APPROVE_BUDGET/
+// LOCK_VERSION, only CFO_ACTIONS has those - but the backend had been
+// enforcing every "approve" tier with the same permissive set, so a Finance
+// Manager could CFO-approve/lock a cycle via the API even though the UI
+// correctly hid the button. Confirmed live: logged in as a real Finance
+// Manager account and the Workflow screen correctly refused to show CFO
+// Approval actions ("You do not have permission..."), which is what led to
+// finding this backend/frontend mismatch.
+const FINAL_APPROVE_CODES = new Set([
+  "CFO",
+  "CEO",
+  "CHIEF_FINANCIAL_OFFICER",
+  "SYSADMIN",
+  "ADMIN",
+  "SUPER_ADMIN",
+  "SYSTEM_ADMIN",
+  "SYSTEM_ADMINISTRATOR",
+  "FORECAST_LOCK",
+  "FP&A_VERSION_LOCK_AUTHORITY",
+]);
+
 const BOARD_VIEWER_CODES = new Set(["BOARD", "BOARD_VIEWER", "BOARD_MEMBER", "VIEWER"]);
 
 function roleCode(user: any): string {
@@ -67,8 +91,13 @@ export class FpaAccessService {
     return codesOf(user).some((c) => APPROVE_LOCK_CODES.has(c));
   }
 
+  /** CFO-approval and lock actions specifically - narrower than canApprove(). */
+  static canFinalApprove(user: any): boolean {
+    return codesOf(user).some((c) => FINAL_APPROVE_CODES.has(c));
+  }
+
   static canLock(user: any): boolean {
-    return FpaAccessService.canApprove(user);
+    return FpaAccessService.canFinalApprove(user);
   }
 
   static canEdit(user: any, opts?: { departmentId?: string | null; assignedDepartmentIds?: string[] }): boolean {
@@ -145,6 +174,12 @@ export class FpaAccessService {
   static assertCanApprove(user: any) {
     if (!FpaAccessService.canApprove(user)) {
       throw new FpaError(403, "FORBIDDEN", "You do not have permission to approve planning workflows");
+    }
+  }
+
+  static assertCanFinalApprove(user: any) {
+    if (!FpaAccessService.canFinalApprove(user)) {
+      throw new FpaError(403, "FORBIDDEN", "Only the CFO (or an equivalent lock authority) can give final approval");
     }
   }
 

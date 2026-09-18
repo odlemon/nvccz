@@ -66,7 +66,7 @@ export class FpaBudgetCycleService {
   }
 
   static assertCfo(user: any) {
-    FpaAccessService.assertCanApprove(user);
+    FpaAccessService.assertCanFinalApprove(user);
   }
 
   /** Reject archived / missing versions. */
