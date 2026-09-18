@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { UserService } from "../services/UserService";
+import { userHasEffectivePermission } from "../config/cfoModulePermissions";
 
 export class UserController {
   /**
@@ -118,16 +119,37 @@ export class UserController {
 
   /**
    * Get all users
+   *
+   * PROC-FINDING-010: this directory listing is intentionally open to every internal
+   * staff account (see requireInternalStaffUser()'s own comment -- assignment pickers
+   * and directory lookups across Performance, FPA, Payroll, Fundraising, Portfolio V11
+   * and Accounting V52 all depend on it), so it cannot be gated behind manage_users
+   * without breaking those pickers platform-wide. Instead, a caller who does not hold
+   * manage_users gets a trimmed shape -- enough to render a "pick a colleague" list --
+   * with email, roleCode, the role's internal id/description and both timestamps left
+   * out. A caller who holds manage_users (real admins, e.g. the Admin -> Users page)
+   * gets the full record, unchanged.
    */
   static async getAllUsers(req: Request, res: Response) {
     try {
       const users = await UserService.getAllUsers();
+      const canManageUsers = userHasEffectivePermission((req as any).user, "manage_users");
+
+      const data = canManageUsers
+        ? users
+        : users.map((u: any) => ({
+            id: u.id,
+            firstName: u.firstName,
+            lastName: u.lastName,
+            userDepartment: u.userDepartment,
+            role: u.role ? { name: u.role.name } : null
+          }));
 
       res.status(200).json({
         success: true,
         message: "Users retrieved successfully",
-        data: users,
-        count: users.length
+        data,
+        count: data.length
       });
     } catch (error: any) {
       console.error("Error getting all users:", error);
