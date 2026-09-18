@@ -226,11 +226,12 @@ export class ProcurementRequisitionApprovalService {
     // before; a ROLE/USER/AMOUNT_THRESHOLD step (CFO, PROC_MGR, a named person, ...) is legitimately cross-department
     // and is not affected.
     const decidingRow = own || atStep[0];
+    const pr = await prisma.purchaseRequisition.findUnique({
+      where: { id: params.requisitionId },
+      select: { department: true, requestedById: true },
+    });
+
     if (decidingRow.stage.stepType === "DEPARTMENT" && !isModulePrivilegedUser(actor)) {
-      const pr = await prisma.purchaseRequisition.findUnique({
-        where: { id: params.requisitionId },
-        select: { department: true },
-      });
       const targetDepartment = pr?.department ?? request.entityData?.department ?? null;
       if (!targetDepartment || actor.userDepartment !== targetDepartment) {
         throw badRequest(
@@ -238,6 +239,18 @@ export class ProcurementRequisitionApprovalService {
           403
         );
       }
+    }
+
+    // A requisition's approval step must never be satisfied by the person who requested it — SRD §70 "Critical
+    // Security Test Cases" test 4, "requestors cannot self-approve where prohibited". Found live on dev
+    // 2026-09-18: a Finance Manager who is also Finance's sole department-head approver both raised and approved
+    // their own requisition (REQ_20260918_0005), 200 with no warning. Unlike the DEPARTMENT check above, this
+    // applies to every step type (a threshold or named approver can equally be the requester) and is deliberately
+    // NOT waived for a module-privileged actor (admin/CFO): privilege lets them decide someone else's pending
+    // step, never their own request. The SRD gives no exception process, so this is an outright block rather than
+    // an escalation to a different approver.
+    if (pr?.requestedById && pr.requestedById === params.actorId) {
+      throw badRequest("You cannot approve or reject your own purchase requisition.", 403);
     }
 
     const row = own || atStep[0];

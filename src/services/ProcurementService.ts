@@ -1354,6 +1354,13 @@ export class ProcurementService {
         }
       }
 
+      // Same self-approval rule as ProcurementRequisitionApprovalService.decide() (SRD §70 test 4), applied here
+      // too because this branch is a separate legacy path for requisitions with no open approval route — it does
+      // not call decide() and so does not inherit that check. Not waived for a privileged approver.
+      if (requisition.requestedById === approvedById) {
+        throw new Error("You cannot approve your own purchase requisition.");
+      }
+
       const updatedRequisition = await prisma.purchaseRequisition.update({
         where: { id: requisitionId },
         data: {
@@ -1541,6 +1548,12 @@ export class ProcurementService {
         if (!approver.departmentRole || (approver.departmentRole !== DepartmentRole.HEAD && approver.departmentRole !== DepartmentRole.DEPUTY)) {
           throw new Error(`Only department HEAD or DEPUTY can reject requisitions. Your role: ${approver.departmentRole || 'MEMBER'}`);
         }
+      }
+
+      // Same self-decision rule as ProcurementRequisitionApprovalService.decide() (SRD §70 test 4) and the
+      // approve fallback above — this legacy no-open-route path doesn't call decide() either.
+      if (requisition.requestedById === rejectedById) {
+        throw new Error("You cannot approve or reject your own purchase requisition.");
       }
 
       const rejectionFingerprint = computePurchaseRequisitionContentFingerprint(requisition);
