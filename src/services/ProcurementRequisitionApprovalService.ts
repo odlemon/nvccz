@@ -218,6 +218,28 @@ export class ProcurementRequisitionApprovalService {
       );
     }
 
+    // A DEPARTMENT-type step's Approval row must still target the requisition's own department. Security UAT
+    // (2026-09-18, SRD §70 test 2 / §12 segregation of duties) found a department head holding a (misconfigured)
+    // DEPARTMENT-step approval for a requisition raised by a different department, and was able to both view and
+    // approve it — `own` above only checks "is there a pending Approval row for me", not "does that row's step
+    // actually apply to this requisition's department". An administrator/CFO still decides on anyone's behalf, as
+    // before; a ROLE/USER/AMOUNT_THRESHOLD step (CFO, PROC_MGR, a named person, ...) is legitimately cross-department
+    // and is not affected.
+    const decidingRow = own || atStep[0];
+    if (decidingRow.stage.stepType === "DEPARTMENT" && !isModulePrivilegedUser(actor)) {
+      const pr = await prisma.purchaseRequisition.findUnique({
+        where: { id: params.requisitionId },
+        select: { department: true },
+      });
+      const targetDepartment = pr?.department ?? request.entityData?.department ?? null;
+      if (!targetDepartment || actor.userDepartment !== targetDepartment) {
+        throw badRequest(
+          `You are not assigned to the ${targetDepartment ?? "requesting"} department, so you are not an approver on this requisition's step.`,
+          403
+        );
+      }
+    }
+
     const row = own || atStep[0];
     const { ApprovalService } = await import("./ApprovalService");
     if (params.decision === "APPROVE") {
