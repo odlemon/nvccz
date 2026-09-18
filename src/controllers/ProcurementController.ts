@@ -747,11 +747,43 @@ export class ProcurementController {
       }
       const requisition = await prisma.purchaseRequisition.findUnique({
         where: { id },
-        select: { requisitionNumber: true },
+        select: {
+          id: true,
+          requisitionNumber: true,
+          department: true,
+          requestedById: true,
+          portfolioCompanyId: true,
+          fundId: true,
+        },
       });
       if (!requisition) {
         return res.status(404).json({ success: false, message: "Purchase requisition not found" });
       }
+
+      // Same visibility rule as GET /procurement/requisitions/:id (PROC-FINDING-011): listing a
+      // requisition's attachments must not leak a different department's records. Reviewed after
+      // PROC-FINDING-019 shipped without this check -- any authenticated staff account could read
+      // another department's attachment names/fileUrls/storage paths by id alone.
+      try {
+        await ProcurementService.assertUserCanViewInvesteePurchaseRequisition(userId, {
+          portfolioCompanyId: requisition.portfolioCompanyId,
+          fundId: requisition.fundId,
+          requestedById: requisition.requestedById,
+        });
+        if (!requisition.portfolioCompanyId) {
+          await ProcurementController.assertUserCanViewDepartmentPurchaseRequisition(userId, {
+            id: requisition.id,
+            department: requisition.department,
+            requestedById: requisition.requestedById,
+          });
+        }
+      } catch (accessErr: any) {
+        return res.status(403).json({
+          success: false,
+          message: accessErr?.message || "Not authorized",
+        });
+      }
+
       const docs = await prisma.procurementDocument.findMany({
         where: { relatedRecord: requisition.requisitionNumber, folder: "Requisitions" },
         orderBy: { createdAt: "desc" },

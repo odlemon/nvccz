@@ -12,10 +12,35 @@ import multer from "multer";
 
 const router = express.Router();
 
-// SRD §11 requisition Attachments: same shape as the Document Vault upload (procurementRegistersRoutes).
+// SRD §11 requisition Attachments: same shape as the Document Vault upload (procurementRegistersRoutes),
+// plus a type restriction the Document Vault route itself does not have -- SRD §32 (supported formats:
+// PDF/DOCX/XLSX/XLS/CSV/JPG/JPEG/PNG) and §43 (file-upload restrictions, file-type verification).
+// Legacy .doc is also accepted, matching the form's own <input accept> list.
+const REQUISITION_ATTACHMENT_ALLOWED_EXTENSIONS = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".jpg", ".jpeg", ".png"];
+const REQUISITION_ATTACHMENT_ALLOWED_MIMES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+  "application/csv",
+  "image/jpeg",
+  "image/png",
+]);
 const uploadRequisitionAttachment = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024, files: 10 },
+  fileFilter: (_req, file, cb) => {
+    const name = String(file.originalname || "").toLowerCase();
+    const mime = String(file.mimetype || "").toLowerCase();
+    const extOk = REQUISITION_ATTACHMENT_ALLOWED_EXTENSIONS.some((ext) => name.endsWith(ext));
+    const mimeOk = REQUISITION_ATTACHMENT_ALLOWED_MIMES.has(mime);
+    // A browser can send a generic octet-stream mimetype for a real file of an allowed type (older
+    // Office formats in particular); the extension check alone still gates that case.
+    const ok = extOk && (mimeOk || mime === "application/octet-stream" || mime === "");
+    cb(ok ? null : new Error("Only PDF, Word, Excel, CSV, JPG or PNG files are accepted here."), ok);
+  },
 });
 
 // Configure multer for proof of payment file uploads (PDF or images)
