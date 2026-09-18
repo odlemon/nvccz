@@ -1588,8 +1588,18 @@ export class ProcurementController {
       }
 
       // The lines as the RFQ was issued (its snapshot), else the requisition's. Prices are never sent: the vendor quotes them.
+      // itemsSnapshot is always persisted as `{ items: [...] }` (see ProcurementService.createRFQ), never as a bare
+      // array — `Array.isArray(rfq.itemsSnapshot)` was therefore always false and this silently fell through to the
+      // requisition's *current* items on every RFQ, masking the bug only for RFQs whose requisition still exists and
+      // has not changed since the RFQ was issued. Unwrap the snapshot the same way enrichRfqItemsSnapshotForApi and
+      // ProcurementRfqService.extendClosing do.
       const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
-      const snapshot = Array.isArray(rfq.itemsSnapshot) ? (rfq.itemsSnapshot as any[]) : [];
+      const snapshotRaw = rfq.itemsSnapshot as any;
+      const snapshot: any[] = Array.isArray(snapshotRaw)
+        ? snapshotRaw
+        : Array.isArray(snapshotRaw?.items)
+          ? snapshotRaw.items
+          : [];
       const lines = (snapshot.length ? snapshot : ((rfq.requisition?.items as any[]) ?? [])).map((it: any) => ({
         itemName: String(it?.itemName ?? it?.name ?? "").trim(),
         description: it?.description ?? null,
