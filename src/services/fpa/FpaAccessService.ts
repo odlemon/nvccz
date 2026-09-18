@@ -1,6 +1,15 @@
 // @ts-nocheck
 import { FpaError } from "./FpaError";
 
+// Legacy short codes (set on User.roleCode directly, e.g. seeded test accounts)
+// PLUS the real role names as configured live in Settings > Roles today
+// (Role has no `code` column - only `name` - so most real users are matched
+// by their normalized display name, not a short code). Confirmed live: the
+// dynamically-created "Chief Financial Officer" and "FP&A Version Lock
+// Authority" roles did NOT match the old CFO-only/FORECAST_LOCK-only codes,
+// so a real CFO or the role built specifically to hold lock authority had no
+// more access than an unrelated staff member - fixed by adding their actual
+// normalized names.
 const APPROVE_LOCK_CODES = new Set([
   "CFO",
   "SYSADMIN",
@@ -12,16 +21,23 @@ const APPROVE_LOCK_CODES = new Set([
   "FINANCE_MANAGER",
   "FORECAST_LOCK",
   "CEO",
+  "CHIEF_FINANCIAL_OFFICER",
+  "FP&A_VERSION_LOCK_AUTHORITY",
+  "SYSTEM_ADMINISTRATOR",
+]);
+
+// Finance-team preparer roles: can edit/prepare forecasts day-to-day but
+// cannot approve or lock (that stays limited to APPROVE_LOCK_CODES). There is
+// no dedicated "FP&A Analyst" role seeded in this system - the closest real
+// personas are these Finance-department roles.
+const FPA_PREPARER_CODES = new Set([
+  "FINANCE_OFFICER",
+  "FINANCE_ASSISTANT",
+  "ACCOUNTANT",
+  "FINANCE_MEMBER",
 ]);
 
 const BOARD_VIEWER_CODES = new Set(["BOARD", "BOARD_VIEWER", "BOARD_MEMBER", "VIEWER"]);
-
-const DEPT_HEAD_CODES = new Set([
-  "DEPT_HEAD",
-  "DEPARTMENT_HEAD",
-  "HEAD_OF_DEPT",
-  "BUDGET_OWNER",
-]);
 
 function roleCode(user: any): string {
   return String(user?.roleCode || user?.role?.code || "")
@@ -47,10 +63,6 @@ export class FpaAccessService {
     return codesOf(user).some((c) => BOARD_VIEWER_CODES.has(c) || c.includes("BOARD"));
   }
 
-  static isDeptHead(user: any): boolean {
-    return codesOf(user).some((c) => DEPT_HEAD_CODES.has(c) || c.includes("DEPT_HEAD"));
-  }
-
   static canApprove(user: any): boolean {
     return codesOf(user).some((c) => APPROVE_LOCK_CODES.has(c));
   }
@@ -66,15 +78,21 @@ export class FpaAccessService {
     const assigned = opts?.assignedDepartmentIds || user?.assignedDepartmentIds || [];
     const deptId = opts?.departmentId;
     // When cycle-scoped department list is provided, enforce it for all non-approvers
+    // (this is how a real department head/budget owner gets scoped edit access -
+    // via being assigned as a cycle owner - not via their job-title role name).
     if (assigned.length) {
       if (!deptId) return false;
       return assigned.includes(deptId);
     }
-    if (FpaAccessService.isDeptHead(user)) {
-      if (!deptId) return true;
-      return true;
-    }
-    return true;
+    // Finance-team preparer roles may edit even before any cycle assigns them
+    // department scope (e.g. building out a model in Model Builder).
+    if (codesOf(user).some((c) => FPA_PREPARER_CODES.has(c))) return true;
+    // Everyone else (unrelated staff roles with no FP&A involvement at all -
+    // Sales, HR, IT, Marketing, Legal, Procurement, Operations, etc.) is
+    // read-only by default. Previously this fell through to `return true`,
+    // meaning any authenticated internal staff member - regardless of role -
+    // could edit any planning cycle's cells; confirmed live and closed.
+    return false;
   }
 
   static async resolveCycleDepartmentIds(user: any, cycleId?: string | null): Promise<string[] | null> {
