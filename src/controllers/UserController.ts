@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { UserService } from "../services/UserService";
+import { userHasEffectivePermission } from "../config/cfoModulePermissions";
 
 export class UserController {
   /**
@@ -118,10 +119,18 @@ export class UserController {
 
   /**
    * Get all users
+   *
+   * Stays open to every internal staff account (see `requireInternalStaffUser()`
+   * on the route -- assignment pickers/directory lookups across Performance,
+   * FPA, Payroll, Fundraising, Portfolio and Accounting all depend on this
+   * being staff-wide, not admin-only). PROC-FINDING-010: a caller without
+   * `manage_users` gets a trimmed directory shape instead (id/name/department/
+   * role name) -- no email, role code, internal role id, or timestamps.
    */
   static async getAllUsers(req: Request, res: Response) {
     try {
-      const users = await UserService.getAllUsers();
+      const hasManageUsers = userHasEffectivePermission((req as any).user, "manage_users");
+      const users = await UserService.getAllUsers({ directoryOnly: !hasManageUsers });
 
       res.status(200).json({
         success: true,

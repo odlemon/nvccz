@@ -72,7 +72,10 @@ router.use(authenticate);
  */
 // Directory listing: internal audience, but every staff role legitimately needs
 // it (assignment pickers, reviewer selection), so this is a staff check rather
-// than a specific permission.
+// than a specific permission. PROC-FINDING-010: the controller itself trims
+// the response to a directory-only shape (id/name/department/role name) for
+// callers without `manage_users` -- full PII (email, role code, internal role
+// id, timestamps) is still admin-only.
 router.get("/", requireInternalStaffUser(), UserController.getAllUsers);
 
 /**

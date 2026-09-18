@@ -447,9 +447,19 @@ This is an automated message. Please do not reply to this email.
   /**
    * Get all users
    * Excludes applicants (users with role name "applicant")
+   *
+   * `directoryOnly` narrows the Prisma select to what an assignment picker /
+   * directory lookup actually renders (id, name, department, role name) --
+   * used for callers who hold `requireInternalStaffUser()` but not
+   * `manage_users`. See PROC-FINDING-010: GET /users must stay open to every
+   * staff account (pickers across Performance/FPA/Payroll/Fundraising/
+   * Portfolio/Accounting depend on it) but a non-admin caller should not get
+   * every user's email, role code, internal role id, or timestamps back.
    */
-  static async getAllUsers() {
+  static async getAllUsers(options: { directoryOnly?: boolean } = {}) {
     try {
+      const { directoryOnly = false } = options;
+
       const users = await prisma.user.findMany({
         where: {
           role: {
@@ -458,25 +468,37 @@ This is an automated message. Please do not reply to this email.
             }
           }
         },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          userDepartment: true,
-          departmentRole: true,
-          roleCode: true,
-          votingPower: true,
-          role: {
-            select: {
+        select: directoryOnly
+          ? {
               id: true,
-              name: true,
-              description: true
+              firstName: true,
+              lastName: true,
+              userDepartment: true,
+              role: {
+                select: {
+                  name: true
+                }
+              }
             }
-          },
-          createdAt: true,
-          updatedAt: true
-        },
+          : {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              userDepartment: true,
+              departmentRole: true,
+              roleCode: true,
+              votingPower: true,
+              role: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true
+                }
+              },
+              createdAt: true,
+              updatedAt: true
+            },
         orderBy: [
           { firstName: 'asc' },
           { lastName: 'asc' }
