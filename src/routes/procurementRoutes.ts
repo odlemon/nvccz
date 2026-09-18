@@ -12,6 +12,12 @@ import multer from "multer";
 
 const router = express.Router();
 
+// SRD §11 requisition Attachments: same shape as the Document Vault upload (procurementRegistersRoutes).
+const uploadRequisitionAttachment = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024, files: 10 },
+});
+
 // Configure multer for proof of payment file uploads (PDF or images)
 const uploadProofOfPayment = multer({
   storage: multer.memoryStorage(),
@@ -564,6 +570,15 @@ router.put("/requisitions/:id/reject", ProcurementController.rejectPurchaseRequi
  *         description: Validation error
  */
 router.put("/requisitions/:id", ProcurementController.updatePurchaseRequisition);
+
+// SRD §11 "Attachments". Ownership-gated in the controller rather than procurement.documents.manage,
+// which a requester does not hold; any authenticated staff user can list (mirrors GET /requisitions/:id).
+router.post(
+  "/requisitions/:id/attachments",
+  uploadRequisitionAttachment.array("files", 10),
+  ProcurementController.uploadRequisitionAttachments
+);
+router.get("/requisitions/:id/attachments", ProcurementController.listRequisitionAttachments);
 
 router.post("/purchase-orders", requireAnyPermission([PROC_PERMS.ordersManage]), ProcurementController.createPurchaseOrder);
 router.get("/purchase-orders", requireAnyPermission([PROC_PERMS.ordersView]), ProcurementController.getAllPurchaseOrders);

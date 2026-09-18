@@ -11,6 +11,7 @@ import { hasUsableRfqItemLines } from "../utils/rfqItemInput";
 import { isModulePrivilegedUser, userHasEffectivePermission } from "../config/cfoModulePermissions";
 import { PROCUREMENT_PERMISSIONS } from "../config/procurementPermissions";
 import { publicErrorMessage } from "../utils/publicErrorMessage";
+import { ProcurementDocuments, RegisterError } from "../services/ProcurementRegistersService";
 
 export class ProcurementController {
   /**
@@ -26,6 +27,9 @@ export class ProcurementController {
         justification,
         sourcingCategory,
         projectId,
+        requiredDate,
+        deliveryLocation,
+        budgetCode,
         items,
         portfolioCompanyId,
         fundId,
@@ -65,6 +69,9 @@ export class ProcurementController {
         justification,
         sourcingCategory,
         projectId,
+        requiredDate,
+        deliveryLocation,
+        budgetCode,
         portfolioCompanyId,
         fundId,
         useOfFundsDocumentUrl,
@@ -617,6 +624,81 @@ export class ProcurementController {
         success: false,
         message: publicErrorMessage(error, "Failed to update purchase requisition")
       });
+    }
+  }
+
+  /**
+   * SRD §11 "Attachments": add one or more files to a requisition. Reuses the Document Vault's
+   * storage (ProcurementDocuments, folder "Requisitions", relatedRecord = requisitionNumber) but is
+   * gated by ownership rather than procurement.documents.manage, which a requester does not hold.
+   */
+  static async uploadRequisitionAttachments(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+
+      const requisition = await prisma.purchaseRequisition.findUnique({
+        where: { id },
+        select: { id: true, requisitionNumber: true, requestedById: true },
+      });
+      if (!requisition) {
+        return res.status(404).json({ success: false, message: "Purchase requisition not found" });
+      }
+      const isOwner = requisition.requestedById === userId;
+      if (!isOwner && !userHasEffectivePermission(req.user, PROCUREMENT_PERMISSIONS.documentsManage)) {
+        return res.status(403).json({
+          success: false,
+          message: "Only the requisition's requester (or someone who can manage procurement documents) can attach files to it.",
+        });
+      }
+
+      const files = (req.files as any[]) || [];
+      if (!files.length) {
+        return res.status(400).json({ success: false, message: "Attach at least one file" });
+      }
+
+      const created = await ProcurementDocuments.upload({
+        files,
+        folder: "Requisitions",
+        documentType: "Requisition attachment",
+        relatedRecord: requisition.requisitionNumber,
+        uploadedById: userId,
+      });
+
+      res.status(201).json({ success: true, message: "Attachment(s) uploaded", data: created });
+    } catch (error: any) {
+      console.error("Error uploading requisition attachment:", error);
+      const status = error instanceof RegisterError ? error.status : 400;
+      res.status(status).json({ success: false, message: publicErrorMessage(error, "Failed to upload attachment") });
+    }
+  }
+
+  /** SRD §11 "Attachments": list the files attached to a requisition (requester and approvers both). */
+  static async listRequisitionAttachments(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+      const requisition = await prisma.purchaseRequisition.findUnique({
+        where: { id },
+        select: { requisitionNumber: true },
+      });
+      if (!requisition) {
+        return res.status(404).json({ success: false, message: "Purchase requisition not found" });
+      }
+      const docs = await prisma.procurementDocument.findMany({
+        where: { relatedRecord: requisition.requisitionNumber, folder: "Requisitions" },
+        orderBy: { createdAt: "desc" },
+      });
+      res.status(200).json({ success: true, data: docs });
+    } catch (error: any) {
+      console.error("Error listing requisition attachments:", error);
+      res.status(400).json({ success: false, message: publicErrorMessage(error, "Failed to list attachments") });
     }
   }
 

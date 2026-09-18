@@ -49,6 +49,12 @@ export interface CreatePurchaseRequisitionParams {
   sourcingCategory?: string;
   /** SRD §7 "Project/Cost Center": a row of the projects register, or none. */
   projectId?: string | null;
+  /** SRD §11 "Required Date": when the requester needs the goods/services by. */
+  requiredDate?: Date | string | null;
+  /** SRD §11 "Delivery Location". */
+  deliveryLocation?: string | null;
+  /** SRD §11 "Budget Code" (free text; no budget-code register exists yet). */
+  budgetCode?: string | null;
   /** Investee portal (Suite 02): portfolio company for drawdown cap. */
   portfolioCompanyId?: string;
   fundId?: string;
@@ -216,6 +222,9 @@ export class ProcurementService {
         justification,
         sourcingCategory,
         projectId,
+        requiredDate,
+        deliveryLocation,
+        budgetCode,
         portfolioCompanyId,
         fundId: fundIdParam,
         useOfFundsDocumentUrl,
@@ -227,6 +236,23 @@ export class ProcurementService {
       if (!items || items.length === 0) {
         throw new Error("At least one item is required");
       }
+
+      let resolvedRequiredDate: Date | undefined;
+      if (requiredDate != null && String(requiredDate).trim() !== "") {
+        const d = new Date(requiredDate);
+        if (Number.isNaN(d.getTime())) {
+          throw new Error("requiredDate must be a valid date");
+        }
+        resolvedRequiredDate = d;
+      }
+      const resolvedDeliveryLocation =
+        deliveryLocation != null && String(deliveryLocation).trim() !== ""
+          ? String(deliveryLocation).trim().slice(0, 255)
+          : undefined;
+      const resolvedBudgetCode =
+        budgetCode != null && String(budgetCode).trim() !== ""
+          ? String(budgetCode).trim().slice(0, 100)
+          : undefined;
 
       const { ProcurementRequisitionAssistService } = await import("./ProcurementRequisitionAssistService");
       const resolvedProjectId = await ProcurementRequisitionAssistService.assertProject(projectId);
@@ -301,6 +327,9 @@ export class ProcurementService {
           justification,
           ...(normalizedSourcing ? { sourcingCategory: normalizedSourcing } : {}),
           ...(resolvedProjectId ? { projectId: resolvedProjectId } : {}),
+          ...(resolvedRequiredDate ? { requiredDate: resolvedRequiredDate } : {}),
+          ...(resolvedDeliveryLocation ? { deliveryLocation: resolvedDeliveryLocation } : {}),
+          ...(resolvedBudgetCode ? { budgetCode: resolvedBudgetCode } : {}),
           ...(resolvedPortfolioId ? { portfolioCompanyId: resolvedPortfolioId } : {}),
           ...(resolvedFundId ? { fundId: resolvedFundId } : {}),
           ...(useOfFundsDocumentUrl != null && String(useOfFundsDocumentUrl).trim() !== ""
@@ -706,6 +735,12 @@ export class ProcurementService {
       useOfFundsDocumentUrl?: string | null;
       drawdownRequestAmount?: number | string | null;
       projectId?: string | null;
+      /** SRD §11 "Required Date"; null clears it. */
+      requiredDate?: string | null;
+      /** SRD §11 "Delivery Location"; null or "" clears it. */
+      deliveryLocation?: string | null;
+      /** SRD §11 "Budget Code"; null or "" clears it. */
+      budgetCode?: string | null;
     },
     opts?: { restrictToPortfolioCompanyId?: string }
   ) {
@@ -779,6 +814,30 @@ export class ProcurementService {
       projectUpdate = await ProcurementRequisitionAssistService.assertProject(body.projectId);
     }
 
+    // Same null/"" clears, undefined leaves as-is convention for the SRD §11 fields.
+    let requiredDateUpdate: Date | null | undefined;
+    if (body.requiredDate !== undefined) {
+      if (body.requiredDate == null || String(body.requiredDate).trim() === "") {
+        requiredDateUpdate = null;
+      } else {
+        const d = new Date(body.requiredDate);
+        if (Number.isNaN(d.getTime())) throw new Error("requiredDate must be a valid date");
+        requiredDateUpdate = d;
+      }
+    }
+    const deliveryLocationUpdate =
+      body.deliveryLocation !== undefined
+        ? body.deliveryLocation != null && String(body.deliveryLocation).trim() !== ""
+          ? String(body.deliveryLocation).trim().slice(0, 255)
+          : null
+        : undefined;
+    const budgetCodeUpdate =
+      body.budgetCode !== undefined
+        ? body.budgetCode != null && String(body.budgetCode).trim() !== ""
+          ? String(body.budgetCode).trim().slice(0, 100)
+          : null
+        : undefined;
+
     const updated = await prisma.$transaction(async (tx) => {
       if (body.items) {
         await tx.purchaseRequisitionItem.deleteMany({ where: { requisitionId } });
@@ -822,6 +881,9 @@ export class ProcurementService {
             : {}),
           ...(body.fundId !== undefined ? { fundId: body.fundId } : {}),
           ...(projectUpdate !== undefined ? { projectId: projectUpdate } : {}),
+          ...(requiredDateUpdate !== undefined ? { requiredDate: requiredDateUpdate } : {}),
+          ...(deliveryLocationUpdate !== undefined ? { deliveryLocation: deliveryLocationUpdate } : {}),
+          ...(budgetCodeUpdate !== undefined ? { budgetCode: budgetCodeUpdate } : {}),
           ...(drawdownDec ? { drawdownRequestAmount: drawdownDec } : {}),
           totalAmount,
         },
@@ -1887,6 +1949,10 @@ export class ProcurementService {
       let requisitionSourcingCategory: string | null | undefined;
       let resolvedItems: NonNullable<CreateRFQParams["items"]>;
       let prEmailMeta: { requisitionNumber: string; requisitionTitle: string } | undefined;
+      // SRD §11: the requisition's Required Date / Delivery Location flow onto the RFQ (and from
+      // there to the vendor portal's quotation form) when the tender builder does not override them.
+      let prRequiredDate: Date | null | undefined;
+      let prDeliveryLocation: string | null | undefined;
 
       if (requisitionId) {
         const pr = await prisma.purchaseRequisition.findUnique({
@@ -1903,6 +1969,8 @@ export class ProcurementService {
         }
         requisitionSourcingCategory = pr.sourcingCategory;
         prEmailMeta = { requisitionNumber: pr.requisitionNumber, requisitionTitle: pr.title };
+        prRequiredDate = pr.requiredDate ?? undefined;
+        prDeliveryLocation = pr.deliveryLocation ?? undefined;
         if (sanitizedBodyItems.length > 0) {
           resolvedItems = sanitizedBodyItems;
         } else {
@@ -1989,8 +2057,11 @@ export class ProcurementService {
           technicalWeight:
             technicalWeight != null ? new Decimal(technicalWeight) : new Decimal(0.5),
           itemsSnapshot: { items: resolvedItems } as object,
-          deliveryAddress: deliveryAddress || null,
-          expectedDeliveryDate: expectedDeliveryDate || null,
+          // An explicit value on the RFQ itself wins; otherwise fall back to the source requisition's
+          // Required Date / Delivery Location so the vendor portal never shows "Not set" / "To be
+          // confirmed" for a tender raised from a requisition that captured them.
+          deliveryAddress: deliveryAddress || prDeliveryLocation || null,
+          expectedDeliveryDate: expectedDeliveryDate || prRequiredDate || null,
           specialRequirements: specialRequirements || null,
           createdById,
         },

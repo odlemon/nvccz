@@ -3087,6 +3087,13 @@ model PurchaseRequisition {
   department                  String?
   /// SRD §7 requisition form "Project/Cost Center": a row of the projects register (Accounting), or null.
   projectId                   String?                   @map("project_id") @db.VarChar(191)
+  /// SRD §11 "Required Date": when the requester needs the goods/services by. Copied onto the RFQ's
+  /// expectedDeliveryDate when a tender is raised from this requisition.
+  requiredDate                DateTime?                 @map("required_date") @db.Date
+  /// SRD §11 "Delivery Location". Copied onto the RFQ's deliveryAddress when a tender is raised from this requisition.
+  deliveryLocation            String?                   @map("delivery_location") @db.VarChar(255)
+  /// SRD §11 "Budget Code": free text — no budget-code register exists on this backend yet (see ask 2).
+  budgetCode                  String?                   @map("budget_code") @db.VarChar(100)
   requestedBy                 User                      @relation("RequisitionRequestedBy", fields: [requestedById], references: [id])
   approvedBy                  User?                     @relation("RequisitionApprovedBy", fields: [approvedById], references: [id])
   currency                    Currency?                 @relation("RequisitionCurrency", fields: [currencyId], references: [id])
