@@ -484,7 +484,7 @@ router.post("/", requireInternalStaffUser(), requirePermission("manage_users"), 
  *       404:
  *         description: User not found
  */
-router.put("/:id", UserController.updateUser);
+router.put("/:id", requireInternalStaffUser(), requirePermission("manage_users"), UserController.updateUser);
 
 /**
  * @swagger
