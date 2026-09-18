@@ -103,7 +103,8 @@ export class FpaPlanningSummaryService {
       }
     }
 
-    const grossMarginPct = rev.total !== 0 ? (gm.total / Math.abs(rev.total)) * 100 : null;
+    // SRD: Gross Margin % must return 0, not error/blank, when Net Revenue = 0.
+    const grossMarginPct = rev.total !== 0 ? (gm.total / Math.abs(rev.total)) * 100 : 0;
 
     // Prior-FY revenue for variance (live read of prior-year periods)
     let priorRevenue = 0;

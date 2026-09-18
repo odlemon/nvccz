@@ -395,10 +395,11 @@ export class FpaScenarioService {
       denominator: (typeof metrics)[number] | undefined,
     ) => {
       if (!numerator || !denominator) return null;
+      // SRD: a margin % must return 0, not error/blank, when its revenue denominator is 0.
       const values: Record<string, number | null> = {}
       for (const sid of scenarioIds) {
         const denom = denominator.values[sid]
-        values[sid] = denom ? Number(((numerator.values[sid] / Math.abs(denom)) * 100).toFixed(1)) : null
+        values[sid] = denom ? Number(((numerator.values[sid] / Math.abs(denom)) * 100).toFixed(1)) : 0
       }
       const anchorPct = values[anchorId]
       const varianceAbs: Record<string, number | null> = {}

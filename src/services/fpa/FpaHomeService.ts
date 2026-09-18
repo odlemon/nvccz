@@ -24,6 +24,29 @@ async function sumByCode(
   return sums;
 }
 
+// Point-in-time balance (e.g. Closing Cash) — summing across periods is
+// meaningless for a stock, not a flow; use the latest period's value.
+// Same "stock, not flow" fix as FpaScenarioService's BALANCE_CODES.
+async function latestBalanceByCode(
+  modelId: string,
+  versionId: string | null,
+  code: string,
+  scenarioId?: string | null
+) {
+  const lineItems = await prisma.planningLineItem.findMany({ where: { modelId, code } });
+  const lineItemIds = lineItems.map((l) => l.id);
+  if (!lineItemIds.length) return 0;
+  const where: any = { modelId, lineItemId: { in: lineItemIds } };
+  if (versionId) where.versionId = versionId;
+  if (scenarioId) where.scenarioId = scenarioId;
+  const latestCell = await prisma.planningCell.findFirst({ where, orderBy: { periodDate: "desc" } });
+  if (!latestCell) return 0;
+  const cellsAtLatest = await prisma.planningCell.findMany({
+    where: { ...where, periodDate: latestCell.periodDate },
+  });
+  return cellsAtLatest.reduce((s, c) => s + Number(c.value || 0), 0);
+}
+
 async function monthlyByCodes(
   modelId: string,
   versionId: string | null,
@@ -286,14 +309,15 @@ export class FpaHomeService {
     ];
     const scenarioPayload = [];
     for (const s of scenarios) {
-      const sSums = await sumByCode(model.id, versionId, ["REVENUE", "EBITDA", "CLOSING_CASH"], s.id);
+      const sSums = await sumByCode(model.id, versionId, ["REVENUE", "EBITDA"], s.id);
+      const sCash = await latestBalanceByCode(model.id, versionId, "CLOSING_CASH", s.id);
       scenarioPayload.push({
         id: s.id,
         name: s.name,
         scenarioType: s.scenarioType,
         revenue: sSums.REVENUE || 0,
         ebitda: sSums.EBITDA || 0,
-        cash: sSums.CLOSING_CASH || 0,
+        cash: sCash,
       });
     }
     const anchor = scenarioId
