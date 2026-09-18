@@ -111,6 +111,37 @@ async function loadScoped(modelId: string, category: string, query: any) {
     };
   }
   const actuals = await prisma.planningActualsSnapshot.findMany({ where: actualWhere });
+
+  // Real Budget figures come from the model's own approved/locked planning
+  // cycle version — not a proxy. Prefer LOCKED (final) over APPROVED
+  // (pending lock), most recently updated first.
+  const budgetVersionCycle =
+    (await prisma.modelPlanningCycle.findFirst({
+      where: { sourceModelId: modelId, status: "LOCKED" },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, status: true, sourceModelVersionId: true },
+    })) ||
+    (await prisma.modelPlanningCycle.findFirst({
+      where: { sourceModelId: modelId, status: "APPROVED" },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, status: true, sourceModelVersionId: true },
+    }));
+  const budgetCells =
+    budgetVersionCycle && liIds.length
+      ? await prisma.planningCell.findMany({
+          where: {
+            modelId,
+            lineItemId: { in: liIds },
+            versionId: budgetVersionCycle.sourceModelVersionId,
+            ...(scenarioId ? { scenarioId } : {}),
+            ...(entityId ? { entityId } : {}),
+            ...(periodFrom || periodTo
+              ? { periodDate: { ...(periodFrom ? { gte: periodFrom } : {}), ...(periodTo ? { lte: periodTo } : {}) } }
+              : {}),
+          },
+        })
+      : [];
+
   const depts = await prisma.department.findMany({ select: { id: true, name: true } });
   const deptName = Object.fromEntries(depts.map((d) => [d.id, d.name]));
   const linkedEntityIds = (
@@ -152,6 +183,8 @@ async function loadScoped(modelId: string, category: string, query: any) {
     lineItems,
     cells,
     actuals,
+    budgetCells,
+    budgetCycleStatus: budgetVersionCycle?.status || null,
     deptName,
     availableEntities,
     availablePeriods: allPeriods.map((p) => iso(p.periodDate)),
@@ -508,7 +541,7 @@ export class FpaDomainService {
   }
 
   static expensePack(scoped: any) {
-    const { lineItems, cells, actuals, deptName } = scoped;
+    const { lineItems, cells, actuals, budgetCells, deptName } = scoped;
     const periods = [...new Set(cells.map((c) => iso(c.periodDate)))].filter(Boolean).sort() as string[];
     const forecastByPeriod = byPeriodMap(cells);
     const actualByPeriod: Record<string, number> = {};
@@ -516,9 +549,14 @@ export class FpaDomainService {
       const k = iso(a.periodDate)!;
       actualByPeriod[k] = (actualByPeriod[k] || 0) + Number(a.amount || 0);
     }
+    const budgetByPeriod = byPeriodMap(budgetCells || []);
+    const hasRealBudget = Boolean((budgetCells || []).length);
     const opex = sumCells(cells);
     const actualTotal = Object.values(actualByPeriod).reduce((s, v) => s + v, 0);
-    const budget = actualTotal || opex;
+    // Budget = the model's own locked/approved planning cycle version, when
+    // one exists — not a stand-in. Falls back to the old actuals-or-forecast
+    // proxy only when no such cycle has ever been approved for this model.
+    const budget = hasRealBudget ? sumCells(budgetCells) : actualTotal || opex;
     const variancePct =
       budget > 0 ? Number((((opex - budget) / budget) * 100).toFixed(1)) : null;
 
@@ -537,30 +575,35 @@ export class FpaDomainService {
     const monthlyBurn = periods.map((period) => ({
       period,
       actual: actualByPeriod[period] ?? null,
-      budget: null,
+      budget: hasRealBudget ? budgetByPeriod[period] ?? null : null,
       forecast: forecastByPeriod[period] || 0,
     }));
 
-    const byDept: Record<string, { forecast: number; actual: number }> = {};
+    const byDept: Record<string, { forecast: number; actual: number; budget: number }> = {};
     for (const c of cells) {
       if (!c.departmentId) continue;
-      if (!byDept[c.departmentId]) byDept[c.departmentId] = { forecast: 0, actual: 0 };
+      if (!byDept[c.departmentId]) byDept[c.departmentId] = { forecast: 0, actual: 0, budget: 0 };
       byDept[c.departmentId].forecast += Number(c.value || 0);
     }
     for (const a of actuals) {
       if (!a.departmentId) continue;
-      if (!byDept[a.departmentId]) byDept[a.departmentId] = { forecast: 0, actual: 0 };
+      if (!byDept[a.departmentId]) byDept[a.departmentId] = { forecast: 0, actual: 0, budget: 0 };
       byDept[a.departmentId].actual += Number(a.amount || 0);
     }
+    if (hasRealBudget) {
+      for (const c of budgetCells) {
+        if (!c.departmentId) continue;
+        if (!byDept[c.departmentId]) byDept[c.departmentId] = { forecast: 0, actual: 0, budget: 0 };
+        byDept[c.departmentId].budget += Number(c.value || 0);
+      }
+    }
     const departments = Object.entries(byDept).map(([departmentId, v]) => {
-      const status =
-        v.forecast > (v.actual || budget / Object.keys(byDept).length) * 1.05
-          ? "OVER_BUDGET"
-          : "ON_TRACK";
+      const deptBudget = hasRealBudget ? v.budget : v.actual || budget / Object.keys(byDept).length;
+      const status = v.forecast > deptBudget * 1.05 ? "OVER_BUDGET" : "ON_TRACK";
       return {
         departmentId,
         departmentName: deptName[departmentId] || null,
-        budget: v.actual || null,
+        budget: hasRealBudget ? v.budget || null : v.actual || null,
         actual: v.actual || null,
         runRate: v.forecast || null,
         forecast: v.forecast,
