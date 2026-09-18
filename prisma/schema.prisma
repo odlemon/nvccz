@@ -31,6 +31,8 @@ model User {
   /// Set when a password was issued by us (e.g. an LP invitation) and must be replaced at
   /// next sign-in. Cleared once the user chooses their own.
   mustChangePassword                    Boolean                         @default(false) @map("must_change_password")
+  /// SRD User Master: ACTIVE | SUSPENDED | LOCKED | DEACTIVATED. Enforced at login.
+  status                                String                          @default("ACTIVE") @db.VarChar(32)
   role                                  Role                            @relation(fields: [roleId], references: [id])
   posts                                 Post[]
   replies                               Reply[]
@@ -238,6 +240,7 @@ model User {
   timesheets                            Timesheet[]                     @relation("TimesheetUser")
   timesheetsApproved                    Timesheet[]                     @relation("TimesheetApprover")
 
+  @@index([status], map: "users_status_idx")
   @@map("users")
 }
 
