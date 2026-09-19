@@ -19,6 +19,7 @@ import {
 import { computePurchaseRequisitionContentFingerprint } from "../utils/purchaseRequisitionContentFingerprint";
 import { normalizeRfqItemLinesFromBody, prItemsToNormalizedRfqLines } from "../utils/rfqItemInput";
 import { isModulePrivilegedUser, isCfoUser } from "../config/cfoModulePermissions";
+import { assertValidProcurementLineItems } from "../utils/procurementLineItemValidation";
 
 // Hardcoded departments
 export enum Department {
@@ -236,6 +237,9 @@ export class ProcurementService {
       if (!items || items.length === 0) {
         throw new Error("At least one item is required");
       }
+      // SRD §41 "Data Validation": quantity must be positive, unit price (when given — it's only the
+      // requester's optional estimate on a requisition) may not be negative.
+      assertValidProcurementLineItems(items);
 
       let resolvedRequiredDate: Date | undefined;
       if (requiredDate != null && String(requiredDate).trim() !== "") {
@@ -770,6 +774,9 @@ export class ProcurementService {
       if (!Array.isArray(body.items) || body.items.length === 0) {
         throw new Error("When provided, items must be a non-empty array.");
       }
+      // SRD §41 "Data Validation": same rule as create — an edit (while still DRAFT/REJECTED) must not
+      // be able to introduce a negative/zero quantity or a negative unit price.
+      assertValidProcurementLineItems(body.items);
     }
 
     let drawdownDec: Decimal | undefined;
@@ -2366,6 +2373,10 @@ export class ProcurementService {
       if (!effectiveCurrencyId && vendor.settlementCurrencyId) {
         effectiveCurrencyId = vendor.settlementCurrencyId;
       }
+
+      // SRD §41 "Data Validation": a PO line must have a positive quantity and a non-negative unit
+      // price — a negative line here would flow straight into subtotal/tax/total and vendor spend.
+      assertValidProcurementLineItems(items, { requireUnitPrice: true });
 
       await VATService.refreshActiveVatRate(false).catch(() => undefined);
 

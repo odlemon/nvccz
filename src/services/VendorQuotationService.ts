@@ -10,6 +10,7 @@ import {
   verifyVendorPortalToken,
   VENDOR_PORTAL_KIND_RFQ_SUBMIT,
 } from "../utils/vendorPortalToken";
+import { assertValidProcurementLineItems } from "../utils/procurementLineItemValidation";
 
 /**
  * Render a vendor quotation PDF (with letterhead + ACCEPTED/REJECTED watermark) for email attachment.
@@ -319,6 +320,13 @@ export class VendorQuotationService {
       console.log(`📋 RFQ Number: ${effectiveRfqNumber}`);
       console.log(`📦 Items: ${items.length}`);
       console.log("");
+
+      if (!Array.isArray(items) || items.length === 0) {
+        throw new Error("At least one item is required");
+      }
+      // SRD §41 "Data Validation": a vendor's quoted line must have a positive quantity and a real,
+      // non-negative unit price — this quotation's items flow straight onto the PO if accepted.
+      assertValidProcurementLineItems(items, { requireUnitPrice: true });
 
       // Calculate totals
       let subtotal = 0;
