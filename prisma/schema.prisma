@@ -31,6 +31,13 @@ model User {
   /// Set when a password was issued by us (e.g. an LP invitation) and must be replaced at
   /// next sign-in. Cleared once the user chooses their own.
   mustChangePassword                    Boolean                         @default(false) @map("must_change_password")
+  /// SRD User Master: ACTIVE | SUSPENDED | LOCKED | DEACTIVATED. Enforced at login.
+  status                                String                          @default("ACTIVE") @db.VarChar(32)
+  /// SRD User Master "Approval Limit": this person's own approval ceiling, independent of workflow routing.
+  /// Null means no personal ceiling override -- decisions defer entirely to the approval matrix/workflow step
+  /// (AMOUNT_THRESHOLD, department, role, named person), exactly as before this field existed. Enforced at
+  /// decision time in ProcurementRequisitionApprovalService.decide().
+  approvalLimit                         Decimal?                        @db.Decimal(15, 2) @map("approval_limit")
   role                                  Role                            @relation(fields: [roleId], references: [id])
   posts                                 Post[]
   replies                               Reply[]
@@ -238,6 +245,7 @@ model User {
   timesheets                            Timesheet[]                     @relation("TimesheetUser")
   timesheetsApproved                    Timesheet[]                     @relation("TimesheetApprover")
 
+  @@index([status], map: "users_status_idx")
   @@map("users")
 }
 
@@ -3087,6 +3095,13 @@ model PurchaseRequisition {
   department                  String?
   /// SRD §7 requisition form "Project/Cost Center": a row of the projects register (Accounting), or null.
   projectId                   String?                   @map("project_id") @db.VarChar(191)
+  /// SRD §11 "Required Date": when the requester needs the goods/services by. Copied onto the RFQ's
+  /// expectedDeliveryDate when a tender is raised from this requisition.
+  requiredDate                DateTime?                 @map("required_date") @db.Date
+  /// SRD §11 "Delivery Location". Copied onto the RFQ's deliveryAddress when a tender is raised from this requisition.
+  deliveryLocation            String?                   @map("delivery_location") @db.VarChar(255)
+  /// SRD §11 "Budget Code": free text — no budget-code register exists on this backend yet (see ask 2).
+  budgetCode                  String?                   @map("budget_code") @db.VarChar(100)
   requestedBy                 User                      @relation("RequisitionRequestedBy", fields: [requestedById], references: [id])
   approvedBy                  User?                     @relation("RequisitionApprovedBy", fields: [approvedById], references: [id])
   currency                    Currency?                 @relation("RequisitionCurrency", fields: [currencyId], references: [id])

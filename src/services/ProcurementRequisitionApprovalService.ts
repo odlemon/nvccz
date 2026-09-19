@@ -218,6 +218,58 @@ export class ProcurementRequisitionApprovalService {
       );
     }
 
+    // A DEPARTMENT-type step's Approval row must still target the requisition's own department. Security UAT
+    // (2026-09-18, SRD §70 test 2 / §12 segregation of duties) found a department head holding a (misconfigured)
+    // DEPARTMENT-step approval for a requisition raised by a different department, and was able to both view and
+    // approve it — `own` above only checks "is there a pending Approval row for me", not "does that row's step
+    // actually apply to this requisition's department". An administrator/CFO still decides on anyone's behalf, as
+    // before; a ROLE/USER/AMOUNT_THRESHOLD step (CFO, PROC_MGR, a named person, ...) is legitimately cross-department
+    // and is not affected.
+    const decidingRow = own || atStep[0];
+    const pr = await prisma.purchaseRequisition.findUnique({
+      where: { id: params.requisitionId },
+      select: { department: true, requestedById: true, totalAmount: true },
+    });
+
+    if (decidingRow.stage.stepType === "DEPARTMENT" && !isModulePrivilegedUser(actor)) {
+      const targetDepartment = pr?.department ?? request.entityData?.department ?? null;
+      if (!targetDepartment || actor.userDepartment !== targetDepartment) {
+        throw badRequest(
+          `You are not assigned to the ${targetDepartment ?? "requesting"} department, so you are not an approver on this requisition's step.`,
+          403
+        );
+      }
+    }
+
+    // A requisition's approval step must never be satisfied by the person who requested it — SRD §70 "Critical
+    // Security Test Cases" test 4, "requestors cannot self-approve where prohibited". Found live on dev
+    // 2026-09-18: a Finance Manager who is also Finance's sole department-head approver both raised and approved
+    // their own requisition (REQ_20260918_0005), 200 with no warning. Unlike the DEPARTMENT check above, this
+    // applies to every step type (a threshold or named approver can equally be the requester) and is deliberately
+    // NOT waived for a module-privileged actor (admin/CFO): privilege lets them decide someone else's pending
+    // step, never their own request. The SRD gives no exception process, so this is an outright block rather than
+    // an escalation to a different approver.
+    if (pr?.requestedById && pr.requestedById === params.actorId) {
+      throw badRequest("You cannot approve or reject your own purchase requisition.", 403);
+    }
+
+    // SRD §7 "User Master" Approval Limit / §70 "approval limits are enforced server-side". A personal ceiling
+    // is independent of the shared workflow routing above -- holding a valid pending Approval row (right step,
+    // right department) only proves the matrix assigned this person the decision, not that their own authorized
+    // ceiling covers this amount. Null means the actor never had a personal limit configured, so behavior is
+    // exactly as before this field existed. Only gates APPROVE (rejecting never authorizes spend). Waived for a
+    // module-privileged actor (admin/CFO), the same bypass already used for the DEPARTMENT check above and the
+    // approval matrix itself -- full authority is intentional there, unlike the self-approval rule.
+    if (params.decision === "APPROVE" && actor.approvalLimit != null && !isModulePrivilegedUser(actor)) {
+      const limit = Number(actor.approvalLimit);
+      const amount = pr?.totalAmount != null ? Number(pr.totalAmount) : Number(request.entityData?.totalAmount ?? 0);
+      if (amount > limit) {
+        throw badRequest(
+          `Your approval limit is $${money(limit)}; this transaction is $${money(amount)}. Escalate to an approver with sufficient authority.`
+        );
+      }
+    }
+
     const row = own || atStep[0];
     const { ApprovalService } = await import("./ApprovalService");
     if (params.decision === "APPROVE") {

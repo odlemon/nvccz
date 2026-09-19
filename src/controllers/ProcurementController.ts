@@ -11,6 +11,7 @@ import { hasUsableRfqItemLines } from "../utils/rfqItemInput";
 import { isModulePrivilegedUser, userHasEffectivePermission } from "../config/cfoModulePermissions";
 import { PROCUREMENT_PERMISSIONS } from "../config/procurementPermissions";
 import { publicErrorMessage } from "../utils/publicErrorMessage";
+import { ProcurementDocuments, RegisterError } from "../services/ProcurementRegistersService";
 
 export class ProcurementController {
   /**
@@ -26,6 +27,9 @@ export class ProcurementController {
         justification,
         sourcingCategory,
         projectId,
+        requiredDate,
+        deliveryLocation,
+        budgetCode,
         items,
         portfolioCompanyId,
         fundId,
@@ -65,6 +69,9 @@ export class ProcurementController {
         justification,
         sourcingCategory,
         projectId,
+        requiredDate,
+        deliveryLocation,
+        budgetCode,
         portfolioCompanyId,
         fundId,
         useOfFundsDocumentUrl,
@@ -344,6 +351,58 @@ export class ProcurementController {
   }
 
   /**
+   * A requisition that targets a real department (i.e. is not an investee/fund-scoped Suite 02 record) may only be
+   * viewed by: its own requester; an administrator/CFO or a holder of the cross-department
+   * `procurement.requisitions.view` permission; a Procurement Manager (PROC_MGR); a member of the department the
+   * requisition was actually raised for; or someone who is a genuine cross-department approver on this specific
+   * requisition's route (a ROLE/USER/AMOUNT_THRESHOLD step — e.g. CFO, or a named person).
+   *
+   * A DEPARTMENT-type approval step does NOT by itself grant cross-department viewing: FINDING (security UAT,
+   * 2026-09-18) showed a department head who happened to hold a (misconfigured) DEPARTMENT-step Approval row for
+   * another department's requisition could view and approve it. Department-step approver rows must still match the
+   * requisition's own department — enforced here, and mirrored in ProcurementRequisitionApprovalService.decide()
+   * for approve/reject.
+   */
+  static async assertUserCanViewDepartmentPurchaseRequisition(
+    viewerUserId: string,
+    requisition: { id: string; department: string | null; requestedById: string }
+  ): Promise<void> {
+    if (requisition.requestedById === viewerUserId) return;
+
+    const viewer = await prisma.user.findUnique({
+      where: { id: viewerUserId },
+      select: { userDepartment: true, roleCode: true, role: { select: { permissions: true, name: true } } },
+    });
+    if (!viewer) {
+      throw new Error("Not authorized to view this requisition.");
+    }
+
+    if (isModulePrivilegedUser(viewer)) return;
+    if (userHasEffectivePermission(viewer, PROCUREMENT_PERMISSIONS.requisitionsViewAll)) return;
+    if (String(viewer.roleCode || "").trim().toUpperCase() === "PROC_MGR") return;
+    if (viewer.userDepartment && viewer.userDepartment === requisition.department) return;
+
+    // A named/role/threshold approver on this requisition's own route may see it outside their department
+    // (e.g. CFO on an amount-threshold step) — but a DEPARTMENT-type step does not, on its own, since that is
+    // exactly the misassignment this check exists to catch.
+    const crossDeptApproval = await prisma.approval.findFirst({
+      where: {
+        approverId: viewerUserId,
+        request: { entityId: requisition.id, stageType: "PURCHASE_REQUISITION" },
+        stage: { stepType: { not: "DEPARTMENT" } },
+      },
+      select: { id: true },
+    });
+    if (crossDeptApproval) return;
+
+    throw new Error(
+      requisition.department
+        ? `You are not authorized to view ${requisition.department} department requisitions.`
+        : "You are not authorized to view this requisition."
+    );
+  }
+
+  /**
    * Get purchase requisition by ID
    */
   static async getPurchaseRequisitionById(req: Request, res: Response) {
@@ -417,6 +476,15 @@ export class ProcurementController {
           fundId: requisition.fundId,
           requestedById: requisition.requestedById,
         });
+        if (!requisition.portfolioCompanyId) {
+          // The investee/fund-scoped check above is a no-op for an ordinary department requisition
+          // (it only guards Suite 02 investee-drawdown records) — department ownership is checked here.
+          await ProcurementController.assertUserCanViewDepartmentPurchaseRequisition(userId, {
+            id: requisition.id,
+            department: requisition.department,
+            requestedById: requisition.requestedById,
+          });
+        }
       } catch (accessErr: any) {
         return res.status(403).json({
           success: false,
@@ -617,6 +685,113 @@ export class ProcurementController {
         success: false,
         message: publicErrorMessage(error, "Failed to update purchase requisition")
       });
+    }
+  }
+
+  /**
+   * SRD §11 "Attachments": add one or more files to a requisition. Reuses the Document Vault's
+   * storage (ProcurementDocuments, folder "Requisitions", relatedRecord = requisitionNumber) but is
+   * gated by ownership rather than procurement.documents.manage, which a requester does not hold.
+   */
+  static async uploadRequisitionAttachments(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+
+      const requisition = await prisma.purchaseRequisition.findUnique({
+        where: { id },
+        select: { id: true, requisitionNumber: true, requestedById: true },
+      });
+      if (!requisition) {
+        return res.status(404).json({ success: false, message: "Purchase requisition not found" });
+      }
+      const isOwner = requisition.requestedById === userId;
+      if (!isOwner && !userHasEffectivePermission(req.user, PROCUREMENT_PERMISSIONS.documentsManage)) {
+        return res.status(403).json({
+          success: false,
+          message: "Only the requisition's requester (or someone who can manage procurement documents) can attach files to it.",
+        });
+      }
+
+      const files = (req.files as any[]) || [];
+      if (!files.length) {
+        return res.status(400).json({ success: false, message: "Attach at least one file" });
+      }
+
+      const created = await ProcurementDocuments.upload({
+        files,
+        folder: "Requisitions",
+        documentType: "Requisition attachment",
+        relatedRecord: requisition.requisitionNumber,
+        uploadedById: userId,
+      });
+
+      res.status(201).json({ success: true, message: "Attachment(s) uploaded", data: created });
+    } catch (error: any) {
+      console.error("Error uploading requisition attachment:", error);
+      const status = error instanceof RegisterError ? error.status : 400;
+      res.status(status).json({ success: false, message: publicErrorMessage(error, "Failed to upload attachment") });
+    }
+  }
+
+  /** SRD §11 "Attachments": list the files attached to a requisition (requester and approvers both). */
+  static async listRequisitionAttachments(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+      const requisition = await prisma.purchaseRequisition.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          requisitionNumber: true,
+          department: true,
+          requestedById: true,
+          portfolioCompanyId: true,
+          fundId: true,
+        },
+      });
+      if (!requisition) {
+        return res.status(404).json({ success: false, message: "Purchase requisition not found" });
+      }
+
+      // Same visibility rule as GET /procurement/requisitions/:id (PROC-FINDING-011): listing a
+      // requisition's attachments must not leak a different department's records. Reviewed after
+      // PROC-FINDING-019 shipped without this check -- any authenticated staff account could read
+      // another department's attachment names/fileUrls/storage paths by id alone.
+      try {
+        await ProcurementService.assertUserCanViewInvesteePurchaseRequisition(userId, {
+          portfolioCompanyId: requisition.portfolioCompanyId,
+          fundId: requisition.fundId,
+          requestedById: requisition.requestedById,
+        });
+        if (!requisition.portfolioCompanyId) {
+          await ProcurementController.assertUserCanViewDepartmentPurchaseRequisition(userId, {
+            id: requisition.id,
+            department: requisition.department,
+            requestedById: requisition.requestedById,
+          });
+        }
+      } catch (accessErr: any) {
+        return res.status(403).json({
+          success: false,
+          message: accessErr?.message || "Not authorized",
+        });
+      }
+
+      const docs = await prisma.procurementDocument.findMany({
+        where: { relatedRecord: requisition.requisitionNumber, folder: "Requisitions" },
+        orderBy: { createdAt: "desc" },
+      });
+      res.status(200).json({ success: true, data: docs });
+    } catch (error: any) {
+      console.error("Error listing requisition attachments:", error);
+      res.status(400).json({ success: false, message: publicErrorMessage(error, "Failed to list attachments") });
     }
   }
 
@@ -1445,8 +1620,18 @@ export class ProcurementController {
       }
 
       // The lines as the RFQ was issued (its snapshot), else the requisition's. Prices are never sent: the vendor quotes them.
+      // itemsSnapshot is always persisted as `{ items: [...] }` (see ProcurementService.createRFQ), never as a bare
+      // array — `Array.isArray(rfq.itemsSnapshot)` was therefore always false and this silently fell through to the
+      // requisition's *current* items on every RFQ, masking the bug only for RFQs whose requisition still exists and
+      // has not changed since the RFQ was issued. Unwrap the snapshot the same way enrichRfqItemsSnapshotForApi and
+      // ProcurementRfqService.extendClosing do.
       const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
-      const snapshot = Array.isArray(rfq.itemsSnapshot) ? (rfq.itemsSnapshot as any[]) : [];
+      const snapshotRaw = rfq.itemsSnapshot as any;
+      const snapshot: any[] = Array.isArray(snapshotRaw)
+        ? snapshotRaw
+        : Array.isArray(snapshotRaw?.items)
+          ? snapshotRaw.items
+          : [];
       const lines = (snapshot.length ? snapshot : ((rfq.requisition?.items as any[]) ?? [])).map((it: any) => ({
         itemName: String(it?.itemName ?? it?.name ?? "").trim(),
         description: it?.description ?? null,

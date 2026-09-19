@@ -10,6 +10,7 @@ import {
   verifyVendorPortalToken,
   VENDOR_PORTAL_KIND_RFQ_SUBMIT,
 } from "../utils/vendorPortalToken";
+import { assertValidProcurementLineItems } from "../utils/procurementLineItemValidation";
 
 /**
  * Render a vendor quotation PDF (with letterhead + ACCEPTED/REJECTED watermark) for email attachment.
@@ -291,8 +292,15 @@ export class VendorQuotationService {
         vendorRow.phone?.trim() || trimIn(phoneNumber) || undefined;
       const resolvedAddress =
         vendorRow.address?.trim() || trimIn(address) || undefined;
+      // PROC-FINDING-017: unlike name/tax EIN/phone/address (stable vendor identity fields the
+      // server should trust over a resubmitted form value), payment terms are negotiated per
+      // quotation and SRD-required as something the vendor states on *this* submission. The old
+      // precedence here (vendor-master value first) meant every quotation silently recorded the
+      // vendor master's default (e.g. "Net 30") and discarded whatever the vendor actually typed
+      // on the RFQ response form - the vendor-typed value must win, with the master record only a
+      // fallback for vendors who leave the field blank via a legacy client.
       const resolvedPaymentTerms =
-        vendorRow.paymentTerms?.trim() || trimIn(paymentTerms) || undefined;
+        trimIn(paymentTerms) || vendorRow.paymentTerms?.trim() || undefined;
 
       if (rfqNumber && rfqRow.rfqNumber !== rfqNumber) {
         throw new Error("rfqNumber does not match this invitation token");
@@ -312,6 +320,13 @@ export class VendorQuotationService {
       console.log(`📋 RFQ Number: ${effectiveRfqNumber}`);
       console.log(`📦 Items: ${items.length}`);
       console.log("");
+
+      if (!Array.isArray(items) || items.length === 0) {
+        throw new Error("At least one item is required");
+      }
+      // SRD §41 "Data Validation": a vendor's quoted line must have a positive quantity and a real,
+      // non-negative unit price — this quotation's items flow straight onto the PO if accepted.
+      assertValidProcurementLineItems(items, { requireUnitPrice: true });
 
       // Calculate totals
       let subtotal = 0;
