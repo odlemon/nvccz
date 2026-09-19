@@ -1882,6 +1882,20 @@ export class ProcurementService {
         technicalWeight,
       } = params;
 
+      // SRD §41 "Data Validation": closing date restrictions must be enforced server-side even
+      // though the RFQ builder also validates this client-side. A closing date at/before "now"
+      // would create an RFQ that is already expired the instant it's sent to vendors — see
+      // PROC-FINDING (RFQ_20260919_0001) for the incident this caught.
+      if (rfqDeadline) {
+        const closingAt = rfqDeadline instanceof Date ? rfqDeadline : new Date(rfqDeadline as any);
+        if (Number.isNaN(closingAt.getTime())) {
+          throw new Error("Closing date is invalid.");
+        }
+        if (closingAt.getTime() <= Date.now()) {
+          throw new Error("Closing date must be in the future.");
+        }
+      }
+
       const sanitizedBodyItems = normalizeRfqItemLinesFromBody(items ?? []);
 
       let requisitionSourcingCategory: string | null | undefined;
