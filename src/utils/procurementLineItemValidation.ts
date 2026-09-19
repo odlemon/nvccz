@@ -63,7 +63,11 @@ export function assertValidProcurementLineItems(
 
     const unitPrice = Number(rawPrice);
     if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-      throw new Error(`Line ${lineNo} (${label}): unit price cannot be negative`);
+      // Worded with "must " (not "cannot be negative") so it is picked up by keyword-based client-error
+      // mappers that already exist on some controllers (see VendorQuotationController's withClientStatus,
+      // which maps a message to 400 only when it matches /must |required|invalid|.../ — the earlier
+      // wording fell through that regex and surfaced as an unhelpful 500 on the vendor-quotation path).
+      throw new Error(`Line ${lineNo} (${label}): unit price must not be negative`);
     }
   });
 }
