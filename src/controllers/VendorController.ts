@@ -84,6 +84,18 @@ export class VendorController {
         });
       }
 
+      // SRD §41 "Data Validation" requires server-side email format validation even where frontend validation
+      // exists; SRD §8.1 tracks Contact Email as a Vendor Record field. Same pattern as UserService.updateUser.
+      if (email !== undefined && email !== null && String(email).trim() !== "") {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(String(email).trim())) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid email format",
+          });
+        }
+      }
+
       const compliance = buildTaxComplianceData({
         itf263CertificateText,
         taxClearanceExpiryDate,
@@ -399,6 +411,18 @@ export class VendorController {
           success: false,
           message: "Vendor not found"
         });
+      }
+
+      // SRD §41 "Data Validation" requires server-side email format validation even where frontend validation
+      // exists; SRD §8.1 tracks Contact Email as a Vendor Record field. Same pattern as UserService.updateUser.
+      if (email !== undefined && email !== null && String(email).trim() !== "") {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(String(email).trim())) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid email format",
+          });
+        }
       }
 
       const hasItfInput =
