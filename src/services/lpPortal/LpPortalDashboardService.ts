@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { prisma } from "../../utils/database";
 import { moneyStr } from "../../middleware/lpPortalFoundation";
-import { LpFundMetricsService } from "../fundReporting/LpFundMetricsService";
+import { LpFundMetricsService, normalizeSnapshotMetrics } from "../fundReporting/LpFundMetricsService";
 import { LpPortalAccessService, type LpPortalContext } from "./LpPortalAccessService";
 import { isCapitalCallVisible } from "./LpPortalCapitalActivityService";
 import { LpPortalCapitalActivityService } from "./LpPortalCapitalActivityService";
@@ -78,7 +78,7 @@ export class LpPortalDashboardService {
         where: { clientId: ctx.clientId, fundId: ic.fundId },
         orderBy: { asOfDate: "desc" },
       });
-      let metrics = snap?.metrics as any;
+      let metrics = normalizeSnapshotMetrics(snap?.metrics as any);
       if (!metrics) {
         const live = await LpFundMetricsService.computeForClient({
           fundId: ic.fundId,
@@ -174,7 +174,7 @@ export class LpPortalDashboardService {
         where: { clientId: ctx.clientId, fundId },
         orderBy: { asOfDate: "desc" },
       });
-      let m: any = snap?.metrics;
+      let m: any = normalizeSnapshotMetrics(snap?.metrics);
       if (!m) {
         m = await LpFundMetricsService.computeForClient({
           fundId,

@@ -25,6 +25,26 @@ export interface LpFundMetricsSnapshot {
   boardExtras?: Record<string, unknown>;
 }
 
+/**
+ * A row in `lpPortalMetricSnapshot.metrics` may have been written before `totalPaidIn`/`nav`/
+ * `totalDistributions` were the field names — older rows use `paidIn`/`currentNav`/`distributions`.
+ * The cron snapshot writer persists whatever `computeForClient()` returns verbatim, and a stale row
+ * isn't re-upserted until the cron next fires for its exact (clientId, fundId, asOfDate) key, so any
+ * reader that only checks the current names silently sees 0 for real dollar figures while
+ * tvpi/dpi/rvpi (same key name in both shapes) keep computing correctly from the same row. Every
+ * reader of a snapshot's raw `metrics` JSON should go through this first rather than re-deriving the
+ * same fallback inline.
+ */
+export function normalizeSnapshotMetrics(raw: any): any {
+  if (!raw) return raw;
+  return {
+    ...raw,
+    totalPaidIn: Number(raw.totalPaidIn ?? raw.paidIn ?? 0),
+    totalDistributions: Number(raw.totalDistributions ?? raw.distributions ?? 0),
+    nav: Number(raw.nav ?? raw.currentNav ?? 0),
+  };
+}
+
 async function paidInByClientFund(
   fundId: string,
   clientIds: string[]
