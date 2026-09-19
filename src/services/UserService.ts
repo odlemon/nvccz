@@ -12,6 +12,7 @@ import {
 } from "./userDeleteHelpers";
 
 const BOARD_VOTING_ROLE_CODES = ["BOARD_CHAIR", "BOARD_MEMBER", "INV_COMM_MEM", "CIO"];
+const ALLOWED_USER_STATUSES = ["ACTIVE", "SUSPENDED", "LOCKED", "DEACTIVATED"];
 
 export class UserService {
   private static isBoardVotingRole(roleCode?: string | null): boolean {
@@ -467,6 +468,7 @@ This is an automated message. Please do not reply to this email.
           departmentRole: true,
           roleCode: true,
           votingPower: true,
+          approvalLimit: true,
           role: {
             select: {
               id: true,
@@ -483,7 +485,7 @@ This is an automated message. Please do not reply to this email.
         ]
       });
 
-      return users;
+      return users.map((u) => ({ ...u, approvalLimit: u.approvalLimit != null ? Number(u.approvalLimit) : null }));
     } catch (error) {
       console.error("Error getting all users:", error);
       throw error;
@@ -506,6 +508,7 @@ This is an automated message. Please do not reply to this email.
           departmentRole: true,
           roleCode: true,
           votingPower: true,
+          approvalLimit: true,
           role: {
             select: {
               id: true,
@@ -523,7 +526,7 @@ This is an automated message. Please do not reply to this email.
         throw new Error("User not found");
       }
 
-      return user;
+      return { ...user, approvalLimit: user.approvalLimit != null ? Number(user.approvalLimit) : null };
     } catch (error) {
       console.error("Error getting user by ID:", error);
       throw error;
@@ -543,6 +546,8 @@ This is an automated message. Please do not reply to this email.
       roleCode?: string;
       departmentRole?: string;
       roleId?: string;
+      status?: string;
+      approvalLimit?: number | string | null;
     },
     auditContext?: {
       actorUserId: string;
@@ -585,6 +590,33 @@ This is an automated message. Please do not reply to this email.
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(userData.email)) {
           throw new Error("Invalid email format");
+        }
+      }
+
+      // Validate status if provided (SRD User Master states)
+      if (userData.status !== undefined && userData.status !== null) {
+        const normalizedStatus = String(userData.status).trim().toUpperCase();
+        if (!ALLOWED_USER_STATUSES.includes(normalizedStatus)) {
+          throw new Error(
+            `Invalid status. Valid statuses: ${ALLOWED_USER_STATUSES.join(", ")}`
+          );
+        }
+        userData.status = normalizedStatus;
+      }
+
+      // Validate approvalLimit if provided (SRD User Master "Approval Limit"). `undefined` means the caller
+      // didn't send the field -- left untouched. An explicit `null` clears a previously-set personal ceiling,
+      // reverting the user to "no override, defer to workflow routing" -- so it must not be rejected here.
+      let normalizedApprovalLimit: number | null | undefined = undefined;
+      if (userData.approvalLimit !== undefined) {
+        if (userData.approvalLimit === null || userData.approvalLimit === "") {
+          normalizedApprovalLimit = null;
+        } else {
+          const n = Number(userData.approvalLimit);
+          if (!Number.isFinite(n) || n < 0) {
+            throw new Error("Invalid approvalLimit. Must be a non-negative number, or null to clear it.");
+          }
+          normalizedApprovalLimit = n;
         }
       }
 
@@ -641,6 +673,8 @@ This is an automated message. Please do not reply to this email.
       if (userData.department) updateData.userDepartment = userData.department;
       if (userData.roleCode) updateData.roleCode = userData.roleCode;
       if (userData.departmentRole) updateData.departmentRole = userData.departmentRole;
+      if (userData.status) updateData.status = userData.status;
+      if (normalizedApprovalLimit !== undefined) updateData.approvalLimit = normalizedApprovalLimit;
       if (userData.roleId) {
         // Caller passed roleId explicitly -- honour it as-is, same as before.
         updateData.roleId = userData.roleId;
@@ -698,6 +732,37 @@ This is an automated message. Please do not reply to this email.
         });
       }
 
+      const statusChanged =
+        userData.status != null && String(userData.status) !== String(existingUser.status ?? "ACTIVE");
+      if (auditContext?.actorUserId && statusChanged) {
+        await AuditService.log({
+          userId: auditContext.actorUserId,
+          action: "USER_STATUS_UPDATE",
+          entityType: "User",
+          entityId: id,
+          oldValues: { targetUserId: id, oldStatus: existingUser.status ?? "ACTIVE" },
+          newValues: { targetUserId: id, newStatus: user.status },
+          ipAddress: auditContext.ipAddress ?? null,
+          userAgent: auditContext.userAgent ?? null
+        });
+      }
+
+      const oldApprovalLimit = existingUser.approvalLimit != null ? Number(existingUser.approvalLimit) : null;
+      const newApprovalLimit = user.approvalLimit != null ? Number(user.approvalLimit) : null;
+      const approvalLimitChanged = normalizedApprovalLimit !== undefined && oldApprovalLimit !== newApprovalLimit;
+      if (auditContext?.actorUserId && approvalLimitChanged) {
+        await AuditService.log({
+          userId: auditContext.actorUserId,
+          action: "USER_APPROVAL_LIMIT_UPDATE",
+          entityType: "User",
+          entityId: id,
+          oldValues: { targetUserId: id, oldApprovalLimit },
+          newValues: { targetUserId: id, newApprovalLimit },
+          ipAddress: auditContext.ipAddress ?? null,
+          userAgent: auditContext.userAgent ?? null
+        });
+      }
+
       // Return only the fields we want, with role as optional
       return {
         id: user.id,
@@ -707,6 +772,8 @@ This is an automated message. Please do not reply to this email.
         userDepartment: user.userDepartment,
         departmentRole: user.departmentRole,
         roleCode: user.roleCode,
+        status: user.status,
+        approvalLimit: newApprovalLimit,
         votingPower: user.votingPower ? Number(user.votingPower) : null,
         role: user.role ? {
           id: user.role.id,

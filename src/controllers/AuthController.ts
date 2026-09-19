@@ -72,6 +72,7 @@ export class AuthController {
           roleCode: true,
           roleId: true,
           tokenVersion: true,
+          status: true,
           role: {
             select: {
               name: true
@@ -81,9 +82,22 @@ export class AuthController {
       });
 
       if (!user) {
-        return res.status(401).json({ 
-          success: false, 
-          message: "Invalid credentials." 
+        return res.status(401).json({
+          success: false,
+          message: "Invalid credentials."
+        });
+      }
+
+      const accountStatus = (user.status || "ACTIVE").toUpperCase();
+      if (accountStatus !== "ACTIVE") {
+        const statusMessages: Record<string, string> = {
+          SUSPENDED: "This account is suspended. Contact your administrator.",
+          LOCKED: "This account is locked. Contact your administrator.",
+          DEACTIVATED: "This account has been deactivated. Contact your administrator."
+        };
+        return res.status(403).json({
+          success: false,
+          message: statusMessages[accountStatus] || "This account is not active. Contact your administrator."
         });
       }
 

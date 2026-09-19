@@ -275,6 +275,19 @@ export class ProcurementRfqService {
     });
     if (!rfq) throw new Error("RFQ not found");
 
+    // SRD §41 "Data Validation": closing date restrictions apply to extensions too — an
+    // extension must move the closing date forward, not to the past or earlier than the
+    // RFQ's current closing date (both would be a no-op or nonsensical "extension").
+    if (!newClosingAt || Number.isNaN(newClosingAt.getTime())) {
+      throw new Error("New closing date is invalid.");
+    }
+    if (newClosingAt.getTime() <= Date.now()) {
+      throw new Error("New closing date must be in the future.");
+    }
+    if (rfq.closingAt && newClosingAt.getTime() <= rfq.closingAt.getTime()) {
+      throw new Error("New closing date must be later than the RFQ's current closing date.");
+    }
+
     await prisma.procurementRfq.update({
       where: { id: procurementRfqId },
       data: { closingAt: newClosingAt },

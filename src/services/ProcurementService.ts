@@ -19,6 +19,7 @@ import {
 import { computePurchaseRequisitionContentFingerprint } from "../utils/purchaseRequisitionContentFingerprint";
 import { normalizeRfqItemLinesFromBody, prItemsToNormalizedRfqLines } from "../utils/rfqItemInput";
 import { isModulePrivilegedUser, isCfoUser } from "../config/cfoModulePermissions";
+import { assertValidProcurementLineItems } from "../utils/procurementLineItemValidation";
 
 // Hardcoded departments
 export enum Department {
@@ -49,6 +50,12 @@ export interface CreatePurchaseRequisitionParams {
   sourcingCategory?: string;
   /** SRD §7 "Project/Cost Center": a row of the projects register, or none. */
   projectId?: string | null;
+  /** SRD §11 "Required Date": when the requester needs the goods/services by. */
+  requiredDate?: Date | string | null;
+  /** SRD §11 "Delivery Location". */
+  deliveryLocation?: string | null;
+  /** SRD §11 "Budget Code" (free text; no budget-code register exists yet). */
+  budgetCode?: string | null;
   /** Investee portal (Suite 02): portfolio company for drawdown cap. */
   portfolioCompanyId?: string;
   fundId?: string;
@@ -216,6 +223,9 @@ export class ProcurementService {
         justification,
         sourcingCategory,
         projectId,
+        requiredDate,
+        deliveryLocation,
+        budgetCode,
         portfolioCompanyId,
         fundId: fundIdParam,
         useOfFundsDocumentUrl,
@@ -227,6 +237,26 @@ export class ProcurementService {
       if (!items || items.length === 0) {
         throw new Error("At least one item is required");
       }
+      // SRD §41 "Data Validation": quantity must be positive, unit price (when given — it's only the
+      // requester's optional estimate on a requisition) may not be negative.
+      assertValidProcurementLineItems(items);
+
+      let resolvedRequiredDate: Date | undefined;
+      if (requiredDate != null && String(requiredDate).trim() !== "") {
+        const d = new Date(requiredDate);
+        if (Number.isNaN(d.getTime())) {
+          throw new Error("requiredDate must be a valid date");
+        }
+        resolvedRequiredDate = d;
+      }
+      const resolvedDeliveryLocation =
+        deliveryLocation != null && String(deliveryLocation).trim() !== ""
+          ? String(deliveryLocation).trim().slice(0, 255)
+          : undefined;
+      const resolvedBudgetCode =
+        budgetCode != null && String(budgetCode).trim() !== ""
+          ? String(budgetCode).trim().slice(0, 100)
+          : undefined;
 
       const { ProcurementRequisitionAssistService } = await import("./ProcurementRequisitionAssistService");
       const resolvedProjectId = await ProcurementRequisitionAssistService.assertProject(projectId);
@@ -301,6 +331,9 @@ export class ProcurementService {
           justification,
           ...(normalizedSourcing ? { sourcingCategory: normalizedSourcing } : {}),
           ...(resolvedProjectId ? { projectId: resolvedProjectId } : {}),
+          ...(resolvedRequiredDate ? { requiredDate: resolvedRequiredDate } : {}),
+          ...(resolvedDeliveryLocation ? { deliveryLocation: resolvedDeliveryLocation } : {}),
+          ...(resolvedBudgetCode ? { budgetCode: resolvedBudgetCode } : {}),
           ...(resolvedPortfolioId ? { portfolioCompanyId: resolvedPortfolioId } : {}),
           ...(resolvedFundId ? { fundId: resolvedFundId } : {}),
           ...(useOfFundsDocumentUrl != null && String(useOfFundsDocumentUrl).trim() !== ""
@@ -706,6 +739,12 @@ export class ProcurementService {
       useOfFundsDocumentUrl?: string | null;
       drawdownRequestAmount?: number | string | null;
       projectId?: string | null;
+      /** SRD §11 "Required Date"; null clears it. */
+      requiredDate?: string | null;
+      /** SRD §11 "Delivery Location"; null or "" clears it. */
+      deliveryLocation?: string | null;
+      /** SRD §11 "Budget Code"; null or "" clears it. */
+      budgetCode?: string | null;
     },
     opts?: { restrictToPortfolioCompanyId?: string }
   ) {
@@ -735,6 +774,9 @@ export class ProcurementService {
       if (!Array.isArray(body.items) || body.items.length === 0) {
         throw new Error("When provided, items must be a non-empty array.");
       }
+      // SRD §41 "Data Validation": same rule as create — an edit (while still DRAFT/REJECTED) must not
+      // be able to introduce a negative/zero quantity or a negative unit price.
+      assertValidProcurementLineItems(body.items);
     }
 
     let drawdownDec: Decimal | undefined;
@@ -779,6 +821,30 @@ export class ProcurementService {
       projectUpdate = await ProcurementRequisitionAssistService.assertProject(body.projectId);
     }
 
+    // Same null/"" clears, undefined leaves as-is convention for the SRD §11 fields.
+    let requiredDateUpdate: Date | null | undefined;
+    if (body.requiredDate !== undefined) {
+      if (body.requiredDate == null || String(body.requiredDate).trim() === "") {
+        requiredDateUpdate = null;
+      } else {
+        const d = new Date(body.requiredDate);
+        if (Number.isNaN(d.getTime())) throw new Error("requiredDate must be a valid date");
+        requiredDateUpdate = d;
+      }
+    }
+    const deliveryLocationUpdate =
+      body.deliveryLocation !== undefined
+        ? body.deliveryLocation != null && String(body.deliveryLocation).trim() !== ""
+          ? String(body.deliveryLocation).trim().slice(0, 255)
+          : null
+        : undefined;
+    const budgetCodeUpdate =
+      body.budgetCode !== undefined
+        ? body.budgetCode != null && String(body.budgetCode).trim() !== ""
+          ? String(body.budgetCode).trim().slice(0, 100)
+          : null
+        : undefined;
+
     const updated = await prisma.$transaction(async (tx) => {
       if (body.items) {
         await tx.purchaseRequisitionItem.deleteMany({ where: { requisitionId } });
@@ -822,6 +888,9 @@ export class ProcurementService {
             : {}),
           ...(body.fundId !== undefined ? { fundId: body.fundId } : {}),
           ...(projectUpdate !== undefined ? { projectId: projectUpdate } : {}),
+          ...(requiredDateUpdate !== undefined ? { requiredDate: requiredDateUpdate } : {}),
+          ...(deliveryLocationUpdate !== undefined ? { deliveryLocation: deliveryLocationUpdate } : {}),
+          ...(budgetCodeUpdate !== undefined ? { budgetCode: budgetCodeUpdate } : {}),
           ...(drawdownDec ? { drawdownRequestAmount: drawdownDec } : {}),
           totalAmount,
         },
@@ -1273,6 +1342,7 @@ export class ProcurementService {
           email: true,
           roleCode: true,
           role: true,
+          approvalLimit: true,
         },
       });
 
@@ -1289,6 +1359,27 @@ export class ProcurementService {
 
         if (!approver.departmentRole || (approver.departmentRole !== DepartmentRole.HEAD && approver.departmentRole !== DepartmentRole.DEPUTY)) {
           throw new Error(`Only department HEAD or DEPUTY can approve requisitions. Your role: ${approver.departmentRole || 'MEMBER'}`);
+        }
+      }
+
+      // Same self-approval rule as ProcurementRequisitionApprovalService.decide() (SRD §70 test 4), applied here
+      // too because this branch is a separate legacy path for requisitions with no open approval route — it does
+      // not call decide() and so does not inherit that check. Not waived for a privileged approver.
+      if (requisition.requestedById === approvedById) {
+        throw new Error("You cannot approve your own purchase requisition.");
+      }
+
+      // Same personal approval-ceiling rule as ProcurementRequisitionApprovalService.decide() (SRD §7 User
+      // Master "Approval Limit" / §70 "approval limits are enforced server-side"), applied here too since this
+      // legacy no-open-route branch doesn't call decide() and wouldn't otherwise inherit it. Null limit or a
+      // privileged approver behaves exactly as before this field existed.
+      if (!privilegedApprover && approver.approvalLimit != null) {
+        const limit = Number(approver.approvalLimit);
+        const amount = Number(requisition.totalAmount || 0);
+        if (amount > limit) {
+          throw new Error(
+            `Your approval limit is $${limit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}; this transaction is $${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Escalate to an approver with sufficient authority.`
+          );
         }
       }
 
@@ -1479,6 +1570,12 @@ export class ProcurementService {
         if (!approver.departmentRole || (approver.departmentRole !== DepartmentRole.HEAD && approver.departmentRole !== DepartmentRole.DEPUTY)) {
           throw new Error(`Only department HEAD or DEPUTY can reject requisitions. Your role: ${approver.departmentRole || 'MEMBER'}`);
         }
+      }
+
+      // Same self-decision rule as ProcurementRequisitionApprovalService.decide() (SRD §70 test 4) and the
+      // approve fallback above — this legacy no-open-route path doesn't call decide() either.
+      if (requisition.requestedById === rejectedById) {
+        throw new Error("You cannot approve or reject your own purchase requisition.");
       }
 
       const rejectionFingerprint = computePurchaseRequisitionContentFingerprint(requisition);
@@ -1882,11 +1979,29 @@ export class ProcurementService {
         technicalWeight,
       } = params;
 
+      // SRD §41 "Data Validation": closing date restrictions must be enforced server-side even
+      // though the RFQ builder also validates this client-side. A closing date at/before "now"
+      // would create an RFQ that is already expired the instant it's sent to vendors — see
+      // PROC-FINDING (RFQ_20260919_0001) for the incident this caught.
+      if (rfqDeadline) {
+        const closingAt = rfqDeadline instanceof Date ? rfqDeadline : new Date(rfqDeadline as any);
+        if (Number.isNaN(closingAt.getTime())) {
+          throw new Error("Closing date is invalid.");
+        }
+        if (closingAt.getTime() <= Date.now()) {
+          throw new Error("Closing date must be in the future.");
+        }
+      }
+
       const sanitizedBodyItems = normalizeRfqItemLinesFromBody(items ?? []);
 
       let requisitionSourcingCategory: string | null | undefined;
       let resolvedItems: NonNullable<CreateRFQParams["items"]>;
       let prEmailMeta: { requisitionNumber: string; requisitionTitle: string } | undefined;
+      // SRD §11: the requisition's Required Date / Delivery Location flow onto the RFQ (and from
+      // there to the vendor portal's quotation form) when the tender builder does not override them.
+      let prRequiredDate: Date | null | undefined;
+      let prDeliveryLocation: string | null | undefined;
 
       if (requisitionId) {
         const pr = await prisma.purchaseRequisition.findUnique({
@@ -1903,6 +2018,8 @@ export class ProcurementService {
         }
         requisitionSourcingCategory = pr.sourcingCategory;
         prEmailMeta = { requisitionNumber: pr.requisitionNumber, requisitionTitle: pr.title };
+        prRequiredDate = pr.requiredDate ?? undefined;
+        prDeliveryLocation = pr.deliveryLocation ?? undefined;
         if (sanitizedBodyItems.length > 0) {
           resolvedItems = sanitizedBodyItems;
         } else {
@@ -1989,8 +2106,11 @@ export class ProcurementService {
           technicalWeight:
             technicalWeight != null ? new Decimal(technicalWeight) : new Decimal(0.5),
           itemsSnapshot: { items: resolvedItems } as object,
-          deliveryAddress: deliveryAddress || null,
-          expectedDeliveryDate: expectedDeliveryDate || null,
+          // An explicit value on the RFQ itself wins; otherwise fall back to the source requisition's
+          // Required Date / Delivery Location so the vendor portal never shows "Not set" / "To be
+          // confirmed" for a tender raised from a requisition that captured them.
+          deliveryAddress: deliveryAddress || prDeliveryLocation || null,
+          expectedDeliveryDate: expectedDeliveryDate || prRequiredDate || null,
           specialRequirements: specialRequirements || null,
           createdById,
         },
@@ -2267,6 +2387,10 @@ export class ProcurementService {
       if (!effectiveCurrencyId && vendor.settlementCurrencyId) {
         effectiveCurrencyId = vendor.settlementCurrencyId;
       }
+
+      // SRD §41 "Data Validation": a PO line must have a positive quantity and a non-negative unit
+      // price — a negative line here would flow straight into subtotal/tax/total and vendor spend.
+      assertValidProcurementLineItems(items, { requireUnitPrice: true });
 
       await VATService.refreshActiveVatRate(false).catch(() => undefined);
 
