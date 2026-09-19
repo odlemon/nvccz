@@ -240,8 +240,13 @@ export function parseZimrateDateLabel(label: string | undefined): Date | null {
   if (parts.length !== 3) return null;
   const d = parseInt(parts[0], 10);
   const m = parseInt(parts[1], 10);
-  const y = parseInt(parts[2], 10);
+  let y = parseInt(parts[2], 10);
   if (!Number.isFinite(d) || !Number.isFinite(m) || !Number.isFinite(y)) return null;
+  // A malformed upstream label has been seen with a 2-digit year (e.g. "16-02-19"). Date.UTC
+  // applies its legacy rule for 0-99 ("1900 + year"), which silently produced 1919 instead of
+  // 2019 -- a street rate dated over a century ago, shown as-is on the live dashboard. This
+  // system only ever deals with dates from the 2000s onward, so treat any 2-digit year as 2000+y.
+  if (y >= 0 && y < 100) y += 2000;
   return new Date(Date.UTC(y, m - 1, d));
 }
 
