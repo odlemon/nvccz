@@ -10,6 +10,7 @@ import { LpPortalMfaService } from "./LpPortalMfaService";
 import { LpPortalColleagueService } from "./LpPortalColleagueService";
 import { LpPortalAttachmentService } from "./LpPortalAttachmentService";
 import { LpPortalRealtimeService } from "./LpPortalRealtimeService";
+import AuditService from "../AuditService";
 
 const db = () => prisma as any;
 
@@ -187,7 +188,8 @@ export class LpPortalServiceDeskService {
   static async createBankInstructionChange(
     ctx: LpPortalContext,
     body: Record<string, unknown>,
-    userId?: string
+    userId?: string,
+    meta: { ipAddress?: string; userAgent?: string } = {}
   ) {
     await LpPortalAccessService.assertClientActive(ctx.clientId);
     if (body.fundId) assertFundAccess(ctx, String(body.fundId));
@@ -205,6 +207,17 @@ export class LpPortalServiceDeskService {
         payloadJson: body,
       },
     });
+
+    await AuditService.log({
+      userId: userId || ctx.userId || null,
+      action: "CREATE",
+      entityType: "LpBankInstructionChange",
+      entityId: row.id,
+      newValues: { clientId: ctx.clientId, fundId: row.fundId, status: row.status, payload: body },
+      ipAddress: meta.ipAddress || null,
+      userAgent: meta.userAgent || null,
+    });
+
     return { id: row.id, status: row.status, createdAt: row.createdAt?.toISOString?.() ?? null };
   }
 

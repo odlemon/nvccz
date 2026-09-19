@@ -365,7 +365,8 @@ export class LpPortalController {
       const data = await LpPortalServiceDeskService.createBankInstructionChange(
         req.lpPortal!,
         req.body || {},
-        req.user!.id
+        req.user!.id,
+        { ipAddress: req.ip, userAgent: req.get("user-agent") }
       );
       res.status(201).json(successBody(data));
     } catch (e) {
