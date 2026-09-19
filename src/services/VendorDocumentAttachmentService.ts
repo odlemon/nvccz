@@ -529,8 +529,14 @@ export class VendorDocumentAttachmentService {
     meta?: { ipAddress?: string; userAgent?: string };
   }) {
     const row = await this.assertAccessToAttachment(params.attachmentId, params.actor);
-    if (params.actor.kind === "portal") {
-      throw new Error("Portal users cannot delete attachments");
+    if (params.actor.kind === "portal" && row.entityId) {
+      // A portal actor may only remove a STAGED upload -- one never linked to a submitted
+      // quotation/invoice -- e.g. rolling back an already-succeeded upload from a batch where
+      // a sibling file failed, so nothing orphaned is left behind (PROC-FINDING vendor-quotation
+      // attachment rollback). Access to this attachment at all is already vendor-scoped by
+      // assertAccessToAttachment above. Anything already linked to a submitted record can only
+      // be removed by staff, same as before.
+      throw new Error("Portal users cannot delete an attachment already linked to a submitted record");
     }
 
     const updated = await prisma.vendorDocumentAttachment.update({
@@ -538,7 +544,7 @@ export class VendorDocumentAttachmentService {
       data: {
         status: VENDOR_DOCUMENT_STATUSES.DELETED,
         deletedAt: new Date(),
-        deletedById: params.actor.userId
+        deletedById: params.actor.kind === "staff" ? params.actor.userId : null
       }
     });
 

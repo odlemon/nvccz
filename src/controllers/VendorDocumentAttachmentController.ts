@@ -119,6 +119,34 @@ export class VendorDocumentAttachmentController {
     }
   }
 
+  /**
+   * Roll back a STAGED upload (never linked to a submitted quotation/invoice) from the public
+   * vendor portal -- e.g. a batch where a later file failed to upload, so the ones that already
+   * succeeded don't sit around as orphaned attachments. Anything already linked is rejected by
+   * the service layer regardless of what's sent here.
+   */
+  static async portalRemove(req: Request, res: Response) {
+    try {
+      const attachmentId = String(req.params.attachmentId || "").trim();
+      const vendorPortalToken = String(
+        req.query?.vendorPortalToken || req.query?.token || req.body?.vendorPortalToken || req.body?.token || ""
+      ).trim();
+      if (!vendorPortalToken) {
+        return res.status(400).json({ success: false, message: "vendorPortalToken is required" });
+      }
+      const data = await VendorDocumentAttachmentService.deleteAttachment({
+        attachmentId,
+        actor: { kind: "portal", vendorPortalToken },
+        meta: requestMeta(req)
+      });
+      res.json({ success: true, data });
+    } catch (error: any) {
+      const msg = String(error.message || "");
+      const status = msg.includes("not found") ? 404 : msg.includes("denied") || msg.includes("cannot delete") ? 403 : 400;
+      res.status(status).json({ success: false, message: error.message });
+    }
+  }
+
   static async staffUploadToQuotation(req: Request, res: Response) {
     try {
       const file = (req as any).file;

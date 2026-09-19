@@ -783,6 +783,35 @@ export class VendorQuotationService {
         throw new Error(`Quotation has already been ${quotation.status.toLowerCase()}`);
       }
 
+      // SRD §60 step 7 "Committee evaluates" before step 9 "Approver approves" (PROC-FINDING-014).
+      // Only enforced when there is an actual comparison to make -- a sole-source/single-bid RFQ has
+      // nothing to score against, and the SRD's own example journey frames scoring as a comparison
+      // step, not an award gate in its own right. A competitive RFQ (2+ open quotations) must have
+      // every one of them scored before any can be awarded, so a careless or rushed award can't skip
+      // the evaluation step the UI itself expects to have already happened.
+      if (action === "ACCEPT" && quotation.procurementRfqId) {
+        const competingQuotations = await prisma.vendorQuotation.findMany({
+          where: {
+            procurementRfqId: quotation.procurementRfqId,
+            status: { in: ["SUBMITTED", "UNDER_REVIEW"] },
+          },
+          select: { id: true, quotationNumber: true, companyName: true, vendorName: true, technicalScoreJson: true },
+        });
+        if (competingQuotations.length > 1) {
+          const hasScore = (q: (typeof competingQuotations)[number]) => {
+            const evalScore = (q.technicalScoreJson as any)?.evaluation?.score;
+            return typeof evalScore === "number" && Number.isFinite(evalScore);
+          };
+          const unscored = competingQuotations.filter((q) => !hasScore(q));
+          if (unscored.length > 0) {
+            const names = unscored.map((q) => q.companyName || q.vendorName || q.quotationNumber).join(", ");
+            throw new Error(
+              `All submitted quotations on this RFQ must be technically scored before one can be awarded. Missing evaluation for: ${names}.`
+            );
+          }
+        }
+      }
+
       console.log(`   Quotation: ${quotation.quotationNumber}`);
       console.log(`   Vendor: ${quotation.companyName || quotation.vendorName}`);
       console.log(`   Amount (stored): $${Number(quotation.totalAmount).toFixed(2)}`);
