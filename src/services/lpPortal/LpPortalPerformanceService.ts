@@ -478,12 +478,20 @@ export class LpPortalPerformanceService {
         const fund = await db().fund.findUnique({ where: { id: fundId }, select: { name: true } });
         fundName = fund?.name || fundId;
       }
+      // `totalPaidIn`/`nav`/`totalDistributions` are the field names computeForClient() (the live
+      // fallback below) currently returns and the cron snapshot writer persists verbatim — but
+      // snapshots written before that shape existed used `paidIn`/`currentNav`/`distributions`.
+      // A stale row in that older shape isn't re-upserted until the cron next fires for its exact
+      // (clientId, fundId, asOfDate) key, so reading only the new names silently zeroed out real
+      // paid-in/NAV/distributions on this fund while tvpi/dpi/rvpi (same key name either shape)
+      // stayed correct — the Capital Activity chart and Current NAV/Paid-In cards went blank while
+      // the ratio cards kept showing real numbers. Read both shapes rather than only the new one.
       return {
         fundName,
         totalCommitment: Number(m.totalCommitment ?? 0),
-        totalPaidIn: Number(m.totalPaidIn ?? 0),
-        totalDistributions: Number(m.totalDistributions ?? 0),
-        nav: Number(m.nav ?? 0),
+        totalPaidIn: Number(m.totalPaidIn ?? m.paidIn ?? 0),
+        totalDistributions: Number(m.totalDistributions ?? m.distributions ?? 0),
+        nav: Number(m.nav ?? m.currentNav ?? 0),
         tvpi: Number(m.tvpi ?? 0),
         dpi: Number(m.dpi ?? 0),
         rvpi: Number(m.rvpi ?? 0),
