@@ -54,6 +54,7 @@ export class LpPortalPerformanceService {
     const fundIds = await this.entitledFundIds(ctx, opts.fundId);
     const series = [];
     let openEndedMetrics = null;
+    let singleFundOperatingModel: string | null = null;
     let totals = {
       totalCommitment: 0,
       paidIn: 0,
@@ -66,6 +67,7 @@ export class LpPortalPerformanceService {
       const m = await this.metricsForFund(ctx, fundId, periodStart, asOf);
       const portalCtx = await db().lpFundPortalContext.findUnique({ where: { fundId } });
       const operatingModel = portalCtx?.operatingModel || "PRIVATE_CAPITAL";
+      if (opts.fundId === fundId) singleFundOperatingModel = operatingModel;
       if (operatingModel === "OPEN_ENDED" && (!opts.fundId || opts.fundId === fundId)) {
         const holding = await db().lpHoldingPosition.findFirst({
           where: { clientId: ctx.clientId, fundId, isActive: true },
@@ -112,6 +114,14 @@ export class LpPortalPerformanceService {
     const tvpi = paidIn > 0 ? (totals.distributions + totals.currentNav) / paidIn : 0;
     const dpi = paidIn > 0 ? totals.distributions / paidIn : 0;
     const rvpi = paidIn > 0 ? totals.currentNav / paidIn : 0;
+    // Same SRD gate as the `byFund` rows above, applied to this single-fund summary: when the
+    // caller scoped the request to one specific fund (opts.fundId) and that fund is OPEN_ENDED,
+    // these multiples are meaningless (not just inapplicable) for it, the same way they are per row
+    // in `series`. Without this, selecting an open-ended fund on its own in the Performance screen
+    // showed a real closed-end-style Net IRR/TVPI/DPI/RVPI computed against its own zero paid-in
+    // capital — exactly the "-102% next to a real 18.7%" failure mode the comment above describes,
+    // just reached through the single-fund summary instead of the all-funds row.
+    const suppressMultiples = singleFundOperatingModel === "OPEN_ENDED";
 
     return {
       asOfDate: dateOnly(asOf),
@@ -127,10 +137,10 @@ export class LpPortalPerformanceService {
         paidIn: moneyStr(totals.paidIn),
         distributions: moneyStr(totals.distributions),
         currentNav: moneyStr(totals.currentNav),
-        netIrr: totals.netIrr != null ? ratioStr(totals.netIrr, 4) : null,
-        tvpi: ratioStr(tvpi, 4),
-        dpi: ratioStr(dpi, 4),
-        rvpi: ratioStr(rvpi, 4),
+        netIrr: suppressMultiples ? null : totals.netIrr != null ? ratioStr(totals.netIrr, 4) : null,
+        tvpi: suppressMultiples ? null : ratioStr(tvpi, 4),
+        dpi: suppressMultiples ? null : ratioStr(dpi, 4),
+        rvpi: suppressMultiples ? null : ratioStr(rvpi, 4),
       },
       byFund: series,
       openEndedMetrics,
