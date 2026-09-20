@@ -15,7 +15,7 @@ export class ListedEquityPortfolioService {
       },
       include: {
         listedEquityFundConfig: true,
-        listedEquityValuationSnapshots: { orderBy: { asOf: "desc" }, take: 1 },
+        listedEquityValuationSnapshots: { orderBy: [{ asOf: "desc" }, { createdAt: "desc" }], take: 1 },
       },
     });
     return funds.map((f) => ({
@@ -66,7 +66,7 @@ export class ListedEquityPortfolioService {
     await ListedEquityAccessService.assertFundAccess(userId, fundId, user);
     const snap = await prisma.listedEquityValuationSnapshot.findFirst({
       where: { fundId },
-      orderBy: { asOf: "desc" },
+      orderBy: [{ asOf: "desc" }, { createdAt: "desc" }],
     });
     const settlements = await prisma.listedEquityTradeSettlement.findMany({
       where: { trade: { fundId } },
@@ -91,7 +91,7 @@ export class ListedEquityPortfolioService {
     await ListedEquityAccessService.assertFundAccess(userId, fundId, user);
     return prisma.listedEquityValuationSnapshot.findMany({
       where: { fundId },
-      orderBy: { asOf: "desc" },
+      orderBy: [{ asOf: "desc" }, { createdAt: "desc" }],
       take: 100,
     });
   }

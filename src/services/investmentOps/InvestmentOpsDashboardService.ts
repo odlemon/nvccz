@@ -73,7 +73,7 @@ async function holdingsNavFallback(fundId: string) {
 
   const snap = await prisma.listedEquityValuationSnapshot.findFirst({
     where: { fundId },
-    orderBy: { asOf: "desc" },
+    orderBy: [{ asOf: "desc" }, { createdAt: "desc" }],
   });
   if (snap && nav <= 0) {
     nav = Number(snap.navBaseCurrency);
