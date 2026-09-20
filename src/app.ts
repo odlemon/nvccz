@@ -133,6 +133,7 @@ import dealExecutionPackRoutes from "./routes/dealExecutionPackRoutes"
 import taxReturnPackRoutes from "./routes/taxReturnPackRoutes"
 import exchangeRateDisplayRoutes from "./routes/exchangeRateDisplayRoutes"
 import exchangeRateDisplayCronRoutes from "./routes/exchangeRateDisplayCronRoutes"
+import { startStreetRateAutoRefresh, stopStreetRateAutoRefresh } from "./services/exchangeRateDisplay/StreetRateAutoRefreshScheduler"
 import procurementRoutes from "./routes/procurementRoutes"
 import procurementSuite06Routes from "./routes/procurementSuite06Routes"
 import vendorDocumentAttachmentRoutes from "./routes/vendorDocumentAttachmentRoutes"
@@ -899,6 +900,11 @@ const startServer = async (): Promise<void> => {
 
     initSocketServer(httpServer)
 
+    // FINDING-SR-002 fix: street/official USD-ZWG rates previously only refreshed when a staff
+    // member manually clicked "Force Ingest Run" on /street-rates/config — see
+    // src/services/exchangeRateDisplay/StreetRateAutoRefreshScheduler.ts for the cadence rationale.
+    startStreetRateAutoRefresh()
+
     httpServer.listen(port, '0.0.0.0', () => {
       logger.info(`🚀 Server running on port ${port}`, {
         environment: envConfig.get("NODE_ENV"),
@@ -917,6 +923,7 @@ const gracefulShutdown = async (signal: string): Promise<void> => {
   logger.info(`Received ${signal}. Shutting down gracefully...`)
 
   try {
+    stopStreetRateAutoRefresh()
     await prisma.$disconnect()
     logger.info("Server shut down successfully")
     process.exit(0)
