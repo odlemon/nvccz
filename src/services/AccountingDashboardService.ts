@@ -719,10 +719,13 @@ export class AccountingDashboardService {
       let taxDelta = 0;
       let belowDelta = 0;
 
-      if (accountNoValue >= 4000 && accountNoValue <= 4099) {
-        revenueDelta = credit - debit;
-      } else if (accountNoValue >= 4100 && accountNoValue <= 4199) {
-        revenueDelta = -(credit - debit);
+      if (accountNoValue >= 4000 && accountNoValue <= 4199) {
+        // Revenue accounts (credits positive). See the identical fix and rationale in
+        // IncomeStatementService.buildIncomeStatementSections (FINDING-ACC-001): 4100-4199 was
+        // wrongly treated as a contra-revenue/returns range and sign-flipped, but this chart of
+        // accounts has no such convention — 4100/4110/4120/4130 are real revenue accounts. Only
+        // an explicitly-typed contra-revenue account should reduce the total.
+        revenueDelta = meta.accountType === "Contra-Revenue" ? -(credit - debit) : credit - debit;
       } else if (accountNoValue >= 5000 && accountNoValue <= 5999) {
         opexDelta = debit - credit;
       } else if (accountNoValue >= 6100 && accountNoValue <= 6199) {

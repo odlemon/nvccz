@@ -2,15 +2,25 @@
  * Adds the chart-of-accounts entries a distribution needs in order to be posted according to what
  * it actually is.
  *
- * Why: `DistributionService.create` resolved one account — `4100 Dividend Income` — and debited it
- * for **every** distribution regardless of `source`. A realisation of an investment was therefore
- * booked to dividend income, and so was interest. Two of the SRD's six distribution types
- * (`RETURN_OF_CAPITAL`, `INCOME`) could not be created at all, partly because there was nowhere
- * sensible to post them: a return of contributed capital is not income and must not touch an
- * income account.
+ * Why: `DistributionService.create` originally resolved one account — `4100 Dividend Income` —
+ * and debited it for **every** distribution regardless of `source`. A realisation of an investment
+ * was therefore booked to dividend income, and so was interest. Two of the SRD's six distribution
+ * types (`RETURN_OF_CAPITAL`, `INCOME`) could not be created at all, partly because there was
+ * nowhere sensible to post them: a return of contributed capital is not income and must not touch
+ * an income account.
  *
- * The four accounts below give each source a correct home. Numbers continue the existing series
- * (41xx revenue, 30xx equity) and the naming follows the accounts already present.
+ * `3020` (Equity) is what `DistributionService` actually posts to today for `RETURN_OF_CAPITAL` —
+ * required for that distribution type to work at all. As of the v3 fix in `DistributionService.ts`
+ * (see the `SOURCE_DEBIT_ACCOUNT` comment there), revenue-sourced distributions (DIVIDEND /
+ * INTEREST / EXIT_PROCEEDS / REALISATION_PROCEEDS / INCOME / OTHER) debit `3100 Retained Earnings`
+ * instead of a per-source revenue account, so `4110`/`4120`/`4130` below are no longer written by
+ * `DistributionService` — they're kept here as general-purpose revenue accounts (for whatever
+ * eventually records interest/realised-gain/other-investment income itself, the way
+ * `PortfolioCompanyAccountingService` already does for dividends via `4100`), not because
+ * anything currently posts to them from this flow.
+ *
+ * Numbers continue the existing series (41xx revenue, 30xx equity) and the naming follows the
+ * accounts already present.
  *
  * Idempotent: each account is created only if its number is absent. Nothing is renamed, disabled
  * or repointed, and no journal entries are rewritten — existing postings keep whatever account

@@ -215,7 +215,7 @@ export class InvestmentInstrumentService {
       prisma.investmentPortfolioConfig.findUnique({ where: { fundId } }),
       prisma.listedEquityValuationSnapshot.findFirst({
         where: { fundId },
-        orderBy: { asOf: "desc" },
+        orderBy: [{ asOf: "desc" }, { createdAt: "desc" }],
       }),
     ]);
 

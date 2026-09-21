@@ -788,7 +788,20 @@ export class FundraisingSrdService {
     return prisma.fundraisingCommitment.findMany({
       where,
       include: {
-        investor: { select: { id: true, legalName: true } },
+        // Frontend mirrors investor-level KYC/sanctions onto each commitment row
+        // (fundraising-commitments.tsx / mapCommitmentRow) — kycStatus/sanctionsStatus/
+        // complianceHoldActive must be selected here or every row silently reads as
+        // "Not Started" / not-blocked regardless of the investor's real status
+        // (see FINDING-FR-002 in design-refs/fundraising/TEST_FINDINGS.md).
+        investor: {
+          select: {
+            id: true,
+            legalName: true,
+            kycStatus: true,
+            sanctionsStatus: true,
+            complianceHoldActive: true,
+          },
+        },
         opportunity: { select: { id: true, opportunityType: true, status: true } },
         closing: true,
       },
@@ -805,6 +818,15 @@ export class FundraisingSrdService {
     }
 
     const opp = await FundraisingIrOpportunityService.get(opportunityId);
+    // Mirror the investor's current KYC/compliance status onto the commitment at creation
+    // time rather than leaving complianceStatus null until someone re-confirms it per
+    // commitment — see design-refs/fundraising/TEST_FINDINGS.md FINDING-FR-002 for the
+    // reasoning (no SRD text calls for separate per-commitment re-confirmation, and the
+    // admission gate itself already checks investor.kycStatus directly, not this field).
+    const investorForCompliance =
+      body.investorId && body.investorId !== opp.investorId
+        ? await prisma.investorOrganisation.findUnique({ where: { id: body.investorId } })
+        : opp.investor;
     const created = await prisma.fundraisingCommitment.create({
       data: {
         opportunityId,
@@ -820,6 +842,7 @@ export class FundraisingSrdService {
         closingId: body.closingId ?? null,
         sideLetter: body.sideLetter ?? undefined,
         capitalCallContact: body.capitalCallContact ?? null,
+        complianceStatus: body.complianceStatus ?? investorForCompliance?.kycStatus ?? null,
         createdById: userId,
       },
     });
@@ -918,6 +941,10 @@ export class FundraisingSrdService {
           status: "ADMITTED_AT_CLOSE",
           admissionDate,
           accountingStatus: body.accountingStatus || "ADMITTED",
+          // Re-mirror investor KYC onto the commitment at the real admission gate in case it
+          // was created before this field existed or before the investor's KYC cleared —
+          // never overwrite an explicit value already recorded on the commitment itself.
+          complianceStatus: commitment.complianceStatus ?? commitment.investor?.kycStatus ?? null,
         },
       });
 

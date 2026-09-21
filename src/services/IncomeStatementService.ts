@@ -522,21 +522,29 @@ export class IncomeStatementService {
         transactions: accountTransactions
       };
 
-      if (accountNoValue >= 4000 && accountNoValue <= 4099) {
-        // Core revenue accounts (credits positive)
+      if (accountNoValue >= 4000 && accountNoValue <= 4199) {
+        // Revenue accounts (credits positive). The 4100-4199 sub-range was previously always
+        // treated as "contra revenue / returns" and sign-flipped, on the assumption of a generic
+        // chart-of-accounts convention (sales returns & allowances) that this fund's actual chart
+        // never adopted: 4100/4110/4120/4130 are real credit-normal revenue accounts (Dividend
+        // Income, Interest Income, Realised Gain on Investments, Other Investment Income — see
+        // scripts/create-distribution-source-accounts.ts and
+        // scripts/run-lp-fees-and-distributions-migration.ts). Flipping their already-correct
+        // netAmount (credits - debits) turned real income negative on the Income Statement
+        // (FINDING-ACC-001). Only an account explicitly typed as contra-revenue should be
+        // presented as a reduction of revenue; none exist in this chart of accounts today, but the
+        // branch is kept (type-driven, not number-range-driven) in case one is added later.
+        if (account.accountType === "Contra-Revenue") {
+          const line: IncomeStatementLine = {
+            ...baseLine,
+            amount: baseLine.amount * -1
+          };
+          returnsAccounts.push(line);
+          revenueSection.total += line.amount;
+          continue;
+        }
         revenueSection.accounts.push(baseLine);
         revenueSection.total += baseLine.amount;
-        continue;
-      }
-
-      if (accountNoValue >= 4100 && accountNoValue <= 4199) {
-        // Contra revenue / returns
-        const line: IncomeStatementLine = {
-          ...baseLine,
-          amount: baseLine.amount * -1
-        };
-        returnsAccounts.push(line);
-        revenueSection.total += line.amount;
         continue;
       }
 

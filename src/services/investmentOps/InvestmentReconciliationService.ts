@@ -500,7 +500,7 @@ export class InvestmentReconciliationService {
     } else if (reconType === "NAV") {
       const snap = await db.listedEquityValuationSnapshot.findFirst({
         where: { fundId },
-        orderBy: { asOf: "desc" },
+        orderBy: [{ asOf: "desc" }, { createdAt: "desc" }],
       });
       const extNav = externalRows.reduce((s, r) => s + Number(r.nav || r.amount || 0), 0);
       const internal = snap ? Number(snap.navBaseCurrency) : 0;
