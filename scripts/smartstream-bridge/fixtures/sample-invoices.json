@@ -1,0 +1,53 @@
+[
+  {
+    "id": "fx-inv-1",
+    "invoiceNumber": "INV_20260910_0011",
+    "vendorInvoiceReference": "INV-SW-4471",
+    "invoiceDate": "2026-09-08",
+    "dueDate": "2026-10-08",
+    "subtotal": "526.00",
+    "vatAmount": "81.53",
+    "totalAmount": "607.53",
+    "currency": { "code": "USD" },
+    "description": "Quarterly stationery restock for the Operations office",
+    "vendor": {
+      "name": "UAT Msika Stationers (Pvt) Ltd",
+      "bpNumber": "BP-UAT-7301",
+      "taxNumber": "10097301"
+    }
+  },
+  {
+    "id": "fx-inv-2",
+    "invoiceNumber": "INV_20260911_0012",
+    "vendorInvoiceReference": "KOS-2288",
+    "invoiceDate": "2026-09-09",
+    "dueDate": "2026-10-09",
+    "subtotal": "562.50",
+    "vatAmount": "87.19",
+    "totalAmount": "649.69",
+    "currency": { "code": "USD" },
+    "description": "Toner cartridges for Operations printers",
+    "vendor": {
+      "name": "UAT Kariba Office Supplies (Pvt) Ltd",
+      "bpNumber": "BP-UAT-7302",
+      "taxNumber": "10097302"
+    }
+  },
+  {
+    "id": "fx-inv-3",
+    "invoiceNumber": "INV_20260912_0013",
+    "vendorInvoiceReference": "CPC-0091",
+    "invoiceDate": "2026-09-10",
+    "dueDate": "2026-10-10",
+    "subtotal": "553.60",
+    "vatAmount": "85.81",
+    "totalAmount": "639.41",
+    "currency": { "code": "USD" },
+    "description": "Lever arch files, bulk order",
+    "vendor": {
+      "name": "UAT Chimanimani Paper Co (Pvt) Ltd",
+      "bpNumber": "BP-UAT-7303",
+      "taxNumber": ""
+    }
+  }
+]
