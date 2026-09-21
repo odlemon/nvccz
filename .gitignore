@@ -13,14 +13,24 @@
 # User-uploaded files (newsletter covers, etc.)
 /uploads
 
+# Local upload / mock storage (dev scratch; never commit blobs)
+/storage/local-upload-mock/
+
 # misc
 .DS_Store
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
+.env.bak*
+.env*.bak
+
+# Cursor / local credentials
 .cursor/deploy-vps.credentials.local
+
+# Logs (anywhere)
+*.log
+logs/
+.api-restart.*.log
 
 npm-debug.log*
 yarn-debug.log*
@@ -34,3 +44,25 @@ yarn-error.log*
 # IDE
 /.idea
 /.vscode
+
+# Local UAT / scratch / VPS one-offs (keep on disk, never commit)
+/scripts/_uat/
+/scripts/_tmp-*
+/scripts/_debug-*
+/scripts/_vps-*.py
+/scripts/_diag-*.py
+/scripts/_set-dev-*.py
+/scripts/_setup-dev-*.py
+/scripts/_enable-zse-*.py
+/scripts/_fix-dev-*.py
+/scripts/_install-cron-*.py
+/scripts/_patch-*.py
+/scripts/_deploy-*.py
+/scripts/_verify-*.py
+/scripts/_add-*.js
+
+# Agent handoff scratch + ephemeral tmp
+/design-refs-handoff/
+/docs/Untitled
+/tmp-*
+/tmp-*/
