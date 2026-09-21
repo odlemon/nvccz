@@ -25,26 +25,48 @@ const ALLOWED_SOURCES = new Set([
 /**
  * Which account a declaration debits, by source.
  *
- * This used to be a single constant: every distribution debited `4100 Dividend Income` whatever
- * it was, so a realisation of an investment and an interest receipt were both booked as dividend
- * income. Declaration reclassifies the amount out of wherever it was recognised and into the
- * payable to LPs, so the debit has to be the account that actually carries it.
+ * Revision history / why this isn't "debit the matching revenue account":
  *
- * RETURN_OF_CAPITAL is the important one: returning contributed capital reduces partners' equity
- * and is not income at all, so it must never touch a revenue account.
+ * v1 (original): every distribution debited `4100 Dividend Income` whatever it was, so a
+ * realisation of an investment and an interest receipt were both booked as dividend income, and
+ * RETURN_OF_CAPITAL/INCOME could not even be declared (rejected by ALLOWED_SOURCES).
+ *
+ * v2 (2026-09-09, commit 6dd18b7): gave each source its own revenue account (DIVIDEND->4100,
+ * INTEREST->4110, EXIT_PROCEEDS/REALISATION_PROCEEDS->4120, INCOME/OTHER->4130) and kept
+ * RETURN_OF_CAPITAL on equity (3020). This fixed the misclassification but not the underlying
+ * problem: debiting *any* revenue account at declaration reduces that account's reported balance
+ * for the period the distribution is declared in — even though the income was genuinely earned
+ * (by the fund, in a possibly different period) and a later decision to pay it out to LPs doesn't
+ * un-earn it. `hardcodedKPIs.ts`'s own `DIVIDEND_INCOME` KPI is declared `journalEntryType:
+ * "Credit"` — this account is only ever supposed to move up, never be reduced by a downstream
+ * event. Found live (FINDING-ACC-001): the Income Statement showed a $2M *loss* instead of a
+ * $2.4M profit for a period with a real $2M dividend received, root-caused in the general case to
+ * exactly this pattern of directly debiting a revenue account outside of its own recognition event
+ * (a separate, now-fixed display bug in IncomeStatementService/AccountingDashboardService made it
+ * worse, but the debit-a-revenue-account design was always one distribution-declaration away from
+ * doing this to any period).
+ *
+ * v3 (this fix): a distribution declaration is a balance-sheet event, not an income-statement
+ * event — the fund isn't earning or un-earning anything by deciding to pay LPs, it's converting
+ * already-recognised, undistributed profit into a payable. So every revenue-sourced distribution
+ * (DIVIDEND / INTEREST / EXIT_PROCEEDS / REALISATION_PROCEEDS / INCOME / OTHER) now debits
+ * `3100 Retained Earnings` (an existing equity account — see
+ * scripts/ensure-standard-chart-of-accounts.ts) instead of the revenue account it originally came
+ * from. Revenue accounts are left to `PortfolioCompanyAccountingService`/whatever recognised the
+ * income in the first place, and are never touched again once a distribution is declared against
+ * them — the Income Statement for the period the income was earned keeps showing it, permanently.
+ * RETURN_OF_CAPITAL is unchanged: contributed capital reduces `3020 Partners Capital -
+ * Contributed`, never revenue, never retained earnings (it was never profit to begin with).
+ * `source` is still recorded on the Distribution row itself for LP tax-character reporting — this
+ * only changes which GL account absorbs the declaration's debit side.
  */
 const SOURCE_DEBIT_ACCOUNT: Record<string, string> = {
-  DIVIDEND: "4100",              // Dividend Income
-  INTEREST: "4110",              // Interest Income
-  EXIT_PROCEEDS: "4120",         // Realised Gain on Investments
-  REALISATION_PROCEEDS: "4120",  // same
-  INCOME: "4130",                // Other Investment Income
-  OTHER: "4130",                 // Other Investment Income
   RETURN_OF_CAPITAL: "3020",     // Partners Capital - Contributed (equity, not income)
 };
+/** Every other (revenue-sourced) distribution type debits this instead of its source revenue
+ *  account — see the v3 note above. */
+const DR_RETAINED_EARNINGS = "3100";
 
-/** Source-of-funds income (Cr at declaration). Fallback when a mapped account is absent. */
-const CR_DIVIDEND_INCOME = "4100";
 /** Distributions payable to LPs (Cr at declaration, Dr at payout). */
 const DIST_PAYABLE = "2400";
 /** Performance fee revenue (Cr for the GP carry portion at declaration). */
@@ -383,17 +405,25 @@ export class DistributionService {
       });
     }
 
-    // Debit the account that matches what this distribution actually is. If the mapped account is
-    // missing from the chart of accounts (an environment that has not run
-    // `scripts/create-distribution-source-accounts.ts` yet), fall back to the previous behaviour
-    // rather than failing the declaration.
-    const debitAccountNo = SOURCE_DEBIT_ACCOUNT[source] || CR_DIVIDEND_INCOME;
-    let [incomeId, payableId, carryCrId] = await Promise.all([
+    // Debit the account that matches what this distribution actually is: equity (3020) for
+    // RETURN_OF_CAPITAL, retained earnings (3100) for every revenue-sourced distribution — see the
+    // v3 note on SOURCE_DEBIT_ACCOUNT above for why this is retained earnings and not the original
+    // revenue account. If the mapped account is missing from the chart of accounts (an environment
+    // that has not run `scripts/create-distribution-source-accounts.ts` yet for 3020, or is
+    // missing the standard 3100 seed), fall back to 4100 Dividend Income rather than failing the
+    // declaration outright — logged loudly, since that fallback reproduces the original bug.
+    const debitAccountNo = SOURCE_DEBIT_ACCOUNT[source] || DR_RETAINED_EARNINGS;
+    let [debitId, payableId, carryCrId] = await Promise.all([
       findCoaByAccountNo(debitAccountNo).catch(() => null),
       findCoaByAccountNo(DIST_PAYABLE),
       findCoaByAccountNo(CR_PERF_FEE_REVENUE),
     ]);
-    if (!incomeId) incomeId = await findCoaByAccountNo(CR_DIVIDEND_INCOME);
+    if (!debitId) {
+      console.error(
+        `[DistributionService] GL account ${debitAccountNo} not found — falling back to 4100 Dividend Income for this ${source} distribution. Run scripts/create-distribution-source-accounts.ts / scripts/ensure-standard-chart-of-accounts.ts.`
+      );
+      debitId = await findCoaByAccountNo("4100");
+    }
 
     const txDate = toDate(params.distributionDate, "distributionDate");
     const referenceNumber = `DIST-${params.fundId.slice(0, 6)}-${Date.now()}`;
@@ -411,11 +441,13 @@ export class DistributionService {
           createdById: params.createdById,
         });
 
-        // Dr Income (move income through) / Cr Distributions Payable + Cr Performance Fee Revenue (carry)
+        // Dr Retained Earnings (equity, for RETURN_OF_CAPITAL: Partners Capital - Contributed) /
+        // Cr Distributions Payable + Cr Performance Fee Revenue (carry). Never a revenue account —
+        // see the v3 note on SOURCE_DEBIT_ACCOUNT above.
         const jeLines: any[] = [
           {
             journalEntryId: journalEntry.id,
-            chartOfAccountId: incomeId,
+            chartOfAccountId: debitId,
             debitAmount: roundMoney(gross),
             creditAmount: new Decimal(0),
             description: `${debitAccountNo} — Reclassify to LP distribution (${source}, ${fund.name})`,
