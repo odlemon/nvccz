@@ -51,7 +51,7 @@ export class InvestmentOpsPortfolioService {
       where: { id: fundId },
       include: {
         listedEquityFundConfig: true,
-        listedEquityValuationSnapshots: { orderBy: { asOf: "desc" }, take: 1 },
+        listedEquityValuationSnapshots: { orderBy: [{ asOf: "desc" }, { createdAt: "desc" }], take: 1 },
         fundManagers: { include: { user: true }, where: { isActive: true }, take: 1 },
       },
     });

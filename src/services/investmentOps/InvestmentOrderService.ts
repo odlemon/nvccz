@@ -129,7 +129,7 @@ export class InvestmentOrderService {
 
     const snap = await prisma.listedEquityValuationSnapshot.findFirst({
       where: { fundId },
-      orderBy: { asOf: "desc" },
+      orderBy: [{ asOf: "desc" }, { createdAt: "desc" }],
     });
     const nav = snap ? Number(snap.navBaseCurrency) : 0;
     const weightAfterPct = nav > 0 ? (settlementAmount / nav) * 100 : 0;

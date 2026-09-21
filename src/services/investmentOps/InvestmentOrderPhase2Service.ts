@@ -371,7 +371,7 @@ async function calculatePreview(input: any) {
       }),
       db.listedEquityValuationSnapshot.findFirst({
         where: { fundId: input.fundId },
-        orderBy: { asOf: "desc" },
+        orderBy: [{ asOf: "desc" }, { createdAt: "desc" }],
         select: { id: true, navBaseCurrency: true },
       }),
       InvestmentComplianceService.listRules(input.fundId),
