@@ -72,6 +72,7 @@ export class AuthController {
           roleCode: true,
           roleId: true,
           tokenVersion: true,
+          status: true,
           role: {
             select: {
               name: true
@@ -81,17 +82,31 @@ export class AuthController {
       });
 
       if (!user) {
-        return res.status(401).json({ 
-          success: false, 
-          message: "Invalid credentials." 
+        return res.status(401).json({
+          success: false,
+          message: "Invalid credentials."
         });
       }
 
       const isMatch = await bcrypt.compare(password, user.password);
       if (!isMatch) {
-        return res.status(401).json({ 
-          success: false, 
-          message: "Invalid credentials." 
+        return res.status(401).json({
+          success: false,
+          message: "Invalid credentials."
+        });
+      }
+
+      // Only reveal account-status messages after credentials succeed (avoids probing).
+      const accountStatus = (user.status || "ACTIVE").toUpperCase();
+      if (accountStatus !== "ACTIVE") {
+        const statusMessages: Record<string, string> = {
+          SUSPENDED: "This account is suspended. Contact your administrator.",
+          LOCKED: "This account is locked. Contact your administrator.",
+          DEACTIVATED: "This account has been deactivated. Contact your administrator."
+        };
+        return res.status(403).json({
+          success: false,
+          message: statusMessages[accountStatus] || "This account is not active. Contact your administrator."
         });
       }
 
@@ -616,6 +631,14 @@ export class AuthController {
         include: { role: true },
       });
       if (!user) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+      const accountStatus = (user.status || "ACTIVE").toUpperCase();
+      if (accountStatus !== "ACTIVE") {
+        return res.status(403).json({
+          success: false,
+          message: "This account is not active. Contact your administrator.",
+        });
+      }
 
       const roleNameFromDb = user.role?.name ? String(user.role.name).trim() : null;
       const roleCodeEffective =

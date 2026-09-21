@@ -181,7 +181,8 @@ export class UserController {
         department,
         roleCode,
         departmentRole,
-        roleId
+        roleId,
+        status
       } = req.body;
 
       if (!id) {
@@ -200,7 +201,8 @@ export class UserController {
           department,
           roleCode,
           departmentRole,
-          roleId
+          roleId,
+          status
         },
         {
           actorUserId: req.user.id,

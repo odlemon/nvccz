@@ -12,6 +12,7 @@ import {
 } from "./userDeleteHelpers";
 
 const BOARD_VOTING_ROLE_CODES = ["BOARD_CHAIR", "BOARD_MEMBER", "INV_COMM_MEM", "CIO"];
+const ALLOWED_USER_STATUSES = ["ACTIVE", "SUSPENDED", "LOCKED", "DEACTIVATED"];
 
 export class UserService {
   private static isBoardVotingRole(roleCode?: string | null): boolean {
@@ -466,6 +467,7 @@ This is an automated message. Please do not reply to this email.
           userDepartment: true,
           departmentRole: true,
           roleCode: true,
+          status: true,
           votingPower: true,
           role: {
             select: {
@@ -505,6 +507,7 @@ This is an automated message. Please do not reply to this email.
           userDepartment: true,
           departmentRole: true,
           roleCode: true,
+          status: true,
           votingPower: true,
           role: {
             select: {
@@ -543,6 +546,7 @@ This is an automated message. Please do not reply to this email.
       roleCode?: string;
       departmentRole?: string;
       roleId?: string;
+      status?: string;
     },
     auditContext?: {
       actorUserId: string;
@@ -586,6 +590,17 @@ This is an automated message. Please do not reply to this email.
         if (!emailRegex.test(userData.email)) {
           throw new Error("Invalid email format");
         }
+      }
+
+      // Validate status if provided (SRD User Master states)
+      if (userData.status !== undefined && userData.status !== null) {
+        const normalizedStatus = String(userData.status).trim().toUpperCase();
+        if (!ALLOWED_USER_STATUSES.includes(normalizedStatus)) {
+          throw new Error(
+            `Invalid status. Valid statuses: ${ALLOWED_USER_STATUSES.join(", ")}`
+          );
+        }
+        userData.status = normalizedStatus;
       }
 
       // Validate roleId if provided
@@ -641,6 +656,7 @@ This is an automated message. Please do not reply to this email.
       if (userData.department) updateData.userDepartment = userData.department;
       if (userData.roleCode) updateData.roleCode = userData.roleCode;
       if (userData.departmentRole) updateData.departmentRole = userData.departmentRole;
+      if (userData.status) updateData.status = userData.status;
       if (userData.roleId) {
         // Caller passed roleId explicitly -- honour it as-is, same as before.
         updateData.roleId = userData.roleId;
@@ -656,6 +672,16 @@ This is an automated message. Please do not reply to this email.
         updateData.votingPower = null;
       }
       // Password is explicitly excluded - must use change-password endpoint
+
+      const previousStatus = String(existingUser.status ?? "ACTIVE").toUpperCase();
+      const nextStatus = userData.status
+        ? String(userData.status).toUpperCase()
+        : previousStatus;
+      const statusChanged = userData.status != null && nextStatus !== previousStatus;
+      // Invalidate outstanding JWTs when leaving ACTIVE (same pattern as LP revocation).
+      if (statusChanged && nextStatus !== "ACTIVE") {
+        updateData.tokenVersion = (existingUser.tokenVersion ?? 0) + 1;
+      }
 
       const user = await prisma.user.update({
         where: { id },
@@ -698,6 +724,19 @@ This is an automated message. Please do not reply to this email.
         });
       }
 
+      if (auditContext?.actorUserId && statusChanged) {
+        await AuditService.log({
+          userId: auditContext.actorUserId,
+          action: "USER_STATUS_UPDATE",
+          entityType: "User",
+          entityId: id,
+          oldValues: { targetUserId: id, oldStatus: previousStatus },
+          newValues: { targetUserId: id, newStatus: user.status },
+          ipAddress: auditContext.ipAddress ?? null,
+          userAgent: auditContext.userAgent ?? null
+        });
+      }
+
       // Return only the fields we want, with role as optional
       return {
         id: user.id,
@@ -707,6 +746,7 @@ This is an automated message. Please do not reply to this email.
         userDepartment: user.userDepartment,
         departmentRole: user.departmentRole,
         roleCode: user.roleCode,
+        status: user.status,
         votingPower: user.votingPower ? Number(user.votingPower) : null,
         role: user.role ? {
           id: user.role.id,

@@ -64,6 +64,15 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       return;
     }
 
+    const accountStatus = String((user as any).status || "ACTIVE").toUpperCase();
+    if (accountStatus !== "ACTIVE") {
+      res.status(403).json({
+        success: false,
+        message: "This account is not active. Contact your administrator."
+      });
+      return;
+    }
+
     const tokenVersionClaim = decoded.tokenVersion ?? 0;
     const dbTokenVersion = (user as any).tokenVersion ?? 0;
     if (tokenVersionClaim !== dbTokenVersion) {
