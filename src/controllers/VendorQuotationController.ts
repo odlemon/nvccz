@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from "express";
+import { supplierVisibleStatus } from "../utils/supplierVisibility";
 import { VendorQuotationService } from "../services/VendorQuotationService";
 import { serializeDecimalsDeep } from "../utils/prismaDecimalJson";
 import { enrichRfqItemsSnapshotForApi } from "../utils/rfqItemInput";
@@ -17,7 +18,7 @@ function withClientStatus(error: any) {
   if (/^PrismaClient/.test(String(error.name || "")) || /prisma\./i.test(msg)) return error;
   if (/not found/i.test(msg)) error.status = 404;
   else if (/already been|already (accepted|rejected|submitted)/i.test(msg)) error.status = 409;
-  else if (/token|required|invalid|expired|closed|not invited|does not match|must |not accepting|deadline has passed/i.test(msg)) error.status = 400;
+  else if (/token|required|invalid|expired|closed|not invited|does not match|must |not accepting|deadline has passed|does not agree|does not equal|stated|VAT rate|not a valid date|cannot be in the future|delivery period|whole number/i.test(msg)) error.status = 400;
   return error;
 }
 
@@ -32,12 +33,29 @@ export class VendorQuotationController {
       if (!body.vendorPortalToken && body.token) {
         body.vendorPortalToken = body.token;
       }
-      const quotation = await VendorQuotationService.createVendorQuotation(body);
+      const quotation: any = await VendorQuotationService.createVendorQuotation(body);
 
+      // Supplier-facing acknowledgement: an allowlist, never the stored row (which grows internal columns over time).
       res.status(201).json({
         success: true,
         message: "Quotation submitted successfully. We will review your quote and contact you soon.",
-        data: serializeDecimalsDeep(quotation),
+        data: serializeDecimalsDeep({
+          receiptNumber: quotation.quotationNumber,
+          quotationNumber: quotation.quotationNumber,
+          rfqNumber: quotation.rfqNumber,
+          status: supplierVisibleStatus(quotation.status).code,
+          statusLabel: supplierVisibleStatus(quotation.status).label,
+          submittedAt: quotation.submittedAt,
+          currencyCode: quotation.currencyCode,
+          subtotal: quotation.subtotal,
+          taxAmount: quotation.taxAmount,
+          totalAmount: quotation.totalAmount,
+          validUntil: quotation.validUntil,
+          paymentTerms: quotation.paymentTerms,
+          deliveryTime: quotation.deliveryTime,
+          deliveryTerms: quotation.deliveryTerms,
+          items: (quotation.items || []).map((i: any) => ({ itemName: i.itemName, quantity: i.quantity, unit: i.unit, unitPrice: i.unitPrice, totalPrice: i.totalPrice })),
+        }),
       });
     } catch (error: any) {
       next(withClientStatus(error));
@@ -57,7 +75,7 @@ export class VendorQuotationController {
         vendorEmail: vendorEmail as string,
         limit: limit ? parseInt(limit as string) : undefined,
         offset: offset ? parseInt(offset as string) : undefined
-      });
+      }, (req as any).user);
 
       // Ensure each quotation in list includes auto-generated quotationNumber
       const data = (result.quotations || []).map((q: any) =>
@@ -67,6 +85,7 @@ export class VendorQuotationController {
         success: true,
         message: "Quotations retrieved successfully",
         data,
+        sealedEvents: (result as any).sealedEvents ?? [],
         count: result.count,
         limit: result.limit,
         offset: result.offset
@@ -83,7 +102,7 @@ export class VendorQuotationController {
     try {
       const { id } = req.params;
 
-      const quotation = await VendorQuotationService.getQuotationById(id);
+      const quotation = await VendorQuotationService.getQuotationById(id, (req as any).user);
 
       // Ensure auto-generated quotationNumber is always in response
       const data = quotation
@@ -106,7 +125,7 @@ export class VendorQuotationController {
     try {
       const { rfqNumber } = req.params;
 
-      const result = await VendorQuotationService.getQuotationsByRFQ(rfqNumber);
+      const result = await VendorQuotationService.getQuotationsByRFQ(rfqNumber, (req as any).user);
       const quotations = result.quotations || [];
       const data = quotations.map((q: any) =>
         serializeDecimalsDeep({ ...q, quotationNumber: q.quotationNumber ?? null })
@@ -119,6 +138,7 @@ export class VendorQuotationController {
         success: true,
         message: "Quotations retrieved successfully",
         data,
+        sealedEvents: (result as any).sealedEvents ?? [],
         rfq,
         count: data.length,
       });
@@ -182,25 +202,12 @@ export class VendorQuotationController {
    * Only while the bid is still open. A vendor's own declarations never count as this score.
    */
   static async scoreQuotation(req: Request, res: Response, next: NextFunction) {
-    try {
-      const userId = req.user?.id;
-      if (!userId) {
-        return res.status(401).json({ success: false, message: "User not authenticated" });
-      }
-      const raw = req.body?.score;
-      if (raw === undefined || raw === null || raw === "" || !Number.isFinite(Number(raw))) {
-        return res.status(400).json({ success: false, message: "score is required, a number from 0 to 100" });
-      }
-      const updated = await VendorQuotationService.recordEvaluation({
-        quotationId: req.params.id,
-        score: Number(raw),
-        notes: typeof req.body?.notes === "string" ? req.body.notes : undefined,
-        scoredById: userId,
-      });
-      res.json({ success: true, message: "Technical score recorded", data: serializeDecimalsDeep(updated) });
-    } catch (error: any) {
-      next(withClientStatus(error));
-    }
+    // Retired (SRD §18): a single number per bid, entered by anyone, did not survive committee scoring, declarations or
+    // pass/fail criteria. Scoring is on the evaluation scorecard: PUT /procurement/rfqs/:id/evaluation/scores.
+    return res.status(410).json({
+      success: false,
+      message: "Scores are entered on the evaluation scorecard (PUT /procurement/rfqs/:id/evaluation/scores), by each committee member.",
+    });
   }
 
   static async rejectQuotation(req: Request, res: Response, next: NextFunction) {

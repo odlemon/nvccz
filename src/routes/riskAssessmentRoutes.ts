@@ -4,6 +4,7 @@ import { RiskAssessmentController } from "../controllers/RiskAssessmentControlle
 import { authenticate } from "../middleware/authenticate";
 import { methodGuard } from "../middleware/methodGuard"
 import { authorize } from "../middleware/permissionAuth";
+import { orgOnly } from "../services/PerformanceScope";
 
 const router = express.Router();
 const READ_KEYS = ["performance.risks.view", "performance.risks.manage"]
@@ -11,19 +12,21 @@ const WRITE_KEYS = ["performance.risks.manage"]
 const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 // Risk Assessment Routes
+// these records carry no owner or department to scope a change by, so changing them is for organisation-wide roles
+const orgWrite = orgOnly("Only an organisation-wide role can change risk assessments.");
 router.post("/", authenticate, guard, authorize(["admin", "ceo", "fund_manager"]), RiskAssessmentController.createRiskAssessment);
 router.get("/", authenticate, guard, RiskAssessmentController.getAllRiskAssessments);
 router.get("/:id", authenticate, guard, RiskAssessmentController.getRiskAssessmentById);
-router.put("/:id", authenticate, guard, RiskAssessmentController.updateRiskAssessment);
+router.put("/:id", authenticate, guard, orgWrite, RiskAssessmentController.updateRiskAssessment);
 router.delete("/:id", authenticate, guard, authorize(["admin", "ceo", "fund_manager"]), RiskAssessmentController.deleteRiskAssessment);
 
 // Risk Assessment Sub-task Routes
-router.post("/:id/sub-tasks", authenticate, guard, RiskAssessmentController.createRiskAssessmentSubTask);
-router.put("/sub-tasks/:id", authenticate, guard, RiskAssessmentController.updateRiskAssessmentSubTask);
+router.post("/:id/sub-tasks", authenticate, guard, orgWrite, RiskAssessmentController.createRiskAssessmentSubTask);
+router.put("/sub-tasks/:id", authenticate, guard, orgWrite, RiskAssessmentController.updateRiskAssessmentSubTask);
 router.get("/:id/sub-tasks", authenticate, guard, RiskAssessmentController.getRiskAssessmentSubTasks);
 
 // Risk Assessment History Routes
-router.post("/:id/history", authenticate, guard, RiskAssessmentController.addRiskAssessmentHistory);
+router.post("/:id/history", authenticate, guard, orgWrite, RiskAssessmentController.addRiskAssessmentHistory);
 router.get("/:id/history", authenticate, guard, RiskAssessmentController.getRiskAssessmentHistory);
 
 // Risk Assessment Analytics Routes

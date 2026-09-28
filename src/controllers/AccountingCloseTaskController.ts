@@ -48,6 +48,17 @@ export default class AccountingCloseTaskController {
       }
       // completedById always comes from the authenticated session, never the request body.
       const userId = req.user!.id;
+      // an owner moves their own task along (in progress, complete); anything else, and reopening a completed task, is
+      // the period manager's
+      const { userHasEffectivePermission } = await import("../config/cfoModulePermissions");
+      if (!userHasEffectivePermission(req.user, "accounting.period_lock.manage")) {
+        const { prisma } = await import("../utils/database");
+        const t = await prisma.accountingCloseTask.findUnique({ where: { id: taskId }, select: { ownerId: true, status: true } });
+        if (!t || t.ownerId !== userId || t.status === "COMPLETE") {
+          res.status(403).json({ success: false, message: t && t.ownerId === userId ? "A completed task is reopened by the period manager." : "Only the task's owner or the period manager can change it." });
+          return;
+        }
+      }
       const updated = await AccountingCloseTaskService.updateTaskStatus(
         taskId,
         body.status,
@@ -57,6 +68,22 @@ export default class AccountingCloseTaskController {
     } catch (e: any) {
       const status = typeof e?.statusCode === "number" ? e.statusCode : 500;
       res.status(status).json({ success: false, message: e?.message ?? "Failed to update close task" });
+    }
+  }
+
+  static async readiness(req: AuthRequest, res: Response) {
+    try {
+      res.json({ success: true, data: await AccountingCloseTaskService.readiness(req.params.fiscalPeriodId) });
+    } catch (e: any) {
+      res.status(typeof e?.statusCode === "number" ? e.statusCode : 500).json({ success: false, message: e?.message ?? "Failed to evaluate readiness" });
+    }
+  }
+
+  static async addStandard(req: AuthRequest, res: Response) {
+    try {
+      res.json({ success: true, data: await AccountingCloseTaskService.addStandardChecklist(req.params.fiscalPeriodId, (req.body && req.body.ownerId) || null) });
+    } catch (e: any) {
+      res.status(typeof e?.statusCode === "number" ? e.statusCode : 500).json({ success: false, message: e?.message ?? "Failed to add the standard checklist" });
     }
   }
 

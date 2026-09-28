@@ -38,7 +38,12 @@ export class EmployeeTerminationService {
           terminated: true,
           terminatedAt: now,
           terminationReason: reason != null && String(reason).trim() !== "" ? String(reason).trim() : null,
-          isActive: false
+          isActive: false,
+          // Suspend already sets this to "SUSPENDED" (PayrollExtendedController); terminate left it at
+          // whatever it was (usually "ACTIVE"), a stale value on a free-text field. No current query relies on
+          // it alone here -- every isActive/lifecycleStatus query checks terminated too -- but it's simply
+          // wrong data, found live while verifying terminate-employee (PF-01/payroll-v6-findings-2026-09-28.md).
+          lifecycleStatus: "TERMINATED",
         },
         include: {
           user: { select: { firstName: true, lastName: true, email: true } },

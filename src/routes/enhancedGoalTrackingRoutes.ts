@@ -3,6 +3,7 @@ import express from "express";
 import { EnhancedGoalTrackingController } from "../controllers/EnhancedGoalTrackingController";
 import { authenticate } from "../middleware/authenticate";
 import { methodGuard } from "../middleware/methodGuard"
+import { goalRule, orgOnly } from "../services/PerformanceScope";
 
 const router = express.Router();
 const READ_KEYS = ["performance.goals.view", "performance.goals.manage"]
@@ -78,7 +79,7 @@ const guard = methodGuard(READ_KEYS, WRITE_KEYS)
  *       401:
  *         description: Unauthorized
  */
-router.post("/:goalId", authenticate, guard, EnhancedGoalTrackingController.checkGoalStatus);
+
 
 /**
  * @swagger
@@ -114,7 +115,7 @@ router.post("/:goalId", authenticate, guard, EnhancedGoalTrackingController.chec
  *       401:
  *         description: Unauthorized
  */
-router.post("/check-all", authenticate, guard, EnhancedGoalTrackingController.checkAllDueGoals);
+router.post("/check-all", authenticate, guard, orgOnly(), EnhancedGoalTrackingController.checkAllDueGoals);
 
 /**
  * @swagger
@@ -141,7 +142,7 @@ router.post("/check-all", authenticate, guard, EnhancedGoalTrackingController.ch
  *       401:
  *         description: Unauthorized
  */
-router.post("/schedule", authenticate, guard, EnhancedGoalTrackingController.scheduleGoalTracking);
+router.post("/schedule", authenticate, guard, orgOnly(), EnhancedGoalTrackingController.scheduleGoalTracking);
 
 /**
  * @swagger
@@ -182,5 +183,7 @@ router.post("/schedule", authenticate, guard, EnhancedGoalTrackingController.sch
  *         description: Unauthorized
  */
 router.get("/stats", authenticate, guard, EnhancedGoalTrackingController.getGoalTrackingStats);
+// declared after the fixed paths above: as the first route it swallowed "/check-all" and "/schedule" (goalId = "check-all")
+router.post("/:goalId", authenticate, guard, goalRule("goalId", "write"), EnhancedGoalTrackingController.checkGoalStatus);
 
 export default router;

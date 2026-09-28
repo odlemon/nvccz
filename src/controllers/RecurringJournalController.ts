@@ -45,10 +45,10 @@ export class RecurringJournalController {
       if (typeof isActive !== "boolean") {
         return res.status(400).json({ success: false, message: "isActive (boolean) is required" });
       }
-      const template = await RecurringJournalService.setActive(id, isActive);
+      const template = await RecurringJournalService.setActive(id, isActive, req.user?.id);
       res.json({ success: true, message: `Template ${isActive ? "activated" : "paused"}`, data: template });
     } catch (e: any) {
-      res.status(400).json({ success: false, message: e.message || "Failed to update template status" });
+      res.status(e?.statusCode || 400).json({ success: false, message: e.message || "Failed to update template status" });
     }
   }
 

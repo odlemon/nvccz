@@ -28,6 +28,8 @@ export interface DispatchProcurementNotificationParams {
   relatedEntity?: string;
   relatedEntityId?: string;
   data?: Record<string, unknown>;
+  /** In-app row only: no live push (a person's own receipt should not pop up over what they just did). */
+  quiet?: boolean;
   email?: ProcurementNotificationEmail;
 }
 
@@ -42,7 +44,7 @@ export interface DispatchProcurementNotificationParams {
  */
 export async function dispatchProcurementNotification(
   params: DispatchProcurementNotificationParams
-): Promise<{ inAppCount: number; emailSent: boolean; emailError?: string }> {
+): Promise<{ inAppCount: number; emailSent: boolean; emailBlocked?: boolean; emailError?: string }> {
   let inAppCount = 0;
   if (params.userIds?.length) {
     try {
@@ -60,7 +62,7 @@ export async function dispatchProcurementNotification(
           })),
         });
         inAppCount = uniqueUserIds.length;
-        emitToUsers(uniqueUserIds, "notification_created", {
+        if (!params.quiet) emitToUsers(uniqueUserIds, "notification_created", {
           type: params.type,
           title: params.title,
           message: params.message,
@@ -75,6 +77,7 @@ export async function dispatchProcurementNotification(
   }
 
   let emailSent = false;
+  let emailBlocked = false;
   let emailError: string | undefined;
   if (params.email?.to?.length) {
     try {
@@ -93,18 +96,19 @@ export async function dispatchProcurementNotification(
         footerTrHtml,
       });
       const from = getFromAddress("procurement");
-      await emailTransport.sendMail({
+      const info: any = await emailTransport.sendMail({
         from: `"${from.name}" <${from.address}>`,
         to: params.email.to.join(", "),
         subject: params.email.subject,
         html,
       });
       emailSent = true;
+      emailBlocked = /mail-guard\.local|Blocked by MAIL_REDIRECT/i.test(String(info?.messageId ?? "") + String(info?.response ?? ""));
     } catch (err: any) {
       emailError = err?.message || String(err);
       console.error(`[ProcurementNotification] email send failed for type=${params.type}:`, emailError);
     }
   }
 
-  return { inAppCount, emailSent, emailError };
+  return { inAppCount, emailSent, emailBlocked, emailError };
 }

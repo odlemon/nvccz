@@ -1,6 +1,8 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
+import { vatInputAccount as resolveVatInput, vatOutputAccount as resolveVatOutput } from "../utils/vatAccounts";
+import { buildJournalEntryWhereForGlReporting } from "../utils/journalEntryReportingFilter";
 
 export interface VATReportParams {
   startDate: Date;
@@ -90,19 +92,28 @@ export class VATReportService {
       // All lines hitting VAT Input / VAT Output in the period (not only lines with vatAmount set).
       // Output liability movement = credit − debit on 2100 (invoice/receipt credit VAT; credit note debits 2100).
       // Input recoverable movement = debit − credit on 2110.
-      // Include both POSTED and PENDING entries (invoices often create journal entries as PENDING).
+      // Posted journals only, a voided journal and its reversal left out together (as in every report): a draft is not
+      // VAT due. One currency at a time — the base currency unless another is asked for; the others are listed apart,
+      // never added in (amounts are not translated yet, FX-01).
+      const reportFilter = buildJournalEntryWhereForGlReporting({ gte: startDate, lte: endDate });
+      const base = await prisma.currency.findFirst({ where: { isDefault: true }, select: { id: true, code: true } });
+      const reportCurrencyId = currencyId || base?.id;
+      const otherCurrencies: any[] = await prisma.$queryRawUnsafe(
+        `SELECT c.code AS code,
+                SUM(CASE WHEN l.chartOfAccountId = ? THEN l.creditAmount - l.debitAmount ELSE 0 END) AS output,
+                SUM(CASE WHEN l.chartOfAccountId = ? THEN l.debitAmount - l.creditAmount ELSE 0 END) AS input
+           FROM journal_entry_lines l JOIN journal_entries j ON j.id = l.journalEntryId JOIN currencies c ON c.id = j.currencyId
+          WHERE l.chartOfAccountId IN (?, ?) AND j.status = 'POSTED' AND j.transactionDate BETWEEN ? AND ?
+            AND j.referenceNumber NOT LIKE 'VR-%' AND j.referenceNumber NOT LIKE 'REV-%' AND j.currencyId <> ?
+          GROUP BY c.code`,
+        vatOutputAccount.id, vatInputAccount.id, vatInputAccount.id, vatOutputAccount.id, startDate, endDate, reportCurrencyId || ''
+      ).catch(() => []);
       const journalEntryLines = await prisma.journalEntryLine.findMany({
         where: {
           chartOfAccountId: { in: [vatInputAccount.id, vatOutputAccount.id] },
           journalEntry: {
-            transactionDate: {
-              gte: startDate,
-              lte: endDate
-            },
-            status: {
-              in: ['POSTED', 'PENDING']
-            },
-            ...(currencyId ? { currencyId } : {})
+            ...reportFilter,
+            ...(reportCurrencyId ? { currencyId: reportCurrencyId } : {})
           }
         },
         include: {
@@ -263,7 +274,23 @@ export class VATReportService {
       // For now, we'll group by transaction type
       const breakdown = this.buildBreakdown(inputTaxTransactions, outputTaxTransactions);
 
+      const reportCurrency = reportCurrencyId ? await prisma.currency.findUnique({ where: { id: reportCurrencyId }, select: { code: true } }) : null;
+      // drafts carrying VAT in the period: not in the return until they are posted
+      const draftVat: any[] = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(DISTINCT j.id) AS n,
+                SUM(CASE WHEN l.chartOfAccountId = ? THEN l.creditAmount - l.debitAmount ELSE 0 END) AS output,
+                SUM(CASE WHEN l.chartOfAccountId = ? THEN l.debitAmount - l.creditAmount ELSE 0 END) AS input
+           FROM journal_entry_lines l JOIN journal_entries j ON j.id = l.journalEntryId
+          WHERE l.chartOfAccountId IN (?, ?) AND j.status = 'PENDING' AND j.transactionDate BETWEEN ? AND ? AND j.currencyId = ?`,
+        vatOutputAccount.id, vatInputAccount.id, vatInputAccount.id, vatOutputAccount.id, startDate, endDate, reportCurrencyId || ''
+      ).catch(() => []);
       return {
+        currency: reportCurrency?.code || null,
+        accounts: { input: `${vatInputAccount.accountNo} ${vatInputAccount.accountName}`, output: `${vatOutputAccount.accountNo} ${vatOutputAccount.accountName}` },
+        drafts: { journals: Number(draftVat[0]?.n || 0), outputTax: Math.round(Number(draftVat[0]?.output || 0) * 100) / 100, inputTax: Math.round(Number(draftVat[0]?.input || 0) * 100) / 100 },
+        otherCurrencies: otherCurrencies
+          .map((r) => ({ currency: r.code, outputTax: Math.round(Number(r.output || 0) * 100) / 100, inputTax: Math.round(Number(r.input || 0) * 100) / 100 }))
+          .filter((r) => r.outputTax || r.inputTax),
         period: {
           startDate: startDate.toISOString().split('T')[0],
           endDate: endDate.toISOString().split('T')[0],
@@ -298,15 +325,8 @@ export class VATReportService {
    * this report aggregated against, instead of re-deriving the lookup independently.
    */
   static async getVATInputAccount() {
-    const account = await prisma.chartOfAccounts.findFirst({
-      where: {
-        OR: [
-          { accountNo: '2110' },
-          { accountName: { contains: 'VAT Input' } }
-        ],
-        isActive: true
-      }
-    });
+    // one resolution for postings and reports (utils/vatAccounts, D23)
+    const account = await resolveVatInput();
 
     if (!account) {
       throw new Error('VAT Input account not found in chart of accounts');
@@ -321,15 +341,7 @@ export class VATReportService {
    * this report aggregated against, instead of re-deriving the lookup independently.
    */
   static async getVATOutputAccount() {
-    const account = await prisma.chartOfAccounts.findFirst({
-      where: {
-        OR: [
-          { accountNo: '2100' },
-          { accountName: { contains: 'VAT Output' } }
-        ],
-        isActive: true
-      }
-    });
+    const account = await resolveVatOutput();
 
     if (!account) {
       throw new Error('VAT Output account not found in chart of accounts');

@@ -36,8 +36,18 @@ async function applyGlPeriodMergeToGoal(params: {
   entryKind: string;
   syncExtra?: Record<string, unknown>;
 }) {
-  const actorId = params.actorId || (await prisma.user.findFirst({ select: { id: true } }))?.id;
-  if (!actorId) throw new Error("No actor for GL period merge");
+  if (!params.actorId) throw new Error("Say who is recording the period figures.");
+  const actorId = params.actorId;
+  // a goal the login sync already keeps in step with the general ledger would count the same postings twice
+  {
+    const { LOGIN_SYNC_STRATEGIES } = await import("./AccountingGoalSyncService");
+    const { resolveKpiFinancialProfile } = await import("./kpiFinancialAccountingRules");
+    const g = await prisma.performanceGoal.findUnique({ where: { id: params.goalId }, include: { kpi: true } });
+    if (g?.kpi && String(process.env.PERF_LOGIN_SYNC_ENABLED ?? "true").toLowerCase() !== "false") {
+      const prof = resolveKpiFinancialProfile({ name: g.kpi.name, code: g.kpi.code, catalogDescription: g.kpi.catalogDescription ?? null, catalogDepartmentName: g.kpi.catalogDepartmentName ?? null, accountType: g.kpi.accountType, accountNumber: g.kpi.accountNumber, journalEntryType: g.kpi.journalEntryType, isFinancial: g.kpi.isFinancial });
+      if (LOGIN_SYNC_STRATEGIES.has(prof.syncStrategy)) throw new Error("This goal is kept in step with the general ledger automatically; pushing period figures as well would count the same postings twice.");
+    }
+  }
 
   await PerformanceGoalProgressEventService.ensureBaselineFromGoalCurrent(params.goalId, actorId);
   await PerformanceGoalProgressEventService.upsertGlSyncEvent({
@@ -621,7 +631,7 @@ async function mirrorFinancialRoiToCeoBoardIndicators(params: {
 }
 
 async function aggregateStrategicSpendAcrossModules(periodStart: Date, periodEnd: Date) {
-  const gl = await getPostedPeriodRevenueExpenseNetProfit(periodStart, periodEnd);
+  const gl = await getPostedPeriodRevenueExpenseNetProfit(periodStart, periodEnd, { excludePerformanceJournals: true });
 
   const [procRows, eventRows] = await Promise.all([
     prisma.procurementInvoice.findMany({
@@ -652,7 +662,9 @@ async function aggregateStrategicSpendAcrossModules(periodStart: Date, periodEnd
   );
   const eventsSpend = eventRows.reduce((sum, r) => sum + toPositiveNumber(r.amount, 0), 0);
   const accountingExpense = toPositiveNumber(gl.totalExpense, 0);
-  const totalSpend = accountingExpense + procurementSpend + eventsSpend;
+  // procurement invoices and event expenses post their own expense journals: they are already in accountingExpense and
+  // are reported below only as a breakdown
+  const totalSpend = accountingExpense;
 
   return {
     totalSpend,
@@ -1058,8 +1070,10 @@ export class BscDigitalEntryService {
       }
       const agg = await aggregateStrategicSpendAcrossModules(ps, pe);
       actualSpend = agg.totalSpend;
-      spendSource = "accounting+procurement+events";
+      // the GL expense; procurement and event spend are shown as a breakdown of it (they post their own journals)
+      spendSource = "accounting";
       moduleBreakdown = {
+        totalSpend: agg.totalSpend,
         accountingExpense: agg.accountingExpense,
         procurementSpend: agg.procurementSpend,
         eventsSpend: agg.eventsSpend
@@ -1168,7 +1182,7 @@ export class BscDigitalEntryService {
     if (ps.getTime() > pe.getTime()) {
       throw new Error("periodStart must be before periodEnd");
     }
-    const glTotals = await getPostedPeriodRevenueExpenseNetProfit(ps, pe);
+    const glTotals = await getPostedPeriodRevenueExpenseNetProfit(ps, pe, { excludePerformanceJournals: true });
     const glNativeTotals = await getPostedPeriodRevenueExpenseNetProfitExcludingPerformance(ps, pe);
     const goalUpdates: Array<{ role: string; goalId: string }> = [];
 
@@ -1184,7 +1198,7 @@ export class BscDigitalEntryService {
       });
       const revFormula = normaliseFormulaType(revGoal?.formulaType);
       const { priorStart, priorEnd } = priorYearSameWindow(ps, pe);
-      const priorGl = await getPostedPeriodRevenueExpenseNetProfit(priorStart, priorEnd);
+      const priorGl = await getPostedPeriodRevenueExpenseNetProfit(priorStart, priorEnd, { excludePerformanceJournals: true });
       const currRev = glTotals.revenue;
       const prevRev = priorGl.revenue;
       let revenueActualValue: number;

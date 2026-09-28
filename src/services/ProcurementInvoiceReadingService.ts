@@ -74,9 +74,20 @@ export class ProcurementInvoiceReadingService {
           return ocrData;
         }
         const fileName = path.basename(String(invoice.documentPath).split("?")[0]) || "invoice.pdf";
-        const { text, ocr } = await VendorInvoiceExtractionService.extractTextFromUrlDetailed(invoice.documentPath, fileName);
-        payload = (await VendorInvoiceExtractionService.parseExtractedTextWithLlm(text, { ocr })).payload;
-        fromOcr = ocr;
+        // §29-§31: reading is AI use. It is switched off with the AI layer, held to the limits, and recorded (a supplier's own
+        // submission is recorded as "system").
+        const { AiControlService } = await import("./p2p/AiControlService");
+        const actor = opts.actorUserId ? await prisma.user.findUnique({ where: { id: opts.actorUserId } }) : null;
+        const read = await AiControlService.track(
+          actor,
+          { feature: "invoice_reading", documentType: "INVOICE", documentName: fileName, entityType: "ProcurementInvoice", entityId: invoiceId },
+          async () => {
+            const { text, ocr } = await VendorInvoiceExtractionService.extractTextFromUrlDetailed(invoice.documentPath, fileName);
+            return { payload: (await VendorInvoiceExtractionService.parseExtractedTextWithLlm(text, { ocr })).payload, ocr };
+          }
+        );
+        payload = read.payload;
+        fromOcr = read.ocr;
       }
 
       const comparison = this.compare(invoice, payload);
@@ -112,6 +123,11 @@ export class ProcurementInvoiceReadingService {
       return ocrData;
     } catch (e: any) {
       const message = String(e?.message || e).slice(0, 300);
+      // The AI layer being off, or a limit reached, is not a failed reading: the invoice simply is not AI-read.
+      if (/^AI_(DISABLED|LIMIT_REACHED|GROUP|DOCUMENT_TYPE)/.test(String(e?.code || ""))) {
+        await prisma.procurementInvoice.update({ where: { id: invoiceId }, data: { ocrProcessed: false, ocrData: { status: "NOT_READ", source: "LLM", readAt: new Date().toISOString(), message } } }).catch(() => {});
+        return null;
+      }
       await prisma.procurementInvoice
         .update({ where: { id: invoiceId }, data: { ocrProcessed: false, ocrData: { status: "FAILED", source: "LLM", readAt: new Date().toISOString(), message } } })
         .catch(() => {});

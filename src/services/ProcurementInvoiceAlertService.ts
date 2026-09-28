@@ -83,8 +83,11 @@ export class ProcurementInvoiceAlertService {
           out.push({ code: f.type, message: `Line ${f.line}: "${f.itemName}" invoices ${f.invoicedQty}; receipts accepted ${f.acceptedQty}` });
           break;
         case "POSSIBLE_DUPLICATE":
-          out.push({ code: f.type, message: `Possible duplicate of ${f.otherInvoiceNumber}: ${f.reason}` });
+          out.push({ code: f.type, message: f.message || `Possible duplicate of ${f.otherInvoiceNumber}: ${f.reason}` });
           break;
+        default:
+          // The §24 exceptions (missing PO or receipt, quantity, value, tax, excess, duplicate) carry their own wording.
+          if (f?.message) out.push({ code: String(f.type), message: f.message });
       }
     }
     const reading = invoice?.ocrData;
@@ -127,52 +130,30 @@ export class ProcurementInvoiceAlertService {
     // The column holds a short line; every reason goes in the notification's data and the email.
     const message = `${invoice.vendor?.name ?? "A vendor"}: ${reasons.length} reason${reasons.length === 1 ? "" : "s"} to check${invoice.purchaseOrder?.poNumber ? ` against ${invoice.purchaseOrder.poNumber}` : ""}`.slice(0, 180);
 
-    const notified = [];
-    for (const u of people) {
-      const last = await prisma.notification.findFirst({
-        where: { userId: u.id, relatedEntityId: invoiceId, type: NOTIFICATION_TYPE },
-        orderBy: { createdAt: "desc" },
-        select: { data: true },
-      });
-      if (last?.data?.fingerprint === fingerprint) continue;
-      await prisma.notification.create({
-        data: {
-          userId: u.id,
-          type: NOTIFICATION_TYPE,
-          title,
-          message,
-          relatedEntity: "ProcurementInvoice",
-          relatedEntityId: invoiceId,
-          data: {
-            path: "/procurement/invoices",
-            invoiceId,
-            invoiceNumber: invoice.invoiceNumber,
-            poNumber: invoice.purchaseOrder?.poNumber ?? null,
-            reasons: reasons.map((r) => r.message),
-            fingerprint,
-          },
-        },
-      });
-      notified.push(u);
-    }
+    // one query for everyone's last notice about this invoice (not one per person)
+    const lastNotices = people.length
+      ? await prisma.notification.findMany({
+          where: { userId: { in: people.map((u) => u.id) }, relatedEntityId: invoiceId, type: { in: [NOTIFICATION_TYPE, "PROCUREMENT_INVOICE_EXCEPTION"] } },
+          orderBy: { createdAt: "desc" },
+          select: { userId: true, data: true },
+        })
+      : [];
+    const lastByUser = new Map<string, any>();
+    for (const n of lastNotices) if (!lastByUser.has(n.userId)) lastByUser.set(n.userId, n.data);
+    const notified = people.filter((u) => (lastByUser.get(u.id) as any)?.fingerprint !== fingerprint);
 
     if (notified.length) {
-      try {
-        const { EmailNotificationService } = await import("./EmailNotificationService");
-        await EmailNotificationService.sendProcurementInvoiceFlagged({
-          recipients: notified
-            .filter((u) => u.email)
-            .map((u) => ({ email: u.email, name: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email })),
-          vendorName: invoice.vendor?.name ?? "Vendor",
-          invoiceNumber: invoice.invoiceNumber,
-          poNumber: invoice.purchaseOrder?.poNumber ?? null,
-          totalAmount: Number(invoice.totalAmount),
-          currencyCode: invoice.currency?.code ?? "USD",
-          reasons: reasons.map((r) => r.message),
-        });
-      } catch (e: any) {
-        logger.error("Flagged invoice email failed", { invoiceId, error: String(e?.message || e) });
-      }
+      // the one shared dispatcher: the rule, the in-app row, the branded email and the log
+      const { notify } = await import("./notifications/ProcurementNotifier");
+      await notify("INVOICE_EXCEPTION", {
+        // the person who captured the invoice sees its exceptions on their own screen; they are not told again
+        userIds: notified.map((u) => u.id), actorId: (invoice as any).createdById ?? null, entityType: "ProcurementInvoice", entityId: invoiceId,
+        data: { path: "/procurement/invoices", invoiceId, invoiceNumber: invoice.invoiceNumber, poNumber: invoice.purchaseOrder?.poNumber ?? null, reasons: reasons.map((r) => r.message), fingerprint },
+        vars: {
+          ref: invoice.invoiceNumber, vendor: invoice.vendor?.name ?? "Vendor", po: invoice.purchaseOrder?.poNumber ?? "",
+          amount: `${invoice.currency?.code ?? ""} ${Number(invoice.totalAmount).toFixed(2)}`.trim(), summary: reasons.map((r) => r.message).join("; ").slice(0, 900), reasons: reasons.map((r) => r.message),
+        },
+      });
     }
     logger.info("Flagged invoice alert", { invoiceId, reasons: reasons.length, notified: notified.length });
     return { notified: notified.length, reasons, fingerprint };

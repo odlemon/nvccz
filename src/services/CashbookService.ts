@@ -8,6 +8,7 @@ import ControlAccountIntegrationService from './ControlAccountIntegrationService
 import VATService from './VATService';
 import { createJournalEntryWithAuditSequence } from './AuditTrailSequenceService';
 import PeriodLockService from './PeriodLockService';
+import { vatInputAccount as resolveVatInput, vatOutputAccount as resolveVatOutput } from '../utils/vatAccounts';
 
 export interface CreateCashReceiptParams {
   bankId: string;
@@ -958,15 +959,7 @@ export class CashbookService {
       
       // 3. Credit VAT Output Account (if VAT applicable)
       if (vatInfo && vatInfo.vatAmount > 0.01) {
-        const vatOutputAccount = await prisma.chartOfAccounts.findFirst({
-          where: {
-            OR: [
-              { accountNo: '2100' }, // VAT Output
-              { accountName: { contains: 'VAT Output' }, accountType: 'Current Liability' }
-            ],
-            isActive: true
-          }
-        });
+        const vatOutputAccount = await resolveVatOutput();
         
         if (vatOutputAccount) {
           await prisma.journalEntryLine.create({
@@ -1109,12 +1102,7 @@ export class CashbookService {
           });
           
           // 2. Debit VAT Input Account
-          const vatInputAccount = await prisma.chartOfAccounts.findFirst({
-            where: {
-              accountName: { contains: 'VAT Input' },
-              isActive: true
-            }
-          });
+          const vatInputAccount = await resolveVatInput();
           
           if (!vatInputAccount) {
             // Fallback to Accounts Payable if VAT Input not found
@@ -1233,15 +1221,7 @@ export class CashbookService {
           });
 
           if (hasVatSplit) {
-            const vatInputAccount = await prisma.chartOfAccounts.findFirst({
-              where: {
-                OR: [
-                  { accountNo: '2110' },
-                  { accountName: { contains: 'VAT Input' }, accountType: 'Current Asset' }
-                ],
-                isActive: true
-              }
-            });
+            const vatInputAccount = await resolveVatInput();
 
             if (vatInputAccount) {
               await prisma.journalEntryLine.create({
@@ -1321,10 +1301,18 @@ export class CashbookService {
       isActive = true
     } = params;
     let { glAccountId } = params;
-
+    // refused before anything is created (an auto-created ledger account was left behind on a duplicate number)
+    if (await prisma.bank.findFirst({ where: { accountNumber }, select: { id: true } })) {
+      throw new Error('Bank account with this account number already exists');
+    }
+    if (!(await prisma.currency.findUnique({ where: { id: currencyId }, select: { id: true } }))) {
+      throw new Error('Currency not found');
+    }
     if (!glAccountId) {
-      // Default: create a dedicated bank GL account (Cash & Cash Equivalents is a reporting bucket).
-      const bankGlNo = `11${String(Date.now()).slice(-4)}`;
+      // Default: create a dedicated bank GL account (Cash & Cash Equivalents is a reporting bucket), numbered after the
+      // last one (it was the clock's last four digits, which could collide)
+      const last: any[] = await prisma.$queryRawUnsafe("SELECT accountNo FROM chart_of_accounts WHERE accountNo REGEXP '^11[0-9]{4}$' ORDER BY accountNo DESC LIMIT 1");
+      const bankGlNo = last.length ? String(Number(last[0].accountNo) + 1) : '110001';
       const created = await prisma.chartOfAccounts.create({
         data: {
           accountNo: bankGlNo,
@@ -1419,6 +1407,15 @@ export class CashbookService {
 
     const { name, accountNumber, currencyId, glAccountId, branchCode, swiftCode, isActive } =
       params;
+    const changingCurrency = currencyId !== undefined && currencyId !== existing.currencyId;
+    const changingGl = glAccountId !== undefined && glAccountId !== existing.glAccountId;
+    if (changingCurrency || changingGl) {
+      const entries = await prisma.cashbookEntry.count({ where: { bankId } });
+      if (entries > 0) {
+        throw Object.assign(new Error(`${entries} cashbook entr${entries === 1 ? 'y uses' : 'ies use'} this bank account: its ${changingCurrency ? 'currency' : 'ledger account'} cannot change. Open a new bank account instead.`), { statusCode: 409 });
+      }
+    }
+    if (isActive === false && existing.isActive) await CashbookService.assertBankCanClose(bankId);
 
     if (accountNumber !== undefined) {
       const duplicate = await prisma.bank.findFirst({
@@ -1481,6 +1478,27 @@ export class CashbookService {
    * Soft delete bank account (sets isActive: false).
    * Keeps `glAccountId` (Cash and Cash Equivalents) so historical references and validation remain valid.
    */
+  /** A bank account is switched off only when nothing is left in it: no balance, nothing waiting to be posted or
+   *  reconciled, no reconciliation in progress and no active investment settling into it. */
+  static async assertBankCanClose(bankId: string) {
+    const [byType, pending, unrec, draftRec, sti] = await Promise.all([
+      prisma.cashbookEntry.groupBy({ by: ['type'], where: { bankId, status: 'POSTED' }, _sum: { amount: true } }),
+      prisma.cashbookEntry.count({ where: { bankId, status: 'PENDING' } }),
+      prisma.cashbookEntry.count({ where: { bankId, status: 'POSTED', isReconciled: false } }),
+      prisma.cashbookReconciliationSession.count({ where: { bankId, status: 'DRAFT' } }),
+      prisma.shortTermInvestmentInstrument.count({ where: { settlementBankId: bankId, status: { in: ['ACTIVE', 'PENDING', 'PENDING_APPROVAL'] } } }).catch(() => 0),
+    ]);
+    const amt = (t: string) => Number(byType.find((g: any) => g.type === t)?._sum?.amount || 0);
+    const balance = Math.round((amt('RECEIPT') - amt('PAYMENT')) * 100) / 100;
+    const why: string[] = [];
+    if (balance !== 0) why.push(`its cashbook balance is ${balance.toFixed(2)}`);
+    if (pending) why.push(`${pending} entr${pending === 1 ? 'y is' : 'ies are'} waiting to be posted`);
+    if (unrec) why.push(`${unrec} entr${unrec === 1 ? 'y is' : 'ies are'} not reconciled`);
+    if (draftRec) why.push('a reconciliation is in progress');
+    if (sti) why.push(`${sti} active investment${sti === 1 ? ' settles' : 's settle'} into it`);
+    if (why.length) throw Object.assign(new Error(`This bank account cannot be switched off: ${why.join('; ')}.`), { statusCode: 409 });
+  }
+
   static async softDeleteBank(bankId: string) {
     const existing = await prisma.bank.findUnique({
       where: { id: bankId }
@@ -1488,6 +1506,7 @@ export class CashbookService {
     if (!existing) {
       throw new Error('Bank account not found');
     }
+    if (existing.isActive) await CashbookService.assertBankCanClose(bankId);
     const bank = await prisma.bank.update({
       where: { id: bankId },
       data: { isActive: false },

@@ -481,6 +481,7 @@ export class ConsolidatedReportService {
     // Accumulate per (account, sourceCurrency) → source amount
     type AccCcyKey = string; // accountId|currencyId
     const sourceAmounts = new Map<AccCcyKey, { sourceAmount: number; accountType: string; accountName: string }>();
+    const earningsBySource = new Map<string, number>();
 
     for (const line of journalLines) {
       const accId = line.chartOfAccountId;
@@ -495,13 +496,13 @@ export class ConsolidatedReportService {
       const accountType = line.chartOfAccount.accountType;
       const accountName = line.chartOfAccount.accountName.toLowerCase();
 
-      let delta: number;
-      if (accountName.includes("accumulated depreciation") || accountType === "Contra-Asset") {
-        delta = credit - debit;
-      } else if (accountType.includes("Asset")) {
-        delta = debit - credit;
-      } else {
-        delta = credit - debit; // Liabilities & Equity
+      // assets (a contra asset such as accumulated depreciation included) as debit − credit, so a contra balance is
+      // negative and reduces its section; it was credit − debit and added to fixed assets
+      const delta = accountType.includes("Asset") ? debit - credit : credit - debit;
+      // income-statement accounts roll into equity as earnings (they were left out, so the sheet never balanced)
+      if (String(line.chartOfAccount.financialStatement || "").toLowerCase().includes("income")) {
+        earningsBySource.set(ccyId, (earningsBySource.get(ccyId) ?? 0) + (credit - debit));
+        continue;
       }
 
       entry.sourceAmount += delta;
@@ -572,7 +573,8 @@ export class ConsolidatedReportService {
     const fixedAssets = allAccounts.filter((a) => a.accountType === "Fixed Asset" || a.accountType === "Contra-Asset");
     const otherAssets = allAccounts.filter((a) => a.accountType.includes("Asset") && !["Current Asset", "Fixed Asset", "Contra-Asset"].includes(a.accountType) && !isCash(a));
     const currentLiabilities = allAccounts.filter((a) => a.accountType === "Current Liability");
-    const longTermLiabilities = allAccounts.filter((a) => a.accountType === "Long-term Liability" || a.accountType === "Non-Current Liability");
+    // the chart's own type is "Long-Term Liability" (it was matched as "Long-term Liability" and so left out)
+    const longTermLiabilities = allAccounts.filter((a) => /^(long-term|non-current) liability$/i.test(a.accountType));
     const equityAccounts = allAccounts.filter((a) => a.accountType === "Equity");
 
     const filterZero = (arr: ConsolidatedAccount[]) =>
@@ -590,6 +592,12 @@ export class ConsolidatedReportService {
     const ltTotal = sum(longTermLiabilities);
     const totalLiabilities = Math.round((clTotal + ltTotal) * 100) / 100;
 
+    const earnings = Math.round([...earningsBySource.entries()].reduce((s, [cid, amt]) => s + amt * ((rateCache.get(cid) ?? { rate: 1 }).rate), 0) * 100) / 100;
+    const earningsLine: ConsolidatedAccount = {
+      accountId: "earnings", accountNo: "", accountName: "Retained and current earnings", accountType: "Equity", balance: earnings,
+      currencyBreakdown: [...earningsBySource.entries()].map(([cid, amt]) => { const r = rateCache.get(cid) ?? { rate: 1, code: "???" }; return { sourceCurrency: r.code, sourceCurrencyId: cid, sourceAmount: Math.round(amt * 100) / 100, conversionRate: r.rate, consolidatedAmount: Math.round(amt * r.rate * 100) / 100 }; }),
+    };
+    equityAccounts.push(earningsLine);
     const equityTotal = sum(equityAccounts);
     const totalLiabilitiesAndEquity = Math.round((totalLiabilities + equityTotal) * 100) / 100;
 
@@ -685,12 +693,8 @@ export class ConsolidatedReportService {
       const credit = new Decimal(line.creditAmount).toNumber();
       const accountType = line.chartOfAccount.accountType;
 
-      let delta: number;
-      if (accountType === "Revenue") {
-        delta = credit - debit;
-      } else {
-        delta = debit - credit; // Expenses, COGS, Tax
-      }
+      // revenue and other income are credit-normal ("Income" was given the expense sign)
+      const delta = accountType === "Revenue" || accountType === "Income" ? credit - debit : debit - credit;
 
       sourceAmounts.set(key, (sourceAmounts.get(key) ?? 0) + delta);
       if (!accountMeta.has(accId)) {
@@ -744,13 +748,20 @@ export class ConsolidatedReportService {
 
     consolidatedAccounts.sort((a, b) => a.accountNo.localeCompare(b.accountNo));
 
-    // Categorise into sections
-    const revenueAccounts = consolidatedAccounts.filter((a) => a.accountType === "Revenue");
-    const expenseAccounts = consolidatedAccounts.filter((a) =>
-      a.accountType === "Expense" || a.accountType === "Cost of Goods Sold" || a.accountType === "Operating Expense"
-    );
+    // Categorise into sections — tax first: an account like "Corporate Tax Expense" carries accountType "Expense" AND
+    // matches the tax name check, so classifying expenses before tax put it in both sections and subtracted it twice
+    // (revenue − doubled-up expenses = a loss overstated by the tax amount on every consolidated/entity income
+    // statement; live example: Corporate Tax Expense $1,000 made YTD net income read −$552,466.49 instead of the
+    // correct −$551,466.49, same figure the Command Centre and CEO View KPI already computed correctly). Each
+    // account now lands in exactly one of these four sections.
+    const revenueAccounts = consolidatedAccounts.filter((a) => a.accountType === "Revenue" || a.accountType === "Income");
     const taxAccounts = consolidatedAccounts.filter((a) =>
       a.accountType === "Tax" || a.accountName.toLowerCase().includes("income tax") || a.accountName.toLowerCase().includes("tax expense")
+    );
+    const expenseAccounts = consolidatedAccounts.filter((a) =>
+      !revenueAccounts.includes(a) &&
+      !taxAccounts.includes(a) &&
+      (a.accountType === "Expense" || a.accountType === "Cost of Goods Sold" || a.accountType === "Operating Expense")
     );
     const belowTheLine = consolidatedAccounts.filter(
       (a) =>

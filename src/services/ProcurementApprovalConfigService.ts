@@ -1286,35 +1286,21 @@ export class ProcurementApprovalConfigService {
           break;
       }
 
-      // Send notification to each approver
-      const { EmailNotificationService } = await import('./EmailNotificationService');
-      for (const approver of approverUsers) {
-        try {
-          if (!approver.email || !String(approver.email).trim()) {
-            console.warn(
-              `[sendApprovalStepNotifications] Approver ${approver.id} (${approver.firstName} ${approver.lastName}) has no email; skipping.`
-            );
-            continue;
-          }
-          await EmailNotificationService.sendApprovalStepNotification({
-            approverName: `${approver.firstName} ${approver.lastName}`,
-            approverEmail: approver.email,
-            entityType: stageType.replace('_', ' '),
-            entityNumber,
-            entityTitle,
-            stepNumber: stage.stepNumber,
-            stepName: stage.stepName,
-            totalSteps: request.totalSteps,
-            submittedByName: `${request.requestedBy.firstName} ${request.requestedBy.lastName}`,
-            submittedByEmail: request.requestedBy.email,
-            department: department || 'N/A',
-            companyName: 'NVCCZ'
-          });
-        } catch (emailError: any) {
-          console.error(`⚠️  Error sending notification to ${approver.email}:`, emailError.message || emailError);
-          // Don't throw - continue with other approvers
-        }
-      }
+      // SRD §34: every "approval required" goes through the one shared dispatcher (rule, template, in-app, email, log). A
+      // requisition's own steps are announced by ProcurementRequisitionApprovalService.notifyCurrentStep, so it is not repeated here.
+      if (stageType === 'PURCHASE_REQUISITION') return;
+      const { notify } = await import('./notifications/ProcurementNotifier');
+      await notify('APPROVAL_REQUIRED', {
+        userIds: approverUsers.map((u) => u.id),
+        entityType: stageType === 'PURCHASE_ORDER' ? 'PurchaseOrder' : stageType === 'INVOICE' ? 'ProcurementInvoice' : stageType === 'GRN' ? 'GoodsReceivedNote' : stageType,
+        entityId: request.entityId,
+        actorId: request.requestedBy?.id ?? null,
+        data: { path: '/procurement/approvals', requestId, stepNumber: stage.stepNumber },
+        vars: {
+          ref: entityNumber || stageType.replace(/_/g, ' ').toLowerCase(), title: entityTitle, department: department || undefined,
+          requester: `${request.requestedBy?.firstName ?? ''} ${request.requestedBy?.lastName ?? ''}`.trim(), step: `${stage.stepNumber} of ${request.totalSteps} (${stage.stepName ?? ''})`,
+        },
+      });
     } catch (error: any) {
       console.error("⚠️  Error sending approval step notifications:", error.message || error);
       // Don't throw - email failure shouldn't block approval workflow

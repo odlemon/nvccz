@@ -19,6 +19,8 @@ export type { InvoiceEquivalentAtCreation };
 
 export interface CreateInvoiceParams {
   customerId: string;
+  /** When payment is due; defaults to the invoice date plus the customer's payment terms (30 days if none). */
+  dueDate?: Date | null;
   amount: number;
   currencyId: string;
   transactionDate: Date;
@@ -296,6 +298,13 @@ export class InvoiceService {
               totalAmount: new Decimal(totalAmount),
               currencyId,
               transactionDate,
+              dueDate: await (async () => {
+                if (params.dueDate && !Number.isNaN(new Date(params.dueDate).getTime())) return new Date(params.dueDate);
+                const c = await tx.customer.findUnique({ where: { id: customerId }, select: { paymentTerms: true } }).catch(() => null);
+                const m = String(c?.paymentTerms ?? '').match(/\d+/); // terms are text ("30", "Net 30")
+                const days = m && Number(m[0]) > 0 ? Number(m[0]) : 30;
+                return new Date(new Date(transactionDate).getTime() + days * 86400000);
+              })(),
               description,
               items: lineItems,
               invoiceNumber: finalInvoiceNumber,
@@ -816,7 +825,7 @@ export class InvoiceService {
    */
   static async sendInvoice(
     id: string,
-    options?: { usdZwgSnapshotForSend?: number }
+    options?: { usdZwgSnapshotForSend?: number; user?: unknown; performedById?: string }
   ): Promise<InvoiceWithRelations> {
     try {
       const invoice = await prisma.invoice.findUnique({
@@ -864,7 +873,14 @@ export class InvoiceService {
         });
         if (je?.status === "PENDING") {
           try {
-            await JournalEntryService.postJournalEntry(je.id, updatedInvoice.createdById);
+            // Pass the acting user (not only createdById): postJournalEntry requires options.user for
+            // manage_ledger. Invoice create already made this PENDING JE; allowCreatorPost lets the
+            // same finance user complete send without a second maker-checker hop.
+            const posterId = options?.performedById || updatedInvoice.createdById;
+            await JournalEntryService.postJournalEntry(je.id, posterId, {
+              user: options?.user,
+              allowCreatorPost: true,
+            });
           } catch (postErr: any) {
             await prisma.invoice.update({
               where: { id },
@@ -1234,6 +1250,10 @@ export class InvoiceService {
       let paymentSettlementLegacy: PaymentSettlementSummary;
 
       if (!crossLegacy) {
+        // Money received in the invoice's own currency is a cashbook receipt allocated to the invoice: this path posted a
+        // second, unlinked "Dr bank / Cr receivables" journal with no cashbook line (receivables credited twice when a
+        // receipt was also recorded, and the bank never reconcilable). Cross-currency settlements keep their own paths.
+        throw Object.assign(new Error("Record the money received in the cashbook (a customer receipt) and allocate it to this invoice."), { statusCode: 409 });
         const outstandingNow = Decimal.min(outstandingDec, invTotalDec.minus(paidSoFarDec));
         if (outstandingNow.lte(0)) {
           throw new Error("Invoice has no outstanding balance to pay.");
@@ -1410,7 +1430,7 @@ export class InvoiceService {
    * Void invoice (any status -> VOID)
    * Creates reversal journal entry to cancel the original invoice entry
    */
-  static async voidInvoice(id: string, reason?: string): Promise<InvoiceWithRelations> {
+  static async voidInvoice(id: string, reason?: string, actorId?: string): Promise<InvoiceWithRelations> {
     try {
       const invoice = await prisma.invoice.findUnique({
         where: { id },
@@ -1423,6 +1443,18 @@ export class InvoiceService {
 
       if (invoice.status === "VOID") {
         throw new Error("Invoice is already voided");
+      }
+      if (invoice.status === "PAID" || invoice.status === "PARTIALLY_PAID" || Number(invoice.paidAmount || 0) > 0.005) {
+        throw new Error("Receipts are allocated to this invoice; undo those allocations (or issue a credit note) before voiding it.");
+      }
+      // its own journal is what gets undone: a draft's (never posted) is withdrawn, a sent one's is reversed — dated in
+      // an open period (JournalEntryService.voidJournalEntry checks the lock)
+      if (invoice.journalEntryId) {
+        const je = await prisma.journalEntry.findUnique({ where: { id: invoice.journalEntryId }, select: { status: true } });
+        if (je && je.status !== "VOID") await JournalEntryService.voidJournalEntry(invoice.journalEntryId, actorId || invoice.createdById, { reason: reason || "Invoice voided" });
+        const updatedInvoice = await prisma.invoice.update({ where: { id }, data: { status: "VOID", outstandingAmount: new Decimal(0) }, include: this.invoiceApiInclude() });
+        await AuditService.log({ userId: actorId || updatedInvoice.createdById, action: "VOID", entityType: "Invoice", entityId: id, oldValues: invoice, newValues: { ...updatedInvoice, voidReason: reason || null } });
+        return (await this.attachEquivalent(updatedInvoice)) as InvoiceWithRelations;
       }
 
       // Create reversal journal entry

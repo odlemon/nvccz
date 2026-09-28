@@ -73,10 +73,10 @@ export class ProcurementInvoiceAutoApprovalService {
     }
     if (String(invoice.matchingStatus || "").toUpperCase() !== "MATCHED") out.push("The three-way match is not exact");
     if ((invoice.aiDiscrepancies?.flags || []).length) out.push("The match raised flags to review");
+    // An AI reading can only add caution: when the supplier's document was read and does not agree with the capture, a person
+    // reviews it. It can never make an invoice approvable, so approval works the same with the AI layer off.
     const reading = invoice.ocrData;
-    if (!invoice.documentPath) out.push("No supplier document was attached to compare");
-    else if (!reading || reading.status !== "READ") out.push("The supplier's document has not been read");
-    else if (!reading.comparison || reading.comparison.agrees !== true) out.push("The supplier's document does not agree with the capture");
+    if (reading?.status === "READ" && reading.comparison && reading.comparison.agrees === false) out.push("The supplier's document does not agree with the capture");
     if (settings.limit != null && Number(invoice.totalAmount) > settings.limit) {
       out.push(`The total is above the automatic approval limit of ${money(settings.limit)}`);
     }
@@ -107,7 +107,7 @@ export class ProcurementInvoiceAutoApprovalService {
     const blockers = this.blockers(invoice, settings);
     if (blockers.length) return { approved: false, blockers };
 
-    const reason = `Exact three-way match with ${invoice.purchaseOrder?.poNumber ?? "its purchase order"}, and the supplier's document agrees with the capture`;
+    const reason = `Exact three-way match with ${invoice.purchaseOrder?.poNumber ?? "its purchase order"}, within the automatic approval rule set by the organisation`;
     const { ProcurementService } = await import("./ProcurementService");
     await ProcurementService.approveProcurementInvoice(invoiceId, null, undefined, { automatic: true, reason });
     await this.notify(invoiceId, reason);
@@ -136,30 +136,29 @@ export class ProcurementInvoiceAutoApprovalService {
       : null;
     const title = `${invoice.invoiceNumber} approved automatically`.slice(0, 150);
     const message = `${invoice.vendor?.name ?? "A vendor"}, ${invoice.currency?.code ?? "USD"} ${money(invoice.totalAmount)}: exact match with ${invoice.purchaseOrder?.poNumber ?? "its order"}. In the payment queue${due ? `, due ${due}` : ""}.`.slice(0, 180);
-    for (const u of people) {
-      const already = await prisma.notification.findFirst({
-        where: { userId: u.id, type: NOTIFICATION_TYPE, relatedEntityId: invoice.id },
-        select: { id: true },
-      });
-      if (already) continue;
-      await prisma.notification.create({
+    // one lookup and one insert for everyone (not a query per person: the audience is every role that holds the grant)
+    const told = people.length
+      ? new Set((await prisma.notification.findMany({ where: { userId: { in: people.map((u) => u.id) }, type: NOTIFICATION_TYPE, relatedEntityId: invoice.id }, select: { userId: true } })).map((n) => n.userId))
+      : new Set<string>();
+    const fresh = people.filter((u) => !told.has(u.id));
+    if (!fresh.length) return;
+    await prisma.notification.createMany({
+      data: fresh.map((u) => ({
+        userId: u.id,
+        type: NOTIFICATION_TYPE,
+        title,
+        message,
+        relatedEntity: "ProcurementInvoice",
+        relatedEntityId: invoice.id,
         data: {
-          userId: u.id,
-          type: NOTIFICATION_TYPE,
-          title,
-          message,
-          relatedEntity: "ProcurementInvoice",
-          relatedEntityId: invoice.id,
-          data: {
-            path: "/procurement/invoices",
-            invoiceId: invoice.id,
-            invoiceNumber: invoice.invoiceNumber,
-            poNumber: invoice.purchaseOrder?.poNumber ?? null,
-            reason,
-            dueDate: invoice.dueDate ?? null,
-          },
+          path: "/procurement/invoices",
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          poNumber: invoice.purchaseOrder?.poNumber ?? null,
+          reason,
+          dueDate: invoice.dueDate ?? null,
         },
-      });
-    }
+      })),
+    });
   }
 }

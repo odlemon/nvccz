@@ -56,6 +56,13 @@ export class PayrollExtendedController {
         where: { id },
         data: { lifecycleStatus: "ACTIVE", isActive: true, terminated: false },
       });
+      // Performance's turnover-rate goals are recomputed on termination; a reinstatement changes the rate back
+      try {
+        const { EmployeeTerminationService } = await import("../services/EmployeeTerminationService");
+        await EmployeeTerminationService.syncAllPayrollTurnoverGoals((req as any).user);
+      } catch (syncErr: any) {
+        console.warn("[payroll] turnover KPI re-sync after reinstatement skipped:", syncErr?.message || syncErr);
+      }
       res.json({ success: true, data: employee });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });

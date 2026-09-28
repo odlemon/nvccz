@@ -37,7 +37,7 @@ Previously, the UI had to obtain a hosted URL elsewhere; there was **no** multip
 | **6.4** | Invoice qty > GRN accepted | `QTY_OVER_GRN` flag; payment blocked when DISPUTED |
 | **6.5** | Correction map | `POST .../field-corrections` — merged into next extraction prompt for that vendor |
 | **6.6** | Duplicate supplier ref | Unique `(vendor_id, vendor_invoice_reference)`; duplicate rejected on draft bill creation |
-| **6.7** | Tax parse vs vendor | `tax_parse_status` on intake: `MISMATCH` when extracted `taxTreatment` is `VAT_15` and the vendor’s `taxComplianceStatus` is `INVALID` (not a full tax matrix) |
+| **6.7** | Tax parse vs vendor | `tax_parse_status` on intake from treatment × compliance matrix: `VAT_15`×`ACTIVE`→OK, `VAT_15`×`PENDING`→WARN, `VAT_15`×`EXPIRED`/`INVALID`→MISMATCH; `ZERO_RATED`/`EXEMPT`×`ACTIVE`/`PENDING`→OK else WARN; `UNKNOWN`×`INVALID`→MISMATCH else WARN |
 | **6.8** | Scanned PDFs | Same text-extraction + LLM pipeline (no separate bitmap OCR); empty or poor text → weaker extraction and often `PENDING_VERIFICATION` via confidence threshold |
 | **6.9** | CFO view | `GET .../cfo-dashboard` |
 | **6.10** | Human verification queue | `GET .../verification-queue`; `PATCH .../intakes/:id/verify` after review |

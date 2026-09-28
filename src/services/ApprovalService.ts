@@ -3,13 +3,19 @@ import { prisma } from "../utils/database";
 import { isModulePrivilegedUser } from "../config/cfoModulePermissions";
 import { persistProcurementEntityRejection } from "../utils/procurementRejectionPersistence";
 import { Department, DepartmentRole } from "./ProcurementService";
+import { UserMasterPolicyService } from "./UserMasterPolicyService";
 
 const PROCUREMENT_APPROVAL_STAGES = new Set([
   "PURCHASE_REQUISITION",
   "PURCHASE_ORDER",
   "INVOICE",
   "GRN",
+  "AWARD_RECOMMENDATION",
 ]);
+// Steps settled by one decision: a step fanned out to everyone holding a role (every CFO, say) is decided by whichever
+// of them acts first, and the rest of that step closes. Accounting executions follow procurement here: the investment
+// booking, the payment run and the chart-of-accounts change each need one approver of the step, not all of them.
+const ONE_DECISION_STAGES = new Set([...PROCUREMENT_APPROVAL_STAGES, "PAYMENT_EXECUTION", "INVESTMENT_BOOKING", "MASTER_DATA_COA"]);
 
 async function approverCanActOnApproval(
   tx: any,
@@ -35,6 +41,7 @@ export class ApprovalService {
       | "PURCHASE_ORDER"
       | "INVOICE"
       | "GRN"
+      | "AWARD_RECOMMENDATION"
       | "MASTER_DATA_COA"
       | "PAYMENT_EXECUTION"
       | "INVESTMENT_BOOKING";
@@ -130,6 +137,8 @@ export class ApprovalService {
       console.log("");
 
       // Create approval request and approval records in a transaction
+      // User Master delegations decided while routing; written to the audit trail once the rows are committed.
+      const delegationLogs: Array<{ approvalId: string; d: { fromId: string; toId: string; reason: string } }> = [];
       const result = await prisma.$transaction(async (tx) => {
         // Create approval request
         const approvalRequest = await tx.approvalRequest.create({
@@ -165,6 +174,10 @@ export class ApprovalService {
             select: { totalAmount: true },
           });
           entityAmount = pr ? Number(pr.totalAmount) : 0;
+        } else if (params.stageType === "INVOICE") {
+          entityAmount = await UserMasterPolicyService.entityAmount(tx, "INVOICE", params.entityId, params.entityData);
+        } else if (params.stageType === "AWARD_RECOMMENDATION") {
+          entityAmount = await UserMasterPolicyService.entityAmount(tx, "AWARD_RECOMMENDATION", params.entityId, params.entityData);
         }
         for (const stage of stages) {
           // Determine approver(s) based on stepType
@@ -180,6 +193,34 @@ export class ApprovalService {
           ) {
             console.log(`   ⏭️  Step ${stage.stepNumber} applies above ${Number(stage.amountThreshold)}; amount ${entityAmount}, not needed`);
             continue;
+          }
+
+          // §12 multi-dimension matchRules on the stage (dept / cost centre / category / branch / method / risk)
+          if (isProcurementStage && stage.matchRules && typeof stage.matchRules === "object") {
+            const rules = stage.matchRules as Record<string, unknown>;
+            const ed = (params.entityData || {}) as Record<string, unknown>;
+            const matchesList = (ruleKey: string, entityKey: string) => {
+              const list = rules[ruleKey];
+              if (!Array.isArray(list) || list.length === 0) return true;
+              const val = String(ed[entityKey] ?? ed[ruleKey] ?? "").trim().toLowerCase();
+              if (!val) return false;
+              return list.map((x) => String(x).trim().toLowerCase()).includes(val);
+            };
+            if (
+              !matchesList("departments", "department") ||
+              !matchesList("costCentres", "costCentre") ||
+              !matchesList("categories", "category") ||
+              !matchesList("branches", "branch") ||
+              !matchesList("methods", "procurementMethod") ||
+              !matchesList("riskLevels", "riskLevel") ||
+              !matchesList("businessUnits", "businessUnit") ||
+              !matchesList("exceptionTypes", "exceptionType") ||
+              (rules.amountMin != null && rules.amountMin !== "" && entityAmount < Number(rules.amountMin)) ||
+              (rules.amountMax != null && rules.amountMax !== "" && entityAmount > Number(rules.amountMax))
+            ) {
+              console.log(`   ⏭️  Step ${stage.stepNumber} skipped — matchRules did not match entityData`);
+              continue;
+            }
           }
 
           if (stage.stepType === "USER" && stage.userId) {
@@ -266,6 +307,20 @@ export class ApprovalService {
             );
           }
 
+          // User Master routing: availability, delegated approver, requester exclusion (SoD), approval level and limit.
+          let stepDelegations: Array<{ fromId: string; toId: string; reason: string; fromName: string }> = [];
+          if (isProcurementStage && approverIds.length) {
+            const routed = await UserMasterPolicyService.resolveStepApprovers(tx, {
+              approverIds,
+              requesterId: params.requestedById,
+              amount: entityAmount,
+              minApprovalLevel: stage.minApprovalLevel ?? null,
+              stepName: stage.stepName,
+            });
+            approverIds = routed.approverIds;
+            stepDelegations = routed.delegations;
+          }
+
           // A requisition step nobody can decide would leave the requisition waiting for ever. Refuse the submission
           // and name the step, so the requester can say what is missing and an administrator can put it right.
           if (params.stageType === "PURCHASE_REQUISITION" && approverIds.length === 0) {
@@ -283,10 +338,17 @@ export class ApprovalService {
                 requestId: approvalRequest.id,
                 stageId: stage.id,
                 approverId: approverId,
-                status: stage.stepNumber === 1 ? "PENDING" : "PENDING" // First step is immediately pending
+                status: stage.stepNumber === 1 ? "PENDING" : "PENDING", // First step is immediately pending
+                ...(stepDelegations.find((d) => d.toId === approverId)
+                  ? {
+                      comments: `Routed to delegate of ${stepDelegations.find((d) => d.toId === approverId).fromName} (${stepDelegations.find((d) => d.toId === approverId).reason})`,
+                    }
+                  : {}),
               }
             });
             approvals.push(approval);
+            const delegation = stepDelegations.find((d) => d.toId === approverId);
+            if (delegation) delegationLogs.push({ approvalId: approval.id, d: delegation });
             console.log(`   ✅ Approval created for user ${approverId} at step ${stage.stepNumber}`);
           }
         }
@@ -317,6 +379,10 @@ export class ApprovalService {
 
         return { approvalRequest, approvals };
       });
+
+      for (const { approvalId, d } of delegationLogs) {
+        await UserMasterPolicyService.logDelegation(approvalId, result.approvalRequest.id, d, params.stageType).catch(() => undefined);
+      }
 
       // After commit: notify first-step approvers (pending rows visible; sendApprovalStepNotifications reads DB)
       if (params.stageType === "PURCHASE_REQUISITION") {
@@ -468,6 +534,9 @@ export class ApprovalService {
       console.log(`💬 Comments: ${params.comments || 'None'}`);
       console.log("");
 
+      // User Master: availability, segregation of duties, approval level and approval limit (with escalation).
+      await UserMasterPolicyService.guardApprove({ approvalId: params.approvalId, approverId: params.approverId });
+
       const result = await prisma.$transaction(async (tx) => {
         // Get the approval with request and stage info
         const approval = await tx.approval.findUnique({
@@ -505,8 +574,8 @@ export class ApprovalService {
           throw new Error(`Approval request already ${approval.request.status.toLowerCase()}`);
         }
 
-        const procurementRoute = PROCUREMENT_APPROVAL_STAGES.has(String(approval.request.stageType));
-        if (procurementRoute) {
+        const oneDecision = ONE_DECISION_STAGES.has(String(approval.request.stageType));
+        if (oneDecision) {
           // Steps are decided in order: an approver on a later step cannot decide before the earlier step has.
           const waiting = approval.request.approvals.filter((a) => a.status === "PENDING").map((a) => a.stage.stepNumber);
           if (waiting.length && approval.stage.stepNumber > Math.min(...waiting)) {
@@ -549,7 +618,7 @@ export class ApprovalService {
 
         let updatedRequest;
 
-        if (procurementRoute) {
+        if (oneDecision) {
           // One decision settles a step: whichever of the step's approvers acts first decides it, and the step's other
           // rows close. The request then waits on the next step that has approvers, or is approved when none is left.
           await tx.approval.updateMany({
@@ -698,8 +767,8 @@ export class ApprovalService {
           throw new Error(`Approval request already ${approval.request.status.toLowerCase()}`);
         }
 
-        const procurementRoute = PROCUREMENT_APPROVAL_STAGES.has(String(approval.request.stageType));
-        if (procurementRoute) {
+        const oneDecision = ONE_DECISION_STAGES.has(String(approval.request.stageType));
+        if (oneDecision) {
           const waiting = await tx.approval.findMany({
             where: { requestId: approval.requestId, status: "PENDING" },
             select: { stage: { select: { stepNumber: true } } },
@@ -720,7 +789,7 @@ export class ApprovalService {
             ...(approval.approverId !== params.approverId ? { delegatedToId: params.approverId, delegatedAt: new Date() } : {}),
           }
         });
-        if (procurementRoute) {
+        if (oneDecision) {
           // A rejection ends the route; nobody else is left waiting to decide it.
           await tx.approval.updateMany({
             where: { requestId: approval.requestId, status: "PENDING" },
@@ -770,6 +839,134 @@ export class ApprovalService {
       console.error("");
       throw error;
     }
+  }
+
+  /**
+   * §12 — reassign a pending approval to another user (delegation).
+   * Marks the current row DELEGATED and creates a new PENDING approval for the delegate.
+   */
+  static async delegateApproval(params: {
+    approvalId: string;
+    fromUserId: string;
+    delegatedToId: string;
+    reason?: string;
+  }) {
+    if (!params.delegatedToId) throw new Error("delegatedToId is required");
+    if (params.delegatedToId === params.fromUserId) {
+      throw new Error("Cannot delegate an approval to yourself");
+    }
+
+    const approval = await prisma.approval.findUnique({
+      where: { id: params.approvalId },
+      include: { stage: true, request: true },
+    });
+    if (!approval) throw new Error("Approval not found");
+    if (approval.status !== "PENDING") throw new Error("Only pending approvals can be delegated");
+    if (approval.approverId !== params.fromUserId) {
+      throw new Error("Only the assigned approver can delegate this approval");
+    }
+    if (approval.stage && approval.stage.canDelegate === false) {
+      throw new Error("Delegation is not allowed for this approval stage");
+    }
+
+    // User Master: the delegator must be able to act and the delegate must be someone who could approve this themselves
+    // (available, not the requester, right level and limit, a function that approves).
+    await UserMasterPolicyService.guardDelegate({
+      approvalId: approval.id,
+      fromUserId: params.fromUserId,
+      delegatedToId: params.delegatedToId,
+    });
+
+    const delegate = await prisma.user.findUnique({
+      where: { id: params.delegatedToId },
+      select: { id: true, firstName: true, lastName: true, email: true },
+    });
+    if (!delegate) throw new Error("Delegate user not found");
+
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.approval.update({
+        where: { id: approval.id },
+        data: {
+          status: "DELEGATED",
+          delegatedToId: params.delegatedToId,
+          delegatedAt: new Date(),
+          comments: params.reason || "Delegated",
+        },
+      });
+
+      const created = await tx.approval.create({
+        data: {
+          requestId: approval.requestId,
+          stageId: approval.stageId,
+          approverId: params.delegatedToId,
+          status: "PENDING",
+          comments: params.reason ? `Delegated: ${params.reason}` : "Delegated",
+        },
+        include: {
+          approver: { select: { id: true, firstName: true, lastName: true, email: true } },
+          stage: true,
+          request: true,
+        },
+      });
+
+      return created;
+    });
+    // SRD §12 decision capture, written after the hand-off commits.
+    const { ProcurementDecisionLogService } = await import("./ProcurementDecisionLogService");
+    const entityType = approval.request.stageType === "PURCHASE_REQUISITION" ? "PurchaseRequisition" : approval.request.stageType;
+    await ProcurementDecisionLogService.record({
+      entityType,
+      entityId: approval.request.entityId,
+      requestId: approval.requestId,
+      approvalId: result.id,
+      stepNumber: approval.stage?.stepNumber ?? null,
+      stepName: approval.stage?.stepName ?? null,
+      actorId: params.fromUserId,
+      action: "DELEGATED",
+      comments: params.reason || null,
+      previousStatus: approval.request.stageType === "PURCHASE_REQUISITION" ? "PENDING_APPROVAL" : approval.request.status,
+      resultingStatus: approval.request.stageType === "PURCHASE_REQUISITION" ? "PENDING_APPROVAL" : approval.request.status,
+      detail: { delegatedToId: params.delegatedToId, delegatedTo: `${delegate.firstName} ${delegate.lastName}`.trim() },
+    }).catch(() => undefined);
+    try {
+      const { notifySafe } = await import("./notifications/ProcurementNotifier");
+      let ref = approval.request.entityId;
+      if (approval.request.stageType === "PURCHASE_REQUISITION") ref = (await prisma.purchaseRequisition.findUnique({ where: { id: approval.request.entityId }, select: { requisitionNumber: true } }))?.requisitionNumber ?? ref;
+      const from = await prisma.user.findUnique({ where: { id: params.fromUserId }, select: { firstName: true, lastName: true, email: true } });
+      await notifySafe("APPROVAL_ASSIGNED", {
+        userIds: [params.delegatedToId], actorId: params.fromUserId, entityType: approval.request.stageType === "PURCHASE_REQUISITION" ? "PurchaseRequisition" : "Approval", entityId: approval.request.entityId,
+        data: { path: "/procurement/approvals" }, vars: { ref, actor: `${from?.firstName ?? ""} ${from?.lastName ?? ""}`.trim() || from?.email || "A colleague", reason: params.reason || "" },
+      });
+    } catch (_e) { /* the delegation stands */ }
+    return result;
+  }
+
+  /** Resolve the caller's pending Approval row for an entity, then delegate it. */
+  static async delegateApprovalForEntity(params: {
+    entityId: string;
+    fromUserId: string;
+    delegatedToId: string;
+    reason?: string;
+  }) {
+    const row = await prisma.approval.findFirst({
+      where: {
+        approverId: params.fromUserId,
+        status: "PENDING",
+        request: { entityId: params.entityId, status: "PENDING" },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!row) {
+      throw new Error(
+        "No pending approval assigned to you for this record. Delegation applies to approval-engine prompts (e.g. GRN / invoice stages)."
+      );
+    }
+    return this.delegateApproval({
+      approvalId: row.id,
+      fromUserId: params.fromUserId,
+      delegatedToId: params.delegatedToId,
+      reason: params.reason,
+    });
   }
 
   /**
@@ -828,6 +1025,10 @@ export class ApprovalService {
             );
           }
           console.log(`   ✅ Chart of Accounts ${entityId} updated per approved change`);
+          if (requestedById) {
+            const { default: AuditService } = await import("./AuditService");
+            await AuditService.log({ userId: requestedById, action: "CHANGE_APPROVED", entityType: "ChartOfAccounts", entityId, oldValues: null, newValues: entityData }).catch(() => null);
+          }
           break;
         }
 
@@ -842,7 +1043,7 @@ export class ApprovalService {
         case "PURCHASE_ORDER":
           await tx.purchaseOrder.update({
             where: { id: entityId },
-            data: { status: "APPROVED" }
+            data: { status: "APPROVED", approvalStatus: "APPROVED", approvedAt: new Date() }
           });
           console.log(`   ✅ Purchase Order ${entityId} marked as APPROVED`);
           break;
@@ -862,6 +1063,15 @@ export class ApprovalService {
           });
           console.log(`   ✅ Goods Received Note ${entityId} marked as APPROVED`);
           break;
+
+        case "AWARD_RECOMMENDATION": {
+          // SRD §20: the recommendation has passed every configured approval authority; the award may now be finalised.
+          const rec = await tx.rfqAwardRecommendation.update({ where: { id: entityId }, data: { status: "APPROVED", decidedAt: new Date() } });
+          await tx.procurementRfq.update({ where: { id: rec.rfqId }, data: { recommendationStatus: "APPROVED", awardedQuotationId: rec.recommendedQuotationId } });
+          { const cur = await tx.procurementRfq.findUnique({ where: { id: rec.rfqId }, select: { status: true } }); if (cur && ["AWAITING_APPROVAL", "UNDER_EVALUATION"].includes(cur.status)) await tx.procurementRfq.update({ where: { id: rec.rfqId }, data: { status: "AWARDED" } }); }
+          console.log(`   ✅ Award recommendation ${entityId} marked as APPROVED`);
+          break;
+        }
 
         default:
           console.log(`   ⚠️  Unknown stage type: ${stageType}`);
@@ -902,6 +1112,14 @@ export class ApprovalService {
           console.log(`   ❌ Chart of Accounts change for ${entityId} rejected — no changes were applied, nothing to revert`);
           break;
 
+        case "AWARD_RECOMMENDATION": {
+          const rec = await tx.rfqAwardRecommendation.update({ where: { id: entityId }, data: { status: "REJECTED", decidedAt: new Date(), decisionComments: reason || null } });
+          await tx.procurementRfq.update({ where: { id: rec.rfqId }, data: { recommendationStatus: "REJECTED", awardedQuotationId: null } });
+          { const cur = await tx.procurementRfq.findUnique({ where: { id: rec.rfqId }, select: { status: true } }); if (cur?.status === "AWAITING_APPROVAL") await tx.procurementRfq.update({ where: { id: rec.rfqId }, data: { status: "UNDER_EVALUATION" } }); }
+          console.log(`   ❌ Award recommendation ${entityId} marked as REJECTED`);
+          break;
+        }
+
         case "PURCHASE_REQUISITION":
         case "PURCHASE_ORDER":
         case "INVOICE":
@@ -910,6 +1128,7 @@ export class ApprovalService {
           if (stageType === "PURCHASE_REQUISITION") {
             console.log(`   ❌ Purchase Requisition ${entityId} marked as REJECTED`);
           } else if (stageType === "PURCHASE_ORDER") {
+            await tx.purchaseOrder.update({ where: { id: entityId }, data: { approvalStatus: "REJECTED" } });
             console.log(`   ❌ Purchase Order ${entityId} marked as REJECTED`);
           } else if (stageType === "INVOICE") {
             console.log(`   ❌ Procurement Invoice ${entityId} marked as REJECTED`);

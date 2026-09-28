@@ -732,13 +732,6 @@ export class PayrollService {
         }
       });
 
-      try {
-        const { PerformanceGoalService } = await import('./PerformanceGoalService');
-        await PerformanceGoalService.syncPayrollToGoals(payrollRunId, totalGrossPay, createdById);
-      } catch (syncError: any) {
-        console.error('[FAIL] Failed to sync payroll to performance goals:', syncError.message);
-      }
-
       let journalEntryId: string | null = null;
       try {
         journalEntryId = await PayrollService.createPayrollJournalEntry(
@@ -768,6 +761,15 @@ export class PayrollService {
           journalEntryId,
         },
       });
+
+      // Performance's payroll-expense goals sum COMPLETED runs, so they are synced once this run is completed (before, the
+      // run being processed was left out until the next run), and not at all when its journal failed.
+      try {
+        const { PerformanceGoalService } = await import('./PerformanceGoalService');
+        await PerformanceGoalService.syncPayrollToGoals(payrollRunId, totalGrossPay, createdById);
+      } catch (syncError: any) {
+        console.error('[FAIL] Failed to sync payroll to performance goals:', syncError.message);
+      }
 
       try {
         const { BudgetPayrollSyncService } = await import('./BudgetPayrollSyncService');
@@ -1184,8 +1186,13 @@ export class PayrollService {
     );
     const byId = new Map(safe.map((j) => [j.id, j]));
     const deletedIds: string[] = [];
+    // voided (a posted one reversed), never deleted: the ledger keeps every numbered journal
+    const { default: JournalEntryService } = await import('./JournalEntryService');
     for (const je of byId.values()) {
-      await prisma.journalEntry.delete({ where: { id: je.id } });
+      const cur = await prisma.journalEntry.findUnique({ where: { id: je.id }, select: { status: true } });
+      if (cur && cur.status !== 'VOID') {
+        await JournalEntryService.voidJournalEntry(je.id, undefined, { reason: 'Payroll accounting rebuilt for this run' });
+      }
       deletedIds.push(je.id);
     }
     return { deletedIds };

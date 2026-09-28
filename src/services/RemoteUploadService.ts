@@ -318,7 +318,10 @@ async function postUploadFormData(
     headers: {
       ...formData.getHeaders(),
     },
-    timeout: timeoutMs,
+    // Large documents (up to the vault's 100 MB) must not be cut off by axios' body cap or a 60 s timeout.
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+    timeout: Math.max(timeoutMs, 300000),
   });
   return response.data;
 }
@@ -340,7 +343,8 @@ function buildDownloadPathCandidates(filePath: string): string[] {
 async function fetchMediaBuffer(url: string): Promise<Buffer> {
   const response = await axios.get(url, {
     responseType: "arraybuffer",
-    timeout: 30000,
+    maxContentLength: Infinity,
+    timeout: 180000,
     validateStatus: (status) => status < 500,
   });
   if (response.status >= 400) {

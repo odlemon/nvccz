@@ -108,6 +108,54 @@ const TIERS: Tier[] = [
     departmentRole: "MEMBER",
     replacesDemoRole: "Employee",
   },
+  // RBAC testing needs a second department (a manager must not reach another department's people), a colleague in the
+  // same department (an employee must not reach a peer's records) and an officer-level role (an individual, not a manager).
+  {
+    email: "perf.opspeer@nts.local",
+    firstName: "Perf",
+    lastName: "OpsPeer",
+    roleName: "Operations Member",
+    roleCode: "OPS_MEM",
+    department: SCOPE_DEPARTMENT,
+    departmentRole: "MEMBER",
+    replacesDemoRole: "Employee (a colleague)",
+  },
+  {
+    email: "perf.opsofficer@nts.local",
+    firstName: "Perf",
+    lastName: "OpsOfficer",
+    roleName: "Operations Officer",
+    roleCode: "OPS_OFF",
+    department: SCOPE_DEPARTMENT,
+    departmentRole: "MEMBER",
+    replacesDemoRole: "Employee (officer grade)",
+  },
+  {
+    email: "perf.finmgr@nts.local",
+    firstName: "Perf",
+    lastName: "FinManager",
+    roleName: "Finance Manager",
+    roleCode: "FIN_MGR",
+    department: "Finance",
+    departmentRole: "HEAD",
+    replacesDemoRole: "Department Manager (another department)",
+  },
+  {
+    email: "perf.finemp@nts.local",
+    firstName: "Perf",
+    lastName: "FinEmployee",
+    roleName: "Finance Member",
+    roleCode: "FIN_MEM",
+    department: "Finance",
+    departmentRole: "MEMBER",
+    replacesDemoRole: "Employee (another department)",
+  },
+  // Accounting sweep: one user per finance role (preparers, approvers, the CFO, audit). perf.finmgr is the Finance Manager.
+  { email: "acct.cfo@nts.local", firstName: "Acct", lastName: "CFO", roleName: "Chief Financial Officer", roleCode: "CFO", department: "Finance", departmentRole: "HEAD", replacesDemoRole: "CFO" },
+  { email: "acct.accountant@nts.local", firstName: "Acct", lastName: "Accountant", roleName: "Accountant", roleCode: "ACCOUNTANT", department: "Finance", departmentRole: "MEMBER", replacesDemoRole: "Accountant (preparer)" },
+  { email: "acct.officer@nts.local", firstName: "Acct", lastName: "Officer", roleName: "Finance Officer", roleCode: "FIN_OFF", department: "Finance", departmentRole: "MEMBER", replacesDemoRole: "Finance Officer (preparer)" },
+  { email: "acct.assistant@nts.local", firstName: "Acct", lastName: "Assistant", roleName: "Finance Assistant", roleCode: "FIN_ASST", department: "Finance", departmentRole: "MEMBER", replacesDemoRole: "Finance Assistant" },
+  { email: "acct.auditor@nts.local", firstName: "Acct", lastName: "Auditor", roleName: "Internal Auditor", roleCode: "INT_AUDITOR", department: "Finance", departmentRole: "MEMBER", replacesDemoRole: "Internal Auditor (read-only)" },
 ];
 
 async function remove() {

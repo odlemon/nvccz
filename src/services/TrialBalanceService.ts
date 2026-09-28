@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { Decimal } from 'decimal.js';
 
 import { prisma } from '../utils/database';
+import { baseContext, isBaseReport, toBaseAmounts } from '../utils/baseCurrencyAmounts';
 
 export interface TrialBalanceTransaction {
   id: string;
@@ -87,11 +88,14 @@ export class TrialBalanceService {
         ]
       });
 
+      // in the base currency (or none): every currency, each line at its base amount (FX-01); otherwise that currency only
+      const baseCtx = await baseContext();
+      const baseMode = await isBaseReport(currencyId, baseCtx);
       const lineWhere: any = {
         journalEntry: {
           transactionDate: { gte: start, lte: end },
           status: 'POSTED' as const,
-          ...(currencyId ? { currencyId } : {}),
+          ...(currencyId && !baseMode ? { currencyId } : {}),
           NOT: {
             cashbookEntries: {
               some: {
@@ -118,6 +122,7 @@ export class TrialBalanceService {
               chartOfAccountId: true,
               debitAmount: true,
               creditAmount: true,
+              recordedCurrencyId: true,
               journalEntry: {
                 select: {
                   id: true,
@@ -125,6 +130,7 @@ export class TrialBalanceService {
                   description: true,
                   transactionDate: true,
                   status: true,
+                  usdZwgRateSnapshot: true,
                   currencyId: true,
                   cashbookEntries: {
                     include: {
@@ -163,6 +169,7 @@ export class TrialBalanceService {
               chartOfAccountId: true,
               debitAmount: true,
               creditAmount: true,
+              recordedCurrencyId: true,
               journalEntry: {
                 select: {
                   id: true,
@@ -170,6 +177,7 @@ export class TrialBalanceService {
                   description: true,
                   transactionDate: true,
                   status: true,
+                  usdZwgRateSnapshot: true,
                   currencyId: true
                 }
               }
@@ -177,7 +185,8 @@ export class TrialBalanceService {
           });
 
       // Filter out entries with null currency (matching GL Detail behavior)
-      const journalEntryLines = journalEntryLinesRaw.filter(line => line.journalEntry.currencyId !== null);
+      let journalEntryLines = journalEntryLinesRaw.filter(line => line.journalEntry.currencyId !== null);
+      if (baseMode) journalEntryLines = (await toBaseAmounts(journalEntryLines as any[], baseCtx)).lines as any;
 
       // Create a map to aggregate balances by account ID and store transactions
       const accountBalances = new Map<string, { 

@@ -7,6 +7,7 @@ import express from "express";
 import { CorrectiveActionController } from "../controllers/CorrectiveActionController";
 import { authenticate } from "../middleware/authenticate";
 import { requireAnyPermission } from "../middleware/permissionAuth";
+import { registerRule, registerPlacement } from "../services/PerformanceScope";
 
 const router = express.Router();
 
@@ -24,6 +25,9 @@ router.use(authenticate);
  */
 const read = requireAnyPermission(["performance.corrective.view", "performance.corrective.manage"]);
 const write = requireAnyPermission(["performance.corrective.manage"]);
+// row scope (PerformanceScope): owner, creator, the owner's department scope, the organisation scope
+const row = registerRule("performanceCorrectiveAction", ["ownerId", "createdById"], "corrective action");
+const placement = registerPlacement("corrective action");
 
 
 /**
@@ -73,12 +77,14 @@ router.get("/summary", read, CorrectiveActionController.summary);
  *     security:
  *       - bearerAuth: []
  */
-router.get("/:id", read, CorrectiveActionController.getById);
+router.get("/events", read, CorrectiveActionController.portfolioEvents);
+router.get("/:id/events", read, row, CorrectiveActionController.events);
+router.get("/:id", read, row, CorrectiveActionController.getById);
 
-router.post("/", write, CorrectiveActionController.create);
+router.post("/", write, placement, CorrectiveActionController.create);
 
-router.patch("/:id", write, CorrectiveActionController.update);
+router.patch("/:id", write, row, placement, CorrectiveActionController.update);
 
-router.delete("/:id", write, CorrectiveActionController.remove);
+router.delete("/:id", write, row, CorrectiveActionController.remove);
 
 export default router;

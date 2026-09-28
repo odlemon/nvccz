@@ -40,7 +40,16 @@ async function resolvePerformanceJournalAccounts(accountNo: string): Promise<{
   let bankGlAccountId: string | undefined;
   let currencyId: string | undefined;
 
-  if (jeLookupCache && now - jeLookupCache.loadedAt < JE_LOOKUP_TTL_MS) {
+  const counterSetting = await prisma.performanceSetting.findUnique({ where: { settingKey: "accounting.performanceCounterAccount" } }).catch(() => null);
+  const counterNo = counterSetting && counterSetting.value ? String(counterSetting.value).trim() : "";
+  if (counterNo) {
+    const acc = await prisma.chartOfAccounts.findFirst({ where: { accountNo: counterNo, isActive: true }, select: { id: true } });
+    if (!acc) throw new Error(`The counter-account ${counterNo} set in Performance settings is not an active account.`);
+    const currency = (await prisma.currency.findFirst({ where: { isDefault: true, isActive: true }, select: { id: true } })) || (await prisma.currency.findFirst({ where: { code: "USD", isActive: true }, select: { id: true } })) || (await prisma.currency.findFirst({ where: { isActive: true }, select: { id: true } }));
+    if (!currency) return null;
+    bankGlAccountId = acc.id;
+    currencyId = currency.id;
+  } else if (jeLookupCache && now - jeLookupCache.loadedAt < JE_LOOKUP_TTL_MS) {
     bankGlAccountId = jeLookupCache.bankGlAccountId;
     currencyId = jeLookupCache.currencyId;
   } else {
@@ -171,100 +180,25 @@ export class KpiAccountingIntegrationService {
     achievedValue: number,
     createdById?: string
   ): Promise<void> {
+    // Posting is per progress event now (PerformanceGlPostingService). Completion no longer posts the whole achieved
+    // value on top of what the events already posted (a double count): it records any progress that never went through
+    // the event ledger as one catch-up event (not posted: its origin is unknown and may be the GL itself), then posts every
+    // Performance-originated event not yet posted.
     try {
-      const goal = await prisma.performanceGoal.findUnique({
-        where: { id: goalId },
-        include: { kpi: true },
-      });
-
-      if (!goal?.kpi) {
-        return;
+      const { PerformanceGlPostingService } = await import("./PerformanceGlPostingService");
+      const goal = await prisma.performanceGoal.findUnique({ where: { id: goalId }, select: { id: true, createdById: true, parentGoalId: true } });
+      if (!goal || goal.parentGoalId) return;
+      const agg = await prisma.performanceGoalProgressEvent.aggregate({ where: { goalId }, _sum: { amount: true } });
+      const outstanding = Math.round((Number(achievedValue) - Number(agg._sum.amount || 0)) * 100) / 100;
+      if (outstanding > 0.005) {
+        await prisma.performanceGoalProgressEvent.create({ data: { goalId, amount: outstanding, recordedAt: new Date(), source: "catchup", sourceRef: `kpi_completion_catchup:${Date.now()}`, createdById: createdById || goal.createdById } });
       }
-
-      const kpiConfig = resolveKpiAccountingConfig(goal.kpi);
-      const ref = kpiGoalJournalReference(goalId);
-
-      const existingPosted = await prisma.journalEntry.findFirst({
-        where: { referenceNumber: ref, status: "POSTED" },
-        select: { id: true },
-      });
-
-      const skipReason = getKpiJournalSkipReason({
-        parentGoalId: goal.parentGoalId,
-        kpiCode: goal.kpi.code,
-        formulaType: goal.formulaType,
-        isFinancial: Boolean(kpiConfig?.isFinancial),
-        accountNumber: kpiConfig?.accountNumber,
-        achievedValue,
-        hasPostedJournalForGoal: Boolean(existingPosted),
-      });
-
-      if (skipReason) {
-        console.log(`⏭️ KPI journal skipped for goal ${goalId}: ${skipReason}`);
-        return;
-      }
-
-      const bank = await prisma.bank.findFirst({
-        where: { isActive: true, glAccountId: { not: null } },
-        orderBy: { createdAt: "asc" },
-        select: { glAccountId: true },
-      });
-      if (!bank?.glAccountId) {
-        throw new Error("No active bank with a GL account linked (banks.glAccountId).");
-      }
-
-      const kpiAccount = await prisma.chartOfAccounts.findFirst({
-        where: { accountNo: kpiConfig!.accountNumber, isActive: true },
-        select: { id: true },
-      });
-      if (!kpiAccount) {
-        throw new Error(`No active chart account found for KPI account number ${kpiConfig!.accountNumber}.`);
-      }
-
-      const currency =
-        (await prisma.currency.findFirst({ where: { isDefault: true, isActive: true } })) ||
-        (await prisma.currency.findFirst({ where: { code: "USD", isActive: true } })) ||
-        (await prisma.currency.findFirst({ where: { isActive: true } }));
-
-      if (!currency) {
-        throw new Error("No active currency found for KPI journal entry.");
-      }
-
-      const posterId = createdById || goal.createdById;
-      const amount = achievedValue;
-      const journalEntryType = kpiConfig!.journalEntryType;
-
-      const journalEntry = await createJournalEntryWithAuditSequence({
-        transactionDate: new Date(),
-        referenceNumber: ref,
-        description: `KPI Achievement: ${goal.title} - ${amount} ${goal.targetUnit || ""}`.trim(),
-        totalAmount: amount,
-        currencyId: currency.id,
-        status: "POSTED",
-        createdById: posterId,
-        journalEntryLines: {
-          create: [
-            {
-              chartOfAccountId: journalEntryType === "Debit" ? kpiAccount.id : bank.glAccountId,
-              debitAmount: journalEntryType === "Debit" ? amount : 0,
-              creditAmount: journalEntryType === "Credit" ? amount : 0,
-              description: `KPI: ${goal.kpi.name}`,
-            },
-            {
-              chartOfAccountId: journalEntryType === "Credit" ? kpiAccount.id : bank.glAccountId,
-              debitAmount: journalEntryType === "Credit" ? amount : 0,
-              creditAmount: journalEntryType === "Debit" ? amount : 0,
-              description: `KPI: ${goal.kpi.name}`,
-            },
-          ],
-        },
-      });
-
-      console.log(
-        `✅ KPI journal posted for goal ${goalId}: ${journalEntry.referenceNumber} (${journalEntry.id})`
-      );
+      const pending = await prisma.$queryRawUnsafe<Array<{ id: string }>>("SELECT `id` FROM `performance_goal_progress_events` WHERE `goal_id` = ? AND (`journal_status` IS NULL OR `journal_status` = 'failed') AND `amount` <> 0 ORDER BY `recorded_at`", goalId);
+      for (const p of pending) await PerformanceGlPostingService.postEvent(p.id, createdById || goal.createdById);
+      return;
     } catch (error) {
-      console.error(`❌ Failed to post KPI journal for goal ${goalId}:`, error);
+      console.error(`❌ KPI completion posting failed for goal ${goalId}:`, error);
+      return;
     }
   }
 
@@ -280,14 +214,20 @@ export class KpiAccountingIntegrationService {
     actorId: string;
     /** Skip goal re-fetch when caller already loaded goal + kpi. */
     preloadedGoal?: { kpi: Record<string, unknown>; parentGoalId?: string | null; formulaType?: string | null; title?: string; targetUnit?: string | null; createdById?: string };
-  }): Promise<string | null> {
+    /** Return { journalEntryId, skipReason } instead of the id alone (PerformanceGlPostingService). */
+    detailed?: boolean;
+  }): Promise<any> {
+    const done = (journalEntryId: string | null, skipReason: string | null = null) => (params.detailed ? { journalEntryId, skipReason } : journalEntryId);
+    // a negative amount is a correction: the same two accounts with the sides swapped
+    const signed = Math.round(Number(params.amount) * 100) / 100;
+    const reversing = signed < 0;
     const goal =
       params.preloadedGoal ??
       (await prisma.performanceGoal.findUnique({
         where: { id: params.goalId },
         include: { kpi: true }
       }));
-    if (!goal?.kpi) return null;
+    if (!goal?.kpi) return done(null, "The goal has no KPI.");
 
     const profile = resolveKpiFinancialProfile({
       name: goal.kpi.name,
@@ -299,7 +239,7 @@ export class KpiAccountingIntegrationService {
       journalEntryType: goal.kpi.journalEntryType,
       isFinancial: goal.kpi.isFinancial
     });
-    const ref = performanceProgressJournalReference(params.goalId, params.eventId);
+    let ref = performanceProgressJournalReference(params.goalId, params.eventId);
 
     const existingPosted = await prisma.journalEntry.findFirst({
       where: { referenceNumber: ref, status: "POSTED" },
@@ -307,53 +247,59 @@ export class KpiAccountingIntegrationService {
     });
     if (existingPosted) {
       console.log(`⏭️ Performance progress journal already posted: ${ref}`);
-      return existingPosted.id;
+      return done(existingPosted.id);
     }
+    // the event's journal was voided in Accounting and is being posted again: the reference is unique, so re-post under a suffix
+    const voidedBefore = await prisma.journalEntry.count({ where: { referenceNumber: { startsWith: ref }, status: "VOID" } });
+    if (voidedBefore) ref = `${ref}-R${voidedBefore + 1}`.slice(0, 191);
 
     const skipReason = getKpiProgressJournalSkipReasonFromProfile(profile, {
       parentGoalId: goal.parentGoalId,
       formulaType: goal.formulaType,
-      amount: params.amount
+      amount: Math.abs(signed)
     });
     if (skipReason) {
       console.log(`⏭️ Performance progress journal skipped for goal ${params.goalId}: ${skipReason}`);
-      return null;
+      return done(null, skipReason);
     }
 
     const accountNo = profile.accountNumber;
-    const journalEntryType = profile.journalEntryType;
+    const journalEntryType = reversing ? (profile.journalEntryType === "Debit" ? "Credit" : "Debit") : profile.journalEntryType;
     if (!accountNo || !journalEntryType) {
       throw new Error(`KPI ${profile.code} has no GL account mapping for progress journals.`);
     }
 
     const accounts = await resolvePerformanceJournalAccounts(accountNo);
     if (!accounts) {
-      throw new Error("No active bank with a GL account linked (banks.glAccountId).");
+      throw new Error(`GL account ${accountNo} is not active in the chart of accounts, or no active bank has a GL account and no counter-account is set in Performance settings.`);
     }
     const { bankGlAccountId, currencyId, kpiAccountId } = accounts;
 
-    const amount = params.amount;
+    const amount = Math.abs(signed);
     const posterId = params.actorId || goal.createdById;
 
     const journalEntry = await createJournalEntryWithAuditSequence({
       transactionDate: params.recordedAt,
       referenceNumber: ref,
       description:
-        `Performance: ${goal.title} — ${goal.kpi.name} — ${amount} ${goal.targetUnit || ""}`.trim(),
+        `${reversing ? "Performance correction (reversal)" : "Performance"}: ${goal.title} — ${goal.kpi.name} — ${reversing ? "-" : ""}${amount} ${goal.targetUnit || ""}`.trim(),
       totalAmount: amount,
       currencyId,
       status: "POSTED",
       createdById: posterId,
+      // The KPI's account takes the KPI's side (revenue credited, expense debited); the counter-account takes the other.
+      // (The previous line layout put a Credit-side KPI's amount on the debit of its own account, inverting every
+      // revenue / liability posting.)
       journalEntryLines: {
         create: [
           {
-            chartOfAccountId: journalEntryType === "Debit" ? kpiAccountId : bankGlAccountId,
+            chartOfAccountId: kpiAccountId,
             debitAmount: journalEntryType === "Debit" ? amount : 0,
             creditAmount: journalEntryType === "Credit" ? amount : 0,
             description: `Performance KPI: ${goal.kpi.name}`
           },
           {
-            chartOfAccountId: journalEntryType === "Credit" ? kpiAccountId : bankGlAccountId,
+            chartOfAccountId: bankGlAccountId,
             debitAmount: journalEntryType === "Credit" ? amount : 0,
             creditAmount: journalEntryType === "Debit" ? amount : 0,
             description: `Performance KPI: ${goal.kpi.name}`
@@ -365,6 +311,6 @@ export class KpiAccountingIntegrationService {
     console.log(
       `✅ Performance progress journal posted for goal ${params.goalId}: ${journalEntry.referenceNumber} (${journalEntry.id})`
     );
-    return journalEntry.id;
+    return done(journalEntry.id);
   }
 }

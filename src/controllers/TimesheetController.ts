@@ -15,7 +15,7 @@ export class TimesheetController {
 
   async pendingApproval(req: AuthRequest, res: Response) {
     try {
-      const timesheets = await TimesheetService.listPendingApproval();
+      const timesheets = await TimesheetService.listPendingApproval(req.user!.id);
       res.json({ success: true, data: timesheets });
     } catch (e: any) {
       res.status(500).json({ success: false, message: e.message || "Failed to list pending timesheets" });
@@ -36,7 +36,7 @@ export class TimesheetController {
   async upsertEntry(req: AuthRequest, res: Response) {
     try {
       const { weekEnding } = req.params;
-      const { projectId, date, hours, billable, notes } = req.body || {};
+      const { projectId, date, hours, billable, notes, taskId } = req.body || {};
       if (!projectId || !date || hours == null) {
         res.status(400).json({ success: false, message: "projectId, date and hours are required" });
         return;
@@ -48,6 +48,7 @@ export class TimesheetController {
         hours,
         billable,
         notes,
+        taskId,
       });
       res.json({ success: true, message: "Entry saved", data: { timesheetId: timesheet.id, entry } });
     } catch (e: any) {
@@ -75,23 +76,32 @@ export class TimesheetController {
     }
   }
 
+  async deleteEntry(req: AuthRequest, res: Response) {
+    try {
+      const out = await TimesheetService.deleteEntry(req.params.entryId, req.user!.id);
+      res.json({ success: true, data: out });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message || "Failed to delete entry" });
+    }
+  }
+
   async approve(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
       const updated = await TimesheetService.approveTimesheet(id, req.user!.id);
       res.json({ success: true, message: "Timesheet approved", data: updated });
     } catch (e: any) {
-      res.status(400).json({ success: false, message: e.message || "Failed to approve timesheet" });
+      res.status(e?.statusCode || 400).json({ success: false, message: e.message || "Failed to approve timesheet" });
     }
   }
 
   async returnTimesheet(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
-      const updated = await TimesheetService.returnTimesheet(id, req.user!.id);
+      const updated = await TimesheetService.returnTimesheet(id, req.user!.id, req.body?.reason);
       res.json({ success: true, message: "Timesheet returned to employee", data: updated });
     } catch (e: any) {
-      res.status(400).json({ success: false, message: e.message || "Failed to return timesheet" });
+      res.status(e?.statusCode || 400).json({ success: false, message: e.message || "Failed to return timesheet" });
     }
   }
 }

@@ -281,6 +281,7 @@ router.get("/", authenticate, expenseController.getExpenses);
  *       500:
  *         description: Internal server error
  */
+router.get("/summary", authenticate, expenseController.getExpenseSummary);
 router.get("/:id", authenticate, expenseController.getExpenseById);
 
 /**
@@ -437,7 +438,7 @@ router.delete("/:id", authenticate, expenseController.deleteExpense);
  *       500:
  *         description: Internal server error
  */
-router.get("/summary", authenticate, expenseController.getExpenseSummary);
+// (moved above "/:id": declared after it, "/summary" was read as an expense id)
 
 /**
  * @swagger

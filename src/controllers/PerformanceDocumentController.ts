@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import { PerformanceDocumentService } from "../services/PerformanceDocumentService";
 import { responseHelper } from "../utils/responseHelper";
+import { perfActor, documentWhere } from "../services/PerformanceScope";
 
 /**
  * Performance Document Vault. Mirrors AccountingDocumentController (list + multipart upload)
@@ -43,7 +44,7 @@ export class PerformanceDocumentController {
         departmentId: req.query.departmentId as string,
         category: req.query.category as string,
         search: req.query.search as string,
-      });
+      }, documentWhere(await perfActor((req as any).user)));
       return responseHelper.success(res, data, "Performance documents retrieved successfully");
     } catch (error: any) {
       return fail(res, error);

@@ -4,6 +4,8 @@ import IncomeStatementController from "../controllers/IncomeStatementController"
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
 
+// Who may use these routes is decided by the Accounting access guard in front of every accounting router
+// (src/middleware/accountingAccessGuard.ts); the role-name lists that stood here refused the Finance Manager and auditors.
 const router = Router();
 
 /**
@@ -75,11 +77,11 @@ const router = Router();
  *       500:
  *         description: Internal server error
  */
-router.post("/generate", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.generateIncomeStatement);
+router.post("/generate", authenticate, IncomeStatementController.generateIncomeStatement);
 
 /** P&L with budget vs actual: operating expense lines include budgetVariance (variance, variancePercentage, isOverBudget) for red highlight / % over-spend */
-router.get("/with-budget-variance", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.getIncomeStatementWithBudgetVariance);
-router.post("/with-budget-variance", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.getIncomeStatementWithBudgetVariance);
+router.get("/with-budget-variance", authenticate, IncomeStatementController.getIncomeStatementWithBudgetVariance);
+router.post("/with-budget-variance", authenticate, IncomeStatementController.getIncomeStatementWithBudgetVariance);
 
 /**
  * @swagger
@@ -143,7 +145,7 @@ router.post("/with-budget-variance", authenticate, authorize(["admin", "accounta
  *       500:
  *         description: Internal server error
  */
-router.post("/detailed", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.getDetailedIncomeStatement);
+router.post("/detailed", authenticate, IncomeStatementController.getDetailedIncomeStatement);
 
 /**
  * @swagger
@@ -202,7 +204,7 @@ router.post("/detailed", authenticate, authorize(["admin", "accountant"]), Incom
  *       500:
  *         description: Internal server error
  */
-router.post("/summary", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.getIncomeStatementSummary);
+router.post("/summary", authenticate, IncomeStatementController.getIncomeStatementSummary);
 
 /**
  * @swagger
@@ -261,7 +263,7 @@ router.post("/summary", authenticate, authorize(["admin", "accountant"]), Income
  *       500:
  *         description: Internal server error
  */
-router.post("/comprehensive", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.getComprehensiveDetailedIncomeStatement);
+router.post("/comprehensive", authenticate, IncomeStatementController.getComprehensiveDetailedIncomeStatement);
 
 /**
  * @swagger
@@ -307,10 +309,10 @@ router.post("/comprehensive", authenticate, authorize(["admin", "accountant"]), 
  *       500:
  *         description: Internal server error
  */
-router.post("/comparative", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.getComparativeIncomeStatement);
+router.post("/comparative", authenticate, IncomeStatementController.getComparativeIncomeStatement);
 
 /** GET P&L comparing This Month vs Last Month; two columns + variance (dollar and %). Optional: ?asOfDate=YYYY-MM-DD&currencyId= */
-router.get("/comparative/this-month-vs-last-month", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.getComparativeThisMonthVsLastMonth);
+router.get("/comparative/this-month-vs-last-month", authenticate, IncomeStatementController.getComparativeThisMonthVsLastMonth);
 
 /**
  * @swagger
@@ -369,7 +371,7 @@ router.get("/comparative/this-month-vs-last-month", authenticate, authorize(["ad
  *       500:
  *         description: Internal server error
  */
-router.post("/vertical", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.getVerticalIncomeStatement);
+router.post("/vertical", authenticate, IncomeStatementController.getVerticalIncomeStatement);
 
 /**
  * @swagger
@@ -440,7 +442,7 @@ router.post("/vertical", authenticate, authorize(["admin", "accountant"]), Incom
  *       500:
  *         description: Internal server error
  */
-router.get("/", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.getIncomeStatementByQuery);
+router.get("/", authenticate, IncomeStatementController.getIncomeStatementByQuery);
 
 /**
  * @swagger
@@ -573,6 +575,6 @@ router.get("/", authenticate, authorize(["admin", "accountant"]), IncomeStatemen
  *       500:
  *         description: Internal server error
  */
-router.post("/consolidated", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.generateConsolidatedIncomeStatement);
+router.post("/consolidated", authenticate, IncomeStatementController.generateConsolidatedIncomeStatement);
 
 export default router; 

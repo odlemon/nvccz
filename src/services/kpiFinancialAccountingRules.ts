@@ -86,9 +86,11 @@ export function resolveKpiFinancialProfile(kpi: {
 }): KpiFinancialProfile {
   const hardcoded = resolveKpiAccountingConfig(kpi);
   const code = String(kpi.code || hardcoded?.code || "").toUpperCase();
-  const accountType = hardcoded?.accountType ?? kpi.accountType ?? null;
-  const accountNumber = hardcoded?.accountNumber ?? kpi.accountNumber ?? null;
-  const journalEntryType = (hardcoded?.journalEntryType ?? kpi.journalEntryType) as
+  // an account configured on the KPI itself wins; the built-in catalogue only fills in a KPI that has none
+  const own = Boolean(kpi.accountNumber);
+  const accountType = own ? kpi.accountType ?? hardcoded?.accountType ?? null : hardcoded?.accountType ?? kpi.accountType ?? null;
+  const accountNumber = own ? kpi.accountNumber : hardcoded?.accountNumber ?? null;
+  const journalEntryType = (own ? kpi.journalEntryType ?? hardcoded?.journalEntryType : hardcoded?.journalEntryType ?? kpi.journalEntryType) as
     | "Debit"
     | "Credit"
     | null;

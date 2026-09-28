@@ -1,12 +1,20 @@
 // @ts-nocheck
 import { PrismaClient } from "@prisma/client";
+import { isPlatformMediaReference } from "../utils/safeFetchUrl";
+import { VendorBankService } from "./VendorBankService";
+import { VendorGateService } from "./VendorGateService";
+import { UserMasterPolicyService } from "./UserMasterPolicyService";
 import { randomBytes } from "crypto";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
+import { NumberingService } from "./numbering/NumberingService";
 import JournalEntryService from "./JournalEntryService";
 import AuditService from "./AuditService";
 import { ProcurementRequisitionApprovalService } from "./ProcurementRequisitionApprovalService";
 import { ApprovalService } from "./ApprovalService";
+import { DocumentNumberingService } from "./DocumentNumberingService";
+import { ProcurementRequisitionRulesService } from "./ProcurementRequisitionRulesService";
+import { ProcurementDecisionLogService } from "./ProcurementDecisionLogService";
 import { CashbookService } from "./CashbookService";
 import VATService from "./VATService";
 import { nextUnifiedInvoiceNumber } from "../utils/accountingDocumentNumbers";
@@ -55,12 +63,30 @@ export interface CreatePurchaseRequisitionParams {
   useOfFundsDocumentUrl?: string;
   /** Required with portfolioCompanyId — vs tranche − pending PRs. */
   drawdownRequestAmount?: number;
+  /** §11 Branch / BU / Budget Code / delivery; §10 plan line */
+  branch?: string | null;
+  businessUnit?: string | null;
+  costCentre?: string | null;
+  budgetCode?: string | null;
+  deliveryLocation?: string | null;
+  planItemId?: string | null;
+  /** §11: currency the requisition is estimated and ordered in (defaults to the system default currency). */
+  currencyId?: string | null;
+  requiredDate?: string | Date | null;
+  procurementMethod?: string | null;
+  /** Keep the event as a draft: nothing is sent until it is approved and published. */
+  saveAsDraft?: boolean;
+  riskLevel?: string | null;
+  exceptionType?: string | null;
+  suggestedVendorId?: string | null;
   items: {
     itemName: string;
     description?: string;
     quantity: number;
     unit?: string;
     specifications?: any;
+    unitPrice?: number;
+    estimatedUnitPrice?: number;
   }[];
 }
 
@@ -80,6 +106,8 @@ export interface CreateRFQParams {
   reportingCurrencyId?: string;
   priceWeight?: number;
   technicalWeight?: number;
+  /** §13 RFQ | RFP | TENDER | DIRECT */
+  procurementMethod?: string;
   /** When omitted or empty and `requisitionId` is set, PR line items are copied. */
   items?: {
     itemName: string;
@@ -108,6 +136,11 @@ export interface CreatePurchaseOrderParams {
   /** Suite 04 */
   validityEndDate?: Date;
   drawdownTrancheId?: string;
+  /** §21: taken from the requisition, the budget line and the award when not stated. */
+  costCentre?: string;
+  budgetCode?: string;
+  glCode?: string;
+  purchaseConditions?: string;
   items: {
     itemName: string;
     description?: string;
@@ -138,6 +171,13 @@ export interface CreateProcurementInvoiceParams {
   attachmentIds?: string[];
   /** Staff capture from AI Invoice Capture: the intake whose reading of this document is reused. */
   readingIntakeId?: string;
+  /** §23: the supplier's own invoice number (required), the receipt it bills, its stated figures and payment terms. */
+  supplierInvoiceNumber?: string;
+  grnId?: string;
+  paymentTerms?: string;
+  statedSubtotal?: number;
+  statedTax?: number;
+  statedTotal?: number;
   createdById?: string; // Optional for public vendor submissions
   items: {
     itemName: string;
@@ -202,6 +242,20 @@ export class ProcurementService {
     return nextProcurementPoNumber(prisma as any, new Date());
   }
 
+  /** Every line needs a name and a positive quantity; an estimate, when given, cannot be negative. */
+  private static assertLineValues(items: Array<any>) {
+    items.forEach((item, i) => {
+      const n = i + 1;
+      if (!String(item?.itemName ?? "").trim()) throw new Error(`Line ${n}: an item name is required.`);
+      const q = Number(item?.quantity);
+      if (!Number.isFinite(q) || q <= 0) throw new Error(`Line ${n}: quantity must be greater than zero.`);
+      const raw = item?.unitPrice ?? item?.estimatedUnitPrice;
+      if (raw != null && raw !== "" && (!Number.isFinite(Number(raw)) || Number(raw) < 0)) {
+        throw new Error(`Line ${n}: the estimated unit price cannot be negative.`);
+      }
+    });
+  }
+
   /**
    * Create a new purchase requisition (no prices needed, just items)
    */
@@ -220,6 +274,12 @@ export class ProcurementService {
         fundId: fundIdParam,
         useOfFundsDocumentUrl,
         drawdownRequestAmount,
+        branch,
+        businessUnit,
+        costCentre,
+        budgetCode,
+        deliveryLocation,
+        planItemId,
         items
       } = params;
 
@@ -227,6 +287,7 @@ export class ProcurementService {
       if (!items || items.length === 0) {
         throw new Error("At least one item is required");
       }
+      ProcurementService.assertLineValues(items);
 
       const { ProcurementRequisitionAssistService } = await import("./ProcurementRequisitionAssistService");
       const resolvedProjectId = await ProcurementRequisitionAssistService.assertProject(projectId);
@@ -290,9 +351,48 @@ export class ProcurementService {
         0
       );
 
-      const requisition = await prisma.purchaseRequisition.create({
+      // User Master: cost centre / branch / business unit default to the requester's own when not stated, so budget
+      // attribution and the approval matrix's matchRules never depend on the form being filled in by hand.
+      const requesterMaster = await prisma.user.findUnique({
+        where: { id: requestedById },
+        select: { costCentre: true, branch: true, businessUnit: true },
+      });
+      const pick = (v: unknown, fallback?: string | null) =>
+        v != null && String(v).trim() !== "" ? String(v).trim() : fallback ? String(fallback).trim() : "";
+      const effCostCentre = pick(costCentre, requesterMaster?.costCentre);
+      const effBranch = pick(branch, requesterMaster?.branch);
+      const effBusinessUnit = pick(businessUnit, requesterMaster?.businessUnit);
+
+      // §11 header fields: vocabulary, dates, currency (default currency when none is chosen), suggested vendor rule, plan link.
+      const header = await ProcurementRequisitionRulesService.normalizeHeader(
+        {
+          currencyId: params.currencyId,
+          requiredDate: params.requiredDate,
+          procurementMethod: params.procurementMethod,
+          riskLevel: params.riskLevel,
+          exceptionType: params.exceptionType,
+          suggestedVendorId: params.suggestedVendorId,
+        },
+        { creating: true }
+      );
+      if (!header.currencyId) {
+        const def = await prisma.currency.findFirst({ where: { isDefault: true, isActive: true }, select: { id: true } });
+        if (def) header.currencyId = def.id;
+      }
+      await ProcurementRequisitionRulesService.assertSuggestedVendor(header);
+      if (planItemId != null && String(planItemId).trim() !== "") {
+        await ProcurementRequisitionRulesService.assertPlanLink(
+          { planItemId: String(planItemId).trim(), exceptionType: header.exceptionType, totalAmount: requisitionEstimateTotal },
+          "edit"
+        );
+      }
+
+      // The number is drawn inside the same transaction as the requisition: a failed create rolls the counter back with it,
+      // so numbers are gap-free, and concurrent creates queue on the counter row and never share a number.
+      const requisition = await prisma.$transaction(async (tx) => tx.purchaseRequisition.create({
         data: {
-          requisitionNumber: await nextProcurementRequisitionNumber(prisma as any, new Date()),
+          requisitionNumber: await DocumentNumberingService.nextRequisitionNumber(tx),
+          ...header,
           title,
           description,
           department: department, // ⬅️ Now storing department name as string
@@ -307,6 +407,18 @@ export class ProcurementService {
             ? { useOfFundsDocumentUrl: String(useOfFundsDocumentUrl).trim() }
             : {}),
           ...(drawdownDec ? { drawdownRequestAmount: drawdownDec } : {}),
+          ...(effBranch ? { branch: effBranch } : {}),
+          ...(effBusinessUnit ? { businessUnit: effBusinessUnit } : {}),
+          ...(effCostCentre ? { costCentre: effCostCentre } : {}),
+          ...(budgetCode != null && String(budgetCode).trim() !== ""
+            ? { budgetCode: String(budgetCode).trim() }
+            : {}),
+          ...(deliveryLocation != null && String(deliveryLocation).trim() !== ""
+            ? { deliveryLocation: String(deliveryLocation).trim() }
+            : {}),
+          ...(planItemId != null && String(planItemId).trim() !== ""
+            ? { planItemId: String(planItemId).trim() }
+            : {}),
           totalAmount: new Decimal(requisitionEstimateTotal),
           status: "DRAFT",
           items: {
@@ -332,7 +444,7 @@ export class ProcurementService {
           },
           items: true
         }
-      });
+      }));
 
       // Audit log
       await AuditService.log({
@@ -706,6 +818,18 @@ export class ProcurementService {
       useOfFundsDocumentUrl?: string | null;
       drawdownRequestAmount?: number | string | null;
       projectId?: string | null;
+      branch?: string | null;
+      businessUnit?: string | null;
+      costCentre?: string | null;
+      budgetCode?: string | null;
+      deliveryLocation?: string | null;
+      planItemId?: string | null;
+      currencyId?: string | null;
+      requiredDate?: string | Date | null;
+      procurementMethod?: string | null;
+      riskLevel?: string | null;
+      exceptionType?: string | null;
+      suggestedVendorId?: string | null;
     },
     opts?: { restrictToPortfolioCompanyId?: string }
   ) {
@@ -725,8 +849,8 @@ export class ProcurementService {
     ) {
       throw new Error("This requisition is not linked to your portfolio company.");
     }
-    if (existing.status !== "DRAFT" && existing.status !== "REJECTED") {
-      throw new Error("Only draft or rejected requisitions can be updated.");
+    if (existing.status !== "DRAFT" && existing.status !== "REJECTED" && existing.status !== "RETURNED") {
+      throw new Error("Only draft, rejected or returned requisitions can be updated.");
     }
     if (existing.portfolioCompanyId && body.portfolioCompanyId != null) {
       throw new Error("portfolioCompanyId cannot be changed on an investee-linked requisition.");
@@ -735,6 +859,29 @@ export class ProcurementService {
       if (!Array.isArray(body.items) || body.items.length === 0) {
         throw new Error("When provided, items must be a non-empty array.");
       }
+      ProcurementService.assertLineValues(body.items);
+    }
+    const header = await ProcurementRequisitionRulesService.normalizeHeader(
+      {
+        currencyId: body.currencyId,
+        requiredDate: body.requiredDate,
+        procurementMethod: body.procurementMethod,
+        riskLevel: body.riskLevel,
+        exceptionType: body.exceptionType,
+        suggestedVendorId: body.suggestedVendorId,
+      },
+      { creating: false }
+    );
+    await ProcurementRequisitionRulesService.assertSuggestedVendor({
+      suggestedVendorId: header.suggestedVendorId !== undefined ? header.suggestedVendorId : existing.suggestedVendorId,
+      exceptionType: header.exceptionType !== undefined ? header.exceptionType : existing.exceptionType,
+      procurementMethod: header.procurementMethod !== undefined ? header.procurementMethod : existing.procurementMethod,
+    });
+    if (body.planItemId) {
+      await ProcurementRequisitionRulesService.assertPlanLink(
+        { id: requisitionId, planItemId: String(body.planItemId), exceptionType: null, totalAmount: 0 },
+        "edit"
+      );
     }
 
     let drawdownDec: Decimal | undefined;
@@ -822,6 +969,15 @@ export class ProcurementService {
             : {}),
           ...(body.fundId !== undefined ? { fundId: body.fundId } : {}),
           ...(projectUpdate !== undefined ? { projectId: projectUpdate } : {}),
+          ...(body.branch !== undefined ? { branch: body.branch || null } : {}),
+          ...(body.businessUnit !== undefined ? { businessUnit: body.businessUnit || null } : {}),
+          ...(body.costCentre !== undefined ? { costCentre: body.costCentre || null } : {}),
+          ...(body.budgetCode !== undefined ? { budgetCode: body.budgetCode || null } : {}),
+          ...(body.deliveryLocation !== undefined
+            ? { deliveryLocation: body.deliveryLocation || null }
+            : {}),
+          ...(body.planItemId !== undefined ? { planItemId: body.planItemId || null } : {}),
+          ...header,
           ...(drawdownDec ? { drawdownRequestAmount: drawdownDec } : {}),
           totalAmount,
         },
@@ -850,7 +1006,14 @@ export class ProcurementService {
       action: "UPDATE",
       entityType: "PurchaseRequisition",
       entityId: requisitionId,
-      newValues: { ...updated, note: "Owner update (draft or rejected)" },
+      // What the edit replaced and what it set, field by field: not just "record edited".
+      ...(() => {
+        const diff = AuditService.computeUpdateDiff(existing, updated) || {};
+        return {
+          oldValues: Object.fromEntries(Object.entries(diff).map(([k, v]: any) => [k, v.old ?? null])),
+          newValues: { ...Object.fromEntries(Object.entries(diff).map(([k, v]: any) => [k, v.new ?? null])), note: "Owner update (draft or rejected)" },
+        };
+      })(),
     });
 
     return updated;
@@ -883,22 +1046,23 @@ export class ProcurementService {
         throw new Error("Purchase requisition not found");
       }
 
-      const resubmitFromRejection = requisition.status === "REJECTED";
+      const resubmitFromRejection = requisition.status === "REJECTED" || requisition.status === "RETURNED";
+      const wasReturned = requisition.status === "RETURNED";
       const isDraft = requisition.status === "DRAFT";
       if (!isDraft && !resubmitFromRejection) {
-        throw new Error("Requisition is not in draft or rejected status");
+        throw new Error("Requisition is not in draft, rejected or returned status");
       }
 
       if (resubmitFromRejection) {
         if (requisition.requestedById !== submittedById) {
-          throw new Error("Only the requisition requester can resubmit after rejection.");
+          throw new Error(`Only the requisition requester can resubmit after ${wasReturned ? "it was returned" : "rejection"}.`);
         }
         const fp = requisition.rejectionContentFingerprint;
         if (fp) {
           const nowFp = computePurchaseRequisitionContentFingerprint(requisition);
           if (nowFp === fp) {
             throw new Error(
-              "Update the requisition details before resubmitting. No changes were detected since rejection."
+              `Update the requisition details before resubmitting. No changes were detected since ${wasReturned ? "it was returned" : "rejection"}.`
             );
           }
         }
@@ -999,6 +1163,31 @@ export class ProcurementService {
         return updatedRequisition;
       }
 
+      // §10/§11 gates, in one place: required fields, suggested-vendor rule, plan link and consumption, budget availability.
+      if (!requisition.requiredDate) throw new Error("A required date is needed before the requisition can be submitted.");
+      if (!requisition.currencyId) throw new Error("A currency is needed before the requisition can be submitted.");
+      await ProcurementRequisitionRulesService.assertSuggestedVendor(requisition as any);
+      const requisitionCurrency = requisition.currencyId
+        ? (await prisma.currency.findUnique({ where: { id: requisition.currencyId }, select: { code: true } }))?.code ?? null
+        : null;
+      const planGate = await ProcurementRequisitionRulesService.assertPlanLink(
+        {
+          id: requisition.id,
+          planItemId: requisition.planItemId,
+          exceptionType: requisition.exceptionType,
+          totalAmount: requisition.totalAmount,
+          currencyCode: requisitionCurrency,
+        },
+        "submit"
+      );
+      const budgetGate = await ProcurementRequisitionRulesService.assertBudget({
+        id: requisition.id,
+        budgetCode: requisition.budgetCode,
+        costCentre: requisition.costCentre,
+        totalAmount: requisition.totalAmount,
+        currencyCode: requisitionCurrency,
+      });
+
       if (resubmitFromRejection) {
         await this.cancelStalePendingApprovalRequestsForPurchaseRequisitionEntity(requisitionId);
       }
@@ -1015,6 +1204,15 @@ export class ProcurementService {
             requisitionNumber: requisition.requisitionNumber,
             title: requisition.title,
             department: requisition.department,
+            costCentre: (requisition as any).costCentre ?? null,
+            branch: requisition.branch ?? null,
+            businessUnit: requisition.businessUnit ?? null,
+            // §12 routing criteria: everything the approval matrix can match a step on.
+            category: requisition.sourcingCategory ?? null,
+            procurementMethod: requisition.procurementMethod ?? null,
+            riskLevel: requisition.riskLevel ?? null,
+            exceptionType: requisition.exceptionType ?? null,
+            budgetCode: requisition.budgetCode ?? null,
             totalAmount: requisition.totalAmount.toString(),
             itemCount: requisition.items.length
           },
@@ -1058,6 +1256,7 @@ export class ProcurementService {
           data: {
             status: "PENDING_APPROVAL",
             rejectionContentFingerprint: null,
+            ...(resubmitFromRejection ? { resubmissionCount: { increment: 1 } } : {}),
           },
           include: {
             requestedBy: {
@@ -1098,7 +1297,20 @@ export class ProcurementService {
         newValues: updatedRequisition,
       });
 
+      await ProcurementDecisionLogService.record({
+        entityType: "PurchaseRequisition",
+        entityId: requisitionId,
+        requestId: (approvalResult as any)?.approvalRequest?.id ?? null,
+        actorId: submittedById,
+        action: resubmitFromRejection ? "RESUBMITTED" : "SUBMITTED",
+        comments: null,
+        previousStatus: requisition.status,
+        resultingStatus: "PENDING_APPROVAL",
+        detail: { warnings: [...planGate.warnings, ...budgetGate.warnings], totalAmount: String(requisition.totalAmount), resubmission: (requisition.resubmissionCount ?? 0) + (resubmitFromRejection ? 1 : 0) },
+      }).catch(() => undefined);
+
       await ProcurementRequisitionApprovalService.attachRoutes(updatedRequisition);
+      (updatedRequisition as any).gateWarnings = [...planGate.warnings, ...budgetGate.warnings];
       return updatedRequisition;
     } catch (error) {
       console.error("Error submitting purchase requisition:", error);
@@ -1110,6 +1322,7 @@ export class ProcurementService {
    * Approve a purchase requisition (only by department head)
    */
   static async approvePurchaseRequisition(requisitionId: string, approvedById: string) {
+    await UserMasterPolicyService.assertCanAct(prisma, approvedById);
     try {
       const requisition = await prisma.purchaseRequisition.findUnique({
         where: { id: requisitionId },
@@ -1880,6 +2093,8 @@ export class ProcurementService {
         reportingCurrencyId,
         priceWeight,
         technicalWeight,
+        procurementMethod,
+        saveAsDraft,
       } = params;
 
       const sanitizedBodyItems = normalizeRfqItemLinesFromBody(items ?? []);
@@ -1943,18 +2158,13 @@ export class ProcurementService {
       const { categoriesMatch } = await import("../utils/vendorCategoryNormalize");
 
       for (const v of vendors) {
-        if (v.isBlacklisted) {
-          throw new Error(`Vendor "${v.name}" is blacklisted and cannot be invited to quote.`);
-        }
-        if (v.registrationStatus === "SUSPENDED") {
-          throw new Error(`Vendor "${v.name}" is suspended and cannot be invited to quote.`);
-        }
-        if (v.registrationStatus === "PENDING_REVIEW") {
-          throw new Error(
-            `Vendor "${v.name}" is pending review and cannot be invited to quote until approved.`
-          );
-        }
-        if (requisitionSourcingCategory && !categoriesMatch(v.category, requisitionSourcingCategory)) {
+        // Status, approval, blacklist, tax clearance and document expiry are all decided in one place.
+        await VendorGateService.assertTransactable(v, "INVITE");
+        const commodityMatch =
+          requisitionSourcingCategory &&
+          Array.isArray((v as any).commodityCategories) &&
+          (v as any).commodityCategories.some((c: any) => categoriesMatch(String(c), requisitionSourcingCategory));
+        if (requisitionSourcingCategory && !categoriesMatch(v.category, requisitionSourcingCategory) && !commodityMatch) {
           throw new Error(
             `Vendor "${v.name}" category does not match this requisition sourcing category (${requisitionSourcingCategory}).`
           );
@@ -1970,18 +2180,25 @@ export class ProcurementService {
       vendors.forEach(v => console.log(`   - ${v.name} (${v.email})`));
 
       // Generate RFQ number (RFQ_YYYYMMDD_####)
-      const rfqNumber = await nextProcurementRfqNumber(prisma as any, new Date());
+      const rfqNumber = await nextProcurementRfqNumber(prisma as any, new Date(), procurementMethod as any);
 
       console.log(`\n📝 Step 2: Creating RFQ record: ${rfqNumber}`);
 
-      const rfqRow = await prisma.procurementRfq.create({
+      const rfqRow = await NumberingService.guard(procurementMethod && String(procurementMethod).toUpperCase() === "TENDER" ? "TENDER" : "RFQ", rfqNumber, async () => prisma.procurementRfq.create({
         data: {
           rfqNumber,
           requisitionId: requisitionId || null,
+          planItemId: requisitionId
+            ? (await prisma.purchaseRequisition.findUnique({ where: { id: requisitionId }, select: { planItemId: true } }))?.planItemId ?? null
+            : null,
           title,
           description: description || null,
-          status: "OPEN",
+          status: saveAsDraft ? "DRAFT" : "OPEN",
           visibility,
+          sealedBidding:
+            String(visibility).toUpperCase() === "PUBLIC_LISTING" ||
+            (params as any).sealedBidding === true ||
+            ((params as any).sealedBidding == null && ((await prisma.procurementSettings.findUnique({ where: { id: "default" } }).catch(() => null)) as any)?.sealedBiddingDefault !== false),
           closingAt: rfqDeadline || null,
           reportingCurrencyId: reportingCurrencyId || null,
           priceWeight:
@@ -1993,8 +2210,11 @@ export class ProcurementService {
           expectedDeliveryDate: expectedDeliveryDate || null,
           specialRequirements: specialRequirements || null,
           createdById,
+          ...(procurementMethod
+            ? { procurementMethod: String(procurementMethod).toUpperCase() }
+            : {}),
         },
-      });
+      }));
 
       const {
         signVendorPortalToken,
@@ -2008,7 +2228,9 @@ export class ProcurementService {
           data: {
             procurementRfqId: rfqRow.id,
             vendorId: v.id,
-            emailSentAt: new Date(),
+            emailSentAt: null,
+            deliveryStatus: "PENDING",
+            lastDeliveryAttemptAt: null,
           },
         });
       }
@@ -2026,13 +2248,13 @@ export class ProcurementService {
         specialRequirements,
         createdAt: new Date(),
         createdById,
-        status: "SENT",
+        status: saveAsDraft ? "DRAFT" : "SENT",
       };
 
       console.log("✅ RFQ record persisted (procurement_rfqs + invitations)");
 
       // Update requisition if provided
-      if (requisitionId) {
+      if (requisitionId && !saveAsDraft) {
         console.log(`\n📝 Step 3: Linking RFQ to requisition ${requisitionId}...`);
         await prisma.purchaseRequisition.update({
           where: { id: requisitionId },
@@ -2043,48 +2265,8 @@ export class ProcurementService {
         console.log("✅ Requisition status updated to RFQ_SENT");
       }
 
-      // Send RFQ email to all vendors
-      console.log("\n📧 Step 4: Sending RFQ emails to all vendors...");
-      
-      const { EmailNotificationService } = await import('./EmailNotificationService');
-      
-      for (const vendor of vendors) {
-        console.log(`   📤 Sending to: ${vendor.name} (${vendor.email})`);
-        
-        const portalToken = signVendorPortalToken({
-          k: VENDOR_PORTAL_KIND_RFQ_SUBMIT,
-          v: vendor.id,
-          r: rfqRow.id,
-          exp: rfqExp,
-        });
-
-        await EmailNotificationService.sendRFQToVendor({
-          vendorName: vendor.name,
-          vendorEmail: vendor.email,
-          rfqNumber,
-          invitationToken: portalToken,
-          rfqDate: new Date(),
-          title,
-          description: description || '',
-          items: resolvedItems.map(item => ({
-            itemName: item.itemName,
-            description: item.description || '',
-            quantity: item.quantity,
-            unit: item.unit || 'unit',
-            specifications: item.specifications
-          })),
-          deliveryAddress,
-          expectedDeliveryDate,
-          rfqDeadline,
-          specialRequirements,
-          priority,
-          visibility,
-          requisitionNumber: prEmailMeta?.requisitionNumber,
-          requisitionTitle: prEmailMeta?.requisitionTitle,
-        });
-        
-        console.log(`   ✅ Sent to ${vendor.name}`);
-      }
+      // Send the invitations now, unless the event is being saved as a draft (it is sent when it is published)
+      if (!saveAsDraft) await ProcurementService.dispatchRfqInvitations(rfqRow.id);
 
       // Audit log
       console.log("\n📊 Step 5: Creating audit log...");
@@ -2131,6 +2313,87 @@ export class ProcurementService {
   }
 
   /**
+   * Sends the RFQ invitation to every invited vendor that has not been sent one, through the one shared notification path.
+   * Used when an event is created and sent at once, and when a draft or approved event is published.
+   */
+  static async dispatchRfqInvitations(rfqId: string) {
+    const rfqRow = await prisma.procurementRfq.findUnique({ where: { id: rfqId }, include: { invitations: { include: { vendor: true } } } });
+    if (!rfqRow) throw new Error("Sourcing event not found");
+    const { signVendorPortalToken, rfqPortalTokenExpiryUnixSeconds, VENDOR_PORTAL_KIND_RFQ_SUBMIT } = await import("../utils/vendorPortalToken");
+    const rfqExp = rfqPortalTokenExpiryUnixSeconds(rfqRow.closingAt);
+    const rfqNumber = rfqRow.rfqNumber;
+    const title = rfqRow.title;
+    const rfqDeadline = rfqRow.closingAt;
+    const deliveryAddress = rfqRow.deliveryAddress;
+    const specialRequirements = rfqRow.specialRequirements;
+    const resolvedItems: any[] = ((rfqRow.itemsSnapshot as any)?.items ?? []) as any[];
+    const vendors = rfqRow.invitations.filter((inv) => inv.deliveryStatus !== "SENT").map((inv) => inv.vendor);
+      for (const vendor of vendors) {
+        console.log(`   📤 Sending to: ${vendor.name} (${vendor.email})`);
+        
+        const portalToken = signVendorPortalToken({
+          k: VENDOR_PORTAL_KIND_RFQ_SUBMIT,
+          v: vendor.id,
+          r: rfqRow.id,
+          exp: rfqExp,
+        });
+
+        try {
+          const { notify } = await import("./notifications/ProcurementNotifier");
+          const { buildVendorRfqResponsePageUrl } = await import("../utils/vendorRfqEmailLinks");
+          const { getEmailBrandingCached } = await import("../utils/emailBranding");
+          const outcome = await notify("RFQ_INVITATION", {
+            emails: [vendor.email], entityType: "ProcurementRfq", entityId: rfqRow.id, linkLabel: "Respond to this request",
+            link: buildVendorRfqResponsePageUrl({ invitationToken: portalToken, rfqNumber, fallbackBaseUrl: (await getEmailBrandingCached()).website }) || undefined,
+            vars: {
+              ref: rfqNumber, title, closing: rfqDeadline ? new Date(rfqDeadline).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "", delivery: deliveryAddress || "",
+              items: resolvedItems.map((i: any) => `${i.quantity} ${i.unit || "unit"} ${i.itemName}`).join("; ").slice(0, 600), special: specialRequirements || "", contact: (await getEmailBrandingCached()).companyName,
+            },
+          });
+          if (outcome.enabled && outcome.emailFailed) throw new Error("The invitation email could not be sent.");
+          if (!outcome.enabled || !(outcome.emailSent || outcome.emailBlocked)) {
+            await prisma.rfqVendorInvitation.update({
+              where: { procurementRfqId_vendorId: { procurementRfqId: rfqRow.id, vendorId: vendor.id } },
+              data: { deliveryStatus: "PENDING", deliveryError: "Invitation emails are switched off in the notification rules", lastDeliveryAttemptAt: new Date() },
+            });
+            continue;
+          }
+          await prisma.rfqVendorInvitation.update({
+            where: {
+              procurementRfqId_vendorId: {
+                procurementRfqId: rfqRow.id,
+                vendorId: vendor.id,
+              },
+            },
+            data: {
+              emailSentAt: new Date(),
+              deliveryStatus: "SENT",
+              deliveryError: null,
+              lastDeliveryAttemptAt: new Date(),
+            },
+          });
+          console.log(`   ✅ Sent to ${vendor.name}`);
+        } catch (sendErr: any) {
+          await prisma.rfqVendorInvitation.update({
+            where: {
+              procurementRfqId_vendorId: {
+                procurementRfqId: rfqRow.id,
+                vendorId: vendor.id,
+              },
+            },
+            data: {
+              deliveryStatus: "FAILED",
+              deliveryError: String(sendErr?.message || sendErr).slice(0, 2000),
+              lastDeliveryAttemptAt: new Date(),
+            },
+          });
+          console.error(`   ❌ Failed to send to ${vendor.name}:`, sendErr?.message || sendErr);
+          throw sendErr;
+        }
+      }
+  }
+
+  /**
    * Get all RFQs
    * Retrieves RFQs from audit logs where entityType is "RFQ"
    */
@@ -2142,6 +2405,7 @@ export class ProcurementService {
   }) {
     try {
       const { rfqNumber, requisitionId, limit = 50, offset = 0 } = filters || {};
+      await (await import("./status/ProcurementLifecycleService")).ProcurementLifecycleService.closeExpiredRfqs().catch(() => 0);
 
       const where: any = {};
       if (rfqNumber) where.rfqNumber = rfqNumber;
@@ -2222,15 +2486,29 @@ export class ProcurementService {
         drawdownTrancheId,
       } = params;
 
+      // §21: a PO is an order for something: at least one line, a positive quantity, a price that is not negative.
+      if (!Array.isArray(items) || !items.length) throw new Error("A purchase order needs at least one line.");
+      for (const [i, it] of items.entries()) {
+        const q = Number(it.quantity);
+        const p = Number(it.unitPrice);
+        if (!String(it.itemName || "").trim()) throw new Error(`Line ${i + 1} needs an item name.`);
+        if (!Number.isFinite(q) || q <= 0) throw new Error(`Line ${i + 1} (${it.itemName}) needs a quantity above zero.`);
+        if (!Number.isFinite(p) || p < 0) throw new Error(`Line ${i + 1} (${it.itemName}) needs a unit price of zero or more.`);
+      }
+
       let portfolioCompanyId: string | undefined;
       let fundIdFromReq: string | undefined;
+      let requisitionCurrencyId: string | undefined;
+      let requisitionPlanItemId: string | undefined;
       if (requisitionId) {
         const reqRow = await prisma.purchaseRequisition.findUnique({
           where: { id: requisitionId },
-          select: { portfolioCompanyId: true, fundId: true },
+          select: { portfolioCompanyId: true, fundId: true, currencyId: true, planItemId: true },
         });
         portfolioCompanyId = reqRow?.portfolioCompanyId ?? undefined;
         fundIdFromReq = reqRow?.fundId ?? undefined;
+        requisitionCurrencyId = reqRow?.currencyId ?? undefined;
+        requisitionPlanItemId = reqRow?.planItemId ?? undefined;
       }
 
       // Validate vendor exists
@@ -2242,11 +2520,7 @@ export class ProcurementService {
         throw new Error("Vendor not found");
       }
 
-      if (vendor.isBlacklisted) {
-        throw new Error(
-          `Vendor "${vendor.name}" is blacklisted and cannot be used on a purchase order.`
-        );
-      }
+      await VendorGateService.assertTransactable(vendor, "PO");
 
       if (quotationId) {
         const qRow = await prisma.vendorQuotation.findUnique({
@@ -2263,10 +2537,17 @@ export class ProcurementService {
         }
       }
 
-      let effectiveCurrencyId = currencyId;
+      // §11: the requisition's currency carries to the order (and from there to the invoice). An order in another currency
+      // than the requisition it fulfils is refused rather than silently re-denominated.
+      if (currencyId && requisitionCurrencyId && currencyId !== requisitionCurrencyId) {
+        throw new Error("The purchase order must be in the requisition's currency.");
+      }
+      let effectiveCurrencyId = currencyId || requisitionCurrencyId;
       if (!effectiveCurrencyId && vendor.settlementCurrencyId) {
         effectiveCurrencyId = vendor.settlementCurrencyId;
       }
+      // §38: every order carries the currency it is priced in. It is never left to a global default at reporting time.
+      if (!effectiveCurrencyId) throw new Error("Choose the currency of the purchase order.");
 
       await VATService.refreshActiveVatRate(false).catch(() => undefined);
 
@@ -2286,14 +2567,9 @@ export class ProcurementService {
           const qtTot = Number(qAgg.totalAmount);
           const subMatch =
             Number.isFinite(qs) && Math.abs(computedSubtotal - qs) <= 0.02;
-          const expectedTax = VATService.calculateVAT(computedSubtotal);
-          const expectedTotal = computedSubtotal + expectedTax;
-          const taxCoherent =
-            Number.isFinite(qt) &&
-            Number.isFinite(qtTot) &&
-            Math.abs(qt - expectedTax) <= 0.05 &&
-            Math.abs(qtTot - expectedTotal) <= 0.05;
-          if (subMatch && taxCoherent) {
+          // §15: the order carries the awarded quotation's own subtotal, VAT and total (at the supplier's stated VAT rate),
+          // not a recomputation at today's rate; they are used whenever the order's lines are the quotation's lines.
+          if (subMatch && Number.isFinite(qt) && Number.isFinite(qtTot) && Math.abs(qs + qt - qtTot) <= 0.02) {
             subtotal = qs;
             taxAmount = qt;
             totalAmount = qtTot;
@@ -2303,14 +2579,29 @@ export class ProcurementService {
 
       const poNumber = await this.resolvePoNumberForCreate(quotationId ?? null);
 
+      // §21: the order carries what it fulfils (vendor code, RFQ, award, cost centre, budget, GL code, conditions) rather than
+      // having it re-keyed.
+      const { PurchaseOrderControlService } = await import("./p2p/PurchaseOrderControlService");
+      const carried = await PurchaseOrderControlService.defaultsFor({
+        requisitionId,
+        quotationId,
+        vendorId,
+        costCentre: params.costCentre,
+        budgetCode: params.budgetCode,
+        glCode: params.glCode,
+        purchaseConditions: params.purchaseConditions,
+      });
+      const approvalStatus = await PurchaseOrderControlService.initialApprovalStatus();
+
       // Create purchase order
-      const purchaseOrder = await prisma.purchaseOrder.create({
+      const purchaseOrder = await NumberingService.guard("PURCHASE_ORDER", poNumber, async () => prisma.purchaseOrder.create({
         data: {
           poNumber,
           requisitionId,
           quotationId,
           vendorId,
           priority,
+          ...(requisitionPlanItemId ? { planItemId: requisitionPlanItemId } : {}),
           subtotal: new Decimal(subtotal),
           taxAmount: new Decimal(taxAmount),
           totalAmount: new Decimal(totalAmount),
@@ -2325,13 +2616,21 @@ export class ProcurementService {
           fundId: fundIdFromReq || null,
           drawdownTrancheId: drawdownTrancheId || null,
           validityEndDate: validityEndDate || null,
+          vendorCode: carried.vendorCode,
+          rfqId: carried.rfqId,
+          awardRecommendationId: carried.awardRecommendationId,
+          costCentre: carried.costCentre,
+          budgetCode: carried.budgetCode,
+          glCode: carried.glCode,
+          purchaseConditions: carried.purchaseConditions,
+          approvalStatus,
           items: {
             create: items.map((item) => ({
               itemName: item.itemName,
               description: item.description,
               quantity: new Decimal(item.quantity),
               unitPrice: new Decimal(item.unitPrice),
-              totalPrice: new Decimal(item.quantity * item.unitPrice),
+              totalPrice: new Decimal(Math.round(item.quantity * item.unitPrice * 100) / 100),
               unit: item.unit,
               quantityReceived: new Decimal(0),
               quantityPending: new Decimal(item.quantity),
@@ -2384,7 +2683,7 @@ export class ProcurementService {
           },
           items: true
         }
-      });
+      }));
 
       // Update requisition status if it exists
       if (requisitionId) {
@@ -2446,6 +2745,7 @@ export class ProcurementService {
         }
       });
 
+      if (purchaseOrder) await VendorGateService.assertTransactable(purchaseOrder.vendorId, "PO_SEND");
       if (!purchaseOrder) {
         console.error("❌ ERROR: Purchase order not found");
         throw new Error("Purchase order not found");
@@ -2456,9 +2756,17 @@ export class ProcurementService {
       console.log(`   Total Amount: ${purchaseOrder.currency?.symbol || '$'}${Number(purchaseOrder.totalAmount).toFixed(2)}`);
       console.log(`   Current Status: ${purchaseOrder.status}`);
 
-      if (purchaseOrder.status !== "DRAFT" && purchaseOrder.status !== "PENDING") {
+      if (String(purchaseOrder.status).toUpperCase() === "REJECTED" || String((purchaseOrder as any).approvalStatus) === "REJECTED") {
+        throw new Error(`${purchaseOrder.poNumber} was rejected and cannot be sent.`);
+      }
+      if (purchaseOrder.status !== "DRAFT" && purchaseOrder.status !== "PENDING" && purchaseOrder.status !== "APPROVED") {
         console.error(`❌ ERROR: PO already sent (status: ${purchaseOrder.status})`);
         throw new Error("Purchase order has already been sent");
+      }
+      // §21: when the organisation requires PO approval, an unapproved order is not sent.
+      {
+        const { PurchaseOrderControlService } = await import("./p2p/PurchaseOrderControlService");
+        await PurchaseOrderControlService.assertMaySend(purchaseOrder as any);
       }
 
       if (!purchaseOrder.vendor.email) {
@@ -2579,6 +2887,14 @@ export class ProcurementService {
         },
       });
       console.log("   ✅ Audit log created");
+      try {
+        const { notifySafe } = await import("./notifications/ProcurementNotifier");
+        const requisition = purchaseOrder.requisitionId ? await prisma.purchaseRequisition.findUnique({ where: { id: purchaseOrder.requisitionId }, select: { requestedById: true } }) : null;
+        await notifySafe("PO_ISSUED", {
+          userIds: [purchaseOrder.createdById, requisition?.requestedById].filter(Boolean) as string[], actorId: sentById, entityType: "PurchaseOrder", entityId: poId,
+          vars: { ref: purchaseOrder.poNumber, vendor: purchaseOrder.vendor.name, amount: `${updatedPO.currency?.code ?? ""} ${Number(purchaseOrder.totalAmount).toFixed(2)}`.trim(), delivery: purchaseOrder.expectedDeliveryDate ? new Date(purchaseOrder.expectedDeliveryDate).toISOString().slice(0, 10) : "" },
+        });
+      } catch (_e) { /* a notification problem never fails the order */ }
 
       console.log("\n════════════════════════════════════════════════════════════════");
       console.log("✅ PURCHASE ORDER SENT SUCCESSFULLY!");
@@ -2779,6 +3095,9 @@ export class ProcurementService {
         rejectionContentFingerprint,
         approvedById: null,
         approvedAt: null,
+        // A rejected invoice frees its number so the supplier can resubmit a corrected one; the number itself stays on the record.
+        supplierInvoiceKey: null,
+        financeHandoffStatus: null,
       },
       include: {
         vendor: { select: { id: true, name: true, email: true } },
@@ -2841,8 +3160,9 @@ export class ProcurementService {
       isTaxable?: boolean;
     },
     /** An exact match approved without a person (ProcurementInvoiceAutoApprovalService); approvedById is null. */
-    options?: { automatic?: boolean; reason?: string }
+    options?: { automatic?: boolean; reason?: string; matchOverrideReason?: string; actor?: any }
   ) {
+    if (approvedById && !options?.automatic) await UserMasterPolicyService.guardInvoiceApproval(invoiceId, approvedById);
     try {
       console.log("\n");
       console.log("════════════════════════════════════════════════════════════════");
@@ -2872,6 +3192,7 @@ export class ProcurementService {
       console.log(`   Tax (VAT): $${Number(invoice.taxAmount).toFixed(2)}`);
       console.log(`   Total Amount: $${Number(invoice.totalAmount).toFixed(2)}`);
       console.log(`   Current Status: ${invoice.status}`);
+      if (!options?.automatic) await VendorGateService.assertTransactable(invoice.vendorId, "INVOICE");
 
       console.log("\n🔒 Step 2: Validating invoice status...");
       if (invoice.status !== "MATCHED" && invoice.status !== "DISCREPANCY" && invoice.status !== "DRAFT") {
@@ -2879,6 +3200,13 @@ export class ProcurementService {
         throw new Error("Invoice is not ready for approval");
       }
       console.log("   ✅ Invoice is ready for approval");
+
+      // §24: an invoice with open three-way match exceptions is not approved, unless a person with the override grant approves
+      // over them with a written reason. (An automatic approval already requires an exact match.)
+      if (!options?.automatic) {
+        const { InvoiceControlService } = await import("./p2p/InvoiceControlService");
+        await InvoiceControlService.assertMatchAllows(invoiceId, "APPROVE", options?.actor ?? (approvedById ? await prisma.user.findUnique({ where: { id: approvedById } }) : null), options?.matchOverrideReason);
+      }
 
       // Handle taxable status and tax calculation using VATService
       console.log("\n💰 Step 3: Calculating tax and totals...");
@@ -2891,7 +3219,8 @@ export class ProcurementService {
       await VATService.refreshActiveVatRate().catch(() => undefined);
       
       // If approval data provided, recalculate based on taxable status
-      if (approvalData && approvalData.isTaxable !== undefined) {
+      // The supplier's own VAT figure stands: only a computed VAT is recalculated by the approver's taxable choice.
+      if (approvalData && approvalData.isTaxable !== undefined && (invoice as any).taxSource !== "STATED") {
         const isTaxable = approvalData.isTaxable;
         
         if (isTaxable) {
@@ -2969,6 +3298,12 @@ export class ProcurementService {
         }
       });
       console.log("   ✅ Invoice updated successfully");
+
+      // §25: an approved invoice is ready for Finance.
+      {
+        const { InvoiceControlService } = await import("./p2p/InvoiceControlService");
+        await InvoiceControlService.start(invoiceId, approvedById);
+      }
 
       // Audit log
       console.log("\n📊 Step 5: Creating audit log...");
@@ -3103,6 +3438,7 @@ export class ProcurementService {
     },
     processedById: string
   ) {
+    await UserMasterPolicyService.guardInvoicePayment(invoiceId, processedById);
     try {
       console.log("\n");
       console.log("════════════════════════════════════════════════════════════════");
@@ -3150,6 +3486,42 @@ export class ProcurementService {
         throw new Error("Invoice must be approved before payment can be processed");
       }
       console.log("   ✅ Invoice is approved");
+
+      // §24/§25: what it is paid against must still match (a receipt may have been rejected since approval), and Finance
+      // must have accepted it.
+      {
+        const { InvoiceControlService } = await import("./p2p/InvoiceControlService");
+        await InvoiceControlService.assertReadyToPay(invoiceId);
+        await InvoiceControlService.assertMatchAllows(invoiceId, "PAY", await prisma.user.findUnique({ where: { id: processedById } }));
+      }
+
+      // Vendor master gate: only an Approved, compliant vendor is paid. Bank payments go to the vendor's own primary
+      // account on record, and the payee is written onto the payment so it is traceable.
+      await VendorGateService.assertTransactable(invoice.vendorId, "PAY");
+      if (String(paymentData.paymentMethod).toUpperCase() === "BANK") {
+        const payee = await VendorBankService.requirePayee(invoice.vendorId, invoice.currency?.code);
+        paymentData.notes = [paymentData.notes, `Payee: ${payee.accountName}, ${payee.bankName}, acc ${VendorBankService.maskAccount(payee.accountNumber)}, branch ${payee.branchCode}, SWIFT ${payee.swiftCode}`]
+          .filter(Boolean)
+          .join(" | ");
+        // The payee is recorded on the audit trail, so who was paid, where, is traceable to the vendor master's bank record.
+        await AuditService.log({
+          userId: processedById,
+          action: "VENDOR_PAYMENT_PAYEE",
+          entityType: "ProcurementInvoice",
+          entityId: invoiceId,
+          newValues: {
+            vendorId: invoice.vendorId,
+            vendorBankId: payee.id,
+            accountName: payee.accountName,
+            bankName: payee.bankName,
+            account: VendorBankService.maskAccount(payee.accountNumber),
+            branchCode: payee.branchCode,
+            swiftCode: payee.swiftCode,
+            currency: payee.currencyCode,
+            amount: paymentData.paymentAmount,
+          },
+        }).catch(() => undefined);
+      }
 
       // Check if invoice is already fully paid (but allow partial payments if partially paid)
       if (invoice.paymentStatus === "PAID") {
@@ -3214,7 +3586,8 @@ export class ProcurementService {
           amount: Number(invoice.subtotal),
           vatAmount: isTaxable ? Number(invoice.taxAmount) : 0,
           totalAmount: Number(invoice.totalAmount),
-          currencyId: invoice.currencyId || "default-currency",
+          // an invoice without a currency is in the base currency (a made-up id broke every read of the journal)
+          currencyId: invoice.currencyId || (await prisma.currency.findFirst({ where: { isDefault: true }, select: { id: true } }))?.id,
           transactionDate: paymentData.paymentDate,
           description: `Purchase Invoice: ${invoice.invoiceNumber} - ${invoice.vendor.name}`,
           receiptNumber: invoice.invoiceNumber, // Use invoice number as receipt number
@@ -3223,8 +3596,17 @@ export class ProcurementService {
           createdById: processedById
         };
 
-        expenseJournalEntry = await JournalEntryService.createExpenseJournalEntry(expenseJournalEntryParams);
+        try {
+          expenseJournalEntry = await JournalEntryService.createExpenseJournalEntry(expenseJournalEntryParams);
+        } catch (integrationErr) {
+          const { notifyIntegrationFailure } = await import("./notifications/ProcurementNotifier");
+          await notifyIntegrationFailure("General ledger", invoice.invoiceNumber, integrationErr, "ProcurementInvoice", invoice.id);
+          throw integrationErr;
+        }
         console.log(`   ✅ Expense Entry Created: ${expenseJournalEntry.journalEntry.referenceNumber}`);
+        try {
+          await AuditService.log({ userId: processedById, action: "JOURNAL_POST", entityType: "ProcurementInvoice", entityId: invoice.id, newValues: { journalReference: expenseJournalEntry.journalEntry.referenceNumber, ledger: "accounting", amount: Number(invoice.totalAmount) }, eventType: "INTEGRATION" });
+        } catch (_e) { /* the journal stands; the audit failure is logged by the writer */ }
         console.log(`   ℹ️  Expense recognized: ${isTaxable ? `$${Number(invoice.subtotal).toFixed(2)} + VAT $${Number(invoice.taxAmount).toFixed(2)}` : `$${Number(invoice.totalAmount).toFixed(2)}`}`);
       } else {
         // Subsequent payment (partial payment scenario) - expense already recognized
@@ -3275,16 +3657,23 @@ export class ProcurementService {
         }
       }
 
-      const cashbookResult = await CashbookService.createCashPayment({
-        bankId,
-        transactionDate: paymentData.paymentDate,
-        description: `Payment for Procurement Invoice ${invoice.invoiceNumber} - ${invoice.vendor.name}`,
-        amount: paymentData.paymentAmount,
-        reference: paymentData.paymentReference || `PAY-${invoice.invoiceNumber}`,
-        counterpartyType: "GL",
-        glAccountId: accountsPayableAccount.id,
-        createdById: processedById
-      });
+      let cashbookResult: any;
+      try {
+        cashbookResult = await CashbookService.createCashPayment({
+          bankId,
+          transactionDate: paymentData.paymentDate,
+          description: `Payment for Procurement Invoice ${invoice.invoiceNumber} - ${invoice.vendor.name}`,
+          amount: paymentData.paymentAmount,
+          reference: paymentData.paymentReference || `PAY-${invoice.invoiceNumber}`,
+          counterpartyType: "GL",
+          glAccountId: accountsPayableAccount.id,
+          createdById: processedById
+        });
+      } catch (integrationErr) {
+        const { notifyIntegrationFailure } = await import("./notifications/ProcurementNotifier");
+        await notifyIntegrationFailure("Cashbook", invoice.invoiceNumber, integrationErr, "ProcurementInvoice", invoice.id);
+        throw integrationErr;
+      }
 
       if (!cashbookResult.success || !cashbookResult.transaction) {
         throw new Error(cashbookResult.message || "Failed to create cashbook payment");
@@ -3433,6 +3822,10 @@ export class ProcurementService {
       console.log(`🏢 Vendor: ${invoice.vendor.name}`);
       console.log(`💰 Amount Paid: $${paymentData.paymentAmount.toFixed(2)}`);
       console.log(`💳 Via: ${paymentData.paymentMethod}${paymentData.paymentReference ? ` (Ref: ${paymentData.paymentReference})` : ''}`);
+      if (paymentStatus === "PAID") {
+        const { InvoiceControlService } = await import("./p2p/InvoiceControlService");
+        await InvoiceControlService.markPaid(invoiceId, processedById);
+      }
       console.log(`📊 Payment Status: ${paymentStatus}`);
       console.log(`💵 Remaining Balance: $${remainingBalance.toFixed(2)}`);
       console.log(`🆔 Journal Entry: ${journalEntryResult.journalEntry.referenceNumber}`);
@@ -3475,6 +3868,20 @@ export class ProcurementService {
         createdById,
         items
       } = params;
+
+      // §23: the supplier's own invoice number is what identifies an invoice; a duplicate is refused before anything is saved.
+      const invoiceRules = await import("./p2p/InvoiceRules");
+      const supplierInvoiceNumber = invoiceRules.cleanInvoiceNumber(params.supplierInvoiceNumber);
+      const supplierInvoiceKey = invoiceRules.invoiceKey(supplierInvoiceNumber);
+      if (!supplierInvoiceKey) throw new Error("The supplier's invoice number is required.");
+      if (!Array.isArray(items) || !items.length) throw new Error("An invoice needs at least one line.");
+      for (const [i, it] of items.entries()) {
+        const q = Number(it.quantity);
+        const p = Number(it.unitPrice);
+        if (!String(it.itemName || "").trim()) throw new Error(`Line ${i + 1} needs an item name.`);
+        if (!Number.isFinite(q) || q <= 0) throw new Error(`Line ${i + 1} (${it.itemName}) needs a quantity above zero.`);
+        if (!Number.isFinite(p) || p < 0) throw new Error(`Line ${i + 1} (${it.itemName}) needs a unit price of zero or more.`);
+      }
 
       const {
         verifyVendorPortalToken,
@@ -3524,6 +3931,11 @@ export class ProcurementService {
       }
 
       const isVendorPortalSubmit = Boolean(portalRaw);
+      // An invoice for delivered goods may be recorded for a suspended/expired vendor, never for a blocked, draft or inactive one.
+      await VendorGateService.assertTransactable(resolvedVendorId, "INVOICE");
+      if (portalRaw && documentPath && !isPlatformMediaReference(String(documentPath))) {
+        throw new Error("The invoice document must be uploaded through the vendor portal, not linked from another address.");
+      }
       const resolvedInvoiceDate = isVendorPortalSubmit ? new Date() : invoiceDate;
       if (!resolvedInvoiceDate || Number.isNaN(resolvedInvoiceDate.getTime())) {
         throw new Error("Invoice date is required");
@@ -3559,10 +3971,40 @@ export class ProcurementService {
         finalCreatedById = systemUser.id;
       }
 
-      // Calculate totals
-      const subtotal = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-      const taxAmount = VATService.calculateVAT(subtotal);
-      const totalAmount = subtotal + taxAmount;
+      // The invoice carries the order's own currency and payment terms rather than defaulting: no currency stated means the
+      // order's; a different one is refused (an invoice in another currency cannot be matched to the order); no due date
+      // stated means invoice date plus the order's payment terms (e.g. "Net 30", "30 days from invoice").
+      const orderTerms = await prisma.purchaseOrder.findUnique({
+        where: { id: resolvedPurchaseOrderId },
+        select: { currencyId: true, paymentTerms: true, rfqId: true, subtotal: true, taxAmount: true, currency: { select: { code: true } } },
+      });
+      await invoiceRules.assertNotDuplicate(resolvedVendorId, supplierInvoiceKey);
+      const linkedReceipt = await invoiceRules.assertReceiptBelongs(params.grnId, resolvedPurchaseOrderId);
+      const effectivePaymentTerms = (params.paymentTerms && String(params.paymentTerms).trim()) || orderTerms?.paymentTerms || null;
+      const effectiveCurrencyId = currencyId || orderTerms?.currencyId || undefined;
+      if (!effectiveCurrencyId) throw new Error("The invoice needs a currency: choose one, or link it to a purchase order that has one.");
+      if (currencyId && orderTerms?.currencyId && currencyId !== orderTerms.currencyId) {
+        throw new Error(`The invoice must be in the purchase order's currency (${orderTerms.currency?.code ?? "as ordered"}).`);
+      }
+      let effectiveDueDate = dueDate;
+      if (!effectiveDueDate && orderTerms?.paymentTerms) {
+        const days = /(\d{1,3})/.exec(String(orderTerms.paymentTerms))?.[1];
+        if (days) effectiveDueDate = new Date(resolvedInvoiceDate.getTime() + Number(days) * 86400000);
+      }
+
+      // Totals: the lines, and the supplier's own VAT when it states one (else the order's VAT rate). Never free-typed.
+      await VATService.refreshActiveVatRate(false).catch(() => undefined);
+      const figures = await invoiceRules.resolveFigures({
+        items,
+        po: orderTerms,
+        statedSubtotal: params.statedSubtotal,
+        statedTax: params.statedTax,
+        statedTotal: params.statedTotal,
+        activeVat: (s) => VATService.calculateVAT(s),
+      });
+      const subtotal = figures.subtotal;
+      const taxAmount = figures.taxAmount;
+      const totalAmount = figures.total;
 
       const procurementInvoiceInclude = {
         vendor: {
@@ -3611,14 +4053,22 @@ export class ProcurementService {
               purchaseOrderId: resolvedPurchaseOrderId,
               vendorId: resolvedVendorId,
               invoiceDate: resolvedInvoiceDate,
-              dueDate,
+              dueDate: effectiveDueDate,
               subtotal: new Decimal(subtotal),
               taxAmount: new Decimal(taxAmount),
               totalAmount: new Decimal(totalAmount),
-              currencyId,
+              taxSource: figures.taxSource,
+              currencyId: effectiveCurrencyId,
+              supplierInvoiceNumber,
+              supplierInvoiceKey,
+              grnId: linkedReceipt?.id ?? null,
+              rfqId: orderTerms?.rfqId ?? null,
+              paymentTerms: effectivePaymentTerms,
               documentPath,
               documentType,
               createdById: finalCreatedById,
+              financeHandoffStatus: null,
+              submittedVia: isVendorPortalSubmit ? "VENDOR_PORTAL" : "STAFF",
               status: "DRAFT", // Start as DRAFT so it can go through approval workflow
               items: {
                 create: items.map(item => ({
@@ -3636,12 +4086,15 @@ export class ProcurementService {
           break;
         } catch (error: any) {
           lastProcInvoiceErr = error;
+          if (invoiceRules.isDuplicateKeyError(error)) {
+            throw Object.assign(new Error(`Duplicate invoice: this supplier has already submitted invoice ${supplierInvoiceNumber}.`), { status: 409, statusCode: 409, code: "DUPLICATE_INVOICE" });
+          }
           if (error?.code === "P2002") {
             const t = error.meta?.target;
             const fields = Array.isArray(t) ? t : t != null ? [t] : [];
             const hit = fields.some(
               (x: string) =>
-                x === "invoiceNumber" || String(x).includes("invoice_number")
+                x === "invoiceNumber" || String(x).includes("invoice_number") || String(x).includes("invoiceNumber")
             );
             if (hit) continue;
           }
@@ -3781,9 +4234,16 @@ export class ProcurementService {
       lineType?: string;
       milestoneDescription?: string;
       serialNumbers?: unknown;
+      servicePeriodStart?: string | Date | null;
+      servicePeriodEnd?: string | Date | null;
+      serviceAmount?: number | null;
+      serviceEvidence?: unknown;
     }[],
     options?: {
       receivedDate?: Date;
+      deliveryNoteNumber?: string;
+      locationName?: string;
+      comments?: string;
       attachmentUrls?: unknown;
       latitude?: number;
       longitude?: number;
@@ -3791,6 +4251,7 @@ export class ProcurementService {
       submittedByInvestee?: boolean;
     }
   ) {
+    await UserMasterPolicyService.guardGrnCreation(purchaseOrderId, receivedById);
     try {
       const purchaseOrder = await prisma.purchaseOrder.findUnique({
         where: { id: purchaseOrderId },
@@ -3810,6 +4271,10 @@ export class ProcurementService {
       if (purchaseOrder.status === PO_STATUS.BILLED) {
         throw new Error("Cannot receive goods against a purchase order that is already billed");
       }
+      // Nothing is received against an order the supplier has not been sent (or that still waits for its approval).
+      if (purchaseOrder.status === PO_STATUS.PENDING || (purchaseOrder.status === PO_STATUS.APPROVED && !purchaseOrder.sentAt)) {
+        throw new Error("Cannot receive against a purchase order that has not been sent to the supplier");
+      }
       if (isPoFullyDelivered(purchaseOrder.status)) {
         const pendingLines = purchaseOrder.items.filter(
           (l) => (l as { lineStatus?: string }).lineStatus !== "CANCELLED" && Number(l.quantityPending) > 0
@@ -3819,28 +4284,14 @@ export class ProcurementService {
         }
       }
 
-      const settings = await prisma.procurementSettings.findUnique({
-        where: { id: "default" },
-      });
-      const tolPct = settings ? Number(settings.overDeliveryTolerancePct) : 5;
-
+      // §22: quantities that add up, no over-receipt beyond the configured tolerance, and a service receipt that states its
+      // period, amount and evidence. Every rule is enforced here, whatever the client sent.
+      const { getP2pConfig } = await import("./p2p/P2pSettings");
+      const { validateReceipt, receiptTypeOf, checkAttachmentUrls, recomputePoDelivery } = await import("./p2p/ReceiptRules");
+      const cfg = await getP2pConfig();
+      items = (await validateReceipt(purchaseOrder, items as any, cfg)) as any;
+      const receiptAttachments = checkAttachmentUrls(options?.attachmentUrls);
       const poItemMap = new Map(purchaseOrder.items.map((i) => [i.id, i]));
-
-      for (const item of items) {
-        const poi = poItemMap.get(item.purchaseOrderItemId);
-        if (!poi) throw new Error(`PO line ${item.purchaseOrderItemId} not on this PO`);
-        if ((poi as any).lineStatus === "CANCELLED") {
-          throw new Error("Cannot receive against a cancelled PO line");
-        }
-        const ordered = Number(poi.quantity);
-        const already = Number(poi.quantityReceived);
-        const maxRecv = ordered * (1 + tolPct / 100);
-        if (already + item.quantityReceived > maxRecv + 1e-9) {
-          throw new Error(
-            `Over-delivery blocked: line exceeds ${tolPct}% tolerance vs PO quantity (Suite 05.3).`
-          );
-        }
-      }
 
       const grnStatus =
         options?.submittedByInvestee === true ? "PENDING_GP_REVIEW" : "RECEIVED";
@@ -3848,15 +4299,19 @@ export class ProcurementService {
       const grnNumber = await nextProcurementGrnNumber(prisma as any, new Date());
 
       // Create GRN
-      const grn = await prisma.goodsReceivedNote.create({
+      const grn = await NumberingService.guard("GRN", grnNumber, async () => prisma.goodsReceivedNote.create({
         data: {
           grnNumber,
           purchaseOrderId,
           receivedById,
+          // §38: the receipt is in the currency of the order it receives against
+          currencyId: (await prisma.purchaseOrder.findUnique({ where: { id: purchaseOrderId }, select: { currencyId: true } }))?.currencyId ?? null,
           ...(options?.receivedDate ? { receivedDate: options.receivedDate } : {}),
-          ...(options?.attachmentUrls != null
-            ? { attachmentUrls: options.attachmentUrls as object }
-            : {}),
+          ...(receiptAttachments != null ? { attachmentUrls: receiptAttachments as object } : {}),
+          deliveryNoteNumber: options?.deliveryNoteNumber ? String(options.deliveryNoteNumber).trim().slice(0, 128) : null,
+          locationName: options?.locationName ? String(options.locationName).trim().slice(0, 191) : null,
+          receiptType: receiptTypeOf(items as any),
+          ...(options?.comments && String(options.comments).trim() ? { qualityNotes: String(options.comments).trim() } : {}),
           ...(options?.latitude != null ? { latitude: new Decimal(options.latitude) } : {}),
           ...(options?.longitude != null ? { longitude: new Decimal(options.longitude) } : {}),
           ...(options?.geoCapturedAt ? { geoCapturedAt: options.geoCapturedAt } : {}),
@@ -3876,6 +4331,10 @@ export class ProcurementService {
                 qualityNotes: item.qualityNotes,
                 lineType: item.lineType || "GOODS",
                 milestoneDescription: item.milestoneDescription || null,
+                servicePeriodStart: (item as any).servicePeriodStart ?? null,
+                servicePeriodEnd: (item as any).servicePeriodEnd ?? null,
+                serviceAmount: (item as any).serviceAmount != null ? new Decimal((item as any).serviceAmount) : null,
+                serviceEvidence: (item as any).serviceEvidence != null ? ((item as any).serviceEvidence as object) : undefined,
                 serialNumbers: item.serialNumbers != null ? (item.serialNumbers as object) : undefined,
               };
             }),
@@ -3902,48 +4361,11 @@ export class ProcurementService {
             }
           }
         }
-      });
+      }));
 
-      // Update purchase order items with received quantities
-      for (const item of items) {
-        await prisma.purchaseOrderItem.update({
-          where: { id: item.purchaseOrderItemId },
-          data: {
-            quantityReceived: {
-              increment: item.quantityReceived
-            },
-            quantityPending: {
-              decrement: item.quantityReceived
-            }
-          }
-        });
-      }
-
-      const updatedLines = await prisma.purchaseOrderItem.findMany({
-        where: { purchaseOrderId },
-      });
-
-      const { purchaseOrderStatusAfterGrnReceipt } = await import(
-        "../constants/purchaseOrderStatus"
-      );
-      const nextPoStatus = purchaseOrderStatusAfterGrnReceipt(updatedLines);
-
-      if (nextPoStatus === PO_STATUS.DELIVERED) {
-        await prisma.purchaseOrder.update({
-          where: { id: purchaseOrderId },
-          data: {
-            status: PO_STATUS.DELIVERED,
-            actualDeliveryDate: new Date(),
-          },
-        });
-        console.log(`   ✅ PO status → ${PO_STATUS.DELIVERED} (GRN ${grn.grnNumber})`);
-      } else if (nextPoStatus === PO_STATUS.PARTIALLY_DELIVERED) {
-        await prisma.purchaseOrder.update({
-          where: { id: purchaseOrderId },
-          data: { status: PO_STATUS.PARTIALLY_DELIVERED },
-        });
-        console.log(`   ✅ PO status → ${PO_STATUS.PARTIALLY_DELIVERED} (GRN ${grn.grnNumber})`);
-      }
+      // The order's lines and delivery status follow the receipts that stand (recomputed, so they cannot drift).
+      const nextPoStatus = await recomputePoDelivery(purchaseOrderId);
+      if (nextPoStatus) console.log(`   ✅ PO status → ${nextPoStatus} (GRN ${grn.grnNumber})`);
 
       // The PO's receipts changed: re-match on create so its open invoices reflect them.
       {
@@ -3993,6 +4415,26 @@ export class ProcurementService {
       });
 
       const grnResult = grnFresh ?? grn;
+
+      // Suite 05.7 — investee GRNs wait in PENDING_GP_REVIEW until the GRN approval stage decides.
+      if (grnStatus === "PENDING_GP_REVIEW") {
+        try {
+          const { ApprovalService } = await import("./ApprovalService");
+          await ApprovalService.createApprovalRequest({
+            stageType: "GRN",
+            entityId: grnResult.id,
+            entityData: {
+              grnNumber: grnResult.grnNumber,
+              purchaseOrderId,
+              purchaseOrderNumber: purchaseOrder.poNumber,
+            },
+            requestedById: receivedById,
+          });
+        } catch (e) {
+          console.error("ApprovalService.createApprovalRequest (GRN / Suite 05.7):", (e as Error)?.message || e);
+        }
+      }
+
       if (purchaseOrder.createdById) {
         const { dispatchProcurementNotification } = await import("./ProcurementNotificationService");
         const vendorName = grnResult.purchaseOrder?.vendor?.name || "the vendor";
@@ -4022,6 +4464,7 @@ export class ProcurementService {
     approvedById: string,
     options?: { qualityNotes?: string }
   ) {
+    await UserMasterPolicyService.guardGrnApproval(grnId, approvedById);
     const existing = await prisma.goodsReceivedNote.findUnique({
       where: { id: grnId },
       select: { id: true, grnNumber: true, status: true, qualityStatus: true },
@@ -4199,6 +4642,12 @@ export class ProcurementService {
       },
     });
 
+    // What this receipt carried is owed again, and the order's delivery status follows.
+    {
+      const { recomputePoDelivery } = await import("./p2p/ReceiptRules");
+      await recomputePoDelivery(existing.purchaseOrderId);
+    }
+
     // The PO's receipts changed: re-match on reject so its open invoices stop counting this GRN.
     {
       const { ProcurementInvoiceMatchService } = await import("./ProcurementInvoiceMatchService");
@@ -4270,6 +4719,132 @@ export class ProcurementService {
     return { purchaseOrderId: poId, lineId, lineStatus: "CANCELLED" };
   }
 
+  /**
+   * Suite 04.6 — amend an issued PO by cloning it into a new version linked via amendmentOfPoId.
+   * Optional body.items replaces active lines; omitted lines are copied from the source (non-cancelled).
+   */
+  static async amendPurchaseOrder(
+    sourcePoId: string,
+    userId: string,
+    body?: {
+      items?: Array<{
+        itemName: string;
+        description?: string;
+        quantity: number;
+        unitPrice: number;
+        unit?: string;
+        expectedDeliveryDate?: string | Date;
+      }>;
+      expectedDeliveryDate?: string | Date;
+      shippingAddress?: string;
+      paymentTerms?: string;
+      deliveryTerms?: string;
+    }
+  ) {
+    const source = await prisma.purchaseOrder.findUnique({
+      where: { id: sourcePoId },
+      include: { items: true },
+    });
+    if (!source) throw new Error("Purchase order not found");
+
+    const closed = new Set(["CANCELLED", "CLOSED", "DELIVERED", "FULLY_RECEIVED"]);
+    if (closed.has(String(source.status).toUpperCase())) {
+      throw new Error(`Cannot amend a purchase order in status ${source.status}`);
+    }
+
+    const sourceLines =
+      body?.items && body.items.length > 0
+        ? body.items.map((i) => ({
+            itemName: i.itemName,
+            description: i.description,
+            quantity: Number(i.quantity),
+            unitPrice: Number(i.unitPrice),
+            unit: i.unit,
+            expectedDeliveryDate: i.expectedDeliveryDate
+              ? new Date(i.expectedDeliveryDate)
+              : undefined,
+          }))
+        : source.items
+            .filter((l) => l.lineStatus !== "CANCELLED")
+            .map((l) => ({
+              itemName: l.itemName,
+              description: l.description || undefined,
+              quantity: Number(l.quantity),
+              unitPrice: Number(l.unitPrice),
+              unit: l.unit || undefined,
+              expectedDeliveryDate: l.expectedDeliveryDate || undefined,
+            }));
+
+    if (!sourceLines.length) throw new Error("Amendment requires at least one line item");
+
+    await VATService.refreshActiveVatRate(false).catch(() => undefined);
+    const subtotal = sourceLines.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+    const taxAmount = VATService.calculateVAT(subtotal);
+    const totalAmount = subtotal + taxAmount;
+    const poNumber = await this.resolvePoNumberForCreate(null);
+    const nextVersion = Number(source.version || 1) + 1;
+
+    const amendment = await prisma.purchaseOrder.create({
+      data: {
+        poNumber,
+        requisitionId: source.requisitionId,
+        quotationId: null,
+        vendorId: source.vendorId,
+        priority: source.priority,
+        status: "DRAFT",
+        subtotal: new Decimal(subtotal),
+        taxAmount: new Decimal(taxAmount),
+        totalAmount: new Decimal(totalAmount),
+        currencyId: source.currencyId,
+        expectedDeliveryDate: body?.expectedDeliveryDate
+          ? new Date(body.expectedDeliveryDate)
+          : source.expectedDeliveryDate,
+        shippingAddress: body?.shippingAddress ?? source.shippingAddress,
+        paymentTerms: body?.paymentTerms ?? source.paymentTerms,
+        deliveryTerms: body?.deliveryTerms ?? source.deliveryTerms,
+        createdById: userId,
+        portfolioCompanyId: source.portfolioCompanyId,
+        fundId: source.fundId,
+        drawdownTrancheId: source.drawdownTrancheId,
+        version: nextVersion,
+        amendmentOfPoId: source.id,
+        validityEndDate: source.validityEndDate,
+        items: {
+          create: sourceLines.map((i) => ({
+            itemName: i.itemName,
+            description: i.description,
+            quantity: new Decimal(i.quantity),
+            unitPrice: new Decimal(i.unitPrice),
+            totalPrice: new Decimal(i.quantity * i.unitPrice),
+            unit: i.unit,
+            quantityPending: new Decimal(i.quantity),
+            quantityReceived: new Decimal(0),
+            ...(i.expectedDeliveryDate ? { expectedDeliveryDate: i.expectedDeliveryDate } : {}),
+          })),
+        },
+      },
+      include: {
+        vendor: true,
+        items: true,
+        amendmentParent: { select: { id: true, poNumber: true, version: true } },
+      },
+    });
+
+    await AuditService.log({
+      userId,
+      action: "CREATE",
+      entityType: "PurchaseOrder",
+      entityId: amendment.id,
+      newValues: {
+        note: "PO amendment (Suite 04.6)",
+        amendmentOfPoId: source.id,
+        version: nextVersion,
+      },
+    });
+
+    return amendment;
+  }
+
   static async createGrnReturnToVendor(params: {
     goodsReceivedNoteId: string;
     purchaseOrderItemId: string;
@@ -4316,16 +4891,59 @@ export class ProcurementService {
       );
     }
 
-    return prisma.grnReturnToVendor.create({
-      data: {
-        goodsReceivedNoteId: params.goodsReceivedNoteId,
-        purchaseOrderItemId: params.purchaseOrderItemId,
-        quantity: new Decimal(qty),
-        reason: params.reason,
-        status: "SUBMITTED",
-        createdById: params.createdById,
-      },
+    // Suite 05.9 posting: reverse PO received/pending and GRN accepted qty, rematch invoices, mark POSTED.
+    const rtv = await prisma.$transaction(async (tx) => {
+      const created = await tx.grnReturnToVendor.create({
+        data: {
+          goodsReceivedNoteId: params.goodsReceivedNoteId,
+          purchaseOrderItemId: params.purchaseOrderItemId,
+          quantity: new Decimal(qty),
+          reason: params.reason,
+          status: "POSTED",
+          createdById: params.createdById,
+        },
+      });
+
+      const poi = await tx.purchaseOrderItem.findUnique({
+        where: { id: params.purchaseOrderItemId },
+      });
+      if (poi) {
+        const nextReceived = Math.max(0, Number(poi.quantityReceived) - qty);
+        const nextPending = Number(poi.quantityPending) + qty;
+        await tx.purchaseOrderItem.update({
+          where: { id: poi.id },
+          data: {
+            quantityReceived: new Decimal(nextReceived),
+            quantityPending: new Decimal(nextPending),
+          },
+        });
+      }
+
+      const nextAccepted = Math.max(0, Number(line.quantityAccepted) - qty);
+      await tx.goodsReceivedNoteItem.update({
+        where: { id: line.id },
+        data: { quantityAccepted: new Decimal(nextAccepted) },
+      });
+
+      return created;
     });
+
+    try {
+      const { ProcurementInvoiceMatchService } = await import("./ProcurementInvoiceMatchService");
+      await ProcurementInvoiceMatchService.evaluateForPurchaseOrder(grn.purchaseOrderId);
+    } catch (e) {
+      console.error("RTV rematch:", (e as Error)?.message || e);
+    }
+
+    await AuditService.log({
+      userId: params.createdById,
+      action: "CREATE",
+      entityType: "GrnReturnToVendor",
+      entityId: rtv.id,
+      newValues: { quantity: qty, status: "POSTED", note: "RTV posted (Suite 05.9)" },
+    });
+
+    return rtv;
   }
 
   /**
@@ -4767,11 +5385,20 @@ export class ProcurementService {
         }
       });
 
+      // §16: figures and supplier names of an event whose bids are still sealed never reach the dashboard.
+      const sealedRfqIds = (
+        await prisma.procurementRfq.findMany({
+          where: { sealedBidding: true, bidOpenedAt: null, status: { notIn: ["AWARDED", "CLOSED", "CANCELLED", "COMPLETED"] } },
+          select: { id: true },
+        })
+      ).map((r) => r.id);
+
       // Get recent quotations
       const recentQuotations = await prisma.vendorQuotation.findMany({
         take: 10,
         orderBy: { submittedAt: 'desc' },
         select: {
+          procurementRfqId: true,
           id: true,
           quotationNumber: true,
           rfqNumber: true,
@@ -4791,8 +5418,10 @@ export class ProcurementService {
       const quotationsByStatus = await prisma.vendorQuotation.groupBy({
         by: ['status'],
         _count: { id: true },
-        _sum: { totalAmount: true }
+        _sum: { totalAmount: true },
+        where: sealedRfqIds.length ? { OR: [{ procurementRfqId: null }, { procurementRfqId: { notIn: sealedRfqIds } }] } : undefined,
       });
+      const quotationCountsByStatus = await prisma.vendorQuotation.groupBy({ by: ['status'], _count: { id: true } });
 
       // Get recent payments (invoices with payment status)
       const recentPayments = await prisma.procurementInvoice.findMany({
@@ -5021,22 +5650,24 @@ export class ProcurementService {
             accepted: acceptedQuotations,
             rejected: rejectedQuotations
           },
-          byStatus: quotationsByStatus.map(qs => ({
+          byStatus: quotationCountsByStatus.map(qs => ({
             status: qs.status,
             count: qs._count.id,
-            totalAmount: Number(qs._sum.totalAmount || 0)
+            totalAmount: Number(quotationsByStatus.find((x) => x.status === qs.status)?._sum.totalAmount || 0)
           })),
           recent: recentQuotations.map(q => ({
             id: q.id,
             quotationNumber: q.quotationNumber,
             rfqNumber: q.rfqNumber,
             status: q.status,
-            totalAmount: Number(q.totalAmount),
-            vendor: {
-              name: q.vendorName,
-              email: q.vendorEmail,
-              companyName: q.companyName
-            },
+            totalAmount: q.procurementRfqId && sealedRfqIds.includes(q.procurementRfqId) ? null : Number(q.totalAmount),
+            vendor: q.procurementRfqId && sealedRfqIds.includes(q.procurementRfqId)
+              ? { name: null, email: null, companyName: null }
+              : {
+                  name: q.vendorName,
+                  email: q.vendorEmail,
+                  companyName: q.companyName
+                },
             submittedAt: q.submittedAt,
             updatedAt: q.updatedAt
           }))

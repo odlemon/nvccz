@@ -54,12 +54,9 @@ export async function nextUnifiedInvoiceNumber(
   prisma: InvoiceNumberDb,
   dateForSequence: Date
 ): Promise<string> {
-  const ymd = formatYyyymmddUtc(dateForSequence);
-  const next = (await maxInvSuffixForDate(prisma, ymd)) + 1;
-  if (next > 9999) {
-    throw new Error(`Daily invoice sequence exhausted for ${ymd} (limit 9999)`);
-  }
-  return `INV_${ymd}_${String(next).padStart(4, "0")}`;
+  // one shared counter (procurement, accounts payable and receivable), under the configured invoice format
+  const { NumberingService } = await import("../services/numbering/NumberingService");
+  return NumberingService.nextIn(prisma, "INVOICE", dateForSequence);
 }
 
 export async function isUnifiedInvoiceNumberInUse(
@@ -96,10 +93,6 @@ export async function nextQuotationNumber(
   prisma: QuotationDb,
   dateForSequence: Date
 ): Promise<string> {
-  const ymd = formatYyyymmddUtc(dateForSequence);
-  const next = (await maxQuoSuffixForDate(prisma, ymd)) + 1;
-  if (next > 9999) {
-    throw new Error(`Daily quotation sequence exhausted for ${ymd} (limit 9999)`);
-  }
-  return `QUO_${ymd}_${String(next).padStart(4, "0")}`;
+  const { NumberingService } = await import("../services/numbering/NumberingService");
+  return NumberingService.nextIn(prisma, "QUOTATION", dateForSequence);
 }

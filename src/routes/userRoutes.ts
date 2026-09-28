@@ -133,6 +133,9 @@ router.get("/", requireInternalStaffUser(), UserController.getAllUsers);
  */
 router.get("/by-department", UserController.getUsersByDepartmentAndRole);
 
+// Option lists for the User Master form (statuses, procurement functions, access profiles, SoD restrictions).
+router.get("/master-options", requireInternalStaffUser(), UserController.getMasterOptions);
+
 /**
  * @swagger
  * /users/me/saved-filter-favorites:
@@ -268,7 +271,7 @@ router.delete("/me/saved-filter-favorites/:presetId", SavedFilterFavoriteControl
  *       401:
  *         description: Unauthorized
  */
-router.get("/:id", UserController.getUserById);
+router.get("/:id", requireInternalStaffUser(), UserController.getUserById);
 
 /**
  * @swagger
@@ -521,6 +524,7 @@ router.put("/:id", requireInternalStaffUser(), requirePermission("manage_users")
  *       404:
  *         description: User not found
  */
-router.delete("/:id", UserController.deleteUser);
+// Removal is permission-gated. A user with transaction history is deactivated, never permanently deleted.
+router.delete("/:id", requireInternalStaffUser(), requirePermission("manage_users"), UserController.deleteUser);
 
 export default router;

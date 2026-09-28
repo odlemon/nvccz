@@ -1161,11 +1161,12 @@ export class MultiCurrencyService {
       const usdCur = currencies.find((c) => c.code.toUpperCase() === 'USD');
       const zwgCur =
         currencies.find((c) => c.code.toUpperCase() === 'ZWL') ??
-        currencies.find((c) => c.code.toUpperCase() === 'ZWG');
+        currencies.find((c) => c.code.toUpperCase() === 'ZWG') ??
+        currencies.find((c) => c.code.toUpperCase() === 'ZIG');
       const zarCur = currencies.find((c) => c.code.toUpperCase() === 'ZAR');
       if (!usdCur || !zwgCur) {
         throw new Error(
-          'Currencies table must include USD and ZWL (or ZWG) for live exchange rate display'
+          'Currencies table must include USD and ZiG (ZIG, ZWG or ZWL) for live exchange rate display'
         );
       }
 

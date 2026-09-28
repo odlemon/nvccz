@@ -2,6 +2,7 @@ import { Response } from "express";
 import { AuthRequest } from "../middleware/authenticate";
 import { PerformanceConfigService } from "../services/PerformanceConfigService";
 import { ScorecardPillarService } from "../services/ScorecardPillarService";
+import { isPerfAdmin } from "../services/PerformanceScope";
 
 export class ScorecardPillarController {
   static async list(_req: AuthRequest, res: Response) {
@@ -133,6 +134,10 @@ export class ScorecardPillarController {
   /** PUT /weights — all four BSC pillars, sum 100%. */
   static async updateWeights(req: AuthRequest, res: Response) {
     try {
+      if (!isPerfAdmin((req as any).user)) {
+        res.status(403).json({ success: false, message: "Weight changes are proposed and approved under BSC Pillars. Direct changes are limited to administrators." });
+        return;
+      }
       const data = await ScorecardPillarService.setPillarWeightsBsc(req.body || {});
       res.json({ success: true, data });
     } catch (e: any) {

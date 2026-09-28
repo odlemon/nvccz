@@ -114,8 +114,8 @@ export class PerformanceDocumentService {
     departmentId?: string;
     category?: string;
     search?: string;
-  } = {}) {
-    const where: Record<string, any> = {};
+  } = {}, scope: any = {}) {
+    const where: Record<string, any> = { ...scope };
 
     const folder = trimmedOrUndefined(filters.folder);
     if (folder) where.folder = folder;

@@ -3,6 +3,16 @@ import { Request, Response } from "express";
 import { PerformanceWorkflowService } from "../services/PerformanceWorkflowService";
 
 export class PerformanceWorkflowController {
+  /** Items waiting on the signed-in person: self-scoped, so no resource permission gates it. */
+  static async pendingForMe(req: Request, res: Response) {
+    try {
+      const result = await PerformanceWorkflowService.pendingForMe(req.user);
+      res.status(200).json({ success: true, data: result });
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
   /**
    * Auto-assign organizational goals to departments
    */

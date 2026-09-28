@@ -13,7 +13,15 @@ const MAX_APY_DECIMAL = 100;
  *
  * Note: `1` as decimal is **100%** APR; for **1%** use `0.01`.
  */
-export function normalizeApyInputToDecimal(raw: string | number): Decimal {
+export function normalizeApyInputToDecimal(raw: string | number | { percent: string | number }): Decimal {
+  // An explicit percentage (the investments screen sends this): no guessing — 0.5 means 0.5%, 1500 means 1,500%.
+  if (raw && typeof raw === "object" && "percent" in raw) {
+    const p = new Decimal(String(raw.percent).trim() || "NaN");
+    if (!p.isFinite()) throw new Error("APY must be a number (percent)");
+    const dec = p.div(100);
+    if (dec.abs().gt(MAX_APY_DECIMAL)) throw new Error(`APY exceeds the maximum of ${MAX_APY_DECIMAL * 100}%.`);
+    return dec.toDecimalPlaces(12, Decimal.ROUND_HALF_UP);
+  }
   const s = String(raw).trim();
   if (s === "") {
     throw new Error("APY is required");

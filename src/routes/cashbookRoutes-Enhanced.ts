@@ -7,6 +7,8 @@ import multer from "multer";
 import CashbookController from "../controllers/CashbookController";
 import { CashbookControllerEnhanced } from "../controllers/CashbookController-Enhanced";
 import { CashbookReconciliationSessionController } from "../controllers/CashbookReconciliationSessionController";
+import { BankReconciliationWorkbenchController as RecW } from "../controllers/BankReconciliationWorkbenchController";
+import { CashbookPositionController } from "../controllers/CashbookPositionController";
 import { authenticate } from "../middleware/authenticate";
 import { ResponseHelper } from "../utils/responseHelper";
 
@@ -587,6 +589,18 @@ router.post(
   "/reconciliation/sessions/:sessionId/discard",
   CashbookReconciliationSessionController.discard
 );
+// the workbench: statement import, matching, booking bank-only lines, ticking, reopening (BankReconciliationWorkbenchService)
+const uploadStatement = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+router.get("/reconciliation/status", RecW.status);
+router.get("/position", CashbookPositionController.position);
+router.get("/reconciliation/sessions/:sessionId/workbench", RecW.workbench);
+router.post("/reconciliation/sessions/:sessionId/statement", uploadStatement.single("file"), RecW.importStatement);
+router.post("/reconciliation/sessions/:sessionId/auto-match", RecW.autoMatch);
+router.post("/reconciliation/sessions/:sessionId/tick", RecW.tick);
+router.post("/reconciliation/sessions/:sessionId/lines/:itemId/match", RecW.match);
+router.post("/reconciliation/sessions/:sessionId/lines/:itemId/unmatch", RecW.unmatch);
+router.post("/reconciliation/sessions/:sessionId/lines/:itemId/book", RecW.book);
+router.post("/reconciliation/sessions/:sessionId/reopen", RecW.reopen);
 
 router.get("/:bankId/summary", CashbookControllerEnhanced.getSummary);
 
@@ -776,8 +790,10 @@ router.get("/:bankId/unreconciled", CashbookControllerEnhanced.getUnreconciledEn
  *       500:
  *         description: Internal server error
  */
+// test data only: off unless ALLOW_TEST_SEEDS=on (it creates posted cashbook lines)
 router.post(
   "/reconciliation/seed-five-unreconciled",
+  (req, res, next) => (process.env.ALLOW_TEST_SEEDS === "on" ? next() : res.status(404).json({ success: false, message: "Not found" })),
   CashbookControllerEnhanced.seedFiveUnreconciledEntries
 );
 

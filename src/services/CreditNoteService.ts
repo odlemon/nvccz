@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { vatInputAccount as resolveVatInput, vatOutputAccount as resolveVatOutput } from '../utils/vatAccounts';
 import { PrismaClient, CreditNote } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../utils/database';
@@ -279,7 +280,8 @@ export class CreditNoteService {
         description: `Credit note: ${creditNote.creditNoteNumber}`,
         totalAmount: creditNote.totalAmount,
         currencyId: creditNote.currencyId,
-        status: 'POSTED',
+        // a draft until the credit note is sent: an approver (not its preparer) posts it then, in an open period
+        status: 'PENDING',
         createdById,
       });
 
@@ -374,13 +376,7 @@ export class CreditNoteService {
       throw new Error('Revenue account not found. Please configure chart of accounts.');
     }
 
-    const vatOutput = await db.chartOfAccounts.findFirst({
-      where: {
-        isActive: true,
-        accountType: 'Current Liability',
-        accountName: { contains: 'VAT Output' }
-      }
-    });
+    const vatOutput = await resolveVatOutput(db);
 
     return { ar, revenue, vatOutput };
   }
@@ -404,7 +400,8 @@ export class CreditNoteService {
         description: `Credit note: ${creditNote.creditNoteNumber}`,
         totalAmount: creditNote.totalAmount,
         currencyId: creditNote.currencyId,
-        status: 'POSTED',
+        // a draft until the credit note is sent: an approver (not its preparer) posts it then, in an open period
+        status: 'PENDING',
         createdById,
       });
 
@@ -495,6 +492,16 @@ export class CreditNoteService {
         if (invoice.customerId !== creditNote.customerId) {
           throw new Error('Credit note and invoice must belong to the same customer');
         }
+        if (invoice.status !== 'SENT' && invoice.status !== 'PARTIALLY_PAID') {
+          throw new Error(`${invoice.invoiceNumber} is ${String(invoice.status).toLowerCase()}; a credit applies to a sent invoice with a balance.`);
+        }
+        if (invoice.currencyId !== creditNote.currencyId) {
+          throw new Error('The credit note and the invoice are in different currencies.');
+        }
+        if (!(amount > 0)) throw new Error('Give the amount to apply.');
+        if (amount > Number(invoice.outstandingAmount) + 0.005) {
+          throw new Error(`${invoice.invoiceNumber} has ${Number(invoice.outstandingAmount).toFixed(2)} outstanding; ${Number(amount).toFixed(2)} is more than that.`);
+        }
 
         // Calculate new amounts
         const newAppliedAmount = Number(creditNote.appliedAmount) + amount;
@@ -523,19 +530,7 @@ export class CreditNoteService {
           }
         });
 
-        // Create credit note application record for tracking
-        await tx.creditNoteApplication.create({
-          data: {
-            creditNoteId,
-            invoiceId,
-            amount: new Decimal(amount),
-            appliedById,
-            appliedAt: new Date()
-          }
-        }).catch(() => {
-          // Ignore if table doesn't exist yet - this is for future tracking
-          console.log('CreditNoteApplication table not available yet');
-        });
+        // (no application table exists: the audit log below records each application)
       });
 
       // Audit log (outside transaction)
@@ -754,6 +749,10 @@ export class CreditNoteService {
       if (creditNote.status !== 'DRAFT') {
         throw new Error('Only draft credit notes can be updated');
       }
+      // its journal was drafted with these amounts; a different amount is a new credit note (delete this draft)
+      if (updates.amount !== undefined || updates.vatAmount !== undefined || updates.totalAmount !== undefined) {
+        throw new Error('The amounts of a credit note are fixed once it is raised; delete this draft and raise a new one.');
+      }
 
       const updatedCreditNote = await prisma.creditNote.update({
         where: { id: creditNoteId },
@@ -817,7 +816,7 @@ export class CreditNoteService {
   /**
    * Send credit note
    */
-  static async sendCreditNote(creditNoteId: string, sentById: string): Promise<CreditNoteWithRelations> {
+  static async sendCreditNote(creditNoteId: string, sentById: string, sender?: any): Promise<CreditNoteWithRelations> {
     try {
       const creditNote = await prisma.creditNote.findUnique({
         where: { id: creditNoteId }
@@ -829,6 +828,14 @@ export class CreditNoteService {
 
       if (creditNote.status !== 'DRAFT') {
         throw new Error('Only draft credit notes can be sent');
+      }
+      // sending posts its journal (Dr revenue and VAT, Cr receivables): maker-checker and the period lock apply
+      if (creditNote.journalEntryId) {
+        const je = await prisma.journalEntry.findUnique({ where: { id: creditNote.journalEntryId }, select: { status: true } });
+        if (je && je.status === 'PENDING') {
+          const { default: JournalEntryService } = await import('./JournalEntryService');
+          await JournalEntryService.postJournalEntry(creditNote.journalEntryId, sentById, { user: sender });
+        }
       }
 
       const updatedCreditNote = await prisma.creditNote.update({
@@ -900,6 +907,14 @@ export class CreditNoteService {
 
       if (creditNote.status !== 'DRAFT') {
         throw new Error('Only draft credit notes can be deleted');
+      }
+      // its draft journal is withdrawn with it (it was never posted)
+      if (creditNote.journalEntryId) {
+        const je = await prisma.journalEntry.findUnique({ where: { id: creditNote.journalEntryId }, select: { status: true } });
+        if (je && je.status === 'PENDING') {
+          const { default: JournalEntryService } = await import('./JournalEntryService');
+          await JournalEntryService.voidJournalEntry(creditNote.journalEntryId, deletedById, { reason: 'Credit note draft deleted' });
+        }
       }
 
       await prisma.creditNote.update({

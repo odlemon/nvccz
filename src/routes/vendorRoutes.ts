@@ -42,6 +42,16 @@ router.use(requireInternalStaffUser());
  */
 router.get("/for-rfq", VendorController.listVendorsForRfq);
 
+// UI option lists (statuses, document types, risk) and the vendor lifecycle. Declared before "/:id" routes.
+router.get("/status-options", requireAnyPermission([PROC_PERMS.vendorsView]), VendorController.getStatusOptions);
+router.get("/document-settings", requireAnyPermission([PROC_PERMS.vendorsView]), VendorController.getDocumentSettings);
+router.put("/document-settings", requireAnyPermission([PROC_PERMS.vendorsManage]), VendorController.updateDocumentSettings);
+router.post("/compliance-cycle", requireAnyPermission([PROC_PERMS.vendorsManage]), VendorController.runComplianceCycle);
+router.put("/kyc-documents/:documentId", requireAnyPermission([PROC_PERMS.vendorsManage]), VendorController.updateVendorKyc);
+// Every status change (submit, approve, suspend, block, reinstate, deactivate) goes through here: permission by move,
+// reason where required, segregation of duties on approval, audited.
+router.post("/:id/status", requireAnyPermission([PROC_PERMS.vendorsManage, PROC_PERMS.vendorsApprove]), VendorController.changeVendorStatus);
+
 /**
  * @swagger
  * /accounting/vendors/pending-review:
@@ -539,7 +549,7 @@ router.put("/:id", requireAnyPermission([PROC_PERMS.vendorsManage]), VendorContr
  *       401:
  *         description: Unauthorized
  */
-router.delete("/:id", VendorController.deleteVendor);
+router.delete("/:id", requireAnyPermission([PROC_PERMS.vendorsManage]), VendorController.deleteVendor);
 
 /**
  * @swagger

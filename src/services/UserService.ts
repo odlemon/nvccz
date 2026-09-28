@@ -4,17 +4,317 @@ import bcrypt from "bcrypt";
 import { emailTransport, getFromAddress } from "../config/email.config";
 import AuditService from "./AuditService";
 import {
+  ACCESS_PROFILES,
+  PROCUREMENT_FUNCTIONS,
+  SOD_RESTRICTIONS,
+  SOD_RESTRICTION_LABELS,
+  USER_STATUSES,
+  fullNameOf,
+  normalizeAccessProfile,
+  normalizeProcurementFunction,
+  parseSodRestrictions,
+} from "../config/userMasterAccess";
+import {
   deleteUserRecord,
   formatReassignedRecordsMessage,
   getUserDeleteBlockers,
   reassignUserReferences,
-  resolveAdminReassignTarget
+  resolveAdminReassignTarget,
+  scanUserReferences
 } from "./userDeleteHelpers";
 
 const BOARD_VOTING_ROLE_CODES = ["BOARD_CHAIR", "BOARD_MEMBER", "INV_COMM_MEM", "CIO"];
-const ALLOWED_USER_STATUSES = ["ACTIVE", "SUSPENDED", "LOCKED", "DEACTIVATED"];
+const ALLOWED_USER_STATUSES = [...USER_STATUSES] as string[];
+
+/** Master-data columns exposed on the admin list/detail (User Master). */
+const USER_MASTER_SELECT = {
+  employeeCode: true,
+  mobileNumber: true,
+  location: true,
+  jobTitle: true,
+  branch: true,
+  businessUnit: true,
+  costCentre: true,
+  reportingManagerId: true,
+  procurementFunction: true,
+  accessProfile: true,
+  approvalLevel: true,
+  approvalLimitAmount: true,
+  delegatedApproverId: true,
+  sodRestrictions: true,
+  ssoUsername: true,
+  uatRole: true,
+  effectiveDate: true,
+  endDate: true,
+  lastLoginAt: true,
+  createdById: true,
+  updatedById: true,
+  deactivatedAt: true,
+} as const;
+
+/** Tables that record that a person merely used the system, not that they transacted. They never block removal. */
+const NON_TRANSACTIONAL_TABLES = new Set([
+  "audit_logs",
+  "user_activity",
+  "notifications",
+  "password_reset_tokens",
+  "user_mfa_totp",
+  "saved_filter_favorites",
+]);
+
+export type UserMasterInput = {
+  employeeCode?: string | null;
+  fullName?: string | null;
+  mobileNumber?: string | null;
+  location?: string | null;
+  jobTitle?: string | null;
+  branch?: string | null;
+  businessUnit?: string | null;
+  costCentre?: string | null;
+  reportingManagerId?: string | null;
+  procurementFunction?: string | null;
+  accessProfile?: string | null;
+  approvalLevel?: number | string | null;
+  approvalLimitAmount?: number | string | null;
+  delegatedApproverId?: string | null;
+  sodRestrictions?: string[] | null;
+  ssoUsername?: string | null;
+  uatRole?: string | null;
+  effectiveDate?: string | Date | null;
+  endDate?: string | Date | null;
+};
 
 export class UserService {
+
+  // ---------------------------------------------------------------- User Master ----
+
+  /** Option lists for the admin form, so the UI never hard-codes them. */
+  static masterOptions() {
+    return {
+      statuses: [...USER_STATUSES],
+      procurementFunctions: [...PROCUREMENT_FUNCTIONS],
+      accessProfiles: [...ACCESS_PROFILES],
+      sodRestrictions: SOD_RESTRICTIONS.map((code) => ({ code, label: SOD_RESTRICTION_LABELS[code] })),
+    };
+  }
+
+  private static cleanText(v: any, label: string, max: number): string | null {
+    if (v === null || v === undefined) return null;
+    const s = String(v).trim();
+    if (!s) return null;
+    if (s.length > max) throw new Error(`${label} must be at most ${max} characters`);
+    return s;
+  }
+
+  private static cleanDate(v: any, label: string): Date | null {
+    if (v === null || v === undefined || v === "") return null;
+    const d = v instanceof Date ? v : new Date(v);
+    if (Number.isNaN(d.getTime())) throw new Error(`${label} is not a valid date`);
+    return d;
+  }
+
+  /**
+   * Validate the User Master input. Only keys present in `input` are returned, so a partial update leaves the rest
+   * alone; an explicit null / empty string clears a field.
+   */
+  private static async normalizeMasterInput(
+    input: UserMasterInput,
+    ctx: { userId?: string; firstName?: string; lastName?: string; existing?: any }
+  ): Promise<Record<string, any>> {
+    const out: Record<string, any> = {};
+    const has = (k: keyof UserMasterInput) => input[k] !== undefined;
+
+    if (has("employeeCode")) {
+      const code = this.cleanText(input.employeeCode, "Employee/User ID", 64);
+      if (code) {
+        const clash = await prisma.user.findFirst({
+          where: { employeeCode: code, ...(ctx.userId ? { id: { not: ctx.userId } } : {}) },
+          select: { id: true },
+        });
+        if (clash) throw new Error(`Employee/User ID ${code} is already assigned to another user`);
+      }
+      out.employeeCode = code;
+    }
+    if (has("mobileNumber")) {
+      const m = this.cleanText(input.mobileNumber, "Mobile number", 32);
+      if (m && !/^\+?[0-9][0-9 ()-]{5,30}$/.test(m)) throw new Error("Mobile number is not a valid phone number");
+      out.mobileNumber = m;
+    }
+    for (const [key, label] of [
+      ["location", "Location"],
+      ["jobTitle", "Job title"],
+      ["branch", "Branch"],
+      ["businessUnit", "Business unit"],
+      ["costCentre", "Cost centre"],
+    ] as const) {
+      if (has(key)) out[key] = this.cleanText(input[key], label, 128);
+    }
+    if (has("uatRole")) out.uatRole = this.cleanText(input.uatRole, "UAT role", 64);
+
+    if (has("ssoUsername")) {
+      const sso = this.cleanText(input.ssoUsername, "Network/SSO username", 128);
+      if (sso) {
+        if (!/^[A-Za-z0-9._\\-]{2,128}$/.test(sso)) {
+          throw new Error("Network/SSO username may contain letters, numbers, dot, dash, underscore and backslash only");
+        }
+        const clash = await prisma.user.findFirst({
+          where: { ssoUsername: sso, ...(ctx.userId ? { id: { not: ctx.userId } } : {}) },
+          select: { id: true },
+        });
+        if (clash) throw new Error(`Network/SSO username ${sso} is already assigned to another user`);
+      }
+      out.ssoUsername = sso;
+    }
+
+    if (has("procurementFunction")) {
+      const raw = this.cleanText(input.procurementFunction, "Procurement function", 48);
+      const fn = raw ? normalizeProcurementFunction(raw) : null;
+      if (raw && !fn) throw new Error(`Invalid procurement function. Valid: ${PROCUREMENT_FUNCTIONS.join(", ")}`);
+      out.procurementFunction = fn;
+    }
+    if (has("accessProfile")) {
+      const raw = this.cleanText(input.accessProfile, "Access profile", 48);
+      const ap = raw ? normalizeAccessProfile(raw) : null;
+      if (raw && !ap) throw new Error(`Invalid access profile. Valid: ${ACCESS_PROFILES.join(", ")}`);
+      out.accessProfile = ap;
+    }
+
+    if (has("approvalLevel")) {
+      const v = input.approvalLevel;
+      if (v === null || v === "") out.approvalLevel = null;
+      else {
+        const n = Number(v);
+        if (!Number.isInteger(n) || n < 0 || n > 99) throw new Error("Approval level must be a whole number from 0 to 99");
+        out.approvalLevel = n;
+      }
+    }
+    if (has("approvalLimitAmount")) {
+      const v = input.approvalLimitAmount;
+      if (v === null || v === "") out.approvalLimitAmount = null;
+      else {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0) throw new Error("Approval limit must be zero or more");
+        if (n > 9999999999999) throw new Error("Approval limit is too large");
+        out.approvalLimitAmount = n;
+      }
+    }
+
+    if (has("sodRestrictions")) {
+      const list = input.sodRestrictions;
+      if (list === null) out.sodRestrictions = [];
+      else {
+        if (!Array.isArray(list)) throw new Error("Segregation-of-duties restrictions must be a list");
+        const known = new Set<string>(SOD_RESTRICTIONS);
+        const bad = list.filter((c) => !known.has(String(c).trim().toUpperCase()));
+        if (bad.length) throw new Error(`Unknown segregation-of-duties restriction: ${bad.join(", ")}`);
+        out.sodRestrictions = parseSodRestrictions(list);
+      }
+    }
+
+    if (has("effectiveDate")) out.effectiveDate = this.cleanDate(input.effectiveDate, "Effective date");
+    if (has("endDate")) out.endDate = this.cleanDate(input.endDate, "End date");
+    const eff = "effectiveDate" in out ? out.effectiveDate : ctx.existing?.effectiveDate;
+    const end = "endDate" in out ? out.endDate : ctx.existing?.endDate;
+    if (eff && end && new Date(end).getTime() < new Date(eff).getTime()) {
+      throw new Error("End date cannot be before the effective date");
+    }
+
+    if (has("reportingManagerId")) {
+      const id = this.cleanText(input.reportingManagerId, "Reporting manager", 191);
+      if (id) {
+        if (ctx.userId && id === ctx.userId) throw new Error("A user cannot report to themselves");
+        const mgr = await prisma.user.findUnique({ where: { id }, select: { id: true } });
+        if (!mgr) throw new Error("Reporting manager not found");
+        // Walk up the reporting line: assigning must not create a loop.
+        if (ctx.userId) {
+          let cursor: string | null = id;
+          for (let hop = 0; cursor && hop < 25; hop++) {
+            const up = await prisma.user.findUnique({ where: { id: cursor }, select: { reportingManagerId: true } });
+            cursor = up?.reportingManagerId ?? null;
+            if (cursor === ctx.userId) throw new Error("That reporting manager already reports (directly or indirectly) to this user");
+          }
+        }
+      }
+      out.reportingManagerId = id;
+    }
+    if (has("delegatedApproverId")) {
+      const id = this.cleanText(input.delegatedApproverId, "Delegated approver", 191);
+      if (id) {
+        if (ctx.userId && id === ctx.userId) throw new Error("A user cannot delegate approvals to themselves");
+        const d = await prisma.user.findUnique({ where: { id }, select: { id: true, status: true } });
+        if (!d) throw new Error("Delegated approver not found");
+        if (String(d.status || "ACTIVE").toUpperCase() !== "ACTIVE") {
+          throw new Error("The delegated approver must be an active user");
+        }
+      }
+      out.delegatedApproverId = id;
+    }
+
+    // Full name is derived from first name + surname. A supplied value that contradicts them is refused.
+    if (input.fullName != null && String(input.fullName).trim() !== "") {
+      const first = ctx.firstName ?? ctx.existing?.firstName;
+      const last = ctx.lastName ?? ctx.existing?.lastName;
+      const derived = fullNameOf({ firstName: first, lastName: last });
+      if (derived && String(input.fullName).trim().replace(/\s+/g, " ").toLowerCase() !== derived.toLowerCase()) {
+        throw new Error(`Full name "${String(input.fullName).trim()}" does not match first name and surname ("${derived}")`);
+      }
+    }
+    return out;
+  }
+
+  private static async nextEmployeeCode(): Promise<string> {
+    const rows = await prisma.$queryRawUnsafe(
+      "SELECT MAX(CAST(SUBSTRING(`employee_code`, 5) AS UNSIGNED)) AS n FROM `users` WHERE `employee_code` REGEXP '^EMP-[0-9]+$'"
+    );
+    const next = Number(rows?.[0]?.n ?? 0) + 1;
+    return `EMP-${String(next).padStart(5, "0")}`;
+  }
+
+  /** Adds derived fields (fullName, approvalLimit as a number) and resolves people ids to names. */
+  private static async shapeUser(u: any, opts: { resolveNames?: boolean } = {}) {
+    if (!u) return u;
+    const shaped: any = {
+      ...u,
+      fullName: fullNameOf(u),
+      approvalLimitAmount: u.approvalLimitAmount != null ? Number(u.approvalLimitAmount) : null,
+      sodRestrictions: parseSodRestrictions(u.sodRestrictions),
+    };
+    if (opts.resolveNames) {
+      const ids = [u.reportingManagerId, u.delegatedApproverId, u.createdById, u.updatedById].filter(Boolean);
+      const people = ids.length
+        ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, firstName: true, lastName: true, email: true } })
+        : [];
+      const name = (id?: string | null) => {
+        const p = people.find((x) => x.id === id);
+        return p ? fullNameOf(p) || p.email : null;
+      };
+      shaped.reportingManagerName = name(u.reportingManagerId);
+      shaped.delegatedApproverName = name(u.delegatedApproverId);
+      shaped.createdByName = name(u.createdById);
+      shaped.updatedByName = name(u.updatedById);
+    }
+    return shaped;
+  }
+
+  /**
+   * True when the person appears on any business record. Two sources: every database foreign key that points at them
+   * (minus pure "used the system" tables), and the procurement/approval tables checked by name because their user
+   * columns are not all declared as foreign keys.
+   */
+  private static async hasTransactionalHistory(id: string): Promise<boolean> {
+    const refs = await scanUserReferences(id);
+    if (refs.database.some((r: any) => !NON_TRANSACTIONAL_TABLES.has(String(r.table)) && Number(r.count) > 0)) return true;
+    const counts = await Promise.all([
+      prisma.approval.count({ where: { OR: [{ approverId: id }, { delegatedToId: id }] } }),
+      prisma.approvalRequest.count({ where: { requestedById: id } }),
+      prisma.purchaseRequisition.count({ where: { OR: [{ requestedById: id }, { approvedById: id }] } }),
+      prisma.purchaseOrder.count({ where: { OR: [{ createdById: id }, { approvedById: id }, { sentById: id }] } }),
+      prisma.goodsReceivedNote.count({ where: { OR: [{ receivedById: id }, { approvedById: id }] } }),
+      prisma.procurementInvoice.count({ where: { OR: [{ createdById: id }, { approvedById: id }] } }),
+    ]);
+    return counts.some((c) => c > 0);
+  }
+
   private static isBoardVotingRole(roleCode?: string | null): boolean {
     return !!roleCode && BOARD_VOTING_ROLE_CODES.includes(roleCode);
   }
@@ -339,14 +639,18 @@ This is an automated message. Please do not reply to this email.
   /**
    * Create a new user with auto-generated password and email credentials
    */
-  static async createUser(userData: {
-    firstName: string;
-    lastName: string;
-    email: string;
-    department: string;
-    roleCode: string;
-    departmentRole: string;
-  }) {
+  static async createUser(
+    userData: {
+      firstName: string;
+      lastName: string;
+      email: string;
+      department: string;
+      roleCode: string;
+      departmentRole: string;
+      status?: string;
+    } & UserMasterInput,
+    auditContext?: { actorUserId?: string | null; ipAddress?: string | null; userAgent?: string | null }
+  ) {
     try {
       const normalizedEmail = userData.email.trim().toLowerCase();
 
@@ -402,6 +706,19 @@ This is an automated message. Please do not reply to this email.
         }
       }
 
+      const master = await this.normalizeMasterInput(userData, {
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+      });
+      if (!master.employeeCode) master.employeeCode = await this.nextEmployeeCode();
+      let initialStatus = "ACTIVE";
+      if (userData.status) {
+        initialStatus = String(userData.status).trim().toUpperCase();
+        if (!ALLOWED_USER_STATUSES.includes(initialStatus)) {
+          throw new Error(`Invalid status. Valid statuses: ${ALLOWED_USER_STATUSES.join(", ")}`);
+        }
+      }
+
       // Generate password
       const password = this.generatePassword();
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -417,9 +734,24 @@ This is an automated message. Please do not reply to this email.
           departmentRole: userData.departmentRole,
           roleCode: userData.roleCode,
           roleId: role.id,
-          votingPower: null
+          votingPower: null,
+          ...master,
+          status: initialStatus,
+          ...(initialStatus === "DEACTIVATED" ? { deactivatedAt: new Date() } : {}),
+          createdById: auditContext?.actorUserId ?? null,
+          updatedById: auditContext?.actorUserId ?? null
         }
       });
+
+      await AuditService.log({
+        userId: auditContext?.actorUserId ?? null,
+        action: "USER_CREATE",
+        entityType: "User",
+        entityId: user.id,
+        newValues: { email: user.email, employeeCode: user.employeeCode, status: user.status, roleCode: user.roleCode },
+        ipAddress: auditContext?.ipAddress ?? null,
+        userAgent: auditContext?.userAgent ?? null
+      }).catch(() => undefined);
 
       // Send credentials email
       await this.sendCredentialsEmail(
@@ -469,6 +801,7 @@ This is an automated message. Please do not reply to this email.
           roleCode: true,
           status: true,
           votingPower: true,
+          ...USER_MASTER_SELECT,
           role: {
             select: {
               id: true,
@@ -485,7 +818,7 @@ This is an automated message. Please do not reply to this email.
         ]
       });
 
-      return users;
+      return Promise.all(users.map((u) => this.shapeUser(u)));
     } catch (error) {
       console.error("Error getting all users:", error);
       throw error;
@@ -509,6 +842,7 @@ This is an automated message. Please do not reply to this email.
           roleCode: true,
           status: true,
           votingPower: true,
+          ...USER_MASTER_SELECT,
           role: {
             select: {
               id: true,
@@ -526,7 +860,7 @@ This is an automated message. Please do not reply to this email.
         throw new Error("User not found");
       }
 
-      return user;
+      return this.shapeUser(user, { resolveNames: true });
     } catch (error) {
       console.error("Error getting user by ID:", error);
       throw error;
@@ -547,7 +881,7 @@ This is an automated message. Please do not reply to this email.
       departmentRole?: string;
       roleId?: string;
       status?: string;
-    },
+    } & UserMasterInput,
     auditContext?: {
       actorUserId: string;
       ipAddress?: string | null;
@@ -648,8 +982,16 @@ This is an automated message. Please do not reply to this email.
         }
       }
 
+      const master = await this.normalizeMasterInput(userData, {
+        userId: id,
+        firstName: userData.firstName || undefined,
+        lastName: userData.lastName || undefined,
+        existing: existingUser,
+      });
+
       // Update user - explicitly exclude password (password should only be changed via change-password endpoint)
-      const updateData: any = {};
+      const updateData: any = { ...master };
+      if (auditContext?.actorUserId) updateData.updatedById = auditContext.actorUserId;
       if (userData.firstName) updateData.firstName = userData.firstName;
       if (userData.lastName) updateData.lastName = userData.lastName;
       if (userData.email) updateData.email = userData.email.toLowerCase().trim();
@@ -681,6 +1023,17 @@ This is an automated message. Please do not reply to this email.
       // Invalidate outstanding JWTs when leaving ACTIVE (same pattern as LP revocation).
       if (statusChanged && nextStatus !== "ACTIVE") {
         updateData.tokenVersion = (existingUser.tokenVersion ?? 0) + 1;
+      }
+      if (statusChanged) updateData.deactivatedAt = nextStatus === "DEACTIVATED" ? new Date() : null;
+      // Someone who is the last active administrator cannot be taken out of service.
+      if (statusChanged && nextStatus !== "ACTIVE" && existingUser.role?.name === "admin") {
+        const otherActiveAdmins = await prisma.user.count({
+          where: { id: { not: id }, status: "ACTIVE", role: { name: "admin" } }
+        });
+        if (otherActiveAdmins === 0) throw new Error("Cannot take the last active admin user out of service");
+      }
+      if (statusChanged && nextStatus !== "ACTIVE" && auditContext?.actorUserId === id) {
+        throw new Error("You cannot suspend, lock or deactivate your own account");
       }
 
       const user = await prisma.user.update({
@@ -724,6 +1077,31 @@ This is an automated message. Please do not reply to this email.
         });
       }
 
+      const masterKeys = Object.keys(master);
+      if (auditContext?.actorUserId && masterKeys.length) {
+        const norm = (v: any) => (v instanceof Date ? v.toISOString() : v != null && typeof v === "object" ? JSON.stringify(v) : v ?? null);
+        const oldValues: Record<string, any> = {};
+        const newValues: Record<string, any> = {};
+        for (const k of masterKeys) {
+          if (norm(existingUser[k]) !== norm(user[k]) && !(k === "approvalLimitAmount" && Number(existingUser[k]) === Number(user[k]))) {
+            oldValues[k] = norm(existingUser[k]);
+            newValues[k] = norm(user[k]);
+          }
+        }
+        if (Object.keys(newValues).length) {
+          await AuditService.log({
+            userId: auditContext.actorUserId,
+            action: "USER_MASTER_UPDATE",
+            entityType: "User",
+            entityId: id,
+            oldValues,
+            newValues,
+            ipAddress: auditContext.ipAddress ?? null,
+            userAgent: auditContext.userAgent ?? null
+          });
+        }
+      }
+
       if (auditContext?.actorUserId && statusChanged) {
         await AuditService.log({
           userId: auditContext.actorUserId,
@@ -748,6 +1126,11 @@ This is an automated message. Please do not reply to this email.
         roleCode: user.roleCode,
         status: user.status,
         votingPower: user.votingPower ? Number(user.votingPower) : null,
+        ...(await this.shapeUser(
+          Object.fromEntries(Object.keys(USER_MASTER_SELECT).map((k) => [k, user[k]])),
+          { resolveNames: true }
+        )),
+        fullName: fullNameOf(user),
         role: user.role ? {
           id: user.role.id,
           name: user.role.name,
@@ -765,7 +1148,10 @@ This is an automated message. Please do not reply to this email.
   /**
    * Delete user. Related records (journal entries, etc.) are reassigned to an admin user automatically.
    */
-  static async deleteUser(id: string) {
+  static async deleteUser(
+    id: string,
+    auditContext?: { actorUserId?: string | null; ipAddress?: string | null; userAgent?: string | null }
+  ) {
     try {
       // Check if user exists
       const user = await prisma.user.findUnique({
@@ -794,12 +1180,65 @@ This is an automated message. Please do not reply to this email.
         }
       }
 
+      if (auditContext?.actorUserId && auditContext.actorUserId === id) {
+        throw new Error("You cannot delete your own account");
+      }
+
+      // Records with historical transactions are never permanently deleted: the person is deactivated and the
+      // record, with everything that points at it, is kept exactly as it was.
+      if (await this.hasTransactionalHistory(id)) {
+        if (user.role?.name === "admin") {
+          const otherActiveAdmins = await prisma.user.count({
+            where: { id: { not: id }, status: "ACTIVE", role: { name: "admin" } }
+          });
+          if (otherActiveAdmins === 0) throw new Error("Cannot deactivate the last active admin user");
+        }
+        const previousStatus = String(user.status ?? "ACTIVE").toUpperCase();
+        await prisma.user.update({
+          where: { id },
+          data: {
+            status: "DEACTIVATED",
+            deactivatedAt: user.deactivatedAt ?? new Date(),
+            tokenVersion: (user.tokenVersion ?? 0) + 1,
+            updatedById: auditContext?.actorUserId ?? null
+          }
+        });
+        await AuditService.log({
+          userId: auditContext?.actorUserId ?? null,
+          action: "USER_SOFT_DELETE",
+          entityType: "User",
+          entityId: id,
+          oldValues: { targetUserId: id, oldStatus: previousStatus },
+          newValues: { targetUserId: id, newStatus: "DEACTIVATED", reason: "Has transaction history; record preserved" },
+          ipAddress: auditContext?.ipAddress ?? null,
+          userAgent: auditContext?.userAgent ?? null
+        }).catch(() => undefined);
+        return {
+          deactivated: true,
+          message: `${fullNameOf(user) || user.email} has transaction history, so the record was kept and the user was deactivated instead of deleted.`
+        };
+      }
+
+      // No history: safe to remove. Clear other users' pointers at this person first.
+      await prisma.user.updateMany({ where: { reportingManagerId: id }, data: { reportingManagerId: null } });
+      await prisma.user.updateMany({ where: { delegatedApproverId: id }, data: { delegatedApproverId: null } });
+
       const blockers = await getUserDeleteBlockers(id);
       const admin = await resolveAdminReassignTarget(id);
       await reassignUserReferences(id, admin.id);
       await deleteUserRecord(id);
 
-      return { message: formatReassignedRecordsMessage(blockers, admin) };
+      await AuditService.log({
+        userId: auditContext?.actorUserId ?? null,
+        action: "USER_DELETE",
+        entityType: "User",
+        entityId: id,
+        oldValues: { email: user.email, employeeCode: user.employeeCode ?? null },
+        ipAddress: auditContext?.ipAddress ?? null,
+        userAgent: auditContext?.userAgent ?? null
+      }).catch(() => undefined);
+
+      return { deactivated: false, message: formatReassignedRecordsMessage(blockers, admin) };
     } catch (error: any) {
       console.error("Error deleting user:", error);
       const message = error?.message ?? "";

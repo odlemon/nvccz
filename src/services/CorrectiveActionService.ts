@@ -1,4 +1,5 @@
 import { prisma } from "../utils/database";
+import { nextReference as nextReferenceNumber } from "./PerformanceNumbering";
 
 /** Thrown for bad input / unknown ids — controller maps statusCode to the HTTP response. */
 class CorrectiveActionValidationError extends Error {
@@ -64,6 +65,8 @@ export interface CorrectiveActionCreateInput {
   status?: string | null;
   progress?: number | null;
   targetDate?: Date | null;
+  sourceType?: string | null;
+  sourceId?: string | null;
   createdById: string;
 }
 
@@ -77,7 +80,19 @@ export interface CorrectiveActionUpdateInput {
   status?: string;
   progress?: number | null;
   targetDate?: Date | null;
+  rootCause?: string | null;
+  resolutionNotes?: string | null;
+  /** Why the status or progress changed; stored on the history event. */
+  note?: string | null;
 }
+
+/** Allowed status moves. Closing needs a root cause and resolution; reopening and blocking need a note. */
+export const CORRECTIVE_ACTION_TRANSITIONS: Record<CorrectiveActionStatus, CorrectiveActionStatus[]> = {
+  open: ["in_progress", "blocked", "closed"],
+  in_progress: ["blocked", "closed", "open"],
+  blocked: ["in_progress", "open", "closed"],
+  closed: ["open"],
+};
 
 export interface CorrectiveActionSummary {
   /** Every action not yet closed (open + in_progress + blocked). Per-status counts are in `byStatus`. */
@@ -142,8 +157,8 @@ export default class CorrectiveActionService {
    * Register list, newest first. Every filter is optional; unknown filter values are rejected
    * rather than silently returning everything.
    */
-  static async list(filters: CorrectiveActionListFilters = {}) {
-    const where: Record<string, unknown> = {};
+  static async list(filters: CorrectiveActionListFilters = {}, scope: any = {}) {
+    const where: Record<string, unknown> = { ...scope };
 
     if (filters.status !== undefined && filters.status !== "") {
       where.status = normalizeStatus(filters.status);
@@ -215,14 +230,18 @@ export default class CorrectiveActionService {
       progress,
       targetDate,
       closedAt: status === CLOSED_STATUS ? new Date() : null,
+      sourceType: normalizeText(input.sourceType),
+      sourceId: normalizeText(input.sourceId),
       createdById: input.createdById,
     };
 
     if (explicitReference) {
-      return correctiveActions().create({
+      const created = await correctiveActions().create({
         data: { ...data, reference: explicitReference },
         include: DEFAULT_INCLUDE,
       });
+      await CorrectiveActionService.recordEvent(created.id, "created", null, status, progress, null, input.createdById);
+      return created;
     }
 
     // Auto-numbered CA-001, CA-002, ... Retry on the unique index if a concurrent create wins.
@@ -230,10 +249,12 @@ export default class CorrectiveActionService {
     for (let attempt = 0; attempt < REFERENCE_MAX_ATTEMPTS; attempt += 1) {
       const reference = await CorrectiveActionService.nextReference();
       try {
-        return await correctiveActions().create({
+        const created = await correctiveActions().create({
           data: { ...data, reference },
           include: DEFAULT_INCLUDE,
         });
+        await CorrectiveActionService.recordEvent(created.id, "created", null, status, progress, null, input.createdById);
+        return created;
       } catch (error: any) {
         if (error?.code !== "P2002") throw error;
         lastError = error;
@@ -249,7 +270,7 @@ export default class CorrectiveActionService {
    * Partial update. `closedAt` is derived from `status`, never taken from the request: moving to
    * `closed` stamps it, moving away from `closed` clears it.
    */
-  static async update(id: string, patch: CorrectiveActionUpdateInput) {
+  static async update(id: string, patch: CorrectiveActionUpdateInput, actorId?: string | null) {
     const existing = await correctiveActions().findUnique({ where: { id } });
     if (!existing) throw new CorrectiveActionNotFoundError();
 
@@ -275,11 +296,34 @@ export default class CorrectiveActionService {
     }
 
     if (patch.severity !== undefined) data.severity = normalizeSeverity(patch.severity);
-    if (patch.progress !== undefined) data.progress = normalizeProgress(patch.progress);
+    if (patch.progress !== undefined) {
+      if (existing.status === CLOSED_STATUS && patch.status === undefined) {
+        throw new CorrectiveActionValidationError("A closed action cannot be updated. Reopen it first.");
+      }
+      data.progress = normalizeProgress(patch.progress);
+    }
+    if (patch.rootCause !== undefined) data.rootCause = normalizeText(patch.rootCause);
+    if (patch.resolutionNotes !== undefined) data.resolutionNotes = normalizeText(patch.resolutionNotes);
+    const note = normalizeText(patch.note);
     if (patch.targetDate !== undefined) data.targetDate = normalizeDate(patch.targetDate, "targetDate");
 
     if (patch.status !== undefined) {
       const status = normalizeStatus(patch.status);
+      if (status !== existing.status) {
+        const allowed = CORRECTIVE_ACTION_TRANSITIONS[existing.status as CorrectiveActionStatus] || [];
+        if (!allowed.includes(status)) {
+          throw new CorrectiveActionValidationError(`An action that is ${existing.status.replace("_", " ")} cannot move to ${status.replace("_", " ")}.`);
+        }
+        if (status === CLOSED_STATUS) {
+          const rc = data.rootCause !== undefined ? data.rootCause : existing.rootCause;
+          const rn = data.resolutionNotes !== undefined ? data.resolutionNotes : existing.resolutionNotes;
+          if (!rc) throw new CorrectiveActionValidationError("Record the root cause before closing the action.");
+          if (!rn) throw new CorrectiveActionValidationError("Record how it was resolved before closing the action.");
+          data.progress = 100;
+        }
+        if (existing.status === CLOSED_STATUS && !note) throw new CorrectiveActionValidationError("Say why the action is being reopened.");
+        if (status === "blocked" && !note) throw new CorrectiveActionValidationError("Say what is blocking the action.");
+      }
       data.status = status;
       if (status === CLOSED_STATUS) {
         data.closedAt = existing.closedAt ?? new Date();
@@ -292,12 +336,46 @@ export default class CorrectiveActionService {
       return CorrectiveActionService.getById(id);
     }
 
-    return correctiveActions().update({ where: { id }, data, include: DEFAULT_INCLUDE });
+    const updated = await correctiveActions().update({ where: { id }, data, include: DEFAULT_INCLUDE });
+    const statusChanged = data.status !== undefined && data.status !== existing.status;
+    const progressChanged = data.progress !== undefined && data.progress !== existing.progress;
+    if (statusChanged || progressChanged || note) {
+      await CorrectiveActionService.recordEvent(
+        id,
+        statusChanged ? (existing.status === CLOSED_STATUS ? "reopened" : data.status === CLOSED_STATUS ? "closed" : "status") : progressChanged ? "progress" : "note",
+        existing.status,
+        (data.status as string) ?? existing.status,
+        (data.progress as number | null | undefined) !== undefined ? (data.progress as number | null) : existing.progress,
+        note,
+        actorId ?? null
+      );
+    }
+    return updated;
+  }
+
+  static async recordEvent(actionId: string, eventType: string, fromStatus: string | null, toStatus: string | null, progress: number | null, note: string | null, actorId: string | null) {
+    await prisma.performanceCorrectiveActionEvent.create({ data: { actionId, eventType, fromStatus, toStatus, progress, note, actorId } });
+  }
+
+  /** History of one action, newest first, with the actor named. */
+  static async events(actionId: string) {
+    const rows = await prisma.performanceCorrectiveActionEvent.findMany({ where: { actionId }, orderBy: { createdAt: "desc" } });
+    const ids = [...new Set(rows.map((r) => r.actorId).filter(Boolean))] as string[];
+    const users = ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: OWNER_SELECT }) : [];
+    const name = new Map(users.map((u) => [u.id, [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email]));
+    return rows.map((r) => ({ ...r, actorName: r.actorId ? name.get(r.actorId) ?? null : null }));
+  }
+
+  /** Portfolio history since a date (recovery trend): every event, oldest first. */
+  static async portfolioEvents(since: Date, scope: any = {}) {
+    const actionFilter = scope && scope.OR ? { actionId: { in: (await correctiveActions().findMany({ where: scope, select: { id: true } })).map((r: any) => r.id) } } : {};
+    return prisma.performanceCorrectiveActionEvent.findMany({ where: { createdAt: { gte: since }, ...actionFilter }, orderBy: { createdAt: "asc" }, select: { actionId: true, eventType: true, fromStatus: true, toStatus: true, progress: true, createdAt: true } });
   }
 
   static async remove(id: string) {
     const existing = await correctiveActions().findUnique({ where: { id } });
     if (!existing) throw new CorrectiveActionNotFoundError();
+    await prisma.performanceCorrectiveActionEvent.deleteMany({ where: { actionId: id } });
     await correctiveActions().delete({ where: { id } });
     return { id };
   }
@@ -306,14 +384,14 @@ export default class CorrectiveActionService {
    * Register-wide counters for the Performance dashboard tiles.
    * `open` counts everything not yet closed; `overdue` is not-closed with a past `targetDate`.
    */
-  static async summary(): Promise<CorrectiveActionSummary> {
+  static async summary(scope: any = {}): Promise<CorrectiveActionSummary> {
     const now = new Date();
 
     const [statusGroups, severityGroups, overdue] = await Promise.all([
-      correctiveActions().groupBy({ by: ["status"], _count: { _all: true } }),
-      correctiveActions().groupBy({ by: ["severity"], _count: { _all: true } }),
+      correctiveActions().groupBy({ by: ["status"], where: scope, _count: { _all: true } }),
+      correctiveActions().groupBy({ by: ["severity"], where: scope, _count: { _all: true } }),
       correctiveActions().count({
-        where: { status: { not: CLOSED_STATUS }, targetDate: { lt: now } },
+        where: { ...scope, status: { not: CLOSED_STATUS }, targetDate: { lt: now } },
       }),
     ]);
 
@@ -349,22 +427,10 @@ export default class CorrectiveActionService {
     return new Date(row.targetDate).getTime() < now.getTime();
   }
 
-  /** Highest existing CA-nnn + 1, zero-padded. Falls back to CA-001 on an empty register. */
+  /** Highest existing number + 1 for the configured prefix and width (settings key workflow.numbering). */
   private static async nextReference(): Promise<string> {
-    const rows = await correctiveActions().findMany({
-      where: { reference: { startsWith: REFERENCE_PREFIX } },
-      select: { reference: true },
-    });
-
-    let highest = 0;
-    for (const row of rows as Array<{ reference: string }>) {
-      const match = /^CA-(\d+)$/.exec(row.reference ?? "");
-      if (!match) continue;
-      const value = Number(match[1]);
-      if (Number.isFinite(value) && value > highest) highest = value;
-    }
-
-    return `${REFERENCE_PREFIX}${String(highest + 1).padStart(REFERENCE_PAD, "0")}`;
+    const rows = await correctiveActions().findMany({ select: { reference: true } });
+    return nextReferenceNumber("corrective", (rows as Array<{ reference: string }>).map((r) => r.reference));
   }
 
   private static async assertUserExists(userId: string, field: string): Promise<void> {

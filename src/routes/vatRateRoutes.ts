@@ -4,6 +4,8 @@ import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
 import { VatRateController } from "../controllers/VatRateController";
 
+// Who may use these routes is decided by the Accounting access guard in front of every accounting router
+// (src/middleware/accountingAccessGuard.ts); the role-name lists that stood here refused the Finance Manager and auditors.
 const router = Router();
 
 router.use(authenticate);
@@ -40,7 +42,7 @@ router.use(authenticate);
  *                   items:
  *                     $ref: '#/components/schemas/VatRate'
  */
-router.get("/", authorize(["admin", "finance_manager", "ceo"]), VatRateController.list);
+router.get("/", VatRateController.list);
 
 /**
  * @swagger
@@ -65,7 +67,7 @@ router.get("/", authorize(["admin", "finance_manager", "ceo"]), VatRateControlle
  *                 data:
  *                   $ref: '#/components/schemas/VatRate'
  */
-router.get("/active", authorize(["admin", "finance_manager", "ceo"]), VatRateController.getActive);
+router.get("/active", VatRateController.getActive);
 
 /**
  * @swagger
@@ -114,7 +116,7 @@ router.get("/active", authorize(["admin", "finance_manager", "ceo"]), VatRateCon
  *       409:
  *         description: Another VAT rate is already active
  */
-router.post("/", authorize(["admin", "finance_manager", "ceo"]), VatRateController.create);
+router.post("/", VatRateController.create);
 
 /**
  * @swagger
@@ -166,7 +168,7 @@ router.post("/", authorize(["admin", "finance_manager", "ceo"]), VatRateControll
  *       409:
  *         description: Another VAT rate is already active
  */
-router.put("/:id", authorize(["admin", "finance_manager", "ceo"]), VatRateController.update);
+router.put("/:id", VatRateController.update);
 
 /**
  * @swagger
@@ -204,7 +206,7 @@ router.put("/:id", authorize(["admin", "finance_manager", "ceo"]), VatRateContro
  *       409:
  *         description: Another VAT rate is already active — deactivate it first
  */
-router.post("/:id/set-active", authorize(["admin", "finance_manager", "ceo"]), VatRateController.setActive);
+router.post("/:id/set-active", VatRateController.setActive);
 
 /**
  * @swagger
@@ -230,7 +232,7 @@ router.post("/:id/set-active", authorize(["admin", "finance_manager", "ceo"]), V
  *       404:
  *         description: VAT rate not found
  */
-router.delete("/:id", authorize(["admin", "finance_manager", "ceo"]), VatRateController.remove);
+router.delete("/:id", VatRateController.remove);
 
 export default router;
 

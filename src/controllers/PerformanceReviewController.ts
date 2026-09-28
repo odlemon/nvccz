@@ -9,6 +9,9 @@ function performanceReviewErrorStatus(message: unknown): number {
   if (/access denied/i.test(m)) return 403;
   if (/must be in the same department/i.test(m)) return 403;
   if (/line manager or HR leadership may finalize/i.test(m)) return 403;
+  if (/only the person being reviewed|cannot complete the manager review of your own|cannot finalize your own|cannot write the manager feedback/i.test(m)) return 403;
+  if (/not found/i.test(m)) return 404;
+  if (/self-assessment|manager review has not started|manager feedback|no rating|give the review a rating|only through the workflow|locked|already finalized|No further stage|cannot be finalized/i.test(m)) return 400;
   return 500;
 }
 
@@ -239,10 +242,12 @@ export class PerformanceReviewController {
         isPrivate,
         isAnonymous
       } = req.body;
+      // the author is the signed-in person; a feedbackProviderId in the body let anyone write feedback as someone else
+      const feedbackProviderIdFromUser = (req as any).user?.id;
 
       const request = {
         reviewId,
-        feedbackProviderId,
+        feedbackProviderId: feedbackProviderIdFromUser,
         feedbackProviderType,
         feedbackType,
         content,

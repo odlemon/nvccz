@@ -2,6 +2,7 @@
 
 import fs from "fs";
 import path from "path";
+import { brandLogoBuffer, brandName } from "./p2p/BrandService";
 import { ensureDirectoryForFile, toSafeFileName } from "./performanceBackendSupport";
 
 const PDFDocument = require("pdfkit");
@@ -29,7 +30,12 @@ export async function renderPerformanceReviewPdf(params: {
     const stream = fs.createWriteStream(outputPath);
 
     document.pipe(stream);
-    document.fontSize(18).text(params.documentTitle, { align: "center" });
+    const logo = brandLogoBuffer();
+    if (logo) { try { document.image(logo, 50, 40, { fit: [120, 44] }); document.y = 96; } catch { /* unreadable logo: name only */ } }
+    document.fontSize(10).fillColor("#555555").text(brandName(), 50, logo ? 44 : 40, { align: "right" });
+    document.fillColor("#000000");
+    document.y = Math.max(document.y, logo ? 96 : 64);
+    document.fontSize(18).text(params.documentTitle, 50, document.y, { align: "center" });
     document.moveDown(0.5);
     document.fontSize(11).text(`Subject: ${params.subjectName}`);
     document.text(`Review Period: ${params.reviewPeriod}`);

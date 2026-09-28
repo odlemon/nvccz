@@ -14,7 +14,9 @@ export async function resolveCompanyFiscalIanaTimezone(): Promise<string> {
   if (fromProfile) return fromProfile;
   const envTz = process.env.FISCAL_TIMEZONE?.trim();
   if (envTz) return envTz;
-  return "UTC";
+  // the tenant's own zone, the same fallback as the investment and scheduled-job clocks (resolveStiFiscalIanaTimezone):
+  // with UTC here, between midnight in Harare and midnight UTC "today" was refused as a future date (D19)
+  return "Africa/Harare";
 }
 
 export default class FiscalCalendarService {

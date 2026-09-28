@@ -52,10 +52,16 @@ export function hasChartOfAccountsUpdatableField(patch: ChartOfAccountsUpdatePat
   return UPDATABLE_KEYS.some((k) => patch != null && Object.prototype.hasOwnProperty.call(patch, k));
 }
 
+/** Every check applyChartOfAccountsUpdate makes, without changing anything (a change sent for approval is checked now). */
+export function validateChartOfAccountsUpdate(id: string, patch: ChartOfAccountsUpdatePatch | null | undefined) {
+  return applyChartOfAccountsUpdate(id, patch, undefined, true);
+}
+
 export async function applyChartOfAccountsUpdate(
   id: string,
   patch: ChartOfAccountsUpdatePatch | null | undefined,
-  tx?: Prisma.TransactionClient
+  tx?: Prisma.TransactionClient,
+  dryRun = false
 ): Promise<ChartOfAccountsUpdateResult> {
   const db: any = tx ?? prisma;
   const {
@@ -179,6 +185,35 @@ export async function applyChartOfAccountsUpdate(
       }
     }
   }
+
+  // switching an account off: nothing may still depend on it
+  if (isActive === false && existingAccount.isActive !== false) {
+    // per currency: amounts are not translated to one currency yet (FX-01)
+    const bals: any[] = await db.$queryRawUnsafe(
+      `SELECT c.code AS code, COALESCE(SUM(l.debitAmount),0) - COALESCE(SUM(l.creditAmount),0) AS net
+         FROM journal_entry_lines l JOIN journal_entries j ON j.id = l.journalEntryId
+         LEFT JOIN currencies c ON c.id = COALESCE(l.recorded_currency_id, j.currencyId)
+        WHERE l.chartOfAccountId = ? AND j.status = 'POSTED'
+        GROUP BY c.code`, id);
+    const open = bals.filter((b) => Math.abs(Number(b.net || 0)) > 0.005);
+    if (open.length) {
+      return { ok: false, status: 409, message: `${existingAccount.accountNo} ${existingAccount.accountName} still has a balance (${open.map((b) => `${b.code || ""} ${Number(b.net).toFixed(2)}`.trim()).join(", ")}); move it to another account before switching this one off.` };
+    }
+    const drafts = await db.journalEntryLine.count({ where: { chartOfAccountId: id, journalEntry: { status: "PENDING" } } });
+    if (drafts > 0) {
+      return { ok: false, status: 409, message: `${drafts} journal line(s) waiting to be posted use this account; post or withdraw them first.` };
+    }
+    const banks = await db.bank.count({ where: { glAccountId: id, isActive: true } });
+    if (banks > 0) {
+      return { ok: false, status: 409, message: "An active bank account posts to this account; switch the bank off first." };
+    }
+    const children = await db.chartOfAccounts.count({ where: { parentId: id, isActive: true } });
+    if (children > 0) {
+      return { ok: false, status: 409, message: `${children} active account(s) sit under this one; switch them off or move them first.` };
+    }
+  }
+
+  if (dryRun) return { ok: true, data: existingAccount };
 
   const updatedChartOfAccounts = await db.chartOfAccounts.update({
     where: { id },

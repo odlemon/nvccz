@@ -41,7 +41,23 @@ export type RequisitionForFingerprint = Pick<
   | "fundId"
   | "useOfFundsDocumentUrl"
   | "drawdownRequestAmount"
-> & {
+> &
+  Partial<
+    Pick<
+      PurchaseRequisition,
+      | "requiredDate"
+      | "procurementMethod"
+      | "riskLevel"
+      | "exceptionType"
+      | "budgetCode"
+      | "costCentre"
+      | "branch"
+      | "businessUnit"
+      | "deliveryLocation"
+      | "planItemId"
+      | "suggestedVendorId"
+    >
+  > & {
   items: Pick<
     PurchaseRequisitionItem,
     "id" | "itemName" | "description" | "quantity" | "unitPrice" | "totalPrice" | "unit" | "preferredVendorId" | "specifications"
@@ -65,12 +81,21 @@ export function computePurchaseRequisitionContentFingerprint(r: RequisitionForFi
     fundId: r.fundId ?? "",
     useOfFundsDocumentUrl: r.useOfFundsDocumentUrl ?? "",
     drawdownRequestAmount: decStr(r.drawdownRequestAmount),
+    requiredDate: r.requiredDate ? new Date(r.requiredDate).toISOString().slice(0, 10) : "",
+    procurementMethod: r.procurementMethod ?? "",
+    riskLevel: r.riskLevel ?? "",
+    exceptionType: r.exceptionType ?? "",
+    budgetCode: r.budgetCode ?? "",
+    costCentre: r.costCentre ?? "",
+    branch: r.branch ?? "",
+    businessUnit: r.businessUnit ?? "",
+    deliveryLocation: r.deliveryLocation ?? "",
+    planItemId: r.planItemId ?? "",
+    suggestedVendorId: r.suggestedVendorId ?? "",
   };
 
   const items = [...r.items]
-    .sort((a, b) => a.id.localeCompare(b.id))
     .map((it) => ({
-      id: it.id,
       itemName: it.itemName ?? "",
       description: it.description ?? "",
       quantity: decStr(it.quantity),
@@ -79,7 +104,8 @@ export function computePurchaseRequisitionContentFingerprint(r: RequisitionForFi
       unit: it.unit ?? "",
       preferredVendorId: it.preferredVendorId ?? "",
       specifications: sortJsonKeys(it.specifications as unknown),
-    }));
+    }))
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 
   const payload = JSON.stringify({ header, items });
   return createHash("sha256").update(payload, "utf8").digest("hex");

@@ -6,6 +6,7 @@ import { CashFlowParams, CashFlowStatement, CashFlowActivity, CashFlowAccount } 
 import { CashFlowCategorizationService } from "./CashFlowCategorizationService";
 import { CashFlowBalanceService } from "./CashFlowBalanceService";
 import { BalanceSheetService } from "../BalanceSheetService";
+import { baseContext, isBaseReport, toBaseAmounts, journalsToBase, lineBaseRate, baseCurrencyRow } from "../../utils/baseCurrencyAmounts";
 
 export class CashFlowCalculationService {
   /**
@@ -102,9 +103,11 @@ export class CashFlowCalculationService {
     const { startDate, endDate, currencyId } = params;
 
     // Get currency information
-    const currency = currencyId 
+    const currency = currencyId
       ? await prisma.currency.findUnique({ where: { id: currencyId } })
-      : await prisma.currency.findFirst({ where: { isActive: true } });
+      : await baseCurrencyRow();
+    const baseCtx = await baseContext();
+    const baseMode = await isBaseReport(currency?.id, baseCtx);
 
     if (!currency) {
       throw new Error("No active currency found");
@@ -142,7 +145,8 @@ export class CashFlowCalculationService {
           lte: endDate
         },
         status: "POSTED",
-        currencyId: currency.id,
+        // the base currency covers every currency at base amounts (FX-01)
+        ...(baseMode ? {} : { currencyId: currency.id }),
         // Exclude journal entries where ANY linked cashbook entry is voided or reversed
         NOT: {
           cashbookEntries: {
@@ -253,6 +257,8 @@ export class CashFlowCalculationService {
           }
         }
       });
+    // base currency: every currency's lines at their base amounts (FX-01)
+    if (baseMode) await journalsToBase(journalEntries, baseCtx);
 
     // Calculate account balances from journal entry lines (used for metadata + transaction breakdown)
     const accountBalances = await CashFlowBalanceService.calculateAccountBalances(journalEntries);
@@ -699,9 +705,11 @@ export class CashFlowCalculationService {
     const detailedAccounts = [];
 
     // Get currency information for filtering
-    const currency = params.currencyId 
+    const currency = params.currencyId
       ? await prisma.currency.findUnique({ where: { id: params.currencyId } })
-      : await prisma.currency.findFirst({ where: { isActive: true } });
+      : await baseCurrencyRow();
+    const baseCtxD = await baseContext();
+    const baseModeD = await isBaseReport(currency?.id, baseCtxD);
 
     if (!currency) {
       throw new Error("No active currency found");
@@ -709,7 +717,7 @@ export class CashFlowCalculationService {
 
     for (const account of accounts) {
       // Get all transactions for this account in the period with complete details
-      const transactions = await prisma.journalEntryLine.findMany({
+      const transactionsRaw = await prisma.journalEntryLine.findMany({
         where: {
           chartOfAccountId: account.accountId,
           journalEntry: {
@@ -718,7 +726,7 @@ export class CashFlowCalculationService {
               lte: params.endDate
             },
             status: "POSTED",
-            currencyId: currency.id
+            ...(baseModeD ? {} : { currencyId: currency.id })
           }
         },
         include: {
@@ -754,6 +762,7 @@ export class CashFlowCalculationService {
           }
         }
       });
+      const transactions = baseModeD ? (await toBaseAmounts(transactionsRaw as any[], baseCtxD)).lines as any[] : transactionsRaw;
 
       // Group transactions by journal entry for better organization
       const journalEntries = new Map();
@@ -880,9 +889,11 @@ export class CashFlowCalculationService {
     const detailedFinancing = await this.addAccountDetails(sectionAccounts.financing, params);
 
     // Get currency information for filtering
-    const currency = params.currencyId 
+    const currency = params.currencyId
       ? await prisma.currency.findUnique({ where: { id: params.currencyId } })
-      : await prisma.currency.findFirst({ where: { isActive: true } });
+      : await baseCurrencyRow();
+    const baseCtxD = await baseContext();
+    const baseModeD = await isBaseReport(currency?.id, baseCtxD);
 
     if (!currency) {
       throw new Error("No active currency found");
@@ -896,7 +907,7 @@ export class CashFlowCalculationService {
           lte: params.endDate
         },
         status: "POSTED",
-        currencyId: currency.id
+        ...(baseModeD ? {} : { currencyId: currency.id })
       },
       include: {
         currency: true,
@@ -924,6 +935,7 @@ export class CashFlowCalculationService {
         transactionDate: 'desc'
       }
     });
+    if (baseModeD) await journalsToBase(allJournalEntries, baseCtxD);
 
     // Calculate summary statistics
     const summaryStats = {

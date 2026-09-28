@@ -46,11 +46,17 @@ export class EnhancedGoalTrackingService {
         };
       }
 
-      // Fetch current value from data source module
-      const currentValue = await this.fetchFromSourceModule(
-        goal.dataSourceModule,
-        goal.dataSourceField
-      );
+      // Fetch current value from data source module. A read that fails leaves the goal as it is (it used to write 0).
+      let currentValue: number;
+      try {
+        const win = { start: new Date(goal.startDate), end: new Date(Math.min(Date.now(), +new Date(goal.endDate))) };
+        currentValue = await this.fetchFromSourceModule(goal.dataSourceModule, goal.dataSourceField, win);
+        if (!Number.isFinite(Number(currentValue))) throw new Error("The source returned no number.");
+        currentValue = Math.round(Number(currentValue) * 100) / 100;
+      } catch (e: any) {
+        console.warn(`⚠️ Goal ${goalId}: source ${goal.dataSourceModule}.${goal.dataSourceField} could not be read — goal left unchanged: ${e?.message || e}`);
+        return { goalId, currentValue: Number(goal.currentValue || 0), targetValue: goal.targetValue || 0, isSuccess: false, progressPercentage: Number(goal.progressPercentage || 0), status: "source_error", lastCheckDate: new Date(), nextCheckDate: new Date() };
+      }
 
       // Compare using target operator
       const isSuccess = this.evaluateTarget(
@@ -82,13 +88,18 @@ export class EnhancedGoalTrackingService {
         goal.trackingFrequency || "Weekly"
       );
 
-      // Update goal with new data
+      // The value enters the goal's event ledger as an integration event (counted, not posted to the GL); currentValue is
+      // the sum of the events, so a direct overwrite was undone by the next check-in.
+      const agg = await prisma.performanceGoalProgressEvent.aggregate({ where: { goalId }, _sum: { amount: true } });
+      const delta = Math.round((currentValue - Number(agg._sum.amount || 0)) * 1000) / 1000;
+      if (Math.abs(delta) >= 0.0005) {
+        const { PerformanceGoalProgressEventService } = await import("./PerformanceGoalProgressEventService");
+        await PerformanceGoalProgressEventService.recordEvent({ goalId, amount: delta, recordedAt: new Date(), source: "integration", sourceRef: `goal_tracking:${goal.dataSourceModule}.${goal.dataSourceField}:${Date.now()}`, createdById: goal.createdById });
+      }
       const updatedGoal = await prisma.performanceGoal.update({
         where: { id: goalId },
         data: {
-          currentValue,
-          progressPercentage,
-          status: isSuccess ? "completed" : status,
+          ...(isSuccess ? { status: "completed" } : {}),
           lastCheckDate: new Date(),
           nextCheckDate,
           updatedAt: new Date()
@@ -118,13 +129,13 @@ export class EnhancedGoalTrackingService {
   /**
    * Fetch data from source module based on field path
    */
-  static async fetchFromSourceModule(module: string, field: string): Promise<number> {
+  static async fetchFromSourceModule(module: string, field: string, window?: { start: Date; end: Date }): Promise<number> {
     try {
       console.log(`📊 Fetching data from ${module}: ${field}`);
 
       switch (module.toLowerCase()) {
         case 'accounting':
-          return await this.fetchFromAccounting(field);
+          return await this.fetchFromAccounting(field, window);
         case 'procurement':
           return await this.fetchFromProcurement(field);
         case 'taskmanagement':
@@ -145,7 +156,23 @@ export class EnhancedGoalTrackingService {
   /**
    * Fetch data from Accounting module
    */
-  static async fetchFromAccounting(field: string): Promise<number> {
+  static async fetchFromAccounting(field: string, window?: { start: Date; end: Date }): Promise<number> {
+    // Income-statement figures: posted journals over the goal's window, as Accounting's statements count them (no void
+    // reversals), leaving out Performance's own KPI journals. The hand-written all-time queries below were broken (wrong
+    // relation names) and every failure returned 0, which was then written to the goal.
+    const w = window || { start: new Date(Date.UTC(new Date().getUTCFullYear(), 0, 1)), end: new Date() };
+    const [statement0, metric0] = String(field || "").split(".");
+    if (String(statement0).toLowerCase() === "incomestatement") {
+      const t = await import("./AccountingGlPeriodTotalsService");
+      const m = String(metric0 || "").toLowerCase();
+      if (["totalrevenue", "totalexpenses", "netincome"].includes(m)) {
+        const r = await t.getPostedPeriodRevenueExpenseNetProfit(w.start, w.end, { excludePerformanceJournals: true });
+        return m === "totalrevenue" ? r.revenue : m === "totalexpenses" ? r.totalExpense : r.netProfit;
+      }
+      if (m === "managementfees") return t.getPostedPeriodNetForAccountNo("4000", w.start, w.end, { excludePerformanceJournals: true });
+      if (m === "operatingcosts") return t.getPostedPeriodNetForAccountNo("5090", w.start, w.end, { excludePerformanceJournals: true });
+      throw new Error(`Unknown income statement metric: ${metric0}`);
+    }
     try {
       console.log(`💰 Fetching accounting data for field: ${field}`);
       
@@ -172,7 +199,7 @@ export class EnhancedGoalTrackingService {
       }
     } catch (error) {
       console.error(`❌ Error fetching accounting data:`, error);
-      return 0;
+      throw error;
     }
   }
 
@@ -189,12 +216,12 @@ export class EnhancedGoalTrackingService {
               journalEntry: {
                 status: 'POSTED'
               },
-              glAccount: {
+              chartOfAccount: {
                 accountType: 'Revenue'
               }
             },
             include: {
-              glAccount: true
+              chartOfAccount: true
             }
           });
 
@@ -209,12 +236,12 @@ export class EnhancedGoalTrackingService {
               journalEntry: {
                 status: 'POSTED'
               },
-              glAccount: {
+              chartOfAccount: {
                 accountType: 'Expense'
               }
             },
             include: {
-              glAccount: true
+              chartOfAccount: true
             }
           });
 
@@ -235,7 +262,7 @@ export class EnhancedGoalTrackingService {
               journalEntry: {
                 status: 'POSTED'
               },
-              glAccount: {
+              chartOfAccount: {
                 accountNo: '4000' // Sales Revenue account
               }
             }
@@ -252,7 +279,7 @@ export class EnhancedGoalTrackingService {
               journalEntry: {
                 status: 'POSTED'
               },
-              glAccount: {
+              chartOfAccount: {
                 accountNo: '5090' // Other Operating Expenses
               }
             }
@@ -268,7 +295,7 @@ export class EnhancedGoalTrackingService {
       }
     } catch (error) {
       console.error(`❌ Error getting income statement metric:`, error);
-      return 0;
+      throw error;
     }
   }
 
@@ -320,7 +347,7 @@ export class EnhancedGoalTrackingService {
       }
     } catch (error) {
       console.error(`❌ Error getting balance sheet metric:`, error);
-      return 0;
+      throw error;
     }
   }
 
@@ -353,7 +380,7 @@ export class EnhancedGoalTrackingService {
       }
     } catch (error) {
       console.error(`❌ Error getting cash flow metric:`, error);
-      return 0;
+      throw error;
     }
   }
 
@@ -373,12 +400,12 @@ export class EnhancedGoalTrackingService {
           journalEntry: {
             status: 'POSTED'
           },
-          glAccount: {
+          chartOfAccount: {
             accountNo: accountNumber
           }
         },
         include: {
-          glAccount: true
+          chartOfAccount: true
         }
       });
 
@@ -388,7 +415,7 @@ export class EnhancedGoalTrackingService {
       }
 
       // Calculate balance based on account type
-      const account = accountEntries[0].glAccount;
+      const account = accountEntries[0].chartOfAccount;
       
       // For asset and expense accounts: debit - credit
       // For liability, equity, and revenue accounts: credit - debit
@@ -407,7 +434,7 @@ export class EnhancedGoalTrackingService {
 
     } catch (error) {
       console.error(`❌ Error getting chart of accounts metric:`, error);
-      return 0;
+      throw error;
     }
   }
 
@@ -418,7 +445,7 @@ export class EnhancedGoalTrackingService {
     try {
       const entries = await prisma.journalEntryLine.findMany({
         where: {
-          glAccountId: accountId,
+          chartOfAccountId: accountId,
           journalEntry: {
             status: 'POSTED'
           }
@@ -433,7 +460,7 @@ export class EnhancedGoalTrackingService {
       return balance;
     } catch (error) {
       console.error(`❌ Error getting account balance:`, error);
-      return 0;
+      throw error;
     }
   }
 
@@ -497,7 +524,7 @@ export class EnhancedGoalTrackingService {
       }
     } catch (error) {
       console.error(`❌ Error fetching procurement data:`, error);
-      return 0;
+      throw error;
     }
   }
 
@@ -596,7 +623,7 @@ export class EnhancedGoalTrackingService {
       }
     } catch (error) {
       console.error(`❌ Error fetching task data:`, error);
-      return 0;
+      throw error;
     }
   }
 
@@ -633,7 +660,7 @@ export class EnhancedGoalTrackingService {
       }
     } catch (error) {
       console.error(`❌ Error fetching events data:`, error);
-      return 0;
+      throw error;
     }
   }
 

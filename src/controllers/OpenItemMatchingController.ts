@@ -20,14 +20,14 @@ export class OpenItemMatchingController {
       const result = await OpenItemMatchingService.getCustomerOpenItems(customerId);
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        ResponseHelper.success(res, result.message, result.data);
       } else {
         ResponseHelper.badRequest(res, result.message);
       }
       
     } catch (error: any) {
       console.error('❌ Error in getCustomerOpenItems:', error.message);
-      ResponseHelper.internalError(res, 'Failed to get customer open items');
+      ResponseHelper.error(res, 'Failed to get customer open items');
     }
   }
   
@@ -46,14 +46,14 @@ export class OpenItemMatchingController {
       const result = await OpenItemMatchingService.getSupplierOpenItems(supplierId);
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        ResponseHelper.success(res, result.message, result.data);
       } else {
         ResponseHelper.badRequest(res, result.message);
       }
       
     } catch (error: any) {
       console.error('❌ Error in getSupplierOpenItems:', error.message);
-      ResponseHelper.internalError(res, 'Failed to get supplier open items');
+      ResponseHelper.error(res, 'Failed to get supplier open items');
     }
   }
   
@@ -88,14 +88,14 @@ export class OpenItemMatchingController {
       );
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        ResponseHelper.success(res, result.message, result.data);
       } else {
         ResponseHelper.badRequest(res, result.message);
       }
       
     } catch (error: any) {
       console.error('❌ Error in matchPaymentToInvoices:', error.message);
-      ResponseHelper.internalError(res, 'Failed to match payment to invoices');
+      ResponseHelper.error(res, 'Failed to match payment to invoices');
     }
   }
   
@@ -130,14 +130,14 @@ export class OpenItemMatchingController {
       );
       
       if (result.success) {
-        ResponseHelper.success(res, null, result.message);
+        ResponseHelper.success(res, result.message, null);
       } else {
         ResponseHelper.badRequest(res, result.message);
       }
       
     } catch (error: any) {
       console.error('❌ Error in unmatchPaymentFromInvoices:', error.message);
-      ResponseHelper.internalError(res, 'Failed to unmatch payment from invoices');
+      ResponseHelper.error(res, 'Failed to unmatch payment from invoices');
     }
   }
   
@@ -156,14 +156,14 @@ export class OpenItemMatchingController {
       const result = await OpenItemMatchingService.getPaymentAllocations(paymentId);
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        ResponseHelper.success(res, result.message, result.data);
       } else {
         ResponseHelper.badRequest(res, result.message);
       }
       
     } catch (error: any) {
       console.error('❌ Error in getPaymentAllocations:', error.message);
-      ResponseHelper.internalError(res, 'Failed to get payment allocations');
+      ResponseHelper.error(res, 'Failed to get payment allocations');
     }
   }
   
@@ -180,14 +180,14 @@ export class OpenItemMatchingController {
       );
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        ResponseHelper.success(res, result.message, result.data);
       } else {
         ResponseHelper.badRequest(res, result.message);
       }
       
     } catch (error: any) {
       console.error('❌ Error in getMatchingSummary:', error.message);
-      ResponseHelper.internalError(res, 'Failed to get matching summary');
+      ResponseHelper.error(res, 'Failed to get matching summary');
     }
   }
 }

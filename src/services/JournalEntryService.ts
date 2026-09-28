@@ -22,7 +22,10 @@ import {
   type ZigLineBreakdown,
 } from "../utils/manualJournalZigEquivalence";
 import PeriodLockService from "./PeriodLockService";
+import FiscalCalendarService from "./FiscalCalendarService";
+import { getYmdInTimeZone } from "./fiscalPeriodLockTypes";
 import { userHasEffectivePermission, isModulePrivilegedUser } from "../config/cfoModulePermissions";
+import { vatInputAccount as resolveVatInput, vatOutputAccount as resolveVatOutput } from "../utils/vatAccounts";
 
 export interface CreateExpenseJournalEntryParams {
   vendorId: string;
@@ -37,6 +40,8 @@ export interface CreateExpenseJournalEntryParams {
   isTaxable: boolean;
   paymentMethod?: "CASH" | "BANK" | "CREDIT";
   createdById: string;
+  /** Paid from this bank account: its ledger account is credited and the payment becomes a cashbook line. */
+  bankId?: string;
 }
 
 export interface CreateManualJournalEntryParams {
@@ -227,6 +232,8 @@ export class JournalEntryService {
       where: { id: { in: ids } },
       select: { id: true, accountNo: true, accountName: true },
     });
+    const off = await prisma.chartOfAccounts.findFirst({ where: { id: { in: ids }, isActive: false }, select: { accountNo: true, accountName: true } });
+    if (off) throw new Error(`${context}: ${off.accountNo} ${off.accountName} is switched off and cannot be posted to.`);
     const bad = accounts.filter((a) => a.accountNo === "1000");
     if (bad.length > 0) {
       const a = bad[0];
@@ -266,6 +273,13 @@ export class JournalEntryService {
     if (existing.status !== "PENDING") {
       throw new Error(`Cannot update journal entry with status ${existing.status}`);
     }
+    // an approver who changed someone's draft and then posted it would be checking their own work
+    if (performedById && existing.createdById && performedById !== existing.createdById) {
+      throw new Error("Only the person who prepared this draft can change it; an approver rejects it instead.");
+    }
+    const source = await this.journalSourceOf(journalEntryId);
+    if (source) throw new Error(`This draft belongs to ${source}; change it there.`);
+    await this.assertNotFutureDated(params.transactionDate);
 
     const {
       transactionDate,
@@ -388,6 +402,7 @@ export class JournalEntryService {
         journalEntryLines.map((l) => l.chartOfAccountId),
         "Manual journal rejected"
       );
+      await this.assertNotFutureDated(transactionDate);
 
       const { totalAmountForHeader, zigEquivalence } = await this.validateManualJournalEconomics(
         currencyId,
@@ -498,7 +513,14 @@ export class JournalEntryService {
 
       const expenseAccount = await this.getExpenseAccount(categoryName);
       const vatInputAccount = await this.getVATInputAccount();
-      const creditAccount = await this.getCreditAccount(paymentMethod);
+      // paid from a named bank: that bank's ledger account (not the first bank account found)
+      let paidBank: any = null;
+      if (paymentMethod === "BANK" && params.bankId) {
+        paidBank = await prisma.bank.findUnique({ where: { id: params.bankId }, include: { glAccount: true } });
+        if (!paidBank || !paidBank.glAccount) throw new Error("The bank account paid from was not found, or has no ledger account.");
+        if (paidBank.currencyId !== currencyId) throw new Error("The expense and the bank account it is paid from must be in the same currency.");
+      }
+      const creditAccount = paidBank ? paidBank.glAccount : await this.getCreditAccount(paymentMethod);
 
       // Generate unique reference number with timestamp and receipt number
       const timestamp = Date.now();
@@ -570,6 +592,12 @@ export class JournalEntryService {
           }
         })
       );
+
+      // the payment is a cashbook line on that bank (draft with the journal; posted when the journal is approved)
+      if (paidBank) {
+        const { recordBankLeg } = await import("./CashbookJournalLinkService");
+        await recordBankLeg(null, { bankId: paidBank.id, journalEntryId: journalEntry.id, journalStatus: journalEntry.status, type: "PAYMENT", amount: totalAmount, transactionDate, description: `Expense: ${description}`, reference: receiptNumber || referenceNumber, contraAccountId: expenseAccount.id, createdById });
+      }
 
       return {
         journalEntry,
@@ -1022,14 +1050,7 @@ export class JournalEntryService {
    * Get the VAT Input account
    */
   private static async getVATInputAccount(): Promise<ChartOfAccounts> {
-    const vatInputAccount = await prisma.chartOfAccounts.findFirst({
-      where: {
-        accountName: {
-          contains: "VAT Input"
-        },
-        isActive: true
-      }
-    });
+    const vatInputAccount = await resolveVatInput();
 
     if (!vatInputAccount) {
       throw new Error("No VAT Input account found in chart of accounts");
@@ -1733,7 +1754,12 @@ export class JournalEntryService {
   static async postJournalEntry(
     journalEntryId: string,
     performedById?: string,
-    options?: { userPermissions?: Array<{ name: string; value: boolean }>; user?: unknown }
+    options?: {
+      userPermissions?: Array<{ name: string; value: boolean }>
+      user?: unknown
+      /** Invoice/AR send auto-created the PENDING JE — allow the same user to post it with send. */
+      allowCreatorPost?: boolean
+    }
   ): Promise<JournalEntry> {
     try {
       // Get the journal entry with its lines
@@ -1763,13 +1789,20 @@ export class JournalEntryService {
       if (!isModulePrivilegedUser(actingUser) && !userHasEffectivePermission(actingUser, "manage_ledger")) {
         throw new Error("You do not have authority to post journal entries to the general ledger.");
       }
+      // everyone, the CFO and administrators included (D14); postings a system flow completes pass allowCreatorPost
       if (
-        !isModulePrivilegedUser(actingUser) &&
+        !options?.allowCreatorPost &&
         performedById &&
         journalEntry.createdById &&
         performedById === journalEntry.createdById
       ) {
         throw new Error("The preparer of a journal entry cannot also post it. An independent reviewer must post this entry.");
+      }
+
+      // an account switched off after the journal was prepared
+      const offAccount = await prisma.chartOfAccounts.findFirst({ where: { id: { in: journalEntry.journalEntryLines.map((l) => l.chartOfAccountId) }, isActive: false }, select: { accountNo: true, accountName: true } });
+      if (offAccount) {
+        throw new Error(`${offAccount.accountNo} ${offAccount.accountName} has been switched off; this journal cannot be posted to it.`);
       }
 
       // Validate that the journal entry is balanced
@@ -1795,6 +1828,14 @@ export class JournalEntryService {
           updatedAt: new Date()
         }
       });
+      // its bank side in the cashbook, if another module left it out (FINDINGS C-05)
+      try { const { ensureBankLeg } = await import("./CashbookJournalLinkService"); await ensureBankLeg(journalEntryId); } catch (_) { /* recorded by the nightly sweep */ }
+      // an investment's day of interest posted from the journal register is approved there too
+      await prisma.shortTermInvestmentAccrual.updateMany({ where: { journalEntryId, status: "PENDING_POST" }, data: { status: "POSTED" } });
+      // an expense raised with this journal is approved with it
+      await prisma.expense.updateMany({ where: { journalEntryId, status: { in: ["SUBMITTED", "POSTED", "DRAFT"] } }, data: { status: "APPROVED" } });
+      // a bank line recorded for this journal (CashbookJournalLinkService) is posted with it
+      await prisma.cashbookEntry.updateMany({ where: { journalEntryId, status: "PENDING" }, data: { status: "POSTED", postedAt: new Date(), postedById: performedById ?? null } });
 
       // Audit: POST journal entry
       await AuditService.log({
@@ -1819,7 +1860,58 @@ export class JournalEntryService {
    * Creates a reversing journal entry if the original was POSTED
    * Comprehensive audit log includes original transaction details, void timestamp, user ID, and reversing journal entry reference
    */
-  static async voidJournalEntry(journalEntryId: string, performedById?: string): Promise<JournalEntry> {
+  /** A manual journal records something that has happened: not dated after today in the tenant's time zone (D15). */
+  static async assertNotFutureDated(transactionDate: Date) {
+    const tz = await FiscalCalendarService.getFiscalTimezone();
+    const key = (d: Date) => { const { y, m, day } = getYmdInTimeZone(d, tz); return y * 10000 + m * 100 + day; };
+    if (transactionDate instanceof Date && !Number.isNaN(transactionDate.getTime()) && key(transactionDate) > key(new Date())) {
+      throw new Error("A journal cannot be dated after today.");
+    }
+  }
+
+  /** The kind of record a journal was raised for (null = a manual journal). */
+  static async journalSourceOf(journalEntryId: string): Promise<string | null> {
+    const lists = ["expenses", "invoices", "procurementInvoices", "purchaseInvoices", "purchaseInvoicePayments", "revenues", "bankTransactions", "creditNotes", "forexGainLoss", "cashbookEntries", "stiAccrualsAsJournal", "stiAccrualsAsReversal", "stiLiquidationInstruments", "stiFxRevaluationEntries", "portfolioDividends", "performanceProgressEvents", "payrollRuns", "listedEquityTradeSettlements"];
+    const labels: Record<string, string> = { expenses: "an expense", invoices: "a customer invoice", procurementInvoices: "a supplier invoice", purchaseInvoices: "a supplier bill", purchaseInvoicePayments: "a supplier payment", revenues: "a revenue record", bankTransactions: "a bank transaction", creditNotes: "a credit note", forexGainLoss: "an FX gain or loss", cashbookEntries: "a cashbook entry", stiAccrualsAsJournal: "a short-term investment accrual", stiAccrualsAsReversal: "a short-term investment reversal", stiLiquidationInstruments: "a short-term investment settlement", stiFxRevaluationEntries: "a short-term investment revaluation", portfolioDividends: "a portfolio dividend", performanceProgressEvents: "a performance goal", payrollRuns: "a payroll run", listedEquityTradeSettlements: "a listed equity trade", recurringJournalRun: "a recurring journal run", capitalCall: "a capital call", managementFeePeriod: "a management fee", distribution: "a distribution" };
+    const row: any = await prisma.journalEntry.findUnique({
+      where: { id: journalEntryId },
+      select: { _count: { select: Object.fromEntries(lists.map((k) => [k, true])) as any }, recurringJournalRun: { select: { id: true } }, capitalCall: { select: { id: true } }, managementFeePeriod: { select: { id: true } }, distribution: { select: { id: true } }, referenceNumber: true },
+    });
+    if (!row) return null;
+    for (const k of lists) if (row._count?.[k]) return labels[k];
+    for (const k of ["recurringJournalRun", "capitalCall", "managementFeePeriod", "distribution"]) if (row[k]) return labels[k];
+    if (/^STI-PLC-/.test(String(row.referenceNumber || ""))) return "a short-term investment placement";
+    if (/^STK-/.test(String(row.referenceNumber || ""))) return "an inventory movement";
+    if (/^COGS-/.test(String(row.referenceNumber || ""))) return "a sale's cost of goods";
+    if (/^FXREV-/.test(String(row.referenceNumber || ""))) return "a month-end revaluation";
+    if (/^CLM(PAY)?-/.test(String(row.referenceNumber || ""))) return "an employee expense claim";
+    return null;
+  }
+
+  /** A preparer withdraws their own draft (PENDING) journal; an approver may withdraw anyone's. Nothing was posted, so
+   *  nothing is reversed: the draft is marked VOID with the reason. */
+  static async discardDraftJournalEntry(journalEntryId: string, actorId: string, options: { canPostLedger: boolean; reason?: string | null }) {
+    const je = await prisma.journalEntry.findUnique({ where: { id: journalEntryId }, select: { id: true, status: true, createdById: true, referenceNumber: true } });
+    if (!je) throw new Error("Journal entry not found");
+    if (je.status !== "PENDING") throw new Error("Only a draft journal can be discarded; a posted journal is voided (reversed) by an approver.");
+    // a draft another record depends on (an invoice, a payment, an interest accrual, a payroll run…) is withdrawn from
+    // that record, not from the journal register
+    const src = await this.journalSourceOf(journalEntryId);
+    if (src) throw new Error(`This draft belongs to ${src}; withdraw it there.`);
+    if (je.createdById !== actorId && !options.canPostLedger) throw new Error("Only the person who prepared this draft, or an approver, can discard it.");
+    const updated = await prisma.journalEntry.update({ where: { id: journalEntryId }, data: { status: "VOID" } });
+    await AuditService.log({
+      userId: actorId,
+      action: "VOID",
+      entityType: "JournalEntry",
+      entityId: journalEntryId,
+      oldValues: { status: "PENDING", referenceNumber: je.referenceNumber },
+      newValues: { status: "VOID", discardedDraft: true, reason: options.reason ?? null },
+    });
+    return updated;
+  }
+
+  static async voidJournalEntry(journalEntryId: string, performedById?: string, options?: { reason?: string | null }): Promise<JournalEntry> {
     try {
       // Fetch complete journal entry with lines for comprehensive audit trail
       const journalEntry = await prisma.journalEntry.findUnique({
@@ -1846,38 +1938,76 @@ export class JournalEntryService {
       const voidTimestamp = new Date();
       const userId = performedById ?? journalEntry.createdById;
 
+      // a stock journal moves with its stock: voiding it alone would leave the ledger and the stock apart
+      if (/^(STK|COGS)-/.test(String(journalEntry.referenceNumber || ""))) {
+        throw new Error("This journal records a stock movement; correct it with another stock movement (or a count adjustment) on Inventory.");
+      }
+      // an approved or paid claim stays in step with its journal: the claim is corrected, not the journal on its own
+      if (/^CLM(PAY)?-/.test(String(journalEntry.referenceNumber || ""))) {
+        throw new Error("This journal records an employee expense claim; correct it with a reversing journal and a note on the claim.");
+      }
+
+      // its bank line must not be reconciled (SRD ACC-CB-15: unreconcile before voiding)
+      const reconciledLine = await prisma.cashbookEntry.findFirst({ where: { journalEntryId, isReconciled: true }, select: { id: true } });
+      if (reconciledLine) {
+        throw new Error("Its bank line is reconciled; reopen that bank reconciliation before voiding this journal.");
+      }
+
+      // Reports drop a voided journal and its reversal together, so voiding a posted journal changes the figures of the
+      // period it was posted in: that period must still be open (a locked month stays as it was reported).
+      if (originalStatus === "POSTED") {
+        await PeriodLockService.assertModuleDateOpen({
+          moduleCode: "GL",
+          accountingDate: journalEntry.transactionDate,
+          userId,
+          source: "API",
+          actionType: "VOID_JOURNAL",
+        });
+      }
+
       // Create reversing journal entry if original was POSTED
       let reversalJournalEntry = null;
       if (originalStatus === "POSTED" && journalEntry.journalEntryLines && journalEntry.journalEntryLines.length > 0) {
-        try {
-          reversalJournalEntry = await createJournalEntryWithAuditSequence({
-            transactionDate: voidTimestamp,
-            referenceNumber: `VR-${journalEntry.referenceNumber}`,
-            description: `REVERSAL of Journal Entry ${journalEntry.referenceNumber}: ${journalEntry.description}`,
-            totalAmount: journalEntry.totalAmount,
-            currencyId: journalEntry.currencyId,
-            status: "POSTED",
-            createdById: userId
-          });
+        // Mirroring an already-unbalanced journal (legacy/broken data) produces an equally unbalanced "reversal" —
+        // posting it does not cancel the original, it doubles the ledger's imbalance. Never auto-post one; the
+        // original is still marked VOID below, which removes it from every POSTED total on its own.
+        if (!JournalEntryService.validateJournalEntryBalance(journalEntry.journalEntryLines as any)) {
+          console.warn(`⚠️ ${journalEntry.referenceNumber} does not balance on its own lines; voiding without an automatic reversal (one would be equally unbalanced).`);
+        } else {
+          try {
+            await prisma.$transaction(async (tx) => {
+              reversalJournalEntry = await assignNextAuditIdAndCreateJournal(tx, {
+                transactionDate: voidTimestamp,
+                referenceNumber: `VR-${journalEntry.referenceNumber}`,
+                description: `REVERSAL of Journal Entry ${journalEntry.referenceNumber}: ${journalEntry.description}`,
+                totalAmount: journalEntry.totalAmount,
+                currencyId: journalEntry.currencyId,
+                status: "POSTED",
+                createdById: userId
+              });
 
-          // Create reversal journal entry lines (opposite debits/credits)
-          for (const line of journalEntry.journalEntryLines) {
-            await prisma.journalEntryLine.create({
-              data: {
-                journalEntryId: reversalJournalEntry.id,
-                chartOfAccountId: line.chartOfAccountId,
-                debitAmount: line.creditAmount, // Swap: original credit becomes debit
-                creditAmount: line.debitAmount, // Swap: original debit becomes credit
-                description: `REVERSAL: ${line.description}`,
-                vatAmount: line.vatAmount || null
+              // Create reversal journal entry lines (opposite debits/credits), atomically: a partial failure here
+              // must not leave a half-built reversal posted to the ledger.
+              for (const line of journalEntry.journalEntryLines) {
+                await tx.journalEntryLine.create({
+                  data: {
+                    journalEntryId: reversalJournalEntry.id,
+                    chartOfAccountId: line.chartOfAccountId,
+                    debitAmount: line.creditAmount, // Swap: original credit becomes debit
+                    creditAmount: line.debitAmount, // Swap: original debit becomes credit
+                    description: `REVERSAL: ${line.description}`,
+                    vatAmount: line.vatAmount || null
+                  }
+                });
               }
             });
-          }
 
-          console.log(`✅ Reversing journal entry created: ${reversalJournalEntry.referenceNumber}`);
-        } catch (reversalError: any) {
-          console.error("❌ Error creating reversing journal entry:", reversalError);
-          // Don't fail the void if reversal fails - log it
+            console.log(`✅ Reversing journal entry created: ${reversalJournalEntry!.referenceNumber}`);
+          } catch (reversalError: any) {
+            console.error("❌ Error creating reversing journal entry:", reversalError);
+            reversalJournalEntry = null;
+            // Don't fail the void if reversal fails - log it
+          }
         }
       }
 
@@ -1889,6 +2019,20 @@ export class JournalEntryService {
           updatedAt: voidTimestamp
         }
       });
+      // an expense raised with this journal: rejected if it was never approved, voided if it was
+      await prisma.expense.updateMany({ where: { journalEntryId, status: { notIn: ["REJECTED", "VOIDED"] } }, data: { status: originalStatus === "POSTED" ? "VOIDED" : "REJECTED" } });
+      // its bank line goes with it, so the cashbook keeps agreeing with the ledger
+      await prisma.cashbookEntry.updateMany({ where: { journalEntryId, status: { not: "VOIDED" } }, data: { status: "VOIDED", reversedAt: voidTimestamp, reversedById: userId ?? null, reversalReason: options?.reason ?? "Journal voided" } });
+
+      // a Performance journal: record the void on the progress event it posted (the progress itself stands)
+      if (/^(PERF-GOAL-|KPI-GOAL-)/.test(String(journalEntry.referenceNumber || ""))) {
+        try {
+          const { PerformanceGlPostingService } = await import("./PerformanceGlPostingService");
+          await PerformanceGlPostingService.onJournalVoided(journalEntryId, userId || null);
+        } catch (e: any) {
+          console.error("Performance write-back of a voided journal failed:", e?.message || e);
+        }
+      }
 
       // Comprehensive audit log with all required fields:
       // 1. Original transaction details (complete)
@@ -1935,6 +2079,7 @@ export class JournalEntryService {
           voidDetails: {
             voidedAt: voidTimestamp.toISOString(),
             voidedBy: userId,
+            reason: options?.reason ?? null,
             originalStatus: originalStatus,
             reversalJournalEntry: reversalJournalEntry ? {
               id: reversalJournalEntry.id,
@@ -2290,15 +2435,7 @@ export class JournalEntryService {
    */
   private static async getVATOutputAccount(): Promise<ChartOfAccounts> {
     try {
-          const vatOutputAccount = await prisma.chartOfAccounts.findFirst({
-      where: {
-        accountType: "Current Liability",
-        accountName: {
-          contains: "VAT Output"
-        },
-        isActive: true
-      }
-    });
+      const vatOutputAccount = await resolveVatOutput();
 
       if (!vatOutputAccount) {
         throw new Error("VAT Output account not found in chart of accounts");

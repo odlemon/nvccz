@@ -1,7 +1,9 @@
 // @ts-nocheck
 import { PrismaClient, Prisma, Decimal } from "@prisma/client";
+import { VendorGateService } from "./VendorGateService";
 import AuditService from "./AuditService";
 import { EmailNotificationService } from "./EmailNotificationService";
+import { normalizeVatRate, computeTotals, assertDeclaredTotalsReconcile, submissionSnapshot, hashSnapshot } from "./sourcing/QuotationTotals";
 import VATService from "./VATService";
 
 import { prisma } from '../utils/database';
@@ -116,6 +118,16 @@ export interface CreateVendorQuotationParams {
   }[];
   /** Suite 03.8 — warranty, ESG, local content, etc. */
   technicalScoreJson?: Record<string, unknown>;
+  /** §15 record fields */
+  quotationReference?: string;
+  quotationDate?: string | Date;
+  /** Percent (15) or decimal (0.15); defaults to the active VAT rate. */
+  vatRate?: number | string;
+  deliveryPeriodDays?: number | string;
+  /** Optional figures the supplier read off their own document; they must reconcile with the lines. */
+  declaredSubtotal?: number | string;
+  declaredTaxAmount?: number | string;
+  declaredTotalAmount?: number | string;
 }
 
 export interface ReviewQuotationParams {
@@ -174,6 +186,23 @@ export class VendorQuotationService {
    * Create a vendor quotation (no authentication required)
    * This is called when a vendor submits their quote through the public form
    */
+  /** Email the supplier a receipt for their submission. Best effort: a mail failure never voids a submission. */
+  static async sendSubmissionReceipt(quotation: any, to: string, name: string, rfqNumber: string, currency: string) {
+    if (!to) return;
+    const { emailTransport, getFromAddress } = await import("../config/email.config");
+    const when = new Date(quotation.submittedAt || Date.now()).toISOString().replace("T", " ").slice(0, 16) + " UTC";
+    await emailTransport.sendMail({
+      from: getFromAddress(),
+      to,
+      subject: `Receipt: quotation ${quotation.quotationNumber} for ${rfqNumber}`,
+      text:
+        `Dear ${name},\n\nWe acknowledge receipt of your quotation ${quotation.quotationNumber} for ${rfqNumber}, submitted ${when}.\n` +
+        `Total offered: ${currency} ${Number(quotation.totalAmount).toFixed(2)}.\n\n` +
+        `This is an acknowledgement of receipt only; it is not an award. Until the deadline you may submit a revised quotation, ` +
+        `which replaces this one. After the deadline your submission is locked.\n`,
+    });
+  }
+
   static async createVendorQuotation(params: CreateVendorQuotationParams) {
     try {
       const {
@@ -188,7 +217,7 @@ export class VendorQuotationService {
         phoneNumber,
         address,
         validUntil,
-        currencyCode = "USD",
+        currencyCode,
         paymentTerms,
         deliveryTerms,
         deliveryTime,
@@ -253,11 +282,14 @@ export class VendorQuotationService {
           phone: true,
           address: true,
           paymentTerms: true,
+          settlementCurrency: { select: { code: true } },
         },
       });
       if (!vendorRow) {
         throw new Error("Vendor not found");
       }
+      // A vendor that is no longer Approved and compliant cannot quote, even on an invitation issued earlier.
+      await VendorGateService.assertTransactable(vendorRow.id, "QUOTE");
       const recordEmail = String(vendorRow.email || "")
         .trim()
         .toLowerCase();
@@ -291,8 +323,9 @@ export class VendorQuotationService {
         vendorRow.phone?.trim() || trimIn(phoneNumber) || undefined;
       const resolvedAddress =
         vendorRow.address?.trim() || trimIn(address) || undefined;
+      // What the supplier states is what they offer; the vendor master is only the default when they state nothing.
       const resolvedPaymentTerms =
-        vendorRow.paymentTerms?.trim() || trimIn(paymentTerms) || undefined;
+        trimIn(paymentTerms) || vendorRow.paymentTerms?.trim() || undefined;
 
       if (rfqNumber && rfqRow.rfqNumber !== rfqNumber) {
         throw new Error("rfqNumber does not match this invitation token");
@@ -300,7 +333,8 @@ export class VendorQuotationService {
 
       const effectiveRfqNumber = rfqRow.rfqNumber;
       const effectiveProcurementRfqId = rfqRow.id;
-      const effectiveRequisitionId = requisitionId ?? rfqRow.requisitionId ?? undefined;
+      // The requisition is the RFQ's own; a supplier-supplied id is ignored (it could attach the quote to someone else's requisition).
+      const effectiveRequisitionId = rfqRow.requisitionId ?? undefined;
 
       let procurementRfqId: string | null = effectiveProcurementRfqId;
 
@@ -313,21 +347,44 @@ export class VendorQuotationService {
       console.log(`📦 Items: ${items.length}`);
       console.log("");
 
-      // Calculate totals
-      let subtotal = 0;
-      const processedItems = items.map(item => {
-        const totalPrice = Number(item.quantity) * Number(item.unitPrice);
-        subtotal += totalPrice;
-        return {
-          ...item,
-          totalPrice
-        };
-      });
+      // Currency: the supplier's choice, else their vendor-master settlement currency; it must be a real currency.
+      const resolvedCurrency = String(trimIn(currencyCode) || vendorRow.settlementCurrency?.code || "USD").toUpperCase();
+      const currencyRow = await prisma.currency.findFirst({ where: { code: resolvedCurrency } });
+      if (!currencyRow) throw new Error(`Currency ${resolvedCurrency} is not supported`);
 
-      // Same VAT logic as Purchase Order creation so quotation subtotal/tax/total match the PO totals.
+      if (!Array.isArray(items) || items.length === 0) throw new Error("At least one priced line is required");
+      if (items.length > 500) throw new Error("Too many lines");
+      for (const [i, it] of items.entries()) {
+        const q = Number(it?.quantity);
+        const p = Number(it?.unitPrice);
+        if (!String(it?.itemName ?? "").trim()) throw new Error(`Line ${i + 1}: item name is required`);
+        if (!Number.isFinite(q) || q <= 0) throw new Error(`Line ${i + 1}: quantity must be a positive number`);
+        if (!Number.isFinite(p) || p < 0 || p > 1e12) throw new Error(`Line ${i + 1}: unit price must be zero or more`);
+      }
+      let validUntilDate: Date | undefined;
+      if (validUntil != null && String(validUntil).trim() !== "") {
+        validUntilDate = new Date(validUntil as any);
+        if (Number.isNaN(validUntilDate.getTime())) throw new Error("Quotation validity date is not a valid date");
+        if (validUntilDate.getTime() < Date.now()) throw new Error("Quotation validity must be a date in the future");
+      }
+
+      // §15: subtotal, VAT and total come from the lines and a stated rate; a figure the supplier also states must agree.
       await VATService.refreshActiveVatRate(false).catch(() => undefined);
-      const taxAmount = VATService.calculateVAT(subtotal);
-      const totalAmount = subtotal + taxAmount;
+      const vatRateDecimal = normalizeVatRate(params.vatRate, VATService.getDecimalRate());
+      const computed = computeTotals(items, vatRateDecimal);
+      assertDeclaredTotalsReconcile(computed, { subtotal: params.declaredSubtotal, taxAmount: params.declaredTaxAmount, totalAmount: params.declaredTotalAmount });
+      const subtotal = computed.subtotal;
+      const taxAmount = computed.taxAmount;
+      const totalAmount = computed.totalAmount;
+      const processedItems = items.map((item, i) => ({ ...item, totalPrice: computed.lines[i].totalPrice }));
+      let quotationDateValue: Date | undefined;
+      if (params.quotationDate != null && String(params.quotationDate).trim() !== "") {
+        quotationDateValue = new Date(params.quotationDate as any);
+        if (Number.isNaN(quotationDateValue.getTime())) throw new Error("The quotation date is not a valid date");
+        if (quotationDateValue.getTime() > Date.now() + 86400000) throw new Error("The quotation date cannot be in the future");
+      }
+      const deliveryDays = params.deliveryPeriodDays != null && String(params.deliveryPeriodDays).trim() !== "" ? Number(params.deliveryPeriodDays) : null;
+      if (deliveryDays != null && (!Number.isInteger(deliveryDays) || deliveryDays < 0 || deliveryDays > 3650)) throw new Error("The delivery period must be a whole number of days");
 
       console.log("💰 Financial Summary:");
       console.log(`   Subtotal: $${subtotal.toFixed(2)}`);
@@ -346,8 +403,8 @@ export class VendorQuotationService {
         contactPerson: resolvedContactPerson,
         phoneNumber: resolvedPhone,
         address: resolvedAddress,
-        validUntil,
-        currencyCode,
+        validUntil: validUntilDate,
+        currencyCode: resolvedCurrency,
         paymentTerms: resolvedPaymentTerms,
         deliveryTerms,
         deliveryTime,
@@ -355,6 +412,11 @@ export class VendorQuotationService {
         attachments,
         procurementRfqId,
         technicalScoreJson: vendorDeclarationsOnly(technicalScoreJson),
+        quotationReference: trimIn(params.quotationReference)?.slice(0, 64),
+        quotationDate: quotationDateValue,
+        submissionMethod: "VENDOR_PORTAL",
+        vatRate: new Decimal(vatRateDecimal),
+        deliveryPeriodDays: deliveryDays,
         subtotal: new Decimal(subtotal),
         taxAmount: new Decimal(taxAmount),
         totalAmount: new Decimal(totalAmount),
@@ -411,6 +473,30 @@ export class VendorQuotationService {
           : new Error(String(lastQuotationErr));
       }
 
+      // §15: the record as submitted, frozen with a hash, so it can be shown later that nothing in it has changed.
+      {
+        const snap = submissionSnapshot(quotation, quotation.items);
+        quotation = await prisma.vendorQuotation.update({
+          where: { id: quotation.id },
+          data: { submittedSnapshot: snap as any, snapshotSha256: hashSnapshot(snap) },
+          include: { items: true },
+        });
+      }
+
+      // One live submission per supplier per event: a revision (allowed only while the event is open) replaces the earlier one.
+      await prisma.vendorQuotation.updateMany({
+        where: {
+          procurementRfqId,
+          vendorId: vendorIdFromToken,
+          id: { not: quotation.id },
+          status: { in: ["SUBMITTED", "UNDER_REVIEW"] },
+        },
+        data: { status: "SUPERSEDED", supersededAt: new Date() },
+      });
+      // Acknowledgement receipt: recorded on the submission and sent to the supplier.
+      await prisma.vendorQuotation.update({ where: { id: quotation.id }, data: { acknowledgedAt: new Date() } }).catch(() => undefined);
+      VendorQuotationService.sendSubmissionReceipt(quotation, resolvedVendorEmail, resolvedVendorName, effectiveRfqNumber, resolvedCurrency).catch(() => undefined);
+
       if (attachmentIds?.length) {
         const { VendorDocumentAttachmentService } = await import(
           "./VendorDocumentAttachmentService"
@@ -439,7 +525,11 @@ export class VendorQuotationService {
         requestedBy: { firstName: string; lastName: string; email: string } | null;
       } | null = null;
 
-      if (effectiveRequisitionId) {
+      // §16: while the event is sealed nobody on staff is told who quoted or how much, by any channel.
+      const { phaseOf } = await import("./sourcing/SourcingAccessService");
+      const eventSealed = phaseOf(await prisma.procurementRfq.findUnique({ where: { id: effectiveProcurementRfqId } })) !== "OPENED";
+
+      if (effectiveRequisitionId && !eventSealed) {
         requisitionForNotify = await prisma.purchaseRequisition.findUnique({
           where: { id: effectiveRequisitionId },
           include: {
@@ -488,6 +578,7 @@ export class VendorQuotationService {
       }
 
       try {
+        if (eventSealed) throw Object.assign(new Error("sealed"), { sealed: true });
         const { ProcurementService } = await import("./ProcurementService");
         const deskRecipients = await ProcurementService.resolveProcurementDeskNotifyRecipients();
         const skipEmails = new Set<string>();
@@ -538,7 +629,7 @@ export class VendorQuotationService {
           }
         }
       } catch (deskErr) {
-        console.error("⚠️  Desk notification for new quotation failed:", (deskErr as Error)?.message || deskErr);
+        if (!(deskErr as any)?.sealed) console.error("⚠️  Desk notification for new quotation failed:", (deskErr as Error)?.message || deskErr);
       }
 
       // The submission reaches the procurement audit trail. It comes through the vendor's signed link, so
@@ -579,7 +670,7 @@ export class VendorQuotationService {
     vendorEmail?: string;
     limit?: number;
     offset?: number;
-  }) {
+  }, actor?: any) {
     try {
       const {
         status,
@@ -624,11 +715,13 @@ export class VendorQuotationService {
         prisma.vendorQuotation.count({ where })
       ]);
 
-      const { maybeRedactQuotationsListForStaff } = await import("../utils/quotationRedaction");
-      const redacted = await maybeRedactQuotationsListForStaff(quotations);
+      // §16: what the caller may read of each event's submissions; sealed ones are counted, not returned.
+      const { SourcingAccessService } = await import("./sourcing/SourcingAccessService");
+      const { visible, sealed } = await SourcingAccessService.forStaff(quotations, actor);
 
       return {
-        quotations: redacted,
+        quotations: visible,
+        sealedEvents: sealed,
         count,
         limit,
         offset
@@ -642,7 +735,7 @@ export class VendorQuotationService {
   /**
    * Get quotation by ID
    */
-  static async getQuotationById(quotationId: string) {
+  static async getQuotationById(quotationId: string, actor?: any) {
     try {
       const quotation = await prisma.vendorQuotation.findUnique({
         where: { id: quotationId },
@@ -672,8 +765,12 @@ export class VendorQuotationService {
         throw new Error("Quotation not found");
       }
 
-      const { maybeRedactQuotationForStaff } = await import("../utils/quotationRedaction");
-      return maybeRedactQuotationForStaff(quotation);
+      if (quotation.procurementRfqId) {
+        const { SourcingAccessService } = await import("./sourcing/SourcingAccessService");
+        const ctx = await SourcingAccessService.assertCanSeeSubmissions(actor, quotation.procurementRfqId, `quotation ${quotationId}`);
+        return SourcingAccessService.sanitizeQuotation(quotation, ctx);
+      }
+      return quotation;
     } catch (error: any) {
       console.error("Error fetching quotation:", error);
       throw error;
@@ -684,22 +781,69 @@ export class VendorQuotationService {
    * Accept or reject a vendor quotation
    */
   /**
-   * The evaluation team's technical score for a bid, 0 to 100, kept in technicalScoreJson.evaluation
-   * next to whatever the vendor declared. Only while the bid is open: once a quotation is accepted
-   * or rejected its evaluation is part of the decision record. Each score is audited.
+   * The evaluation team's technical score for a bid (0–100).
+   * Supports multi-evaluator + per-criterion scores (§17–18):
+   * - `criteriaScores`: [{ id|name, score, weight? }] → weighted average becomes this evaluator's score
+   * - Each call appends to `technicalScoreJson.evaluators[]`; team score is the average of evaluators
+   * - Legacy: a plain `score` still works as a single-evaluator update (replaces own prior entry)
    */
-  static async recordEvaluation(params: { quotationId: string; score: number; notes?: string; scoredById: string }) {
-    const { quotationId, score, notes, scoredById } = params;
-    if (!Number.isFinite(score) || score < 0 || score > 100) {
+  static async recordEvaluation(params: {
+    quotationId: string;
+    score?: number;
+    criteriaScores?: Array<{ id?: string; name?: string; score: number; weight?: number }>;
+    notes?: string;
+    scoredById: string;
+  }) {
+    const { quotationId, notes, scoredById } = params;
+    let score = params.score;
+
+    if (params.criteriaScores && params.criteriaScores.length > 0) {
+      let weightSum = 0;
+      let weighted = 0;
+      for (const c of params.criteriaScores) {
+        const s = Number(c.score);
+        if (!Number.isFinite(s) || s < 0 || s > 100) {
+          throw new Error("Each criterion score must be a number from 0 to 100");
+        }
+        const w = c.weight != null && Number.isFinite(Number(c.weight)) ? Number(c.weight) : 1;
+        weightSum += w;
+        weighted += s * w;
+      }
+      score = weightSum > 0 ? weighted / weightSum : 0;
+    }
+
+    if (!Number.isFinite(score as number) || (score as number) < 0 || (score as number) > 100) {
       throw new Error("Technical score must be a number from 0 to 100");
     }
+    score = Number(score);
+
     const quotation = await prisma.vendorQuotation.findUnique({
       where: { id: quotationId },
-      select: { id: true, status: true, technicalScoreJson: true },
+      select: { id: true, status: true, technicalScoreJson: true, procurementRfqId: true },
     });
     if (!quotation) throw new Error("Quotation not found");
     if (quotation.status !== "SUBMITTED" && quotation.status !== "UNDER_REVIEW") {
       throw new Error(`Quotation has already been ${String(quotation.status).toLowerCase()}`);
+    }
+
+    // Optional: validate criterion ids against RFQ scoringConfig.criteria
+    if (params.criteriaScores?.length && quotation.procurementRfqId) {
+      const rfq = await prisma.procurementRfq.findUnique({
+        where: { id: quotation.procurementRfqId },
+        select: { scoringConfig: true },
+      });
+      const cfg = rfq?.scoringConfig as { criteria?: Array<{ id?: string; name?: string }> } | null;
+      if (cfg?.criteria?.length) {
+        const allowed = new Set(
+          cfg.criteria.flatMap((c) => [String(c.id || "").toLowerCase(), String(c.name || "").toLowerCase()].filter(Boolean))
+        );
+        for (const c of params.criteriaScores) {
+          const key = String(c.id || c.name || "").toLowerCase();
+          if (key && allowed.size && !allowed.has(key)) {
+            throw new Error(`Criterion "${c.id || c.name}" is not on this RFQ's evaluation criteria`);
+          }
+        }
+      }
     }
 
     const scorer = await prisma.user.findUnique({
@@ -708,20 +852,44 @@ export class VendorQuotationService {
     });
     const existing =
       quotation.technicalScoreJson && typeof quotation.technicalScoreJson === "object" && !Array.isArray(quotation.technicalScoreJson)
-        ? (quotation.technicalScoreJson as Record<string, unknown>)
+        ? ({ ...(quotation.technicalScoreJson as Record<string, unknown>) } as Record<string, unknown>)
         : {};
-    const previous = (existing.evaluation as { score?: unknown } | undefined)?.score ?? null;
-    const evaluation = {
-      score,
-      notes: notes ?? null,
+
+    const evaluatorEntry = {
       scoredById,
       scoredByName: scorer ? `${scorer.firstName ?? ""} ${scorer.lastName ?? ""}`.trim() || scorer.email : null,
       scoredAt: new Date().toISOString(),
+      score,
+      notes: notes ?? null,
+      criteriaScores: params.criteriaScores ?? null,
     };
 
+    const priorEvaluators = Array.isArray(existing.evaluators)
+      ? (existing.evaluators as Array<{ scoredById?: string }>).filter((e) => e?.scoredById !== scoredById)
+      : [];
+    // Legacy single evaluation object: treat as prior entry from that scorer if same person
+    const legacy = existing.evaluation as { scoredById?: string; score?: number } | undefined;
+    if (legacy?.scoredById && legacy.scoredById !== scoredById && !priorEvaluators.some((e) => e.scoredById === legacy.scoredById)) {
+      priorEvaluators.push(legacy as any);
+    }
+    const evaluators = [...priorEvaluators, evaluatorEntry];
+    const teamScore =
+      evaluators.reduce((s, e) => s + Number((e as any).score || 0), 0) / Math.max(1, evaluators.length);
+
+    const evaluation = {
+      score: teamScore,
+      notes: notes ?? null,
+      scoredById,
+      scoredByName: evaluatorEntry.scoredByName,
+      scoredAt: evaluatorEntry.scoredAt,
+      evaluatorCount: evaluators.length,
+      criteriaScores: params.criteriaScores ?? null,
+    };
+
+    const previous = (existing.evaluation as { score?: unknown } | undefined)?.score ?? null;
     const updated = await prisma.vendorQuotation.update({
       where: { id: quotationId },
-      data: { technicalScoreJson: { ...existing, evaluation } as any },
+      data: { technicalScoreJson: { ...existing, evaluation, evaluators } as any },
     });
 
     await AuditService.log({
@@ -730,7 +898,7 @@ export class VendorQuotationService {
       entityType: "VendorQuotation",
       entityId: quotationId,
       oldValues: { technicalScore: previous },
-      newValues: { technicalScore: score, notes: notes ?? null },
+      newValues: { technicalScore: teamScore, evaluatorCount: evaluators.length, notes: notes ?? null },
     });
 
     return updated;
@@ -768,24 +936,43 @@ export class VendorQuotationService {
         throw new Error(`Quotation has already been ${quotation.status.toLowerCase()}`);
       }
 
+      // §16/§20: an award is finalised only from an approved recommendation for this quotation, after formal opening; a
+      // rejection needs the bids opened and released to the person rejecting.
+      if (quotation.procurementRfqId) {
+        const { AwardRecommendationService } = await import("./sourcing/AwardRecommendationService");
+        if (action === "ACCEPT") {
+          await AwardRecommendationService.assertAwardable(quotation, reviewedById);
+        } else {
+          const { SourcingAccessService } = await import("./sourcing/SourcingAccessService");
+          const actorUser = await prisma.user.findUnique({ where: { id: reviewedById }, include: { role: true } });
+          const ctx = await SourcingAccessService.assertCanSeeSubmissions(actorUser, quotation.procurementRfqId, `reject quotation ${quotationId}`);
+          if (ctx.level !== "FULL") throw Object.assign(new Error("Only the procurement team can reject a quotation."), { status: 403 });
+        }
+      }
+
       console.log(`   Quotation: ${quotation.quotationNumber}`);
       console.log(`   Vendor: ${quotation.companyName || quotation.vendorName}`);
       console.log(`   Amount (stored): $${Number(quotation.totalAmount).toFixed(2)}`);
       console.log(`   Action: ${action}`);
       console.log("");
 
+      if (action === "ACCEPT") {
+        // Award gate, checked at the moment of award: the vendor must still be Approved, fully approved and compliant.
+        const awardVendorId =
+          quotation.vendorId ||
+          (await VendorQuotationService.resolveVendorForQuotation(quotation).catch(() => null))?.id;
+        if (!awardVendorId) {
+          throw new Error("This quotation cannot be awarded: its vendor is not identified in the vendor master.");
+        }
+        await VendorGateService.assertTransactable(awardVendorId, "AWARD");
+      }
+
       const newStatus = action === "ACCEPT" ? "ACCEPTED" : "REJECTED";
 
-      // Reconcile subtotal/VAT/total with the same rules as `ProcurementService.createPurchaseOrder`,
-      // so legacy quotations (stored with taxAmount=0) and new PO-from-quotation flows show equal figures.
-      await VATService.refreshActiveVatRate(false).catch(() => undefined);
-      const alignedSubtotal = quotation.items.reduce(
-        (sum, item: { quantity: any; unitPrice: any }) =>
-          sum + Number(item.quantity) * Number(item.unitPrice),
-        0
-      );
-      const alignedTax = VATService.calculateVAT(alignedSubtotal);
-      const alignedTotal = alignedSubtotal + alignedTax;
+      // The figures are those the supplier submitted (or that were captured from their document): reviewing never recomputes them.
+      const alignedSubtotal = Number(quotation.subtotal);
+      const alignedTax = Number(quotation.taxAmount);
+      const alignedTotal = Number(quotation.totalAmount);
 
       let rejectionFingerprint: string | null = null;
       if (action === "REJECT") {
@@ -985,6 +1172,11 @@ export class VendorQuotationService {
           console.log(`   PO ID: ${purchaseOrder.id}`);
           console.log(`   Lines: ${poItems.length} (from quotation)`);
 
+          const { getP2pConfig } = await import("./p2p/P2pSettings");
+          if ((await getP2pConfig()).poApprovalRequired) {
+            // The award is decided; the order itself still needs its own approval before it reaches the supplier.
+            console.log("   PO approval is required: the order is held as a draft until it is approved and sent.");
+          } else {
           console.log("\n📧 Sending combined acceptance + PO email to vendor...");
           purchaseOrder = await ProcurementService.sendPurchaseOrder(purchaseOrder.id, reviewedById, {
             quotationAcceptContext: {
@@ -996,6 +1188,7 @@ export class VendorQuotationService {
             },
           });
           console.log(`   ✅ PO emailed to vendor (status: ${purchaseOrder.status})`);
+          }
         } else if (action === "ACCEPT") {
           try {
             await EmailNotificationService.sendQuotationAcceptedEmail({
@@ -1178,7 +1371,7 @@ export class VendorQuotationService {
    * Get quotations by RFQ number, plus the procurement RFQ header (so callers still see line items
    * from `itemsSnapshot` / PR when no vendor has submitted yet).
    */
-  static async getQuotationsByRFQ(rfqNumber: string) {
+  static async getQuotationsByRFQ(rfqNumber: string, actor?: any) {
     try {
       const rfq = await prisma.procurementRfq.findUnique({
         where: { rfqNumber },
@@ -1229,9 +1422,9 @@ export class VendorQuotationService {
         procurementRfqId: q.procurementRfqId || fallbackRfqId,
       }));
 
-      const { maybeRedactQuotationsListForStaff } = await import("../utils/quotationRedaction");
-      const quotations = await maybeRedactQuotationsListForStaff(quotationsForRedaction);
-      return { quotations, rfq };
+      const { SourcingAccessService } = await import("./sourcing/SourcingAccessService");
+      const { visible, sealed } = await SourcingAccessService.forStaff(quotationsForRedaction, actor);
+      return { quotations: visible, sealedEvents: sealed, rfq };
     } catch (error: any) {
       console.error("Error fetching quotations by RFQ:", error);
       throw error;
@@ -1251,9 +1444,8 @@ export class VendorQuotationService {
         throw new Error("Quotation not found");
       }
 
-      if (quotation.status !== "SUBMITTED") {
-        throw new Error("Cannot delete a quotation that has been reviewed");
-      }
+      // §15: what a supplier submitted is retained. A wrong or superseded submission is rejected or superseded, never removed.
+      throw Object.assign(new Error("A submitted quotation is retained on record and cannot be deleted. Reject it with a reason instead."), { status: 409 });
 
       // Delete quotation (items will be cascade deleted)
       await prisma.vendorQuotation.delete({

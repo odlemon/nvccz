@@ -136,6 +136,9 @@ router.patch("/:id/post", JournalEntryController.postJournalEntry);
 // Void a journal entry (change status to VOID)
 router.patch("/:id/void", JournalEntryController.voidJournalEntry);
 
+// Discard a draft (its preparer, or an approver): nothing was posted, so nothing is reversed
+router.post("/:id/discard", JournalEntryController.discardJournalEntry);
+
 // Update journal entry (PENDING only; posted/voided → 409 — ledger immutability)
 router.patch("/:id", JournalEntryController.updateJournalEntry);
 

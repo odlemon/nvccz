@@ -41,69 +41,28 @@ export class OpenItemMatchingService {
    */
   static async getCustomerOpenItems(customerId: string): Promise<{ success: boolean; data?: OpenItem[]; message: string }> {
     try {
-      
-      // Get customer invoices that are not fully paid
-      const openItems = await prisma.invoice.findMany({
-        where: {
-          customerId: customerId,
-          status: {
-            in: ['DRAFT', 'SENT', 'PARTIALLY_PAID']
-          }
-        },
-        include: {
-          customer: true,
-          currency: true,
-          allocations: {
-            include: {
-              cashbookEntry: true
-            }
-          }
-        },
-        orderBy: {
-          dueDate: 'asc'
-        }
+      // invoices the customer owes: sent (posted) and not fully paid; a draft is not a receivable yet
+      const invoices = await prisma.invoice.findMany({
+        where: { customerId, isActive: true, status: { in: ['SENT', 'PARTIALLY_PAID'] }, outstandingAmount: { gt: 0 } },
+        include: { currency: true },
+        orderBy: [{ dueDate: 'asc' }, { transactionDate: 'asc' }],
       });
-      
-      // Calculate outstanding amounts
-      const openItemsWithOutstanding = await Promise.all(
-        openItems.map(async (invoice) => {
-          // Calculate total allocated amount from payment allocations
-          const totalAllocated = invoice.allocations.reduce((sum, allocation) => 
-            sum.add(allocation.allocatedAmount), new Decimal(0)
-          );
-          
-          const outstandingAmount = invoice.totalAmount.sub(totalAllocated);
-          
-          return {
-            id: invoice.id,
-            customerId: invoice.customerId,
-            invoiceNumber: invoice.invoiceNumber,
-            invoiceDate: invoice.invoiceDate,
-            dueDate: invoice.dueDate,
-            originalAmount: invoice.totalAmount,
-            outstandingAmount: outstandingAmount,
-            currency: invoice.currency?.code || 'USD',
-            description: `Invoice ${invoice.invoiceNumber}`,
-            status: outstandingAmount.gt(0) ? 
-              (invoice.dueDate < new Date() ? 'OVERDUE' : 'OPEN') : 
-              'FULLY_PAID'
-          };
-        })
-      );
-      
-      // Filter out fully paid invoices
-      const openItemsOnly = openItemsWithOutstanding.filter(item => 
-        item.outstandingAmount.gt(0)
-      );
-      
-      return {
-        success: true,
-        data: openItemsOnly,
-        message: `Found ${openItemsOnly.length} open invoices for customer`
-      };
-      
+      const now = new Date();
+      const data = invoices.map((inv) => ({
+        id: inv.id,
+        customerId: inv.customerId,
+        invoiceNumber: inv.invoiceNumber,
+        invoiceDate: inv.transactionDate,
+        dueDate: inv.dueDate,
+        originalAmount: inv.totalAmount,
+        outstandingAmount: inv.outstandingAmount,
+        currency: inv.currency?.code || null,
+        currencyId: inv.currencyId,
+        description: inv.description || `Invoice ${inv.invoiceNumber}`,
+        status: (inv.dueDate && inv.dueDate < now ? 'OVERDUE' : 'OPEN') as any,
+      }));
+      return { success: true, data, message: `Found ${data.length} open invoice(s)` };
     } catch (error: any) {
-      console.error('❌ Error getting customer open items:', error.message);
       return { success: false, message: `Failed to get open items: ${error.message}` };
     }
   }
@@ -184,131 +143,44 @@ export class OpenItemMatchingService {
    * Match payment to specific invoices
    */
   static async matchPaymentToInvoices(
-    paymentId: string, 
-    allocations: PaymentAllocation[], 
+    paymentId: string,
+    allocations: PaymentAllocation[],
     userId: string
   ): Promise<MatchingResult> {
     try {
-      
-      // Get the payment
-      const payment = await prisma.cashbookEntry.findUnique({
-        where: { id: paymentId },
-        include: {
-          bank: true,
-          customer: true,
-          vendor: true
+      const payment = await prisma.cashbookEntry.findUnique({ where: { id: paymentId }, include: { bank: true } });
+      if (!payment) return { success: false, message: 'Receipt not found' };
+      if (payment.status !== 'POSTED' && payment.status !== 'PENDING') return { success: false, message: 'Only a posted receipt can be allocated.' };
+      if (payment.type !== 'RECEIPT' || payment.counterpartyType !== 'CUSTOMER' || !payment.customerId) return { success: false, message: 'Only a customer receipt is allocated to customer invoices.' };
+      const lines = (allocations || []).filter((a) => Number(a.allocatedAmount) > 0);
+      if (!lines.length) return { success: false, message: 'Give an amount to allocate.' };
+      const already = await prisma.paymentAllocation.aggregate({ where: { cashbookEntryId: paymentId }, _sum: { allocatedAmount: true } });
+      const alreadyAllocated = Number(already._sum.allocatedAmount || 0);
+      const asked = lines.reduce((t, a) => t + Number(a.allocatedAmount), 0);
+      if (alreadyAllocated + asked > Number(payment.amount) + 0.005) {
+        return { success: false, message: `The receipt is ${Number(payment.amount).toFixed(2)}; ${alreadyAllocated.toFixed(2)} is already allocated, so at most ${(Number(payment.amount) - alreadyAllocated).toFixed(2)} can be.` };
+      }
+      const bankCurrencyId = payment.bank?.currencyId || null;
+      const processed = [];
+      await prisma.$transaction(async (tx) => {
+        for (const a of lines) {
+          const inv = await tx.invoice.findUnique({ where: { id: a.openItemId } });
+          if (!inv || !inv.isActive) throw new Error(`Invoice not found: ${a.openItemId}`);
+          if (inv.customerId !== payment.customerId) throw new Error(`${inv.invoiceNumber} is another customer's invoice.`);
+          if (inv.status !== 'SENT' && inv.status !== 'PARTIALLY_PAID') throw new Error(`${inv.invoiceNumber} is ${String(inv.status).toLowerCase()}; only a sent, unpaid invoice takes a receipt.`);
+          if (bankCurrencyId && inv.currencyId !== bankCurrencyId) throw new Error(`${inv.invoiceNumber} is in another currency than the receipt.`);
+          const amt = Number(a.allocatedAmount);
+          const outstanding = Number(inv.outstandingAmount);
+          if (amt > outstanding + 0.005) throw new Error(`${inv.invoiceNumber} has ${outstanding.toFixed(2)} outstanding; ${amt.toFixed(2)} is more than that.`);
+          await tx.paymentAllocation.create({ data: { cashbookEntryId: paymentId, invoiceId: inv.id, allocatedAmount: new Decimal(amt), discountAmount: new Decimal(a.discountAmount || 0), notes: a.description || `Receipt allocated to ${inv.invoiceNumber}`, createdById: userId } });
+          const left = Math.round((outstanding - amt) * 100) / 100;
+          await tx.invoice.update({ where: { id: inv.id }, data: { paidAmount: { increment: new Decimal(amt) }, outstandingAmount: new Decimal(left), status: left <= 0.005 ? 'PAID' : 'PARTIALLY_PAID', ...(left <= 0.005 ? { paymentDate: payment.transactionDate } : {}) } });
+          processed.push({ openItemId: inv.id, allocatedAmount: amt, discountAmount: a.discountAmount, description: a.description });
         }
       });
-      
-      if (!payment) {
-        return { success: false, message: 'Payment not found' };
-      }
-      
-      // Allow allocations for PENDING payments (allocations happen before posting per UAT)
-      if (payment.status === 'POSTED' || payment.status === 'PENDING') {
-        // Both statuses are allowed for allocations
-      } else {
-        return { success: false, message: 'Payment must be PENDING or POSTED to create allocations' };
-      }
-      
-      // Validate allocations
-      const totalAllocated = allocations.reduce((sum, alloc) => 
-        sum + Number(alloc.allocatedAmount), 0
-      );
-      
-      if (totalAllocated > Number(payment.amount)) {
-        return { success: false, message: 'Total allocated amount exceeds payment amount' };
-      }
-      
-      // Process each allocation
-      const processedAllocations = [];
-      
-      for (const allocation of allocations) {
-        // Get the open item (invoice)
-        const invoice = await prisma.invoice.findUnique({
-          where: { id: allocation.openItemId }
-        });
-        
-        if (!invoice) {
-          return { success: false, message: `Invoice not found: ${allocation.openItemId}` };
-        }
-        
-        // Check if allocation amount is valid
-        if (allocation.allocatedAmount <= 0) {
-          continue; // Skip zero or negative allocations
-        }
-        
-        // Create payment allocation record
-        const paymentAllocation = await prisma.paymentAllocation.create({
-          data: {
-            cashbookEntryId: paymentId,
-            invoiceId: allocation.openItemId,
-            allocatedAmount: new Decimal(allocation.allocatedAmount),
-            discountAmount: new Decimal(allocation.discountAmount || 0),
-            notes: allocation.description || `Payment allocation for ${invoice.invoiceNumber}`,
-            createdById: userId
-          }
-        });
-        
-        processedAllocations.push({
-          openItemId: allocation.openItemId,
-          allocatedAmount: allocation.allocatedAmount,
-          discountAmount: allocation.discountAmount,
-          description: allocation.description
-        });
-        
-        // Update invoice paid amount and outstanding amount
-        await prisma.invoice.update({
-          where: { id: allocation.openItemId },
-          data: {
-            paidAmount: {
-              increment: new Decimal(allocation.allocatedAmount)
-            },
-            outstandingAmount: {
-              decrement: new Decimal(allocation.allocatedAmount)
-            }
-          }
-        });
-        
-        // Update invoice status if fully paid
-        const totalAllocatedToInvoice = await prisma.paymentAllocation.aggregate({
-          where: { invoiceId: allocation.openItemId },
-          _sum: { allocatedAmount: true }
-        });
-        
-        const totalAllocatedAmount = totalAllocatedToInvoice._sum.allocatedAmount || new Decimal(0);
-        
-        if (totalAllocatedAmount.gte(invoice.totalAmount)) {
-          await prisma.invoice.update({
-            where: { id: allocation.openItemId },
-            data: { status: 'PAID' }
-          });
-        } else if (totalAllocatedAmount.gt(0)) {
-          await prisma.invoice.update({
-            where: { id: allocation.openItemId },
-            data: { status: 'PARTIALLY_PAID' }
-          });
-        }
-      }
-      
-      const remainingAmount = payment.amount.sub(totalAllocated);
-      
-      console.log(`✅ Payment matched: ${paymentId} - ${processedAllocations.length} allocations`);
-      
-      return {
-        success: true,
-        message: 'Payment successfully matched to invoices',
-        data: {
-          paymentId: paymentId,
-          allocations: processedAllocations,
-          totalAllocated: totalAllocated,
-          remainingAmount: remainingAmount
-        }
-      };
-      
+      return { success: true, message: 'Receipt allocated', data: { paymentId, allocations: processed as any, totalAllocated: asked as any, remainingAmount: (Number(payment.amount) - alreadyAllocated - asked) as any } };
     } catch (error: any) {
-      console.error('❌ Error matching payment to invoices:', error.message);
-      return { success: false, message: `Failed to match payment: ${error.message}` };
+      return { success: false, message: error.message || 'Failed to allocate the receipt' };
     }
   }
   
@@ -316,69 +188,26 @@ export class OpenItemMatchingService {
    * Unmatch payment from invoices
    */
   static async unmatchPaymentFromInvoices(
-    paymentId: string, 
-    allocationIds: string[], 
+    paymentId: string,
+    allocationIds: string[],
     userId: string
   ): Promise<{ success: boolean; message: string }> {
     try {
-      
-      // Delete payment allocations
-      await prisma.paymentAllocation.deleteMany({
-        where: {
-          id: { in: allocationIds },
-          cashbookEntryId: paymentId
+      const rows = await prisma.paymentAllocation.findMany({ where: { id: { in: allocationIds || [] }, cashbookEntryId: paymentId } });
+      if (!rows.length) return { success: false, message: 'No such allocation on this receipt.' };
+      await prisma.$transaction(async (tx) => {
+        for (const r of rows) {
+          const inv = await tx.invoice.findUnique({ where: { id: r.invoiceId } });
+          await tx.paymentAllocation.delete({ where: { id: r.id } });
+          if (!inv) continue;
+          const paid = Math.max(0, Number(inv.paidAmount) - Number(r.allocatedAmount));
+          const outstanding = Math.round((Number(inv.outstandingAmount) + Number(r.allocatedAmount)) * 100) / 100;
+          await tx.invoice.update({ where: { id: inv.id }, data: { paidAmount: new Decimal(paid), outstandingAmount: new Decimal(outstanding), status: paid > 0.005 ? 'PARTIALLY_PAID' : 'SENT', paymentDate: null } });
         }
       });
-      
-      // Update invoice statuses back to their previous state
-      const affectedInvoices = await prisma.paymentAllocation.findMany({
-        where: { cashbookEntryId: paymentId },
-        select: { invoiceId: true }
-      });
-      
-      for (const allocation of affectedInvoices) {
-        const invoice = await prisma.invoice.findUnique({
-          where: { id: allocation.invoiceId }
-        });
-        
-        if (invoice) {
-          // Calculate remaining allocated amount
-          const remainingAllocated = await prisma.paymentAllocation.aggregate({
-            where: { invoiceId: allocation.invoiceId },
-            _sum: { allocatedAmount: true }
-          });
-          
-          const totalAllocated = remainingAllocated._sum.allocatedAmount || new Decimal(0);
-          
-          if (totalAllocated.gte(invoice.totalAmount)) {
-            await prisma.invoice.update({
-              where: { id: allocation.invoiceId },
-              data: { status: 'PAID' }
-            });
-          } else if (totalAllocated.gt(0)) {
-            await prisma.invoice.update({
-              where: { id: allocation.invoiceId },
-              data: { status: 'PARTIALLY_PAID' }
-            });
-          } else {
-            await prisma.invoice.update({
-              where: { id: allocation.invoiceId },
-              data: { status: 'SENT' }
-            });
-          }
-        }
-      }
-      
-      console.log(`✅ Payment unmatched: ${paymentId} - ${allocationIds.length} allocations removed`);
-      
-      return {
-        success: true,
-        message: 'Payment successfully unmatched from invoices'
-      };
-      
+      return { success: true, message: `${rows.length} allocation(s) undone` };
     } catch (error: any) {
-      console.error('❌ Error unmatching payment from invoices:', error.message);
-      return { success: false, message: `Failed to unmatch payment: ${error.message}` };
+      return { success: false, message: error.message || 'Failed to undo the allocation' };
     }
   }
   

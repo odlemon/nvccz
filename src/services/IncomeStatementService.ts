@@ -2,6 +2,7 @@
 import { PrismaClient, ChartOfAccounts, JournalEntryLine } from "@prisma/client";
 import { prisma } from "../utils/database";
 import { Decimal } from "decimal.js";
+import { baseContext, isBaseReport, toBaseAmounts, journalsToBase, baseCurrencyRow } from "../utils/baseCurrencyAmounts";
 
 export interface IncomeStatementParams {
   startDate: Date;
@@ -95,9 +96,12 @@ export class IncomeStatementService {
       const { startDate, endDate, currencyId } = params;
 
       // Get currency information
-      const currency = currencyId 
+      // no currency means the base currency (it picked whichever active currency came first)
+      const currency = currencyId
         ? await prisma.currency.findUnique({ where: { id: currencyId } })
-        : await prisma.currency.findFirst({ where: { isActive: true } });
+        : await baseCurrencyRow();
+      const baseCtx = await baseContext();
+      const baseMode = await isBaseReport(currency?.id, baseCtx);
 
       if (!currency) {
         throw new Error("No active currency found");
@@ -112,7 +116,8 @@ export class IncomeStatementService {
             lte: endDate
           },
           status: "POSTED",
-          currencyId: currency.id,
+          // the base currency covers every currency at base amounts (FX-01)
+          ...(baseMode ? {} : { currencyId: currency.id }),
           // Exclude journal entries linked to voided/reversed cashbook entries
           cashbookEntries: {
             none: {
@@ -221,6 +226,8 @@ export class IncomeStatementService {
           }
         }
       });
+
+      if (baseMode) await journalsToBase(journalEntries, baseCtx);
 
       // Calculate account balances from journal entry lines with transaction breakdowns
       const accountBalances = await this.calculateAccountBalances(journalEntries);
@@ -363,7 +370,8 @@ export class IncomeStatementService {
     };
 
     for (const account of accounts) {
-      if (account.financialStatement !== "Income Statement") {
+      // "Income Statement / Cash Flow" accounts belong here too
+      if (!String(account.financialStatement || "").startsWith("Income Statement")) {
         continue;
       }
 
@@ -522,21 +530,20 @@ export class IncomeStatementService {
         transactions: accountTransactions
       };
 
-      if (accountNoValue >= 4000 && accountNoValue <= 4099) {
-        // Core revenue accounts (credits positive)
+      // Sections follow the account's type. The 41xx accounts are investment income (dividends, interest, realised
+      // gains) and were treated as contra-revenue and sign-flipped; a revenue account's debits (returns, reversals)
+      // already reduce it through its net amount.
+      const isIncomeType = account.accountType === "Revenue" || account.accountType === "Income";
+      const isTaxExpense = account.accountType === "Expense" && /(corporate|income) tax/i.test(account.accountName || "");
+      if (isIncomeType && !(accountNoValue >= 6200 && accountNoValue <= 6999)) {
         revenueSection.accounts.push(baseLine);
         revenueSection.total += baseLine.amount;
         continue;
       }
 
-      if (accountNoValue >= 4100 && accountNoValue <= 4199) {
-        // Contra revenue / returns
-        const line: IncomeStatementLine = {
-          ...baseLine,
-          amount: baseLine.amount * -1
-        };
-        returnsAccounts.push(line);
-        revenueSection.total += line.amount;
+      if (isTaxExpense || (accountNoValue >= 6100 && accountNoValue <= 6199)) {
+        incomeTaxSection.accounts.push(baseLine);
+        incomeTaxSection.total += baseLine.amount;
         continue;
       }
 
@@ -658,11 +665,11 @@ export class IncomeStatementService {
 
     // Calculate net amounts based on account type
     for (const account of accountBalances.values()) {
-      if (account.accountType === "Revenue") {
-        // Revenue accounts: Credits increase, Debits decrease
+      if (account.accountType === "Revenue" || account.accountType === "Income") {
+        // Revenue and other income: credits increase, debits decrease ("Income" accounts were given no amount)
         account.netAmount = account.totalCredits - account.totalDebits;
-      } else if (account.accountType === "Expense") {
-        // Expense accounts: Debits increase, Credits decrease
+      } else {
+        // Expenses (and anything else on the income statement): debits increase
         account.netAmount = account.totalDebits - account.totalCredits;
       }
     }
@@ -729,9 +736,11 @@ export class IncomeStatementService {
     const detailedAccounts = [];
 
     // Get currency information for filtering
-    const currency = params.currencyId 
+    const currency = params.currencyId
       ? await prisma.currency.findUnique({ where: { id: params.currencyId } })
-      : await prisma.currency.findFirst({ where: { isActive: true } });
+      : await baseCurrencyRow();
+    const baseCtxD = await baseContext();
+    const baseModeD = await isBaseReport(currency?.id, baseCtxD);
 
     if (!currency) {
       throw new Error("No active currency found");
@@ -739,7 +748,7 @@ export class IncomeStatementService {
 
     for (const account of accounts) {
       // Get all transactions for this account in the period with complete details
-      const transactions = await prisma.journalEntryLine.findMany({
+      const transactionsRaw = await prisma.journalEntryLine.findMany({
         where: {
           chartOfAccountId: account.accountId,
           journalEntry: {
@@ -748,7 +757,7 @@ export class IncomeStatementService {
               lte: params.endDate
             },
             status: "POSTED",
-            currencyId: currency.id
+            ...(baseModeD ? {} : { currencyId: currency.id })
           }
         },
         include: {
@@ -784,6 +793,7 @@ export class IncomeStatementService {
           }
         }
       });
+      const transactions = baseModeD ? (await toBaseAmounts(transactionsRaw as any[], baseCtxD)).lines as any[] : transactionsRaw;
 
       // Group transactions by journal entry for better organization
       const journalEntries = new Map();

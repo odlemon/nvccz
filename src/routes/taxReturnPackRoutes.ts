@@ -2,6 +2,7 @@
 import { Router } from "express";
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
+import { userHasEffectivePermission } from "../config/cfoModulePermissions";
 import {
   requireTaxReturnPackApprove,
   requireTaxReturnPackCompile,
@@ -13,7 +14,10 @@ const router = Router();
 const gpRoles = ["admin", "fund_manager", "cfo", "analyst"];
 
 router.use(authenticate);
-router.use(authorize(gpRoles));
+// tax returns are prepared in Accounting as well as by the fund team: either the GP roles or an accounting permission
+const gpOnly = authorize(gpRoles);
+const ACCOUNTING_READ = ["view_accounting", "manage_accounting", "manage_ledger", "view_financial_reports"];
+router.use((req: any, res: any, next: any) => (ACCOUNTING_READ.some((k) => userHasEffectivePermission(req.user, k)) ? next() : gpOnly(req, res, next)));
 
 router.get("/", TaxReturnPackController.list);
 router.post("/", requireTaxReturnPackCompile, TaxReturnPackController.create);

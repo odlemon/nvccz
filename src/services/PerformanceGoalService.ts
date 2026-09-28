@@ -457,10 +457,13 @@ export class PerformanceGoalService {
       if (request.kpiId) {
         const kpi = await prisma.kPI.findUnique({
           where: { id: String(request.kpiId).trim() },
-          select: { id: true, name: true, isReverseKpi: true, accountType: true, scorecardPillar: true }
+          select: { id: true, name: true, isReverseKpi: true, accountType: true, scorecardPillar: true, approvalStatus: true }
         });
         if (!kpi) {
           throw new Error(`KPI id '${request.kpiId}' not found`);
+        }
+        if (kpi.approvalStatus && kpi.approvalStatus !== "approved") {
+          throw new Error(`KPI '${kpi.name}' is ${String(kpi.approvalStatus).replace("_", " ")}. Only approved KPIs can be used by goals.`);
         }
         kpiId = kpi.id;
         kpiName = kpi.name;
@@ -815,6 +818,9 @@ export class PerformanceGoalService {
           const { IndividualGoalToTaskService } = await import("./IndividualGoalToTaskService");
           await IndividualGoalToTaskService.convertIndividualGoalsToTasks(goal.id, createdById);
         } catch (taskError: any) {
+          // A goal the caller was told failed must not stay behind half-created.
+          await prisma.performanceGoal.delete({ where: { id: goal.id } }).catch(() => undefined);
+          if (kpiId) await KPIService.syncKpiActiveFromLinkedGoals(kpiId).catch(() => undefined);
           throw new Error(
             `Failed to create task for individual goal: ${taskError?.message ?? String(taskError)}`
           );
@@ -1376,7 +1382,21 @@ export class PerformanceGoalService {
   }
 
   // Update performance goal
-  static async updatePerformanceGoal(id: string, request: UpdatePerformanceGoalRequest) {
+  static async updatePerformanceGoal(id: string, request: UpdatePerformanceGoalRequest & { actorId?: string }) {
+    // A typed-in current value is a correction, not an overwrite: currentValue is the sum of the goal's progress events,
+    // so writing it directly was undone by the next check-in and never reached Accounting. It becomes an event of
+    // (new value − events so far), which posts or reverses in the GL like any other progress.
+    if (request.currentValue !== undefined && request.currentValue !== null && request.currentValue !== "") {
+      const nv = Number(request.currentValue);
+      if (!Number.isFinite(nv)) throw new Error("Current value must be a number.");
+      const g0 = await prisma.performanceGoal.findUnique({ where: { id }, select: { id: true, createdById: true } });
+      if (!g0) throw new Error("Performance goal not found");
+      const agg = await prisma.performanceGoalProgressEvent.aggregate({ where: { goalId: id }, _sum: { amount: true } });
+      const delta = Math.round((nv - Number(agg._sum.amount || 0)) * 1000) / 1000;
+      const { PerformanceGoalProgressBridge } = await import("./PerformanceGoalProgressBridge");
+      if (Math.abs(delta) >= 0.0005) await PerformanceGoalProgressBridge.applyDelta({ goalId: id, delta, source: "manual", sourceRef: `goal_edit:${Date.now()}`, actorId: request.actorId || g0.createdById });
+      request = { ...request, currentValue: undefined };
+    }
     try {
       const existingGoal = await prisma.performanceGoal.findUnique({
         where: { id }
@@ -1773,7 +1793,7 @@ export class PerformanceGoalService {
   }
 
   // Delete performance goal
-  static async deletePerformanceGoal(id: string) {
+  static async deletePerformanceGoal(id: string, actorId?: string) {
     try {
       const existingGoal = await prisma.performanceGoal.findUnique({
         where: { id },
@@ -1799,6 +1819,10 @@ export class PerformanceGoalService {
       if (existingGoal._count.tasks > 0) {
         throw new Error("Cannot delete goal with associated tasks");
       }
+
+      // whatever this goal holds in the GL is reversed first (its progress events go with it, so the journals would be orphaned)
+      const { PerformanceGlPostingService } = await import("./PerformanceGlPostingService");
+      await PerformanceGlPostingService.reverseAllForGoal(id, actorId || existingGoal.createdById, "goal_deleted");
 
       await prisma.performanceGoal.delete({
         where: { id }

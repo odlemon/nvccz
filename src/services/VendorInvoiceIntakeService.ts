@@ -146,8 +146,25 @@ export class VendorInvoiceIntakeService {
       where: { id: intake.vendorId },
       select: { taxComplianceStatus: true },
     });
-    if (payload.taxTreatment === "VAT_15" && vendor?.taxComplianceStatus === "INVALID") {
-      taxParseStatus = "MISMATCH";
+    // Suite 06.7 — tax treatment × vendor compliance matrix (not a single VAT_15/INVALID rule).
+    {
+      const treatment = String(payload.taxTreatment || "UNKNOWN").toUpperCase();
+      const compliance = String(vendor?.taxComplianceStatus || "PENDING").toUpperCase();
+      const cell = (t: string, c: string): "OK" | "WARN" | "MISMATCH" => {
+        if (t === "VAT_15") {
+          if (c === "ACTIVE") return "OK";
+          if (c === "PENDING") return "WARN";
+          return "MISMATCH"; // EXPIRED | INVALID | other
+        }
+        if (t === "ZERO_RATED" || t === "EXEMPT") {
+          if (c === "ACTIVE" || c === "PENDING") return "OK";
+          return "WARN"; // EXPIRED | INVALID
+        }
+        // UNKNOWN / other
+        if (c === "INVALID") return "MISMATCH";
+        return "WARN";
+      };
+      taxParseStatus = cell(treatment, compliance);
     }
 
     const updated = await prisma.vendorInvoiceIntake.update({
@@ -288,6 +305,11 @@ export class VendorInvoiceIntakeService {
     }
     if (intake.purchaseInvoiceId) {
       throw new Error("Intake already linked to a vendor bill");
+    }
+    // An AI reading is a proposal. Below the confidence threshold a person must check it against the document before anything
+    // is created from it.
+    if (intake.status === "PENDING_VERIFICATION") {
+      throw new Error("This reading is below the confidence threshold. A person must check it against the document and verify it before a bill is created from it.");
     }
 
     const payload = intake.extractedPayloadJson as any;

@@ -3,6 +3,11 @@ import express from "express";
 import { PerformanceReviewController } from "../controllers/PerformanceReviewController";
 import { authenticate } from "../middleware/authenticate";
 import { methodGuard } from "../middleware/methodGuard"
+import { requireAnyPermission } from "../middleware/permissionAuth"
+import { PerformanceReviewService } from "../services/PerformanceReviewService"
+import { prisma } from "../utils/database"
+import { prisma } from "../utils/database";
+import { scoped, orgOnly, personInScope, departmentInScope } from "../services/PerformanceScope";
 
 const router = express.Router();
 const READ_KEYS = ["performance.reviews.view", "performance.reviews.manage"]
@@ -233,7 +238,26 @@ const guard = methodGuard(READ_KEYS, WRITE_KEYS)
  *       500:
  *         description: Internal server error
  */
-router.post("/", authenticate, guard, PerformanceReviewController.createPerformanceReview);
+// row scope (PerformanceScope): a review is set up for someone in the caller's reach, with a reviewer in their reach
+const reviewPlacement = scoped(async (req, a) => {
+  const b = req.body || {};
+  if (b.revieweeId && !(await personInScope(a, b.revieweeId))) return "You can only set up reviews for people in your department.";
+  if (b.reviewerId && !(await personInScope(a, b.reviewerId))) return "The reviewer must be someone in your department.";
+  return null;
+});
+// feedback belongs to a review: whoever may see the review may add to it; only its author (or the organisation scope) changes it
+const feedbackOnReview = scoped(async (req, a) => {
+  const r = req.body?.reviewId ? await prisma.performanceReview.findUnique({ where: { id: String(req.body.reviewId) }, select: { revieweeId: true, reviewerId: true } }) : null;
+  if (!r) return null;
+  if (a.org || r.revieweeId === a.id || r.reviewerId === a.id || (await personInScope(a, r.revieweeId))) return null;
+  return "This review is outside what your role can see.";
+});
+const feedbackAuthor = scoped(async (req, a) => {
+  const f = await prisma.performanceReviewFeedback.findUnique({ where: { id: String(req.params.id) }, select: { feedbackProviderId: true } });
+  if (!f) return null;
+  return a.org || f.feedbackProviderId === a.id ? null : "Only the person who wrote this feedback can change it.";
+});
+router.post("/", authenticate, guard, reviewPlacement, PerformanceReviewController.createPerformanceReview);
 
 /**
  * @swagger-disabled-legacy
@@ -416,7 +440,7 @@ router.get("/", authenticate, guard, PerformanceReviewController.getAllPerforman
  *       500:
  *         description: Internal server error
  */
-router.get("/analytics", authenticate, guard, PerformanceReviewController.getPerformanceReviewAnalytics);
+router.get("/analytics", authenticate, guard, orgOnly("Review analytics across the organisation are for organisation-wide roles."), PerformanceReviewController.getPerformanceReviewAnalytics);
 
 /**
  * @swagger-disabled-legacy
@@ -465,7 +489,7 @@ router.get("/analytics", authenticate, guard, PerformanceReviewController.getPer
  *       500:
  *         description: Internal server error
  */
-router.get("/completion-rates", authenticate, guard, PerformanceReviewController.getPerformanceReviewCompletionRates);
+router.get("/completion-rates", authenticate, guard, orgOnly("Review completion across the organisation is for organisation-wide roles."), PerformanceReviewController.getPerformanceReviewCompletionRates);
 
 /**
  * @swagger-disabled-legacy
@@ -523,7 +547,7 @@ router.get("/completion-rates", authenticate, guard, PerformanceReviewController
  *                   type: string
  *                   format: date-time
  */
-router.get("/reports/rating-distribution", authenticate, guard, PerformanceReviewController.getDepartmentRatingDistribution);
+router.get("/reports/rating-distribution", authenticate, guard, scoped(async (req, a) => (a.org || String(req.query.organizationWide) === "true" || departmentInScope(a, req.query.departmentName) ? null : "You can only see your own department's ratings.")), PerformanceReviewController.getDepartmentRatingDistribution);
 
 /**
  * @swagger-disabled-legacy
@@ -797,7 +821,7 @@ router.delete("/:id", authenticate, guard, PerformanceReviewController.deletePer
  *       500:
  *         description: Internal server error
  */
-router.post("/feedback", authenticate, guard, PerformanceReviewController.createPerformanceReviewFeedback);
+router.post("/feedback", authenticate, guard, feedbackOnReview, PerformanceReviewController.createPerformanceReviewFeedback);
 
 /**
  * @swagger-disabled-legacy
@@ -863,7 +887,7 @@ router.post("/feedback", authenticate, guard, PerformanceReviewController.create
  *       500:
  *         description: Internal server error
  */
-router.put("/feedback/:id", authenticate, guard, PerformanceReviewController.updatePerformanceReviewFeedback);
+router.put("/feedback/:id", authenticate, guard, feedbackAuthor, PerformanceReviewController.updatePerformanceReviewFeedback);
 
 /**
  * @swagger-disabled-legacy
@@ -908,7 +932,7 @@ router.put("/feedback/:id", authenticate, guard, PerformanceReviewController.upd
  *       500:
  *         description: Internal server error
  */
-router.delete("/feedback/:id", authenticate, guard, PerformanceReviewController.deletePerformanceReviewFeedback);
+router.delete("/feedback/:id", authenticate, guard, feedbackAuthor, PerformanceReviewController.deletePerformanceReviewFeedback);
 
 /**
  * @swagger-disabled-legacy
@@ -967,7 +991,7 @@ router.delete("/feedback/:id", authenticate, guard, PerformanceReviewController.
  *                   type: string
  *                   format: date-time
  */
-router.post("/cycles/:cycleId/initiate", authenticate, guard, PerformanceReviewController.initiateCycleForAllEmployees);
+router.post("/cycles/:cycleId/initiate", authenticate, guard, orgOnly("Starting a review cycle for everyone is for organisation-wide roles."), PerformanceReviewController.initiateCycleForAllEmployees);
 
 /**
  * @swagger-disabled-legacy
@@ -1077,6 +1101,24 @@ router.post(
 );
 
 router.post("/:id/finalize", authenticate, guard, PerformanceReviewController.finalizePerformanceReview);
+
+// The reviewee's own steps need only the view permission; the service checks that the caller IS the reviewee.
+const selfGuard = requireAnyPermission(READ_KEYS);
+const selfRun = (fn) => async (req: any, res: any) => {
+  try {
+    res.json({ success: true, data: await fn(req) });
+  } catch (e: any) {
+    const m = String(e?.message || "Error").replace(/^Failed to advance performance review stage: /, "");
+    res.status(/not found/i.test(m) ? 404 : /Only the person|Access denied/i.test(m) ? 403 : 400).json({ success: false, message: m });
+  }
+};
+router.put("/:id/self-assessment", authenticate, selfGuard, selfRun((req) => PerformanceReviewService.saveSelfAssessment(req.params.id, req.body || {}, req.user)));
+router.post("/:id/submit-self-assessment", authenticate, selfGuard, selfRun(async (req) => {
+  const r = await prisma.performanceReview.findUnique({ where: { id: req.params.id }, select: { revieweeId: true } });
+  if (!r) throw new Error("Performance review not found");
+  if (r.revieweeId !== req.user.id) throw new Error("Only the person being reviewed submits the self-assessment.");
+  return PerformanceReviewService.completeCurrentPerformanceReviewStage(req.params.id, req.user);
+}));
 
 /**
  * @swagger-disabled-legacy

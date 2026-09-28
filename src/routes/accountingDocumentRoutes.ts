@@ -5,6 +5,8 @@ import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
 import multer from "multer";
 
+// Who may use these routes is decided by the Accounting access guard in front of every accounting router
+// (src/middleware/accountingAccessGuard.ts); the role-name lists that stood here refused the Finance Manager and auditors.
 const router = express.Router();
 
 const accountingDocumentUpload = multer({
@@ -26,11 +28,10 @@ const accountingDocumentUpload = multer({
  *     security:
  *       - bearerAuth: []
  */
-router.get("/", authenticate, authorize(["admin", "accountant"]), AccountingDocumentController.list);
+router.get("/", authenticate, AccountingDocumentController.list);
 router.post(
   "/",
   authenticate,
-  authorize(["admin", "accountant"]),
   accountingDocumentUpload.single("file"),
   AccountingDocumentController.upload
 );

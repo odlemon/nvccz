@@ -28,6 +28,12 @@ function toDecimalString(n: number): string {
 }
 
 export class CashbookReconciliationSessionService {
+  /** A statement ends on a day that has happened. */
+  static assertStatementDate(d: Date) {
+    if (!(d instanceof Date) || Number.isNaN(d.getTime())) throw new Error("Invalid statement date");
+    if (d.getTime() > endOfDay(new Date()).getTime()) throw new Error("A statement date cannot be in the future.");
+  }
+
   static async findPriorFinalizedSession(bankId: string, excludeSessionId?: string) {
     return prisma.cashbookReconciliationSession.findFirst({
       where: {
@@ -271,6 +277,14 @@ export class CashbookReconciliationSessionService {
   }) {
     const bank = await prisma.bank.findUnique({ where: { id: params.bankId } });
     if (!bank) throw new Error("Bank not found");
+    this.assertStatementDate(params.statementDate);
+    // one open reconciliation per account, and it starts after the last finished one
+    const openDraft = await prisma.cashbookReconciliationSession.findFirst({ where: { bankId: params.bankId, status: CashbookReconciliationSessionStatus.DRAFT }, select: { id: true } });
+    if (openDraft) throw new Error("This account already has a reconciliation in progress; finish or discard it first.");
+    const lastDone = await this.findPriorFinalizedSession(params.bankId);
+    if (lastDone && params.statementDate <= lastDone.statementDate) {
+      throw new Error(`This account is reconciled up to ${lastDone.statementDate.toISOString().slice(0, 10)}; the next statement ends after that date.`);
+    }
 
     const priorClosing = await this.getPriorClosingBalance(params.bankId);
     let opening: number | null =
@@ -400,6 +414,7 @@ export class CashbookReconciliationSessionService {
     }
 
     const end = endOfDay(params.statementDate ?? session.statementDate);
+    if (params.statementDate !== undefined) this.assertStatementDate(params.statementDate);
 
     const data: Prisma.CashbookReconciliationSessionUpdateInput = {};
     if (params.statementDate !== undefined) data.statementDate = params.statementDate;
@@ -500,9 +515,14 @@ export class CashbookReconciliationSessionService {
       opening = priorClosing;
     }
     if (opening === null || !Number.isFinite(opening)) {
-      throw new Error(
-        "openingBalance is required: set it on the draft or complete a prior finalized reconciliation with a closing balance"
-      );
+      throw new Error("Enter the opening balance of this first reconciliation (the statement's opening balance).");
+    }
+    // an imported statement is reconciled line by line: every line matched to a book entry (ACC-CB-32)
+    const linked: any[] = await prisma.$queryRawUnsafe("SELECT bank_statement_id FROM cashbook_reconciliation_statements WHERE session_id = ? LIMIT 1", session.id);
+    const statementId = linked[0]?.bank_statement_id || null;
+    if (statementId) {
+      const unmatched = await prisma.bankStatementItem.count({ where: { statementId, isMatched: false } });
+      if (unmatched) throw new Error(`${unmatched} statement line(s) are not matched to the cashbook; match them, or book the ones that are not in the books (charges, interest).`);
     }
 
     const selectedLines = session.lines.filter((l) => l.selected);
@@ -540,8 +560,9 @@ export class CashbookReconciliationSessionService {
 
     await prisma.$transaction(
       async (tx) => {
-        await tx.cashbookEntry.updateMany({
-          where: { id: { in: entryIds } },
+        // claimed only while still unreconciled: two reconciliations finishing at once cannot both clear an entry
+        const claimed = await tx.cashbookEntry.updateMany({
+          where: { id: { in: entryIds }, isReconciled: false },
           data: {
             isReconciled: true,
             reconciledAt: now,
@@ -549,6 +570,12 @@ export class CashbookReconciliationSessionService {
             cashbookReconciliationSessionId: params.sessionId,
           },
         });
+        if (claimed.count !== entryIds.length) {
+          throw new Error("Some of the ticked entries were reconciled elsewhere a moment ago; reload the reconciliation.");
+        }
+        if (statementId) {
+          await tx.bankStatement.update({ where: { id: statementId }, data: { isReconciled: true, reconciledAt: now, reconciledById: params.userId } });
+        }
 
         await tx.cashbookReconciliationSession.update({
           where: { id: params.sessionId },
@@ -564,6 +591,11 @@ export class CashbookReconciliationSessionService {
       { maxWait: 60000, timeout: 120000 }
     );
 
+    try {
+      const { default: AuditService } = await import("./AuditService");
+      await AuditService.log({ userId: params.userId, action: "UPDATE", entityType: "CashbookReconciliationSession", entityId: params.sessionId, oldValues: { status: "DRAFT" }, newValues: { status: "FINALIZED", openingBalance: opening, closingBalance: target, entries: entryIds.length } });
+    } catch { /* audit is best effort here; the reconciliation itself is committed */ }
+
     return this.getById(params.sessionId);
   }
 
@@ -576,11 +608,17 @@ export class CashbookReconciliationSessionService {
       throw new Error("Only draft sessions can be discarded");
     }
 
+    const linked: any[] = await prisma.$queryRawUnsafe("SELECT bank_statement_id FROM cashbook_reconciliation_statements WHERE session_id = ? LIMIT 1", params.sessionId);
     await prisma.$transaction(
       async (tx) => {
       await tx.cashbookReconciliationSessionLine.deleteMany({
         where: { sessionId: params.sessionId },
       });
+      if (linked[0]) {
+        await tx.$executeRawUnsafe("DELETE FROM cashbook_reconciliation_statements WHERE session_id = ?", params.sessionId);
+        await tx.bankStatementItem.deleteMany({ where: { statementId: linked[0].bank_statement_id } });
+        await tx.bankStatement.delete({ where: { id: linked[0].bank_statement_id } }).catch(() => null);
+      }
       await tx.cashbookReconciliationSession.update({
         where: { id: params.sessionId },
         data: { status: CashbookReconciliationSessionStatus.CANCELLED },

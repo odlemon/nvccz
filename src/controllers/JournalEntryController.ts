@@ -67,7 +67,8 @@ export class JournalEntryController {
           chartOfAccountId: line.chartOfAccountId,
           debitAmount: parseFloat(line.debitAmount) || 0,
           creditAmount: parseFloat(line.creditAmount) || 0,
-          description: line.description,
+          // a line without its own description carries the journal's
+          description: line.description && String(line.description).trim() ? line.description : description,
           ...(line.currencyId ? { currencyId: line.currencyId } : {}),
         })),
         createdById: userId,
@@ -179,7 +180,8 @@ export class JournalEntryController {
         return ResponseHelper.notFound(res, "Journal entry not found");
       }
 
-      return ResponseHelper.success(res, "Journal entry retrieved successfully", journalEntry);
+      const source = await JournalEntryService.journalSourceOf(id).catch(() => null);
+      return ResponseHelper.success(res, "Journal entry retrieved successfully", { ...journalEntry, source });
     } catch (error) {
       console.error("Error getting journal entry:", error);
       return ResponseHelper.error(res, "Failed to retrieve journal entry", undefined, 500);
@@ -230,7 +232,8 @@ export class JournalEntryController {
             chartOfAccountId: line.chartOfAccountId,
             debitAmount: parseFloat(line.debitAmount) || 0,
             creditAmount: parseFloat(line.creditAmount) || 0,
-            description: line.description,
+            // a line without its own description carries the journal's
+            description: line.description && String(line.description).trim() ? line.description : description,
             ...(line.currencyId ? { currencyId: line.currencyId } : {}),
           })),
           createdById: userId,
@@ -265,6 +268,14 @@ export class JournalEntryController {
    */
   static async postJournalEntry(req: Request, res: Response) {
     try {
+      // an invoice's or credit note's journal is posted by sending it (that also moves the document on); posting it
+      // from the register would leave the document in draft with its amount already in the ledger
+      {
+        const src = await JournalEntryService.journalSourceOf(req.params.id).catch(() => null);
+        if (src === "a customer invoice" || src === "a credit note") {
+          return ResponseHelper.error(res, `This journal belongs to ${src}; it is posted by sending the ${src.replace(/^an? /, "")}.`, undefined, 409);
+        }
+      }
       const { id } = req.params;
       const userId = (req as any).user?.id;
       const user = (req as any).user;
@@ -290,7 +301,8 @@ export class JournalEntryController {
     try {
       const { id } = req.params;
       const userId = (req as any).user?.id;
-      const journalEntry = await JournalEntryService.voidJournalEntry(id, userId);
+      const reason = (req as any).body?.reason ? String((req as any).body.reason).slice(0, 500) : null;
+      const journalEntry = await JournalEntryService.voidJournalEntry(id, userId, { reason });
 
       return ResponseHelper.success(res, "Journal entry voided successfully", journalEntry);
     } catch (error) {
@@ -299,6 +311,22 @@ export class JournalEntryController {
         return ResponseHelper.badRequest(res, error.message);
       }
       return ResponseHelper.error(res, "Failed to void journal entry", undefined, 500);
+    }
+  }
+
+  /** Discard a draft: its preparer, or an approver (POST /:id/discard, body { reason }). */
+  static async discardJournalEntry(req: Request, res: Response) {
+    try {
+      const user = (req as any).user;
+      const { userHasEffectivePermission } = await import("../config/cfoModulePermissions");
+      const row = await JournalEntryService.discardDraftJournalEntry(req.params.id, user?.id, {
+        canPostLedger: userHasEffectivePermission(user, "manage_ledger"),
+        reason: (req as any).body?.reason ? String((req as any).body.reason).slice(0, 500) : null,
+      });
+      return ResponseHelper.success(res, "Draft discarded", row);
+    } catch (error) {
+      if (error instanceof Error) return ResponseHelper.badRequest(res, error.message);
+      return ResponseHelper.error(res, "Failed to discard the draft", undefined, 500);
     }
   }
 

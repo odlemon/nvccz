@@ -20,6 +20,15 @@ export class CashbookTransferController {
   static async createTransfer(req: Request, res: Response): Promise<void> {
     try {
       const { fromBankId, toBankId, amount, transferDate, description, reference, projectCode } = req.body;
+      if (transferDate) {
+        const { default: FiscalCalendarService } = await import("../services/FiscalCalendarService");
+        const tz = await FiscalCalendarService.getFiscalTimezone().catch(() => "Africa/Harare");
+        const key = (x: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(x);
+        const d = new Date(transferDate);
+        if (!Number.isNaN(d.getTime()) && key(d) > key(new Date())) {
+          return ResponseHelper.badRequest(res, 'A transfer cannot be dated after today.');
+        }
+      }
       const userId = (req as AuthRequest).user?.id;
       
       if (!userId) {

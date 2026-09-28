@@ -32,6 +32,7 @@ export const SETTING_NAMESPACES = [
   "security", // audit trail, data versioning, manual overrides, privileged access reviews
   "rbac", // role policy checkpoint, previously localStorage-only
   "ratingScales", // rating scale definitions
+  "accounting", // Performance → general ledger: the counter-account progress journals post against
 ] as const;
 
 export type SettingNamespace = (typeof SETTING_NAMESPACES)[number];

@@ -1,5 +1,19 @@
 // @ts-nocheck
+import accountingJobRoutes from "./routes/accountingJobRoutes";
+import accountingMeRoutes from "./routes/accountingMeRoutes";
+import accountingAuditRoutes from "./routes/accountingAuditRoutes";
+import accountingAccessRoutes from "./routes/accountingAccessRoutes";
+import accountingIntegrationsRoutes from "./routes/accountingIntegrationsRoutes";
+import accountingOverviewRoutes from "./routes/accountingOverviewRoutes";
+import paymentRunRoutes from "./routes/paymentRunRoutes";
+import expenseClaimRoutes from "./routes/expenseClaimRoutes"
+import receivablesRoutes from "./routes/receivablesRoutes";
+import { startAccountingJobScheduler } from "./services/AccountingJobService";
+import { accountingAccessGuard } from "./middleware/accountingAccessGuard";
+import "./utils/multerContext"; // must load before any route file builds an upload middleware
 import express from "express"
+import { VendorComplianceJobService } from "./services/VendorComplianceJobService";
+import { startNotificationScheduler } from "./services/notifications/ProcurementNotificationJobs";
 import { createServer } from "http"
 import cors from "cors"
 import helmet from "helmet"
@@ -152,6 +166,7 @@ import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 import performanceAnalyticsRoutes from "./routes/performanceAnalyticsRoutes"
 import performanceConfigRoutes from "./routes/performanceConfigRoutes"
 import performanceIntegrationRoutes from "./routes/performanceIntegrationRoutes"
+import { startPerformanceIntegrationRefreshScheduler } from "./services/PerformanceIntegrationOverviewService"
 import performanceBscEntryRoutes from "./routes/performanceBscEntryRoutes"
 import bscWorkflowRoutes from "./routes/bscWorkflowRoutes"
 import performanceContractRoutes from "./routes/performanceContractRoutes"
@@ -160,6 +175,17 @@ import performanceSettingsRoutes from "./routes/performanceSettingsRoutes"
 import performanceAlertRoutes from "./routes/performanceAlertRoutes"
 import performanceDocumentRoutes from "./routes/performanceDocumentRoutes"
 import performanceScorecardEntryRoutes from "./routes/performanceScorecardEntryRoutes"
+import performanceOrgRoutes from "./routes/performanceOrgRoutes"
+import performanceRiskRoutes from "./routes/performanceRiskRoutes"
+import performanceKpiRegistryRoutes from "./routes/performanceKpiRegistryRoutes"
+import performancePillarGovernanceRoutes from "./routes/performancePillarGovernanceRoutes"
+import performanceProjectRoutes from "./routes/performanceProjectRoutes"
+import performanceAccessRoutes from "./routes/performanceAccessRoutes"
+import performanceReportRoutes from "./routes/performanceReportRoutes"
+import performanceStrategyHubRoutes from "./routes/performanceStrategyHubRoutes"
+import performanceCommandCentreRoutes from "./routes/performanceCommandCentreRoutes"
+import { startPerformanceReportScheduler } from "./services/PerformanceReportService"
+import { startPerformanceAlertScheduler, startPerformanceGlRetryScheduler } from "./services/PerformanceAlertRuleService"
 import accountingApiRoutes from "./routes/accountingApiRoutes"
 import vatReportRoutes from "./routes/vatReportRoutes"
 import glLedgerDetailRoutes from "./routes/glLedgerDetailRoutes"
@@ -245,6 +271,9 @@ app.use(cors({
       "http://localhost:3210",
       "http://localhost:3120",
       "http://localhost:3130",
+      // Vendor (supplier) and events portals, the standalone builds run by scripts/run-portal-dev.mjs
+      "http://localhost:3140",
+      "http://localhost:3150",
       "http://127.0.0.1:3000",
       "http://127.0.0.1:3001",
       "http://127.0.0.1:3110",
@@ -252,6 +281,8 @@ app.use(cors({
       "http://127.0.0.1:3210",
       "http://127.0.0.1:3120",
       "http://127.0.0.1:3130",
+      "http://127.0.0.1:3140",
+      "http://127.0.0.1:3150",
       "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io",
       "http://yoogo0gw888okwwsgk0s88og.31.220.82.129.sslip.io",
       "http://rk0kkk0wok0c4c8s48wc04k0.31.220.82.129.sslip.io",
@@ -430,6 +461,16 @@ app.use(async (req, res, next) => {
 // Attach request metadata (ip, user-agent) for audit logging
 import { attachRequestMeta } from "./middleware/requestMeta"
 app.use(attachRequestMeta)
+
+// SRD §33: audit history is read-only for everyone. No route writes, edits or deletes an audit entry, and any attempt to
+// (PUT / PATCH / DELETE / POST on an audit path) is refused here before it reaches a controller.
+app.use((req, res, next) => {
+  if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
+  if (/(^|\/)audit([-_](logs?|events?|trail|entries))?(\/|$)/i.test(req.path.replace(/^\/api/i, ""))) {
+    return res.status(405).json({ success: false, code: "AUDIT_IMMUTABLE", message: "Audit history is immutable: entries cannot be created, edited or deleted through the API." });
+  }
+  next();
+});
 
 // Debug endpoint to check Swagger spec (development only)
 if (process.env.NODE_ENV === 'development') {
@@ -617,6 +658,18 @@ app.use("/api/public", vendorPublicRegistrationRoutes)
 app.use("/api/public", publicProcurementRoutes)
 
 // Accounting module routes
+// Accounting access: one guard in front of every Accounting and Cashbook router below — staff only, and the permission the
+// route's rule names (src/config/accountingAccess.ts). Routers keep their own checks on top.
+app.use(["/api/accounting", "/api/cashbook", "/api/vat", "/accounting/api"], accountingAccessGuard)
+app.use("/api/accounting/jobs", accountingJobRoutes)
+app.use("/api/accounting/me", accountingMeRoutes)
+app.use("/api/accounting/audit", accountingAuditRoutes)
+app.use("/api/accounting/access", accountingAccessRoutes)
+app.use("/api/accounting/integrations", accountingIntegrationsRoutes)
+app.use("/api/accounting/overview", accountingOverviewRoutes)
+app.use("/api/accounting/payment-runs", paymentRunRoutes)
+app.use("/api/accounting/claims", expenseClaimRoutes)
+app.use("/api/accounting/receivables", receivablesRoutes)
 app.use("/api/accounting/currencies", currencyRoutes)
 app.use("/api/accounting/vendors", vendorRoutes)
 app.use("/api/accounting/expense-categories", expenseCategoryRoutes)
@@ -750,6 +803,15 @@ app.use("/api/performance/settings", performanceSettingsRoutes)
 app.use("/api/performance/alerts", performanceAlertRoutes)
 app.use("/api/performance/documents", performanceDocumentRoutes)
 app.use("/api/performance/scorecard-entries", performanceScorecardEntryRoutes)
+app.use("/api/performance/org", performanceOrgRoutes)
+app.use("/api/performance/risks", performanceRiskRoutes)
+app.use("/api/performance/kpi-registry", performanceKpiRegistryRoutes)
+app.use("/api/performance/pillar-governance", performancePillarGovernanceRoutes)
+app.use("/api/performance/projects", performanceProjectRoutes)
+app.use("/api/performance/access", performanceAccessRoutes)
+app.use("/api/performance/reports", performanceReportRoutes)
+app.use("/api/performance/strategy-hub", performanceStrategyHubRoutes)
+app.use("/api/performance/command-centre", performanceCommandCentreRoutes)
 
 // CEO Dashboard routes
 app.use("/api/ceo-dashboard", ceoDashboardRoutes)
@@ -888,6 +950,16 @@ const startServer = async (): Promise<void> => {
     }
 
     initSocketServer(httpServer)
+    // Vendor document / tax-clearance expiry: brings status in step with the calendar and alerts vendor managers before expiry.
+    VendorComplianceJobService.startScheduler()
+    // Procurement deadline / overdue-evaluation / escalation notifications (SRD §34)
+    startNotificationScheduler()
+    startPerformanceAlertScheduler()
+    startPerformanceGlRetryScheduler()
+    startPerformanceIntegrationRefreshScheduler()
+    startPerformanceReportScheduler()
+    // Accounting: interest accrual, depreciation, recurring journals, the daily rate, reminders (AccountingJobService)
+    startAccountingJobScheduler()
 
     httpServer.listen(port, '0.0.0.0', () => {
       logger.info(`🚀 Server running on port ${port}`, {

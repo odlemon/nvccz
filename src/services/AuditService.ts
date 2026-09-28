@@ -1,5 +1,7 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
+import { currentRequestContext } from "../utils/requestContext";
+import { classifyAuditEvent, type AuditEventType } from "./audit/auditEventTypes";
 
 const SENSITIVE_KEYS = [
   "password",
@@ -65,8 +67,16 @@ export default class AuditService {
     newValues?: any;
     ipAddress?: string | null;
     userAgent?: string | null;
+    /** The SRD §33 class; worked out from the action and record when not given. */
+    eventType?: AuditEventType | "OTHER";
   }) {
-    const { userId, action, entityType, entityId, oldValues, newValues, ipAddress, userAgent } = params;
+    const { action, entityType, entityId, oldValues, newValues } = params;
+    // The caller's IP and device come from the request this runs under, so no audit row is written without them.
+    const ctx = currentRequestContext();
+    const userId = params.userId || ctx?.userId || null;
+    const ipAddress = params.ipAddress || ctx?.ipAddress || null;
+    const userAgent = params.userAgent || ctx?.userAgent || null;
+    const eventType = params.eventType ?? classifyAuditEvent(action, entityType);
 
     await prisma.auditLog.create({
       data: {
@@ -76,8 +86,9 @@ export default class AuditService {
         entityId,
         oldValues: oldValues ? sanitize(oldValues) : undefined,
         newValues: newValues ? sanitize(newValues) : undefined,
-        ipAddress: ipAddress || undefined,
-        userAgent: userAgent || undefined,
+        ipAddress: ipAddress ? String(ipAddress).slice(0, 191) : undefined,
+        userAgent: userAgent ? String(userAgent).slice(0, 500) : undefined,
+        eventType,
       },
     });
   }

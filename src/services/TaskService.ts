@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { PrismaClient, Json } from "@prisma/client";
 import { prisma } from "../utils/database";
+import { FpaPlanningPmTaskBridge } from "./fpa/FpaPlanningPmTaskBridge";
 import {
   computeAchievementPercent,
   computeParentRollupFromChildren,
@@ -147,6 +148,7 @@ export function resolveTaskStageFromAchievement(
 /** Lean list payload for GET /tasks and GET /tasks/my (no activityLogs / heavy joins). */
 const TASK_LIST_SELECT = {
   id: true,
+  projectId: true,
   title: true,
   description: true,
   assets: true,
@@ -862,6 +864,9 @@ export class TaskService {
 
       const effectiveDueDate = request.date ? new Date(request.date) : new Date(existingTask.date);
       const requestedStage = request.stage ?? existingTask.stage;
+      if (request.stage !== undefined && normaliseTaskStage(request.stage) !== normaliseTaskStage(existingTask.stage)) {
+        await FpaPlanningPmTaskBridge.guardPerformanceChange(id, { nextStage: normaliseTaskStage(request.stage) });
+      }
       const { stage: effectiveStageNorm, ...overdueFields } = resolveTaskStageAndOverdueFields(
         requestedStage,
         effectiveDueDate,
@@ -1015,6 +1020,7 @@ export class TaskService {
       }
 
       const normalizedStage = normaliseTaskStage(stage);
+      await FpaPlanningPmTaskBridge.guardPerformanceChange(id, { nextStage: normalizedStage });
 
       if (task.fromDueDiligence && task.applicationId) {
         const ddReview = await prisma.dueDiligenceReview.findUnique({
@@ -1318,6 +1324,16 @@ export class TaskService {
           if (isCompleted) {
             updateData.stage = "completed";
           }
+        }
+      }
+
+      // An activity can complete a task through its achievement rule; a task that mirrors an FP&A planning task completes
+      // only through FP&A, so its stage stays put (the activity itself is still recorded).
+      if (updateData.stage && updateData.stage !== task.stage) {
+        try {
+          await FpaPlanningPmTaskBridge.guardPerformanceChange(taskId, { nextStage: updateData.stage });
+        } catch (_) {
+          delete updateData.stage;
         }
       }
 
@@ -1821,6 +1837,7 @@ export class TaskService {
 
   static async bulkUpdateTaskStage(taskIds: string[], stage: string, achievements: any = {}, updatedByUserId?: string) {
     const normalizedStage = normaliseTaskStage(stage);
+    for (const tid of taskIds) await FpaPlanningPmTaskBridge.guardPerformanceChange(tid, { nextStage: normalizedStage });
     const tasks = await prisma.task.findMany({
       where: {
         id: {
@@ -1925,6 +1942,7 @@ export class TaskService {
   }
 
   static async bulkTrashTasks(taskIds: string[], updatedByUserId?: string) {
+    for (const tid of taskIds) await FpaPlanningPmTaskBridge.guardPerformanceChange(tid, { trash: true });
     const tasks = await prisma.task.findMany({
       where: {
         id: {
@@ -1980,6 +1998,7 @@ export class TaskService {
 
   /** Soft-delete a task (UAT: remove card) and recompute linked goal rollups. */
   static async trashTask(taskId: string, updatedByUserId?: string) {
+    await FpaPlanningPmTaskBridge.guardPerformanceChange(taskId, { trash: true });
     const task = await prisma.task.findUnique({
       where: { id: taskId },
       select: { id: true, goalId: true, isTrashed: true }

@@ -31,10 +31,10 @@ Part of the suite index in [procurement-uat.md](./procurement-uat.md). This docu
 |----|----------------------|-----------------|
 | **4.1** | PO from awarded bid | Existing `createPurchaseOrder` from quotation; PR portfolio fields copied onto PO when `requisitionId` is set. |
 | **4.2** | PO approval limits | `AMOUNT_THRESHOLD` stages in approval config: if PO `totalAmount` **>** `amountThreshold`, approvers resolve from `roleCode` (default **CFO**). Implemented in `ApprovalService`. |
-| **4.3** | PDF + QR placeholder | `GET /api/procurement/purchase-orders/:id/pdf` — MVP PDF (pdfkit) with QR **placeholder** and signature block. |
+| **4.3** | PDF + verification QR | `GET /api/procurement/purchase-orders/:id/pdf` — branded PDF embeds a QR to public `GET /api/procurement/purchase-orders/verify?token=` (`po_pdf_verification_token`). Signature block included. |
 | **4.4** | Dispatch timestamp | On send: `dispatchedAt`, `sentAt`, status `SENT`. |
 | **4.5** | Vendor acknowledgement | Email contains link to `POST /api/public/purchase-orders/:token/acknowledge` (token = `vendorAckToken`). |
-| **4.6** | Amendments / versioning | `version` incremented on **line cancel**; full amendment workflow can extend same pattern. |
+| **4.6** | Amendments / versioning | `POST /api/procurement/purchase-orders/:id/amend` clones the PO (new number, `amendmentOfPoId`, `version++`, DRAFT). Optional `items` body; otherwise copies active lines. Line cancel still bumps `version` (`PATCH …/lines/:lineId/cancel`). |
 | **4.7** | Partial line cancel | `PATCH /api/procurement/purchase-orders/:poId/lines/:lineId/cancel` — line `CANCELLED`, PO totals recalculated from active lines. |
 | **4.8** | Validity / expiry | `validityEndDate` on PO; grace days in `procurement_settings.po_validity_grace_days` (default 30) — reporting layer can flag overdue GRNs. |
 | **4.9** | Multi-tranche delivery | `purchase_order_items.expected_delivery_date` per line. |
@@ -54,9 +54,9 @@ Part of the suite index in [procurement-uat.md](./procurement-uat.md). This docu
 | **5.4** | Quality rejection | Existing `quantityRejected` / `qualityStatus` on lines. |
 | **5.5** | Attachments | `attachmentUrls` JSON on GRN; staff `POST /api/procurement/goods-received-notes` passes through body. |
 | **5.6** | SES / services | `line_type` **GOODS** \| **SERVICE**, `milestone_description` on GRN lines. |
-| **5.7** | GP review | Investee GRN gets status **`PENDING_GP_REVIEW`** until GP workflow extends approvals (hook via existing approval engine as needed). |
+| **5.7** | GP review | Investee GRN (`submittedByInvestee`) gets status **`PENDING_GP_REVIEW`** and `ApprovalService.createApprovalRequest({ stageType: "GRN" })` so the GP approval stage can decide; final approval sets **`APPROVED`**. Staff may also `PUT …/goods-received-notes/:id/approve`. |
 | **5.8** | Geo stamp | Optional `latitude`, `longitude`, `geoCapturedAt` on GRN create. |
-| **5.9** | RTV | `POST /api/procurement/grn-return-to-vendor` — creates `grn_return_to_vendors` row (posting layer TBD). |
+| **5.9** | RTV | `POST /api/procurement/grn-return-to-vendor` — creates `grn_return_to_vendors` as **`POSTED`**, reverses PO `quantityReceived`/`quantityPending`, reduces GRN `quantityAccepted`, and re-runs three-way match for the PO. |
 | **5.10** | Serial numbers | `serial_numbers` JSON on `goods_received_note_items`. |
 
 ---

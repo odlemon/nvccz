@@ -6,13 +6,12 @@ import { resolveReviewWorkflowStatus, validateManagerScaleInteger } from "./perf
 import { isCEO, isHRLeader, isSysAdmin } from "./performanceScorecardSupport";
 import { EmailNotificationService } from "./EmailNotificationService";
 import { renderPerformanceReviewPdf } from "./performanceDocumentRenderer";
+import { perfScopeOf } from "./PerformanceScope";
 
 /** HR / exec / admin may manage reviews across departments. */
-function canBypassPerformanceDepartmentGate(user: any): boolean {
-  if (!user) return false;
-  if (isCEO(user) || isHRLeader(user) || isSysAdmin(user)) return true;
-  const rn = String(user?.role?.name || "").toLowerCase();
-  return rn === "admin" || rn === "superadmin";
+/** Organisation-wide reach over reviews: the caller's role carries the organisation data scope (Performance → Access). */
+export function canBypassPerformanceDepartmentGate(user: any): boolean {
+  return perfScopeOf(user) === "organization";
 }
 
 /** True when both users belong to the same dept (FK or matching dept name / userDepartment). */
@@ -238,6 +237,56 @@ export class PerformanceReviewService {
       throw new Error(`Performance review with ID ${reviewId} not found`);
     }
     await this.assertPerformanceReviewAccess(review, actorRef);
+  }
+
+  private static async loadActorForRules(actorRef: { id: string }) {
+    const actor = await prisma.user.findUnique({ where: { id: actorRef.id }, include: { department: true, role: true, employee: true } });
+    if (!actor) throw new Error("Access denied: user not found.");
+    return actor;
+  }
+
+  /** What has to be true before a review may leave its current stage, and who may move it. */
+  private static async assertStageReady(review: any, actorRef: { id: string }) {
+    const actor = await this.loadActorForRules(actorRef);
+    const bypass = canBypassPerformanceDepartmentGate(actor);
+    const stage = String(review.stage || "").toUpperCase();
+    const has = (v: any) => String(v ?? "").trim().length > 0;
+    const rated = review.ratingValue != null || review.overallScore != null;
+    if (stage === "SELF_REVIEW" || stage === "SELF_ASSESSMENT") {
+      if (actor.id !== review.revieweeId && !bypass) throw new Error("Only the person being reviewed submits the self-assessment.");
+      if (!has(review.selfFeedback)) throw new Error("The self-assessment is empty. The reviewee must write it before it goes to the manager.");
+    } else if (stage === "MANAGER_REVIEW") {
+      if (actor.id === review.revieweeId && !bypass) throw new Error("You cannot complete the manager review of your own performance review.");
+      if (!has(review.managerFeedback)) throw new Error("Write the manager feedback before completing the manager review.");
+      if (!rated) throw new Error("Give the review a rating before completing the manager review.");
+    }
+  }
+
+  /** Finalizing needs all three parts on the record, and never by the person being reviewed. */
+  private static async assertFinalizePrerequisites(review: any, actorRef: { id: string }) {
+    const actor = await this.loadActorForRules(actorRef);
+    const bypass = canBypassPerformanceDepartmentGate(actor);
+    const has = (v: any) => String(v ?? "").trim().length > 0;
+    if (actor.id === review.revieweeId && !bypass) throw new Error("You cannot finalize your own performance review.");
+    if (!has(review.selfFeedback)) throw new Error("The review has no self-assessment. It cannot be finalized without one.");
+    if (!has(review.managerFeedback)) throw new Error("The review has no manager feedback. It cannot be finalized without it.");
+    if (review.ratingValue == null && review.overallScore == null) throw new Error("The review has no rating. It cannot be finalized without one.");
+  }
+
+  /** The reviewee writes their own self-assessment while the review sits at the self-review stage. */
+  static async saveSelfAssessment(id: string, body: any, actorRef: { id: string }) {
+    const review = await prisma.performanceReview.findUnique({ where: { id } });
+    if (!review) throw new Error(`Performance review with ID ${id} not found`);
+    if (review.revieweeId !== actorRef.id) throw new Error("Only the person being reviewed can write the self-assessment.");
+    if (review.isLocked) throw new Error("This review has been finalised and is locked.");
+    const stage = String(review.stage || "").toUpperCase();
+    if (stage !== "SELF_REVIEW" && stage !== "SELF_ASSESSMENT") throw new Error("The self-assessment is closed. The review has moved on to the manager.");
+    const data: any = {};
+    for (const k of ["selfFeedback", "achievements", "strengths", "areasForImprovement", "developmentPlan"]) {
+      if (body && body[k] !== undefined) data[k] = String(body[k] ?? "").trim() || null;
+    }
+    if (!Object.keys(data).length) throw new Error("Nothing to save.");
+    return prisma.performanceReview.update({ where: { id }, data });
   }
 
   /** After general access checks: finalize only for line manager or HR/exec/admin bypass. */
@@ -575,6 +624,20 @@ export class PerformanceReviewService {
         throw new Error("This review has been finalised and is locked.");
       }
 
+      // Stage, status and who writes what are governed by the workflow, not by a plain edit.
+      {
+        const editor = await this.loadActorForRules(actor);
+        const bypass = canBypassPerformanceDepartmentGate(editor);
+        const sent = (k: string) => (request as any)[k] !== undefined;
+        const selfStage = ["SELF_REVIEW", "SELF_ASSESSMENT"].includes(String(existingReview.stage || "").toUpperCase());
+        if (sent("stage") || sent("status")) throw new Error("A review's stage and status change only through the workflow (submit the self-assessment, complete the manager review, finalize).");
+        if (["selfFeedback", "achievements", "strengths", "areasForImprovement"].some(sent) && !bypass) throw new Error("The self-assessment is written by the person being reviewed, from their own review.");
+        if (["managerFeedback", "ratingValue", "overallScore", "rating"].some(sent)) {
+          if (editor.id === existingReview.revieweeId && !bypass) throw new Error("You cannot write the manager feedback or rating on your own review.");
+          if (selfStage) throw new Error("The manager review has not started. The self-assessment is still open.");
+        }
+      }
+
       // Validate reviewer if provided
       if (request.reviewerId) {
         const reviewer = await prisma.user.findUnique({
@@ -703,6 +766,7 @@ export class PerformanceReviewService {
       if (stageNorm === "FINALIZED" || statusNorm === "FINALIZED") {
         throw new Error("This review is already finalized.");
       }
+      await this.assertStageReady(existing, actor);
 
       const workflow = resolveReviewWorkflowStatus({
         currentStatus: existing.status,
@@ -1356,6 +1420,7 @@ export class PerformanceReviewService {
 
       await this.assertPerformanceReviewAccess(review, actor);
       await this.assertFinalizePerformanceReviewPermission(review, actor);
+      await this.assertFinalizePrerequisites(review, actor);
 
       const sections = [
         {

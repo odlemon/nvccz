@@ -50,6 +50,26 @@ export interface PerformanceAlertListFilters {
   search?: string;
   limit?: number;
   offset?: number;
+  /** The caller's reach (PerformanceScope): null = the whole register; otherwise alerts they own or raised, and their department's. */
+  scope?: AlertScope | null;
+}
+
+export interface AlertScope {
+  userId: string;
+  departmentId: string | null;
+}
+
+/** SQL for an AlertScope, on the alerts table (optionally aliased). */
+function scopeSql(scope: AlertScope | null | undefined, alias = ""): { sql: string; params: unknown[] } | null {
+  if (!scope) return null;
+  const c = (col: string) => `${alias ? alias + "." : ""}\`${col}\``;
+  const parts = [`${c("owner_id")} = ?`, `${c("created_by_id")} = ?`];
+  const params: unknown[] = [scope.userId, scope.userId];
+  if (scope.departmentId) {
+    parts.push(`${c("department_id")} = ?`);
+    params.push(scope.departmentId);
+  }
+  return { sql: `(${parts.join(" OR ")})`, params };
 }
 
 export interface CreatePerformanceAlertInput {
@@ -89,6 +109,7 @@ export interface PerformanceAlertSummary {
   bySeverity: Record<PerformanceAlertSeverity, number>;
   /** Total alerts of any status. */
   total: number;
+  slaBreaches: number;
 }
 
 interface AlertRow {
@@ -105,6 +126,8 @@ interface AlertRow {
   raised_at: Date | string;
   acknowledged_at: Date | string | null;
   resolved_at: Date | string | null;
+  rule_id: string | null;
+  sla_due_at: Date | string | null;
   created_by_id: string;
   created_at: Date | string;
   updated_at: Date | string;
@@ -132,6 +155,9 @@ export interface PerformanceAlert {
   raisedAt: Date;
   acknowledgedAt: Date | null;
   resolvedAt: Date | null;
+  ruleId: string | null;
+  slaDueAt: Date | null;
+  slaBreached: boolean;
   createdById: string;
   createdBy: { id: string; firstName: string; lastName: string; name: string } | null;
   createdAt: Date;
@@ -157,6 +183,8 @@ const SELECT_SQL = `
     a.\`raised_at\`         AS raised_at,
     a.\`acknowledged_at\`   AS acknowledged_at,
     a.\`resolved_at\`       AS resolved_at,
+    a.\`rule_id\`           AS rule_id,
+    a.\`sla_due_at\`        AS sla_due_at,
     a.\`created_by_id\`     AS created_by_id,
     a.\`created_at\`        AS created_at,
     a.\`updated_at\`        AS updated_at,
@@ -217,6 +245,9 @@ function mapRow(row: AlertRow, now: Date): PerformanceAlert {
     raisedAt,
     acknowledgedAt: toNullableDate(row.acknowledged_at),
     resolvedAt: toNullableDate(row.resolved_at),
+    ruleId: row.rule_id ?? null,
+    slaDueAt: toNullableDate(row.sla_due_at ?? null),
+    slaBreached: row.status !== "resolved" && !!row.sla_due_at && toDate(row.sla_due_at).getTime() < now.getTime(),
     createdById: row.created_by_id,
     createdBy: row.created_by_id
       ? {
@@ -322,6 +353,11 @@ export default class PerformanceAlertService {
     if (filters.departmentId) {
       where.push("a.`department_id` = ?");
       params.push(filters.departmentId);
+    }
+    const sc = scopeSql(filters.scope, "a");
+    if (sc) {
+      where.push(sc.sql);
+      params.push(...sc.params);
     }
     if (filters.search && filters.search.trim()) {
       const like = `%${filters.search.trim()}%`;
@@ -573,16 +609,20 @@ export default class PerformanceAlertService {
    * `open` and `escalated` are the counts of those two statuses. `byStatus` / `bySeverity` are
    * totals across every alert regardless of status, with all keys present (zero-filled).
    */
-  static async summary(): Promise<PerformanceAlertSummary> {
+  static async summary(scope: AlertScope | null = null): Promise<PerformanceAlertSummary> {
+    const sc = scopeSql(scope);
+    const w = sc ? ` WHERE ${sc.sql}` : "";
+    const and = sc ? ` AND ${sc.sql}` : "";
+    const p = sc ? sc.params : [];
     const [statusRows, severityRows, criticalRows] = await Promise.all([
       prisma.$queryRawUnsafe<Array<{ status: string; c: bigint }>>(
-        `SELECT \`status\` AS status, COUNT(*) AS c FROM \`${TABLE}\` GROUP BY \`status\``
+        `SELECT \`status\` AS status, COUNT(*) AS c FROM \`${TABLE}\`${w} GROUP BY \`status\``, ...p
       ),
       prisma.$queryRawUnsafe<Array<{ severity: string; c: bigint }>>(
-        `SELECT \`severity\` AS severity, COUNT(*) AS c FROM \`${TABLE}\` GROUP BY \`severity\``
+        `SELECT \`severity\` AS severity, COUNT(*) AS c FROM \`${TABLE}\`${w} GROUP BY \`severity\``, ...p
       ),
       prisma.$queryRawUnsafe<Array<{ c: bigint }>>(
-        `SELECT COUNT(*) AS c FROM \`${TABLE}\` WHERE \`severity\` = 'critical' AND \`status\` <> 'resolved'`
+        `SELECT COUNT(*) AS c FROM \`${TABLE}\` WHERE \`severity\` = 'critical' AND \`status\` <> 'resolved'${and}`, ...p
       ),
     ]);
 
@@ -606,7 +646,9 @@ export default class PerformanceAlertService {
       }
     }
 
+    const sla = await prisma.$queryRawUnsafe<Array<{ c: bigint }>>(`SELECT COUNT(*) AS c FROM \`${TABLE}\` WHERE \`status\` <> 'resolved' AND \`sla_due_at\` IS NOT NULL AND \`sla_due_at\` < ?${and}`, new Date(), ...p);
     return {
+      slaBreaches: Number(sla[0]?.c ?? 0),
       critical: Number(criticalRows[0]?.c ?? 0),
       open: byStatus.open,
       escalated: byStatus.escalated,

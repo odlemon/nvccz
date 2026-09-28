@@ -123,9 +123,35 @@ export class PerformanceConfigController {
     }
   }
 
-  static async listThemes(_req: Request, res: Response) {
+  static async updateTheme(req: Request, res: Response) {
     try {
-      const data = await PerformanceConfigService.listThemes();
+      const data = await PerformanceConfigService.updateTheme({
+        id: req.params.id,
+        patch: req.body,
+        actor: req.user,
+        meta: requestMeta(req)
+      });
+      return responseHelper.success(res, data, "Performance theme updated successfully");
+    } catch (error) {
+      const msg = error?.message || "Error";
+      return responseHelper.error(res, msg, undefined, msg === "Theme not found." ? 404 : /already exists/.test(msg) ? 409 : 400);
+    }
+  }
+
+  static async untagGoalsFromTheme(req: Request, res: Response) {
+    try {
+      const goalIds = Array.isArray(req.body?.goalIds) ? req.body.goalIds : [];
+      await PerformanceConfigService.untagGoalsFromTheme({ themeId: req.params.id, goalIds, actor: req.user, meta: requestMeta(req) });
+      return responseHelper.success(res, { themeId: req.params.id, goalIds }, "Goals untagged successfully");
+    } catch (error) {
+      const msg = error?.message || "Error";
+      return responseHelper.error(res, msg, undefined, msg === "Theme not found." ? 404 : 400);
+    }
+  }
+
+  static async listThemes(req: Request, res: Response) {
+    try {
+      const data = await PerformanceConfigService.listThemes({ includeArchived: String(req.query?.includeArchived || "") === "true" });
       return responseHelper.success(res, data, "Performance themes retrieved successfully");
     } catch (error) {
       return responseHelper.error(res, error.message);
@@ -141,7 +167,8 @@ export class PerformanceConfigController {
       });
       return responseHelper.success(res, data, "Performance theme saved successfully");
     } catch (error) {
-      return responseHelper.error(res, error.message);
+      const msg = error?.message || "Error";
+      return responseHelper.error(res, msg, undefined, /already exists|already uses/.test(msg) ? 409 : 400);
     }
   }
 

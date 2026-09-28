@@ -77,6 +77,7 @@ import {
 import { CompanyProfileAddressService } from "./CompanyProfileAddressService";
 import { normaliseTaskStage, TASK_STAGE_OPTIONS } from "./TaskCollaborationService";
 import { isPrecisionSensitiveFormula, shouldRaiseDataQualityAlert } from "./performanceBackendSupport";
+import { perfActor, perfCan, perfScopeOf, personInScope, departmentInScope } from "./PerformanceScope";
 import {
   applyScorecardManualEdit,
   loadScorecardForEdit,
@@ -201,29 +202,28 @@ export class PerformanceScorecardService {
       );
     }
 
+    // Performance data scope (PerformanceScope): the person, their department's manager scope, the organisation scope.
+    // (The line-manager column this used to read lives on an `employee` table that is not populated, so no manager ever matched.)
     const isSelf = viewer.id === targetUserId;
-    const lineManagerId = employeeRecord?.lineManagerUserId || null;
-    const isLineManager = Boolean(lineManagerId && viewer.id === lineManagerId);
-    const hr = isHRLeader(viewer);
-    const ceo = isCEO(viewer);
-    const admin = isAdminViewer(viewer);
+    const actor = await perfActor(viewer);
+    const inScope = await personInScope(actor, targetUserId);
 
     if (mode === "generate") {
-      if (admin) {
+      if (actor.isAdmin) {
         return;
       }
-      if (!(isLineManager || hr || ceo)) {
+      if (isSelf || !inScope || !perfCan(viewer, "scorecards", "manage")) {
         await this.logAccessDenied(
           { viewer, entityId: targetUserId, meta },
           isSelf
             ? "Employees cannot generate their own scorecard"
-            : "Only direct manager, HR, CEO, or administrator may generate employee scorecards"
+            : "Only a manager of this person, or an organisation-wide role, may generate their scorecard"
         );
       }
       return;
     }
 
-    if (isSelf || isLineManager || hr || ceo || admin) {
+    if (inScope) {
       return;
     }
 
@@ -239,31 +239,11 @@ export class PerformanceScorecardService {
       return { canView: false, canGenerate: false };
     }
 
-    const admin = isAdminViewer(viewer);
-    const ceo = isCEO(viewer);
-    const hr = isHRLeader(viewer);
-    const me = isMonitoringAndEvaluationLeader(viewer);
-    const compliance = isComplianceLeader(viewer);
-
-    let resolvedDeptName: string | null = null;
-    if (viewer.departmentId) {
-      const d = await prisma.department.findUnique({
-        where: { id: viewer.departmentId },
-        select: { name: true }
-      });
-      resolvedDeptName = d?.name || null;
-    }
-
-    const manages = hasAnySignal(viewer, ["_mgr", " manager"]);
-    const managerOfTarget =
-      manages &&
-      (String(viewer.userDepartment || "").trim().toLowerCase() === deptNorm.toLowerCase() ||
-        (resolvedDeptName && resolvedDeptName.toLowerCase() === deptNorm.toLowerCase()));
-
-    const unrestricted = admin || ceo || hr;
-    const canGenerate = unrestricted || (managerOfTarget && !me && !compliance);
-    const canView = unrestricted || managerOfTarget || me || compliance;
-
+    // Performance data scope (PerformanceScope). The old role-name signals matched department names too, so anyone in a
+    // department called "Administration" or "Compliance" could see every department's scorecard.
+    const actor = await perfActor(viewer);
+    const canView = departmentInScope(actor, deptNorm);
+    const canGenerate = canView && perfCan(viewer, "scorecards", "manage");
     return { canView, canGenerate };
   }
 
@@ -300,14 +280,14 @@ export class PerformanceScorecardService {
     return { canView, canGenerate };
   }
 
-  /**
-   * CEO scorecard: role checks are enforced on the frontend; any authenticated user may call the API.
-   */
+  /** CEO scorecard: the organisation scope (and the CEO, to see their own). Generating it: an organisation scope with scorecards.manage. */
   private static evaluateCEOScorecardAccess(viewer: any): { canView: boolean; canGenerate: boolean } {
     if (!viewer?.id) {
       return { canView: false, canGenerate: false };
     }
-    return { canView: true, canGenerate: true };
+    const org = perfScopeOf(viewer) === "organization";
+    const self = String(viewer.roleCode || "").toUpperCase() === "CEO";
+    return { canView: org || self, canGenerate: org && perfCan(viewer, "scorecards", "manage") };
   }
 
   private static async assertCEOAccess(
@@ -324,12 +304,13 @@ export class PerformanceScorecardService {
     return this.evaluateCEOScorecardAccess(viewer);
   }
 
-  /** Role gating is left to the frontend; any authenticated user may call the Board scorecard API. */
+  /** Board scorecard: the organisation scope; generating it needs scorecards.manage as well. */
   private static evaluateBoardScorecardAccess(viewer: any): { canView: boolean; canGenerate: boolean } {
     if (!viewer?.id) {
       return { canView: false, canGenerate: false };
     }
-    return { canView: true, canGenerate: true };
+    const org = perfScopeOf(viewer) === "organization";
+    return { canView: org, canGenerate: org && perfCan(viewer, "scorecards", "manage") };
   }
 
   private static async assertBoardAccess(

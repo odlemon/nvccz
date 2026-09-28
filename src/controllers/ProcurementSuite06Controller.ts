@@ -122,6 +122,9 @@ export class ProcurementSuite06Controller {
         });
       }
 
+      // §29-§31: AI must be switched on, allowed for this user and document type, and within the month's limits.
+      const { AiControlService } = await import("../services/p2p/AiControlService");
+      await AiControlService.gate((req as any).user, "INVOICE", { feature: "invoice_extraction", documentName: file.originalname });
       const { getLlmConfig } = await import("../services/LlmChatService");
       if (!getLlmConfig().configured) {
         return res.status(503).json({
@@ -167,7 +170,7 @@ export class ProcurementSuite06Controller {
         const extracted = await ProcurementSuite06Controller.withTimeout(
           "Extract vendor invoice",
           240_000,
-          VendorInvoiceIntakeService.runExtraction(intake.id)
+          AiControlService.track((req as any).user, { feature: "invoice_extraction", documentType: "INVOICE", documentName: file.originalname, entityType: "VendorInvoiceIntake", entityId: intake.id, skipGate: true }, () => VendorInvoiceIntakeService.runExtraction(intake.id))
         );
         return res.json({
           success: true,
@@ -188,15 +191,13 @@ export class ProcurementSuite06Controller {
         });
       }
 
-      const { text: rawText, ocr } = await ProcurementSuite06Controller.withTimeout(
-        "Read vendor invoice",
-        150_000,
-        VendorInvoiceExtractionService.extractTextFromUrlDetailed(documentUrl, file.originalname || "invoice.pdf")
-      );
       const { payload } = await ProcurementSuite06Controller.withTimeout(
         "Extract vendor invoice",
-        150_000,
-        VendorInvoiceExtractionService.parseExtractedTextWithLlm(rawText, { ocr })
+        300_000,
+        AiControlService.track((req as any).user, { feature: "invoice_extraction", documentType: "INVOICE", documentName: file.originalname, skipGate: true }, async () => {
+          const { text: rawText, ocr } = await VendorInvoiceExtractionService.extractTextFromUrlDetailed(documentUrl, file.originalname || "invoice.pdf");
+          return VendorInvoiceExtractionService.parseExtractedTextWithLlm(rawText, { ocr });
+        })
       );
       return res.json({
         success: true,
@@ -211,6 +212,8 @@ export class ProcurementSuite06Controller {
         },
       });
     } catch (e: any) {
+      // The AI controls say why they refused (switched off, not for this role or document type, limit reached).
+      if (/^AI_/.test(String(e?.code || "")) && e?.statusCode) return res.status(e.statusCode).json({ success: false, code: e.code, message: e.message });
       const msg = e?.message || "Failed to extract the invoice";
       const code = String(e?.code || e?.cause?.code || "");
       const isTimeout = /timed out/i.test(msg);
@@ -315,9 +318,11 @@ export class ProcurementSuite06Controller {
         });
       }
 
-      const data = await VendorInvoiceIntakeService.runExtraction(intakeId);
+      const { AiControlService } = await import("../services/p2p/AiControlService");
+      const data = await AiControlService.track((req as any).user, { feature: "invoice_extraction", documentType: "INVOICE", entityType: "VendorInvoiceIntake", entityId: intakeId }, () => VendorInvoiceIntakeService.runExtraction(intakeId));
       res.json({ success: true, data });
     } catch (e: any) {
+      if (/^AI_/.test(String(e?.code || "")) && e?.statusCode) return res.status(e.statusCode).json({ success: false, code: e.code, message: e.message });
       const msg = e?.message || "Failed to extract intake";
       const isTimeout = /timed out/i.test(msg);
       res.status(isTimeout ? 504 : 500).json({ success: false, message: msg });

@@ -103,7 +103,7 @@ router.post(
 // payroll data attached -- and the module's "Add employee" form has no user id
 // to give, so POST /employees could never be driven from it. This provisions
 // both rows in one transaction.
-router.post('/employees/with-user', authenticate, canManageEmployees, PayrollEmployeeProvisionController.createWithUser);
+router.post('/employees/with-user', authenticate, canManageEmployees, employeeMultipart, PayrollEmployeeProvisionController.createWithUser);
 router.get('/employees', authenticate, canViewEmployees, PayrollController.getEmployees);
 router.get('/employees/:id/reimbursement-vendor', authenticate, canViewEmployees, PayrollController.getEmployeeReimbursementVendor);
 router.post('/employees/:id/reimbursement-vendor', authenticate, canManageEmployees, PayrollController.ensureEmployeeReimbursementVendor);

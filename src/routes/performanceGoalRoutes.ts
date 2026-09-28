@@ -1,14 +1,39 @@
 // @ts-nocheck
 import express from "express";
 import multer from "multer";
+import { PerformanceObjectiveService, ObjectiveError } from "../services/PerformanceObjectiveService";
 import { PerformanceGoalController } from "../controllers/PerformanceGoalController";
 import { authenticate } from "../middleware/authenticate";
 import { methodGuard } from "../middleware/methodGuard"
+import { requireAnyPermission } from "../middleware/permissionAuth"
+import { prisma } from "../utils/database"
+import { perfActor, perfCan, goalVisible, goalWritable, GOAL_SCOPE_SELECT } from "../services/PerformanceScope"
 
 const router = express.Router();
 const READ_KEYS = ["performance.goals.view", "performance.goals.manage"]
 const WRITE_KEYS = ["performance.goals.manage"]
 const guard = methodGuard(READ_KEYS, WRITE_KEYS)
+const readGuard = requireAnyPermission(READ_KEYS)
+
+/**
+ * Row scope on top of the resource guard (see PerformanceScope): "view" = the caller can see this goal; "write" = they can
+ * change it; "checkin" = they can record progress on it — the person it is assigned to may (self-service, like a
+ * self-assessment), as may anyone who can change it.
+ */
+const goalScope = (mode: "view" | "write" | "checkin") => async (req: any, res: any, next: any) => {
+  try {
+    const a = await perfActor(req.user);
+    const g = await prisma.performanceGoal.findUnique({ where: { id: String(req.params.id) }, select: GOAL_SCOPE_SELECT });
+    if (!g) return res.status(404).json({ success: false, message: "Goal not found" });
+    const ok = mode === "view" ? await goalVisible(a, g)
+      : mode === "write" ? await goalWritable(a, g)
+      : g.assignedToId === a.id || (perfCan(req.user, "goals", "manage") && (await goalWritable(a, g)));
+    if (!ok) return res.status(403).json({ success: false, message: mode === "view" ? "This goal is outside what your role can see." : "Your role cannot change this goal." });
+    next();
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json({ success: false, message: e?.message || "Error" });
+  }
+}
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -326,9 +351,23 @@ router.get("/statistics", authenticate, guard, PerformanceGoalController.getPerf
  *       401:
  *         description: Unauthorized
  */
-router.put("/:id/progress", authenticate, guard, PerformanceGoalController.updateGoalProgress);
-router.post("/:id/attachments/base64", authenticate, guard, PerformanceGoalController.uploadGoalAttachmentBase64);
-router.post("/:id/attachments", authenticate, guard, upload.array("attachments", 10), PerformanceGoalController.uploadGoalAttachments);
+router.put("/:id/progress", authenticate, guard, goalScope("write"), PerformanceGoalController.updateGoalProgress);
+router.post("/:id/check-in", authenticate, readGuard, goalScope("checkin"), async (req: any, res: any) => {
+  try {
+    res.json({ success: true, data: await PerformanceObjectiveService.checkIn(req.params.id, req.body || {}, req.user) });
+  } catch (e: any) {
+    res.status(e instanceof ObjectiveError ? e.statusCode : 500).json({ success: false, message: e?.message || "Error" });
+  }
+});
+router.get("/:id/check-ins", authenticate, guard, goalScope("view"), async (req: any, res: any) => {
+  try {
+    res.json({ success: true, data: await PerformanceObjectiveService.history(req.params.id) });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: e?.message || "Error" });
+  }
+});
+router.post("/:id/attachments/base64", authenticate, guard, goalScope("write"), PerformanceGoalController.uploadGoalAttachmentBase64);
+router.post("/:id/attachments", authenticate, guard, goalScope("write"), upload.array("attachments", 10), PerformanceGoalController.uploadGoalAttachments);
 
 /**
  * @swagger
@@ -353,7 +392,7 @@ router.post("/:id/attachments", authenticate, guard, upload.array("attachments",
  *       401:
  *         description: Unauthorized
  */
-router.get("/:id", authenticate, guard, PerformanceGoalController.getPerformanceGoalById);
+router.get("/:id", authenticate, guard, goalScope("view"), PerformanceGoalController.getPerformanceGoalById);
 
 /**
  * @swagger
@@ -438,9 +477,9 @@ router.get("/:id", authenticate, guard, PerformanceGoalController.getPerformance
  *       401:
  *         description: Unauthorized
  */
-router.put("/:id", authenticate, guard, PerformanceGoalController.updatePerformanceGoal);
+router.put("/:id", authenticate, guard, goalScope("write"), PerformanceGoalController.updatePerformanceGoal);
 /** Same handler as PUT — frontend edit forms use PATCH. */
-router.patch("/:id", authenticate, guard, PerformanceGoalController.updatePerformanceGoal);
+router.patch("/:id", authenticate, guard, goalScope("write"), PerformanceGoalController.updatePerformanceGoal);
 
 /**
  * @swagger
@@ -467,7 +506,7 @@ router.patch("/:id", authenticate, guard, PerformanceGoalController.updatePerfor
  *       401:
  *         description: Unauthorized
  */
-router.delete("/:id", authenticate, guard, PerformanceGoalController.deletePerformanceGoal);
+router.delete("/:id", authenticate, guard, goalScope("write"), PerformanceGoalController.deletePerformanceGoal);
 
 export default router;
 

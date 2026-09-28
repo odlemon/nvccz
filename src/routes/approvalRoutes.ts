@@ -39,6 +39,9 @@ router.use(authenticate);
  */
 router.get("/my-pending", ApprovalController.getMyPendingApprovals);
 
+/** §12 entity-based delegation (body: entityId, delegatedToId). Must sit above /:id routes. */
+router.post("/delegate", ApprovalController.delegateApproval);
+
 /**
  * @swagger
  * /api/approvals/{id}/approve:
@@ -135,6 +138,7 @@ router.post("/:id/approve", ApprovalController.approveApproval);
  *         description: Unauthorized
  */
 router.post("/:id/reject", ApprovalController.rejectApproval);
+router.post("/:id/delegate", ApprovalController.delegateApproval);
 
 export default router;
 

@@ -195,6 +195,13 @@ export class AssetService {
         creditChartOfAccountId,
       } = params;
 
+      // a purchase says how it was paid for; the credit side is never guessed from account names
+      if (!params.invoiceId && !params.cashbookEntryId && !paymentBankId && !creditChartOfAccountId) {
+        throw new Error('Say how the asset was paid for: the bank account it was paid from, or the account to credit (for example a supplier or clearing account).');
+      }
+      // a bill link is checked before anything is created
+      if (params.invoiceId) await AssetService.billReclassSource(params.invoiceId, Number(params.cost));
+
       // Validate accounts exist
       const [assetAccount, accumulatedDepreciationAccount, depreciationExpenseAccount] = await Promise.all([
         prisma.chartOfAccounts.findUnique({ where: { id: assetAccountId } }),
@@ -215,21 +222,10 @@ export class AssetService {
         if (!b) throw new Error('paymentBankId: bank not found');
         resolvedCurrencyId = b.currencyId;
       }
+      // nothing says otherwise: the base currency (it used to fall to ZiG first)
       if (!resolvedCurrencyId) {
-        const zig = await prisma.currency.findFirst({
-          where: {
-            isActive: true,
-            code: { in: ['ZWG', 'ZWL', 'ZIG'] },
-          },
-          orderBy: { code: 'asc' },
-        });
-        resolvedCurrencyId = zig?.id;
-      }
-      if (!resolvedCurrencyId) {
-        const usd = await prisma.currency.findFirst({
-          where: { code: 'USD', isActive: true },
-        });
-        resolvedCurrencyId = usd?.id;
+        const base = await prisma.currency.findFirst({ where: { isDefault: true, isActive: true } });
+        resolvedCurrencyId = base?.id;
       }
       if (!resolvedCurrencyId) {
         const any = await prisma.currency.findFirst({
@@ -333,6 +329,23 @@ export class AssetService {
     }
   }
 
+  /** Where a bill-linked asset takes its cost from: the account the supplier bill's own journal debited (not VAT). The
+   *  bill must be in the ledger and the asset may not cost more than the bill before VAT. */
+  static async billReclassSource(invoiceId: string, cost: number) {
+    const bill = await prisma.procurementInvoice.findUnique({ where: { id: invoiceId }, select: { invoiceNumber: true, subtotal: true, totalAmount: true, taxAmount: true, journalEntry: { select: { status: true, journalEntryLines: { select: { chartOfAccountId: true, debitAmount: true, chartOfAccount: { select: { accountNo: true, accountName: true } } } } } } } });
+    if (!bill) throw Object.assign(new Error('That supplier bill was not found.'), { statusCode: 400 });
+    const ref = bill.invoiceNumber ? `Bill ${bill.invoiceNumber}` : 'The bill';
+    if (!bill.journalEntry || bill.journalEntry.status !== 'POSTED') throw Object.assign(new Error(`${ref} is not posted to the ledger yet: add the asset once its journal is posted, or record it as paid from a bank.`), { statusCode: 400 });
+    const { vatInputAccount } = await import('../utils/vatAccounts');
+    const vat = await vatInputAccount();
+    const debits = bill.journalEntry.journalEntryLines.filter((l) => Number(l.debitAmount) > 0 && (!vat || l.chartOfAccountId !== vat.id)).sort((a, b) => Number(b.debitAmount) - Number(a.debitAmount));
+    if (!debits.length) throw Object.assign(new Error(`${ref} has no cost line to move to the asset.`), { statusCode: 400 });
+    const net = Number(bill.subtotal) > 0 ? Number(bill.subtotal) : Number(bill.totalAmount) - Number(bill.taxAmount || 0);
+    if (cost > net + 0.01) throw Object.assign(new Error(`The asset's cost (${cost}) is more than ${ref.toLowerCase().startsWith('the') ? 'the bill' : ref}'s amount before VAT (${net}).`), { statusCode: 400 });
+    const d = debits[0];
+    return { creditAccountId: d.chartOfAccountId, description: `${ref}: cost moved from ${d.chartOfAccount.accountNo} ${d.chartOfAccount.accountName} to the asset` };
+  }
+
   /**
    * Create asset acquisition journal entry
    * Supports AP (invoice), cashbook payment, explicit bank (paymentBankId), explicit credit GL, or generic cash/bank lookup.
@@ -385,24 +398,11 @@ export class AssetService {
       let creditDescription = '';
 
       if (invoiceId) {
-        // Linked to Creditor Bill - CR Accounts Payable
-        const accountsPayableAccount = await prisma.chartOfAccounts.findFirst({
-          where: {
-            OR: [
-              { accountName: { contains: 'Accounts Payable' } },
-              { accountName: { contains: 'Creditors Control' } },
-              { accountNo: { startsWith: '2000' } } // Typically in 2000s range
-            ],
-            isActive: true
-          }
-        });
-
-        if (!accountsPayableAccount) {
-          throw new Error('Accounts Payable account not found. Please configure it in Chart of Accounts.');
-        }
-
-        creditAccountId = accountsPayableAccount.id;
-        creditDescription = `Creditor bill for asset: ${asset.assetName}`;
+        // The bill is already owed (its journal credited payables): the asset moves the cost out of the account the
+        // bill debited, rather than crediting payables a second time (FINDINGS FA-07)
+        const src = await AssetService.billReclassSource(invoiceId, Number(asset.cost));
+        creditAccountId = src.creditAccountId;
+        creditDescription = src.description;
       } else if (cashbookEntryId) {
         // Linked to Cashbook Payment - Get bank's GL account from cashbook entry
         const cashbookEntry = await prisma.cashbookEntry.findUnique({
@@ -455,6 +455,9 @@ export class AssetService {
         }
         creditAccountId = bank.glAccount.id;
         creditDescription = `Bank payment for asset: ${asset.assetName}`;
+        // the payment is a cashbook line too, so the bank account reconciles
+        const { recordBankLeg } = await import("./CashbookJournalLinkService");
+        await recordBankLeg(null, { bankId: bank.id, journalEntryId: journalEntry.id, journalStatus: 'POSTED', type: 'PAYMENT', amount: asset.cost, transactionDate: asset.purchaseDate, description: `Asset purchase: ${asset.assetName}`, reference: `ASSET-${asset.assetCode}`, contraAccountId: asset.assetAccountId, createdById });
       } else {
         // No link - assume cash purchase (CR Cash/Bank)
         const cashAccount = await prisma.chartOfAccounts.findFirst({
@@ -985,12 +988,11 @@ export class AssetService {
             ],
           },
         });
-        if (!cashOrBank) {
-          throw new Error(
-            'Proceeds account not found. Pass paymentBankId or proceedsChartOfAccountId for cash/bank sales.'
-          );
+        if (disposalValue > AssetService.DEPRECIATION_SALVAGE_EPSILON) {
+          // proceeds are received somewhere named, not into the first account called "cash" or "bank"
+          throw new Error('Say where the sale proceeds were received: the bank account, or the account to debit.');
         }
-        proceedsGlId = cashOrBank.id;
+        proceedsGlId = cashOrBank ? cashOrBank.id : null;
       }
 
       let gainLossAccount = null;
@@ -1034,6 +1036,11 @@ export class AssetService {
             vatAmount: new Decimal(0),
           },
         });
+        // proceeds banked: a cashbook line too, so the bank account reconciles
+        if (options.paymentBankId && !options.proceedsChartOfAccountId) {
+          const { recordBankLeg } = await import("./CashbookJournalLinkService");
+          await recordBankLeg(tx, { bankId: options.paymentBankId, journalEntryId: journalEntry.id, journalStatus: 'POSTED', type: 'RECEIPT', amount: disposalValue, transactionDate: disposalRecord.disposalDate, description: `Asset sale: ${asset.assetName}`, reference: `DISPOSAL-${asset.assetCode}`, contraAccountId: asset.assetAccountId, createdById });
+        }
       }
 
       if (accumulatedDepreciation > 0.01) {
@@ -1290,7 +1297,7 @@ export class AssetService {
           ...(updates.location && { location: updates.location }),
           ...(updates.serialNumber && { serialNumber: updates.serialNumber }),
           ...(updates.warrantyExpiry && { warrantyExpiry: updates.warrantyExpiry }),
-          ...(updates.isActive !== undefined && { isActive: updates.isActive })
+          // an asset leaves the register by disposal (which posts), not by being switched off here
         },
         include: {
           assetAccount: {
@@ -1388,6 +1395,34 @@ export class AssetService {
    * Post monthly depreciation for all in-use assets for one calendar period (YYYY-MM).
    * Only assets whose monthly anniversary has passed on or before `asOfDate` are included (see `isDepreciationPeriodDue`).
    */
+  /**
+   * What a month's depreciation run would post (SRD ACC-FA-09), without posting: each asset in use with its charge, or why
+   * it is left out (bought after the month, already posted, fully depreciated, disposed).
+   */
+  static async previewMonthlyDepreciation(period: string) {
+    const [py, pm] = String(period || '').split('-').map(Number);
+    if (!py || !pm || pm < 1 || pm > 12) throw new Error(`Invalid period ${period} (expected YYYY-MM)`);
+    const monthEnd = new Date(py, pm, 0, 23, 59, 59, 999);
+    const assets = await prisma.asset.findMany({
+      where: { isActive: true, status: 'IN_USE' },
+      include: { depreciationExpenseAccount: { select: { accountNo: true, accountName: true } }, accumulatedDepreciationAccount: { select: { accountNo: true, accountName: true } } },
+      orderBy: { assetCode: 'asc' },
+    });
+    const posted = await prisma.depreciationRecord.findMany({ where: { period, assetId: { in: assets.map((a) => a.id) } }, select: { assetId: true, depreciationAmount: true, isPosted: true } });
+    const byAsset = new Map(posted.map((r) => [r.assetId, r]));
+    const rows = assets.map((a) => {
+      const base = { assetId: a.id, assetCode: a.assetCode, assetName: a.assetName, cost: Number(a.cost), bookValue: Number(a.currentBookValue), expenseAccount: a.depreciationExpenseAccount ? `${a.depreciationExpenseAccount.accountNo} ${a.depreciationExpenseAccount.accountName}` : null };
+      const rec = byAsset.get(a.id);
+      if (rec) return { ...base, amount: Number(rec.depreciationAmount), outcome: rec.isPosted ? 'already_posted' : 'calculated_not_posted' };
+      if (!this.isDepreciationPeriodDue(a.purchaseDate, py, pm, monthEnd)) return { ...base, amount: 0, outcome: 'not_due' };
+      const amount = this.capDepreciationBySalvage(a, this.computeRawPeriodDepreciation(a, period));
+      if (!(amount > 0)) return { ...base, amount: 0, outcome: 'fully_depreciated' };
+      return { ...base, amount: Math.round(amount * 100) / 100, outcome: 'to_post' };
+    });
+    const toPost = rows.filter((r) => r.outcome === 'to_post');
+    return { period, assets: rows, toPost: toPost.length, total: Math.round(toPost.reduce((t, r) => t + r.amount, 0) * 100) / 100, alreadyPosted: rows.filter((r) => r.outcome === 'already_posted').length };
+  }
+
   static async postMonthlyDepreciation(params: {
     createdById: string;
     asOfDate?: Date;

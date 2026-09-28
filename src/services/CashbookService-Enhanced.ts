@@ -66,6 +66,16 @@ export class CashbookServiceEnhanced {
       if (entry.status === 'VOIDED') {
         throw new Error('Entry is already voided');
       }
+      // SRD Cashbook §3.3.1 (ACC-CB-15): a reconciled transaction is not voided
+      if (entry.isReconciled) {
+        throw new Error('Transaction must be unreconciled before voiding.');
+      }
+      // the bank line of an asset purchase or sale, or of an investment, is reversed where it was raised
+      {
+        const { ownerOfBankLine } = await import('./CashbookJournalLinkService');
+        const owner = ownerOfBankLine(entry.journalEntry?.referenceNumber);
+        if (owner) throw new Error(`This bank line belongs to ${owner}; reverse it there.`);
+      }
 
       if (entry.status === 'POSTED') {
         // Create reversal journal entry
@@ -295,6 +305,12 @@ export class CashbookServiceEnhanced {
 
       if (!entry.isReconciled) {
         throw new Error('Entry is not reconciled');
+      }
+      if (entry.cashbookReconciliationSessionId) {
+        const session = await prisma.cashbookReconciliationSession.findUnique({ where: { id: entry.cashbookReconciliationSessionId }, select: { status: true } });
+        if (session && session.status === 'FINALIZED') {
+          throw new Error('This entry was cleared by a finished reconciliation; reopen that reconciliation instead (its balances depend on the entry).');
+        }
       }
 
       // 2. Update reconciliation status to unreconciled

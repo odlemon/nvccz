@@ -10,19 +10,30 @@ import {
   resolveCeoSubjectUserIdFromOrg
 } from "../services/PerformanceContractSetupService";
 import { PerformanceContractEnrichmentService } from "../services/PerformanceContractEnrichmentService";
+import { perfActor, contractWhere } from "../services/PerformanceScope";
 
-function createdBy(req: Request, body: Record<string, unknown>): string {
-  const fromBody = body.createdById != null ? String(body.createdById).trim() : "";
-  if (fromBody) return fromBody;
+/** The signed-in person. A `createdById` in the body used to override it, so anyone could record a contract as someone else's. */
+function createdBy(req: Request, _body: Record<string, unknown>): string {
   const u = req.user?.id;
-  if (!u) throw new Error("createdById or authenticated user required");
+  if (!u) throw new Error("Authenticated user required");
   return String(u);
 }
 
 /**
- * Explicit performance contract setup (annual cycle). No role checks — identity only via `authenticate`.
+ * Explicit performance contract setup (annual cycle). Who may set up which contract is decided in the router (row scope).
  * Matches org process: Board PC → CEO PC → Department PCs → Employee PCs for the period.
  */
+
+/** Employee and department contracts are created without signatories; apply the ones sent with the request. */
+async function applySignatories(out: any, body: any) {
+  const id = out?.contract?.id || out?.performanceContract?.id || out?.id;
+  const reviewerUserId = body?.reviewerUserId ? String(body.reviewerUserId) : null;
+  const approverUserId = body?.approverUserId ? String(body.approverUserId) : null;
+  if (!id || (!reviewerUserId && !approverUserId)) return;
+  if (reviewerUserId && reviewerUserId === approverUserId) throw new Error("The reviewer and the approver must be different people.");
+  await prisma.performanceContract.update({ where: { id }, data: { ...(reviewerUserId ? { reviewerUserId } : {}), ...(approverUserId ? { approverUserId } : {}) } });
+}
+
 export class PerformanceContractController {
   /**
    * List performance contracts with optional filters. JWT required (`authenticate` only).
@@ -76,6 +87,8 @@ export class PerformanceContractController {
       if (periodLabel) where.periodLabel = periodLabel;
 
       const andClauses: Record<string, unknown>[] = [];
+      const scope = await contractWhere(await perfActor(req.user));
+      if (scope.OR) andClauses.push(scope);
       if (Number.isFinite(periodYearRaw) && periodYearRaw >= 2000 && periodYearRaw <= 2100) {
         const y = periodYearRaw;
         const start = new Date(Date.UTC(y, 0, 1, 0, 0, 0, 0));
@@ -147,6 +160,7 @@ export class PerformanceContractController {
         periodStart: req.body.periodStart,
         periodEnd: req.body.periodEnd
       });
+      if (typeof out !== "undefined") await applySignatories(out, req.body);
       res.status(201).json({ success: true, ...out });
     } catch (e: any) {
       if (e instanceof PerformanceContractDuplicateError) {
@@ -182,6 +196,7 @@ export class PerformanceContractController {
         periodStart: req.body.periodStart,
         periodEnd: req.body.periodEnd
       });
+      if (typeof out !== "undefined") await applySignatories(out, req.body);
       res.status(201).json({ success: true, ...out });
     } catch (e: any) {
       if (e instanceof PerformanceContractDuplicateError) {
@@ -208,6 +223,7 @@ export class PerformanceContractController {
         periodStart: req.body.periodStart,
         periodEnd: req.body.periodEnd
       });
+      if (typeof out !== "undefined") await applySignatories(out, req.body);
       res.status(201).json({ success: true, ...out });
     } catch (e: any) {
       if (e instanceof PerformanceContractDuplicateError) {
@@ -261,6 +277,7 @@ export class PerformanceContractController {
         });
       });
 
+      if (typeof out !== "undefined") await applySignatories(out, req.body);
       res.status(201).json({ success: true, ...out });
     } catch (e: any) {
       if (e instanceof PerformanceContractDuplicateError) {

@@ -3,6 +3,7 @@
 import { Request, Response } from "express";
 import { PerformanceIntegrationService } from "../services/PerformanceIntegrationService";
 import { responseHelper } from "../utils/responseHelper";
+import { prisma } from "../utils/database";
 
 function requestMeta(req: Request) {
   return {
@@ -98,6 +99,9 @@ export class PerformanceIntegrationController {
 
   static async approvePendingSync(req: Request, res: Response) {
     try {
+      if (!String(req.body?.comment || "").trim()) {
+        return responseHelper.error(res, "Add a comment recording why the pending value is approved.", undefined, 400);
+      }
       const data = await PerformanceIntegrationService.approvePendingSync({
         goalId: req.body.goalId,
         approvedValue: req.body.approvedValue,
@@ -114,6 +118,13 @@ export class PerformanceIntegrationController {
 
   static async overrideAutomatedGoal(req: Request, res: Response) {
     try {
+      const policy = await prisma.performanceSetting.findUnique({ where: { settingKey: "security.manualOverrides" } });
+      if (policy && policy.value === false) {
+        return responseHelper.error(res, "Manual overrides of automated values are switched off in Performance settings.", undefined, 403);
+      }
+      if (!String(req.body?.comment || "").trim()) {
+        return responseHelper.error(res, "Say why the automated value is being overridden.", undefined, 400);
+      }
       const data = await PerformanceIntegrationService.overrideAutomatedGoal({
         goalId: req.body.goalId,
         value: req.body.value,

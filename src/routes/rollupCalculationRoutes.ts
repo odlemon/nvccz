@@ -3,10 +3,12 @@ import express from "express";
 import { authenticate } from "../middleware/authenticate";
 import { methodGuard } from "../middleware/methodGuard"
 import { RollupCalculationController } from "../controllers/RollupCalculationController";
+import { goalRule } from "../services/PerformanceScope";
 
 const router = express.Router();
-const READ_KEYS = ["performance.rollup.view", "performance.rollup.manage"]
-const WRITE_KEYS = ["performance.rollup.manage"]
+// goal roll-ups are part of goals (the matrix has no separate row for them)
+const READ_KEYS = ["performance.goals.view", "performance.goals.manage"]
+const WRITE_KEYS = ["performance.goals.manage"]
 const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 // All routes require authentication
@@ -103,7 +105,7 @@ router.use(guard);
  *       500:
  *         description: Internal server error
  */
-router.get("/:goalId", RollupCalculationController.getGoalWithRollup);
+router.get("/:goalId", goalRule("goalId", "view"), RollupCalculationController.getGoalWithRollup);
 
 /**
  * @swagger
@@ -144,6 +146,6 @@ router.get("/:goalId", RollupCalculationController.getGoalWithRollup);
  *       500:
  *         description: Internal server error
  */
-router.post("/:goalId/recalculate", RollupCalculationController.recalculateRollups);
+router.post("/:goalId/recalculate", goalRule("goalId", "write"), RollupCalculationController.recalculateRollups);
 
 export default router;

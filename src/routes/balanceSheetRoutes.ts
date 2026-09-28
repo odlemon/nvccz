@@ -4,6 +4,8 @@ import { BalanceSheetController } from "../controllers/BalanceSheetController";
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
 
+// Who may use these routes is decided by the Accounting access guard in front of every accounting router
+// (src/middleware/accountingAccessGuard.ts); the role-name lists that stood here refused the Finance Manager and auditors.
 const router = Router();
 
 /**
@@ -103,7 +105,7 @@ const router = Router();
  *       500:
  *         description: Internal server error
  */
-router.post("/generate", authenticate, authorize(["admin", "accountant"]), BalanceSheetController.generateBalanceSheet);
+router.post("/generate", authenticate, BalanceSheetController.generateBalanceSheet);
 
 /**
  * @swagger
@@ -143,7 +145,7 @@ router.post("/generate", authenticate, authorize(["admin", "accountant"]), Balan
  *       500:
  *         description: Internal server error
  */
-router.get("/", authenticate, authorize(["admin", "accountant"]), BalanceSheetController.getBalanceSheetByQuery);
+router.get("/", authenticate, BalanceSheetController.getBalanceSheetByQuery);
 
 /**
  * @swagger
@@ -253,7 +255,7 @@ router.get("/", authenticate, authorize(["admin", "accountant"]), BalanceSheetCo
  *       500:
  *         description: Internal server error
  */
-router.post("/consolidated", authenticate, authorize(["admin", "accountant"]), BalanceSheetController.generateConsolidatedBalanceSheet);
+router.post("/consolidated", authenticate, BalanceSheetController.generateConsolidatedBalanceSheet);
 
 export default router;
 

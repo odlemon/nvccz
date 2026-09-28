@@ -5,6 +5,7 @@ import { prisma } from "../../utils/database";
 import { buildJournalEntryWhereForGlReporting } from "../../utils/journalEntryReportingFilter";
 import { BalanceSheetService } from "../BalanceSheetService";
 import { CashFlowAccount, CashFlowTransaction } from "./types";
+import { baseContext, isBaseReport, toBaseAmounts } from "../../utils/baseCurrencyAmounts";
 
 export class CashFlowBalanceService {
   /**
@@ -255,23 +256,33 @@ export class CashFlowBalanceService {
     for (const accountId of cashAccountIdsArray) {
       // Get beginning balance (all transactions before start date)
       // Exclude journal entries linked to voided/reversed cashbook entries
-      const beginningTransactions = await prisma.journalEntryLine.findMany({
+      // the base currency (or none) covers every currency at base amounts (FX-01)
+      const baseCtx = await baseContext();
+      const baseMode = await isBaseReport(currencyId, baseCtx);
+      const rateSel = { include: { journalEntry: { select: { currencyId: true, usdZwgRateSnapshot: true, transactionDate: true } } } };
+      let beginningTransactions: any[] = await prisma.journalEntryLine.findMany({
         where: {
           chartOfAccountId: accountId,
           journalEntry: {
-            is: buildJournalEntryWhereForGlReporting({ lt: startDate }, currencyId)
+            is: buildJournalEntryWhereForGlReporting({ lt: startDate }, baseMode ? undefined : currencyId)
           }
-        }
+        },
+        ...rateSel
       });
 
-      const endingTransactions = await prisma.journalEntryLine.findMany({
+      let endingTransactions: any[] = await prisma.journalEntryLine.findMany({
         where: {
           chartOfAccountId: accountId,
           journalEntry: {
-            is: buildJournalEntryWhereForGlReporting({ lte: endDate }, currencyId)
+            is: buildJournalEntryWhereForGlReporting({ lte: endDate }, baseMode ? undefined : currencyId)
           }
-        }
+        },
+        ...rateSel
       });
+      if (baseMode) {
+        beginningTransactions = (await toBaseAmounts(beginningTransactions, baseCtx)).lines;
+        endingTransactions = (await toBaseAmounts(endingTransactions, baseCtx)).lines;
+      }
 
       // Calculate balances using Decimal arithmetic - NO ROUNDING (for Asset accounts: Debits increase, Credits decrease)
       let beginningDebitsDecimal = new Decimal(0);

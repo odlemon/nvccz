@@ -398,16 +398,110 @@ export class PerformanceConfigService {
     return updated;
   }
 
-  static async listThemes() {
-    return prisma.performanceTheme.findMany({
-      where: {
-        status: {
-          not: "ARCHIVED"
-        }
-      },
-      orderBy: {
-        name: "asc"
-      }
+  static async listThemes(opts: { includeArchived?: boolean } = {}) {
+    const themes = await prisma.performanceTheme.findMany({
+      where: opts.includeArchived ? {} : { status: { not: "ARCHIVED" } },
+      orderBy: { name: "asc" }
+    });
+    if (!themes.length) return [];
+    const ids = themes.map((t) => t.id);
+    const ownerIds = [...new Set(themes.map((t) => t.ownerId).filter(Boolean))] as string[];
+    const [goals, owners] = await Promise.all([
+      prisma.performanceGoal.findMany({
+        where: { strategicThemeId: { in: ids } },
+        select: { id: true, strategicThemeId: true, status: true, progressPercentage: true, performanceRiskZone: true }
+      }),
+      ownerIds.length
+        ? prisma.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, firstName: true, lastName: true, email: true } })
+        : Promise.resolve([])
+    ]);
+    const ownerName = new Map(owners.map((u) => [u.id, [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email]));
+    return themes.map((t) => {
+      const mine = goals.filter((g) => g.strategicThemeId === t.id);
+      const progresses = mine.map((g) => Number(g.progressPercentage)).filter((n) => Number.isFinite(n));
+      return {
+        ...t,
+        ownerName: t.ownerId ? ownerName.get(t.ownerId) || null : null,
+        goalCount: mine.length,
+        completedGoalCount: mine.filter((g) => ["completed", "complete", "done"].includes(String(g.status || "").toLowerCase())).length,
+        atRiskGoalCount: mine.filter((g) => /RED|AMBER/.test(String(g.performanceRiskZone || "").toUpperCase())).length,
+        averageProgress: progresses.length ? Math.round((progresses.reduce((a, b) => a + b, 0) / progresses.length) * 10) / 10 : null
+      };
+    });
+  }
+
+  private static cleanThemeInput(input: any, requireName: boolean) {
+    const out: any = {};
+    if (input.name !== undefined || requireName) {
+      const name = String(input.name ?? "").trim();
+      if (!name) throw new Error("Theme name is required.");
+      if (name.length > 120) throw new Error("Theme name must be 120 characters or fewer.");
+      out.name = name;
+    }
+    if (input.description !== undefined) {
+      const d = String(input.description ?? "").trim();
+      if (d.length > 2000) throw new Error("Theme description must be 2000 characters or fewer.");
+      out.description = d || null;
+    }
+    if (input.color !== undefined) {
+      const c = String(input.color ?? "").trim();
+      if (c && !/^#[0-9a-fA-F]{6}$/.test(c)) throw new Error("Theme colour must be a hex value such as #1a6b5c.");
+      out.color = c || null;
+    }
+    if (input.perspective !== undefined) out.perspective = String(input.perspective ?? "").trim() || null;
+    if (input.ownerId !== undefined) out.ownerId = input.ownerId ? String(input.ownerId) : null;
+    if (input.status !== undefined) {
+      const st = String(input.status).trim().toUpperCase();
+      if (!["ACTIVE", "ON_HOLD", "ARCHIVED"].includes(st)) throw new Error("Theme status must be ACTIVE, ON_HOLD or ARCHIVED.");
+      out.status = st;
+    }
+    return out;
+  }
+
+  static async updateTheme(params: { id: string; patch: any; actor: any; meta?: AuditMeta }) {
+    const current = await prisma.performanceTheme.findUnique({ where: { id: params.id } });
+    if (!current) throw new Error("Theme not found.");
+    const data = PerformanceConfigService.cleanThemeInput(params.patch || {}, false);
+    if (!Object.keys(data).length) throw new Error("Nothing to update.");
+    if (data.name && data.name !== current.name) {
+      const clash = await prisma.performanceTheme.findUnique({ where: { name: data.name } });
+      if (clash) throw new Error("A theme with this name already exists.");
+    }
+    if (data.ownerId) {
+      const owner = await prisma.user.findUnique({ where: { id: data.ownerId }, select: { id: true } });
+      if (!owner) throw new Error("The chosen owner does not exist.");
+    }
+    if (data.status === "ARCHIVED" && current.status !== "ARCHIVED") {
+      const n = await prisma.performanceGoal.count({ where: { strategicThemeId: params.id } });
+      if (n > 0) throw new Error(`Untag the ${n} goal${n === 1 ? "" : "s"} linked to this theme before archiving it.`);
+    }
+    const theme = await prisma.performanceTheme.update({ where: { id: params.id }, data });
+    await AuditService.log({
+      userId: params.actor.id,
+      action: data.status === "ARCHIVED" ? "ARCHIVE" : "UPDATE",
+      entityType: "PerformanceTheme",
+      entityId: theme.id,
+      oldValues: current,
+      newValues: theme,
+      ...metaToAudit(params.meta)
+    });
+    return theme;
+  }
+
+  static async untagGoalsFromTheme(params: { themeId: string; goalIds: string[]; actor: any; meta?: AuditMeta }) {
+    const theme = await prisma.performanceTheme.findUnique({ where: { id: params.themeId } });
+    if (!theme) throw new Error("Theme not found.");
+    await prisma.performanceGoal.updateMany({
+      where: { id: { in: params.goalIds }, strategicThemeId: params.themeId },
+      data: { strategicThemeId: null }
+    });
+    await AuditService.log({
+      userId: params.actor.id,
+      action: "UNTAG_THEME",
+      entityType: "PerformanceGoalThemeAssignment",
+      entityId: params.themeId,
+      newValues: { themeId: params.themeId, goalIds: params.goalIds },
+      ...metaToAudit(params.meta)
     });
   }
 
@@ -415,27 +509,26 @@ export class PerformanceConfigService {
     name: string;
     description?: string;
     color?: string;
+    perspective?: string;
+    ownerId?: string;
     actor: any;
     meta?: AuditMeta;
   }) {
-    const existing = await prisma.performanceTheme.findUnique({
-      where: {
-        name: params.name
-      }
-    });
-
+    const data = PerformanceConfigService.cleanThemeInput(params, true);
+    if (data.ownerId) {
+      const owner = await prisma.user.findUnique({ where: { id: data.ownerId }, select: { id: true } });
+      if (!owner) throw new Error("The chosen owner does not exist.");
+    }
+    const existing = await prisma.performanceTheme.findUnique({ where: { name: data.name } });
     if (existing) {
-      return existing;
+      throw new Error(
+        existing.status === "ARCHIVED"
+          ? "An archived theme already uses this name. Restore it instead."
+          : "A theme with this name already exists."
+      );
     }
 
-    const theme = await prisma.performanceTheme.create({
-      data: {
-        name: params.name,
-        description: params.description || null,
-        color: params.color || null,
-        createdById: params.actor.id
-      }
-    });
+    const theme = await prisma.performanceTheme.create({ data: { ...data, createdById: params.actor.id } });
 
     await AuditService.log({
       userId: params.actor.id,

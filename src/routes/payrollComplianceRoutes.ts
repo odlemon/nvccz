@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { Router } from "express";
+import { requireCronCaller } from "../middleware/cronCaller";
 import multer from "multer";
 import { authenticate } from "../middleware/authenticate";
 import {
@@ -39,6 +40,7 @@ router.put(
 router.post("/certifications/:id/revoke", authenticate, PayrollComplianceController.revokeCertification);
 
 router.get("/dashboard/expiring", authenticate, PayrollComplianceController.expiringDashboard);
-router.post("/cron/expiry-check", PayrollComplianceController.runExpiryCron);
+// scheduler only: shared secret, or the server itself (it was open to anyone when no secret was configured)
+router.post("/cron/expiry-check", requireCronCaller(["COMPLIANCE_CRON_SECRET", "CRON_SECRET"], "X-Compliance-Cron-Secret"), PayrollComplianceController.runExpiryCron);
 
 export default router;

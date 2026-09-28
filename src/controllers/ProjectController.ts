@@ -8,7 +8,15 @@ export class ProjectController {
     try {
       const activeOnly = req.query.activeOnly === "true";
       const projects = await ProjectService.listProjects(activeOnly);
-      res.json({ success: true, data: projects });
+      // hours booked to each project: approved (and of those billable) and still waiting for approval
+      const { prisma } = await import("../utils/database");
+      const [approved, billable, waiting] = await Promise.all([
+        prisma.timesheetEntry.groupBy({ by: ["projectId"], where: { timesheet: { status: "APPROVED" } }, _sum: { hours: true } }),
+        prisma.timesheetEntry.groupBy({ by: ["projectId"], where: { billable: true, timesheet: { status: "APPROVED" } }, _sum: { hours: true } }),
+        prisma.timesheetEntry.groupBy({ by: ["projectId"], where: { timesheet: { status: "SUBMITTED" } }, _sum: { hours: true } }),
+      ]);
+      const h = (rows, id) => Number(rows.find((r) => r.projectId === id)?._sum?.hours || 0);
+      res.json({ success: true, data: projects.map((p) => ({ ...p, hours: { approved: h(approved, p.id), billable: h(billable, p.id), waiting: h(waiting, p.id) } })) });
     } catch (e: any) {
       res.status(500).json({ success: false, message: e.message || "Failed to list projects" });
     }

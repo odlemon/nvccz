@@ -123,16 +123,18 @@ export class ExpenseService {
         receiptNumber,
         isTaxable,
         paymentMethod,
-        createdById
+        createdById,
+        bankId: (params as any).bankId,
       };
       const journalEntryResult = await JournalEntryService.createExpenseJournalEntry(journalEntryParams);
 
-      // Update the expense with the journal entry reference
+      // Update the expense with the journal entry reference. Its journal is a draft until an approver posts it, so the
+      // expense is submitted, not posted (it becomes APPROVED when the journal is posted, REJECTED if it is voided).
       const updatedExpense = await prisma.expense.update({
         where: { id: expense.id },
         data: {
           journalEntryId: journalEntryResult.journalEntry.id,
-          status: "POSTED"
+          status: "SUBMITTED"
         },
         include: {
           vendor: true,
@@ -264,6 +266,7 @@ export class ExpenseService {
       prisma.expense.findMany({
         where,
         include: {
+          createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
           vendor: true,
           category: true,
           currency: true,

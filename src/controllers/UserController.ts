@@ -2,6 +2,43 @@
 import { Request, Response } from "express";
 import { UserService } from "../services/UserService";
 
+/** User Master fields accepted from the admin form (validated in UserService). */
+const MASTER_KEYS = [
+  "employeeCode",
+  "fullName",
+  "mobileNumber",
+  "location",
+  "jobTitle",
+  "branch",
+  "businessUnit",
+  "costCentre",
+  "reportingManagerId",
+  "procurementFunction",
+  "accessProfile",
+  "approvalLevel",
+  "approvalLimitAmount",
+  "delegatedApproverId",
+  "sodRestrictions",
+  "ssoUsername",
+  "uatRole",
+  "effectiveDate",
+  "endDate",
+] as const;
+
+function pickMaster(body: any) {
+  const out: Record<string, any> = {};
+  for (const k of MASTER_KEYS) if (body && body[k] !== undefined) out[k] = body[k];
+  return out;
+}
+
+function auditCtx(req: any) {
+  return {
+    actorUserId: req.user?.id,
+    ipAddress: req.ip || (req.socket?.remoteAddress as string) || null,
+    userAgent: (req.headers["user-agent"] as string) || null
+  };
+}
+
 export class UserController {
   /**
    * Get users filtered by department and/or role
@@ -42,7 +79,8 @@ export class UserController {
         email,
         department,
         roleCode,
-        departmentRole
+        departmentRole,
+        status
       } = req.body;
 
       // Validate required fields
@@ -87,8 +125,10 @@ export class UserController {
         email: email.toLowerCase().trim(),
         department,
         roleCode,
-        departmentRole
-      });
+        departmentRole,
+        status,
+        ...pickMaster(req.body)
+      }, auditCtx(req));
 
       res.status(201).json({
         success: true,
@@ -101,7 +141,9 @@ export class UserController {
             email: result.user.email,
             userDepartment: result.user.userDepartment,
             departmentRole: result.user.departmentRole,
-            roleCode: result.user.roleCode
+            roleCode: result.user.roleCode,
+            employeeCode: result.user.employeeCode,
+            status: result.user.status
           },
           // Include password in response for immediate use (remove in production)
           temporaryPassword: result.password
@@ -114,6 +156,11 @@ export class UserController {
         message: error.message || "Failed to create user"
       });
     }
+  }
+
+  /** Option lists for the User Master form (statuses, procurement functions, access profiles, SoD restrictions). */
+  static async getMasterOptions(_req: Request, res: Response) {
+    res.status(200).json({ success: true, data: UserService.masterOptions() });
   }
 
   /**
@@ -202,7 +249,8 @@ export class UserController {
           roleCode,
           departmentRole,
           roleId,
-          status
+          status,
+          ...pickMaster(req.body)
         },
         {
           actorUserId: req.user.id,
@@ -239,11 +287,12 @@ export class UserController {
         });
       }
 
-      const result = await UserService.deleteUser(id);
+      const result = await UserService.deleteUser(id, auditCtx(req));
 
       res.status(200).json({
         success: true,
-        message: result.message
+        message: result.message,
+        deactivated: Boolean(result.deactivated)
       });
     } catch (error: any) {
       console.error("Error deleting user:", error);

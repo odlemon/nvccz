@@ -33,6 +33,11 @@ router.use(async (req: Request, res: Response) => {
   if (!relativePath || relativePath.includes("..")) {
     return res.status(400).send("Invalid path");
   }
+  // Vendor record attachments (quotation documents, supplier invoices) are served only by their authorised download endpoints:
+  // a quotation document must never be reachable by address alone, before or after bid opening (SRD 16).
+  if (/^vendor-record-attachments(\/|$)/i.test(relativePath)) {
+    return res.status(403).send("This file is available only through an authorised download.");
+  }
 
   const base = resolveInternalMediaBaseUrl();
   const url = `${base}/${relativePath}`;

@@ -254,7 +254,7 @@ const options = {
       {
         name: 'Procurement — PO & Sign-off (Suite 04)',
         description:
-          'Suite 04: PO investee/fund tagging, amount-threshold approvals, PDF with verification placeholder, dispatch/ack tokens, line cancel, GRN return-to-vendor stub.'
+          'Suite 04: PO investee/fund tagging, amount-threshold approvals, PDF with verification QR, dispatch/ack tokens, line cancel, PO amend, GRN return-to-vendor posting.'
       },
       {
         name: 'Procurement — GRN & QC (Suite 05)',

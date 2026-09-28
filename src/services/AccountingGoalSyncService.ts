@@ -17,7 +17,7 @@ import type { KpiSyncStrategy } from "./kpiFinancialAccountingRules";
 const SETTINGS_ID = "default";
 
 /** Login sync: incremental P&L merge only — no payroll refresh, no balance-sheet snapshots. */
-const LOGIN_SYNC_STRATEGIES = new Set<KpiSyncStrategy>([
+export const LOGIN_SYNC_STRATEGIES = new Set<KpiSyncStrategy>([
   "pl_revenue_total",
   "pl_expense_total",
   "pl_account_period",
@@ -151,7 +151,17 @@ export class AccountingGoalSyncService {
       syncConfigRaw && typeof syncConfigRaw === "object" && !Array.isArray(syncConfigRaw)
         ? (syncConfigRaw as Record<string, unknown>)
         : {};
-    const prevGlNative = Number(syncConfig.glNativeAmount ?? syncConfig.lastGlNative ?? 0);
+    // The baseline is the GL amount last measured for this exact window. A month-to-date baseline carried into a new
+    // month made the next delta negative; the login sync now measures the goal's whole window, keyed here.
+    const windowKey = `${job.periodStart.toISOString().slice(0, 10)}`;
+    const baselines = syncConfig.glBaselines && typeof syncConfig.glBaselines === "object" ? { ...(syncConfig.glBaselines as Record<string, number>) } : {};
+    if (options?.incrementalOnly && baselines[windowKey] === undefined) {
+      // first measurement of this window under the keyed scheme: record it, apply nothing (earlier syncs already applied it)
+      baselines[windowKey] = glNative;
+      await prisma.performanceGoal.update({ where: { id: job.canonicalGoalId }, data: { syncConfig: { ...syncConfig, glBaselines: baselines, glSyncedAt: new Date().toISOString() } } });
+      return { updated: false, glNative, newTotal: prevCurrent, skippedReason: "baseline_initialised" };
+    }
+    const prevGlNative = Number(options?.incrementalOnly ? baselines[windowKey] : syncConfig.glNativeAmount ?? syncConfig.lastGlNative ?? 0);
     const prevGl = Number.isFinite(prevGlNative) ? prevGlNative : 0;
 
     const increment = glNative - prevGl;
@@ -162,6 +172,8 @@ export class AccountingGoalSyncService {
         glNative,
         prevGl
       });
+      // still record that the goal was checked against the ledger
+      await prisma.performanceGoal.update({ where: { id: job.canonicalGoalId }, data: { syncConfig: { ...syncConfig, glSyncedAt: new Date().toISOString() } } });
       return { updated: false, glNative, newTotal: prevCurrent, skippedReason: "no_gl_delta" };
     }
 
@@ -208,7 +220,8 @@ export class AccountingGoalSyncService {
           glPeriodEnd: job.periodEnd.toISOString(),
           glSyncedAt: new Date().toISOString(),
           glNativeAmount: glNative,
-          glLastIncrement: increment
+          glLastIncrement: increment,
+          ...(options?.incrementalOnly ? { glBaselines: { ...baselines, [windowKey]: glNative } } : {})
         },
         lastSyncJobId: `login-sync-${job.kpiCode}`
       }
@@ -371,10 +384,26 @@ export class AccountingGoalSyncService {
       return;
     }
 
+    // One run at a time (two logins together applied the same increment twice), at most every two minutes: an atomic
+    // lease on the settings row — whoever moves `last_login_sync_at` forward runs; everyone else skips. Works across
+    // API instances, and an interrupted run releases itself when the lease ages out.
+    await prisma.performanceSyncSettings.upsert({ where: { id: SETTINGS_ID }, create: { id: SETTINGS_ID }, update: {} }).catch(() => undefined);
+    const leased = await prisma
+      .$executeRawUnsafe(
+        "UPDATE `performance_sync_settings` SET `last_login_sync_at` = NOW(3) WHERE `id` = ? AND (`last_login_sync_at` IS NULL OR `last_login_sync_at` < NOW(3) - INTERVAL 2 MINUTE)",
+        SETTINGS_ID
+      )
+      .catch(() => 0);
+    if (!leased) {
+      logger.info("Performance login sync skipped: ran within the last two minutes or is running");
+      return;
+    }
     try {
       logger.info("Performance login sync started", { actorId });
 
-      const { periodStart, periodEnd } = defaultLoginSyncPeriod();
+      // each goal is measured over its own window (planSyncJobs intersects this with the goal's start and end)
+      const periodStart = new Date(Date.UTC(2000, 0, 1));
+      const periodEnd = defaultLoginSyncPeriod().periodEnd;
       const result = await this.runFullSync({
         periodStart,
         periodEnd,

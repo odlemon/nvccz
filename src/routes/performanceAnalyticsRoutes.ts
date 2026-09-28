@@ -3,6 +3,7 @@ import express from "express";
 import { authenticate } from "../middleware/authenticate";
 import { methodGuard } from "../middleware/methodGuard"
 import { PerformanceAnalyticsController } from "../controllers/PerformanceAnalyticsController";
+import { scoped, orgOnly } from "../services/PerformanceScope";
 
 const router = express.Router();
 const READ_KEYS = ["performance.analytics.view", "performance.analytics.manage"]
@@ -12,6 +13,15 @@ const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 // All routes require authentication
 router.use(authenticate);
 router.use(guard);
+
+// Outside the organisation scope the figures are the caller's own department's (the department filter is set, not chosen);
+// the organisation dashboard and the department comparison are organisation-wide by nature.
+const ownDepartment = scoped(async (req, a) => {
+  // Express 5 re-parses req.query on every read, so the pinned filter is set as the request's own property
+  if (!a.org) Object.defineProperty(req, "query", { value: { ...req.query, department: a.departmentName || "(no department)" }, writable: true, configurable: true });
+  return null;
+});
+const orgWide = orgOnly("Organisation-wide analytics are for organisation-wide roles.");
 
 /**
  * @swagger
@@ -145,7 +155,7 @@ router.use(guard);
  *       500:
  *         description: Internal server error
  */
-router.get("/kpi", PerformanceAnalyticsController.getKPIAnalysis);
+router.get("/kpi", ownDepartment, PerformanceAnalyticsController.getKPIAnalysis);
 
 /**
  * @swagger
@@ -241,7 +251,7 @@ router.get("/kpi", PerformanceAnalyticsController.getKPIAnalysis);
  *       500:
  *         description: Internal server error
  */
-router.get("/dashboard", PerformanceAnalyticsController.getPerformanceDashboard);
+router.get("/dashboard", orgWide, PerformanceAnalyticsController.getPerformanceDashboard);
 
 /**
  * @swagger
@@ -361,7 +371,7 @@ router.get("/dashboard", PerformanceAnalyticsController.getPerformanceDashboard)
  *       500:
  *         description: Internal server error
  */
-router.get("/reports", PerformanceAnalyticsController.getGoalProgressReports);
+router.get("/reports", ownDepartment, PerformanceAnalyticsController.getGoalProgressReports);
 
 /**
  * @swagger
@@ -448,6 +458,6 @@ router.get("/reports", PerformanceAnalyticsController.getGoalProgressReports);
  *       500:
  *         description: Internal server error
  */
-router.get("/departments/comparison", PerformanceAnalyticsController.getDepartmentComparison);
+router.get("/departments/comparison", orgWide, PerformanceAnalyticsController.getDepartmentComparison);
 
 export default router;

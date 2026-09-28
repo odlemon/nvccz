@@ -641,6 +641,8 @@ router.post("/strategies/:id/document", authenticate, guard, upload.single("file
  */
 router.get("/themes", authenticate, guard, PerformanceConfigController.listThemes);
 router.post("/themes", authenticate, guard, PerformanceConfigController.createTheme);
+router.put("/themes/:id", authenticate, guard, PerformanceConfigController.updateTheme);
+router.delete("/themes/:id/goals", authenticate, guard, PerformanceConfigController.untagGoalsFromTheme);
 
 /**
  * @swagger

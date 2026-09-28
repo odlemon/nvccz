@@ -30,7 +30,13 @@ export class AccountingDocumentController {
         res.status(400).json({ success: false, message: 'No file uploaded' });
         return;
       }
-      const category = req.body.category || 'General';
+      // documents a finance team keeps: papers, spreadsheets, images, text and archives; nothing that runs
+      const ext = String(file.originalname || '').toLowerCase().split('.').pop();
+      if (!['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'ppt', 'pptx', 'zip', 'msg', 'eml', 'xml', 'json'].includes(ext || '')) {
+        res.status(400).json({ success: false, message: `A .${ext} file cannot be kept in the vault. Upload a PDF, Office document, spreadsheet, image, text or zip file.` });
+        return;
+      }
+      const category = String(req.body.category || 'General').slice(0, 64);
       const { filePath, downloadURL } = await FirebaseStorageService.uploadAccountingDocument(
         file.buffer,
         file.originalname,
@@ -46,6 +52,10 @@ export class AccountingDocumentController {
         fileSizeBytes: file.size,
         uploadedById,
       });
+      if (uploadedById) {
+        const { default: AuditService } = await import('../services/AuditService');
+        await AuditService.log({ userId: uploadedById, action: 'CREATE', entityType: 'AccountingDocument', entityId: document.id, newValues: { name: document.name, category, sizeBytes: file.size, mimeType: file.mimetype } }).catch(() => null);
+      }
       res.status(201).json({ success: true, data: document, message: 'Document uploaded successfully' });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });

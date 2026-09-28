@@ -4,6 +4,8 @@ import RevenueCategoryController from "../controllers/RevenueCategoryController"
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
 
+// Who may use these routes is decided by the Accounting access guard in front of every accounting router
+// (src/middleware/accountingAccessGuard.ts); the role-name lists that stood here refused the Finance Manager and auditors.
 const router = Router();
 
 /**
@@ -65,7 +67,7 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post("/", authenticate, authorize(["admin", "accountant"]), RevenueCategoryController.createRevenueCategory);
+router.post("/", authenticate, RevenueCategoryController.createRevenueCategory);
 
 /**
  * @swagger
@@ -106,7 +108,7 @@ router.post("/", authenticate, authorize(["admin", "accountant"]), RevenueCatego
  *                   items:
  *                     $ref: '#/components/schemas/RevenueCategory'
  */
-router.get("/", authenticate, authorize(["admin", "accountant"]), RevenueCategoryController.getAllRevenueCategories);
+router.get("/", authenticate, RevenueCategoryController.getAllRevenueCategories);
 
 /**
  * @swagger
@@ -147,7 +149,7 @@ router.get("/", authenticate, authorize(["admin", "accountant"]), RevenueCategor
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get("/:id", authenticate, authorize(["admin", "accountant"]), RevenueCategoryController.getRevenueCategoryById);
+router.get("/:id", authenticate, RevenueCategoryController.getRevenueCategoryById);
 
 /**
  * @swagger
@@ -213,7 +215,7 @@ router.get("/:id", authenticate, authorize(["admin", "accountant"]), RevenueCate
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.put("/:id", authenticate, authorize(["admin", "accountant"]), RevenueCategoryController.updateRevenueCategory);
+router.put("/:id", authenticate, RevenueCategoryController.updateRevenueCategory);
 
 /**
  * @swagger
@@ -260,6 +262,6 @@ router.put("/:id", authenticate, authorize(["admin", "accountant"]), RevenueCate
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.delete("/:id", authenticate, authorize(["admin", "accountant"]), RevenueCategoryController.deleteRevenueCategory);
+router.delete("/:id", authenticate, RevenueCategoryController.deleteRevenueCategory);
 
 export default router; 

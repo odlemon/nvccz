@@ -4,6 +4,8 @@ import { BalanceSheetController } from "../controllers/BalanceSheetController";
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
 
+// Who may use these routes is decided by the Accounting access guard in front of every accounting router
+// (src/middleware/accountingAccessGuard.ts); the role-name lists that stood here refused the Finance Manager and auditors.
 const router = Router();
 
 /**
@@ -64,6 +66,6 @@ const router = Router();
  *       500:
  *         description: Internal server error
  */
-router.get("/summary", authenticate, authorize(["admin", "accountant"]), BalanceSheetController.getConsolidationSummary);
+router.get("/summary", authenticate, BalanceSheetController.getConsolidationSummary);
 
 export default router;

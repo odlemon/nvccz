@@ -95,6 +95,8 @@ export class RecurringJournalService {
         linesJson: params.lines as object[],
         referencePrefix: params.referencePrefix ?? "REC-JE",
         createdById: params.createdById,
+        // it posts every month without further review once on, so an approver other than its author switches it on
+        isActive: false,
       },
       include: { currency: true, createdBy: { select: { id: true, email: true, firstName: true, lastName: true } } },
     });
@@ -111,11 +113,22 @@ export class RecurringJournalService {
     });
   }
 
-  static async setActive(templateId: string, isActive: boolean) {
-    return prisma.recurringJournalTemplate.update({
+  static async setActive(templateId: string, isActive: boolean, actorId?: string) {
+    const t = await prisma.recurringJournalTemplate.findUnique({ where: { id: templateId }, select: { createdById: true, isActive: true, name: true } });
+    if (!t) throw new Error("Template not found");
+    // switching one on approves it: every month it posts without further review (maker-checker, D3)
+    if (isActive && !t.isActive && actorId && actorId === t.createdById) {
+      throw Object.assign(new Error("A recurring journal is switched on by an approver other than the person who set it up."), { statusCode: 403 });
+    }
+    const updated = await prisma.recurringJournalTemplate.update({
       where: { id: templateId },
       data: { isActive },
     });
+    if (actorId) {
+      const { default: AuditService } = await import("./AuditService");
+      await AuditService.log({ userId: actorId, action: "UPDATE", entityType: "RecurringJournalTemplate", entityId: templateId, oldValues: { isActive: t.isActive }, newValues: { isActive, name: t.name } }).catch(() => null);
+    }
+    return updated;
   }
 
   /**

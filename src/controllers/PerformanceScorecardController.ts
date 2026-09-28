@@ -6,6 +6,7 @@ import {
   PerformanceScorecardService
 } from "../services/PerformanceScorecardService";
 import { ResponseHelper } from "../utils/responseHelper";
+import { perfActor, personInScope } from "../services/PerformanceScope";
 
 function buildMeta(req: Request) {
   return {
@@ -236,6 +237,12 @@ export class PerformanceScorecardController {
       const data = await PerformanceScorecardService.listEmployeesWithContractForScorecardPeriod(
         getPeriodParams(req)
       );
+      // only the people the caller may generate for: everyone (organisation), their department's people (department), never themselves
+      const a = await perfActor(req.user);
+      if (!a.org && data && Array.isArray(data.employees)) {
+        const keep = await Promise.all(data.employees.map((e: any) => personInScope(a, e.id)));
+        data.employees = data.employees.filter((e: any, i: number) => keep[i] && e.id !== a.id);
+      }
       return ResponseHelper.success(
         res,
         "Employees with a performance contract for this period (CEO excluded)",

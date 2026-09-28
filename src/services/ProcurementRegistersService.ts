@@ -41,9 +41,12 @@ const date = (v: any, field: string): Date | null => {
   return d;
 };
 
-async function audit(userId: string | undefined, action: string, entityType: string, entityId: string, newValues: any) {
+/** The values a change replaced: the current value of every field the change sets. */
+const previous = (existing: any, data: Record<string, any>) => Object.fromEntries(Object.keys(data).map((k) => [k, existing?.[k] ?? null]));
+
+async function audit(userId: string | undefined, action: string, entityType: string, entityId: string, newValues: any, oldValues?: any) {
   try {
-    await AuditService.log({ userId, action, entityType, entityId, newValues });
+    await AuditService.log({ userId, action, entityType, entityId, newValues, oldValues });
   } catch (err) {
     console.error(`audit ${entityType} ${action}:`, (err as Error)?.message || err);
   }
@@ -77,14 +80,13 @@ async function createWithNumber<T>(make: (n: string) => Promise<T>, model, field
 
 // ------------------------------------------------------------------------------------ documents
 
-export const DOCUMENT_STATUSES = ["under_review", "approved", "archived"] as const;
 /** The remote upload type that maps to a durable folder (see PerformanceDocumentService). */
 const DOCUMENT_UPLOAD_TYPE = "application-documents";
 
-async function storeFile(file: { buffer: Buffer; originalname: string; mimetype?: string; size?: number }) {
+export async function storeFile(file: { buffer: Buffer; originalname: string; mimetype?: string; size?: number }) {
   const safe = String(file.originalname || "document").replace(/[^a-zA-Z0-9.\-_]/g, "_");
   try {
-    return await remoteUploadService.uploadSingleFile(
+    const stored = await remoteUploadService.uploadSingleFile(
       {
         buffer: file.buffer,
         originalname: `${Date.now()}-${safe}`,
@@ -93,6 +95,9 @@ async function storeFile(file: { buffer: Buffer; originalname: string; mimetype?
       },
       DOCUMENT_UPLOAD_TYPE
     );
+    // Every file stored for a receipt, requisition attachment or AI reading is an audited file upload, whoever asked.
+    await audit(undefined, "FILE_UPLOAD", "StoredFile", stored.filePath, { name: file.originalname, mimeType: file.mimetype ?? null, sizeBytes: file.size ?? file.buffer.length });
+    return stored;
   } catch (err: any) {
     throw new RegisterError(502, `The file could not be stored: ${err?.message || err}`);
   }
@@ -103,94 +108,8 @@ function nextVersion(v: string): string {
   return m ? `v${Number(m[1]) + 1}.0` : "v2.0";
 }
 
-export const ProcurementDocuments = {
-  async list(filters: { folder?: string; status?: string; search?: string } = {}) {
-    const where: any = {};
-    const folder = str(filters.folder);
-    if (folder) where.folder = folder;
-    const status = str(filters.status);
-    where.status = status ? status : { not: "archived" };
-    const search = str(filters.search);
-    if (search) where.OR = [{ name: { contains: search } }, { relatedRecord: { contains: search } }];
-    const rows = await prisma.procurementDocument.findMany({ where, orderBy: { createdAt: "desc" }, take: 500 });
-    const ids = [...new Set(rows.map((r) => r.uploadedById).filter(Boolean))];
-    const users = ids.length
-      ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, firstName: true, lastName: true } })
-      : [];
-    const names = new Map(users.map((u) => [u.id, [u.firstName, u.lastName].filter(Boolean).join(" ")]));
-    return rows.map((r) => ({ ...r, uploadedByName: names.get(r.uploadedById) ?? null }));
-  },
-
-  async upload(params: {
-    files: Array<{ buffer: Buffer; originalname: string; mimetype?: string; size?: number }>;
-    name?: string;
-    folder?: string;
-    documentType?: string;
-    relatedRecord?: string;
-    classification?: string;
-    source?: string;
-    description?: string;
-    uploadedById: string;
-  }) {
-    if (!params.files?.length) throw bad("Attach at least one file");
-    const created = [];
-    for (const [idx, file] of params.files.entries()) {
-      if (!file?.buffer?.length) throw bad(`${file?.originalname || "A file"} is empty`);
-      const { filePath, downloadURL } = await storeFile(file);
-      const base = str(params.name);
-      const name = base ? (params.files.length > 1 ? `${base} (${idx + 1})` : base) : file.originalname;
-      const doc = await prisma.procurementDocument.create({
-        data: {
-          name: name.slice(0, 255),
-          folder: str(params.folder) ?? "General",
-          documentType: str(params.documentType) ?? null,
-          relatedRecord: str(params.relatedRecord) ?? null,
-          classification: str(params.classification) ?? "Internal",
-          source: str(params.source) ?? "Internal upload",
-          description: str(params.description) ?? null,
-          fileUrl: downloadURL,
-          storagePath: filePath,
-          mimeType: file.mimetype ?? null,
-          fileSizeBytes: file.size ?? file.buffer.length,
-          uploadedById: params.uploadedById,
-        },
-      });
-      await audit(params.uploadedById, "CREATE", "ProcurementDocument", doc.id, { name: doc.name, folder: doc.folder });
-      created.push(doc);
-    }
-    return created;
-  },
-
-  async uploadVersion(id: string, file: any, userId: string) {
-    const existing = await prisma.procurementDocument.findUnique({ where: { id } });
-    if (!existing) throw notFound("Document");
-    if (!file?.buffer?.length) throw bad("Attach the new version's file");
-    const { filePath, downloadURL } = await storeFile(file);
-    const updated = await prisma.procurementDocument.update({
-      where: { id },
-      data: {
-        version: nextVersion(existing.version),
-        status: "under_review",
-        fileUrl: downloadURL,
-        storagePath: filePath,
-        mimeType: file.mimetype ?? null,
-        fileSizeBytes: file.size ?? file.buffer.length,
-      },
-    });
-    await audit(userId, "UPDATE", "ProcurementDocument", id, { version: updated.version });
-    return updated;
-  },
-
-  async setStatus(id: string, status: string, userId: string) {
-    const s = str(status)?.toLowerCase();
-    if (!s || !DOCUMENT_STATUSES.includes(s as any)) throw bad(`status must be one of: ${DOCUMENT_STATUSES.join(", ")}`);
-    const existing = await prisma.procurementDocument.findUnique({ where: { id } });
-    if (!existing) throw notFound("Document");
-    const updated = await prisma.procurementDocument.update({ where: { id }, data: { status: s } });
-    await audit(userId, s === "approved" ? "APPROVE" : "UPDATE", "ProcurementDocument", id, { status: s });
-    return updated;
-  },
-};
+// The vault itself (formats, versions, preview, related record, audit) lives in ProcurementDocumentService.
+export { ProcurementDocuments } from "./ProcurementDocumentService";
 
 // ------------------------------------------------------------------------------------ contracts
 
@@ -296,7 +215,7 @@ export const ProcurementContracts = {
     const end = data.endDate !== undefined ? data.endDate : existing.endDate;
     if (start && end && new Date(end).getTime() < new Date(start).getTime()) throw bad("The end date cannot be before the start date");
     const updated = await prisma.procurementContract.update({ where: { id }, data });
-    await audit(userId, "UPDATE", "ProcurementContract", id, data);
+    await audit(userId, "UPDATE", "ProcurementContract", id, data, previous(existing, data));
     const v = await prisma.vendor.findUnique({ where: { id: updated.vendorId }, select: { id: true, name: true } });
     return withContractState(updated, new Map(v ? [[v.id, v.name]] : []));
   },
@@ -311,7 +230,7 @@ export const ProcurementContracts = {
       where: { id },
       data: { status: next, ...(next === "ACTIVE" ? { activatedAt: new Date() } : {}) },
     });
-    await audit(userId, next === "ACTIVE" ? "APPROVE" : "UPDATE", "ProcurementContract", id, { status: next });
+    await audit(userId, next === "ACTIVE" ? "APPROVE" : "TERMINATE", "ProcurementContract", id, { status: next }, { status: existing.status });
     const v = await prisma.vendor.findUnique({ where: { id: updated.vendorId }, select: { id: true, name: true } });
     return withContractState(updated, new Map(v ? [[v.id, v.name]] : []));
   },
@@ -325,6 +244,101 @@ const planOut = (p: any) => ({
   items: (p.items ?? []).map((i: any) => ({ ...i, estimatedValue: Number(i.estimatedValue) })),
   plannedValue: (p.items ?? []).reduce((t: number, i: any) => t + Number(i.estimatedValue || 0), 0),
 });
+
+/** Requisition statuses that have not drawn on a plan line (they hold nothing yet, or gave it back). */
+const RELEASED_PR = ["DRAFT", "REJECTED", "CANCELLED", "RETURNED", "RETURNED_FOR_AMENDMENT"];
+
+/** planOut plus what each line has been drawn for by requisitions: consumed, remaining and how many requisitions. */
+async function planView(p: any) {
+  const [out] = await plansView([p]);
+  return out;
+}
+async function plansView(plans: any[]) {
+  const ids = plans.flatMap((p) => (p.items ?? []).map((i: any) => i.id));
+  const drawn = ids.length
+    ? await prisma.purchaseRequisition.groupBy({
+        by: ["planItemId"],
+        where: { planItemId: { in: ids }, status: { notIn: RELEASED_PR } },
+        _sum: { totalAmount: true },
+        _count: { _all: true },
+      })
+    : [];
+  const use = new Map(drawn.map((d) => [d.planItemId as string, { consumed: Number(d._sum.totalAmount ?? 0), count: d._count._all }]));
+  const officerIds = [...new Set(plans.flatMap((p) => (p.items ?? []).map((i: any) => i.responsibleOfficerId)).filter(Boolean))] as string[];
+  const officers = officerIds.length
+    ? await prisma.user.findMany({ where: { id: { in: officerIds } }, select: { id: true, firstName: true, lastName: true, email: true } })
+    : [];
+  const creatorIds = [...new Set(plans.map((p) => p.createdById).filter(Boolean))] as string[];
+  const creators = creatorIds.length
+    ? await prisma.user.findMany({ where: { id: { in: creatorIds } }, select: { id: true, firstName: true, lastName: true, email: true } })
+    : [];
+  return plans.map((p) => {
+    const base = planOut(p);
+    const creator = creators.find((x) => x.id === p.createdById);
+    base.createdByName = creator ? [creator.firstName, creator.lastName].filter(Boolean).join(" ") || creator.email : null;
+    const items = base.items.map((i: any) => {
+      const u = use.get(i.id) ?? { consumed: 0, count: 0 };
+      const o = officers.find((x) => x.id === i.responsibleOfficerId);
+      return {
+        ...i,
+        consumed: u.consumed,
+        remaining: i.estimatedValue - u.consumed,
+        requisitionCount: u.count,
+        responsibleOfficer: o ? [o.firstName, o.lastName].filter(Boolean).join(" ") || o.email : null,
+      };
+    });
+    return { ...base, items, consumedValue: items.reduce((s: number, i: any) => s + i.consumed, 0) };
+  });
+}
+
+function assertDates(d: { plannedStartDate?: any; requiredDeliveryDate?: any }) {
+  if (d.plannedStartDate && d.requiredDeliveryDate && new Date(d.requiredDeliveryDate).getTime() < new Date(d.plannedStartDate).getTime()) {
+    throw bad("The required delivery date cannot be before the planned start date");
+  }
+}
+
+const PLAN_METHODS = ["RFQ", "OPEN_TENDER", "RESTRICTED_TENDER", "SINGLE_SOURCE", "DIRECT_PURCHASE", "FRAMEWORK_CALL_OFF"];
+
+/** Normalises the §10 plan-line fields from a request body; only the fields present are returned. */
+async function lineFields(body: any, plan: any, partial: boolean) {
+  const out: any = {};
+  const requirement = str(body.requirement ?? body.description);
+  if (body.requirement !== undefined || body.description !== undefined || !partial) {
+    if (!requirement) throw bad("A requirement description is required");
+    out.description = requirement.slice(0, 255);
+    out.requirement = requirement.slice(0, 255);
+  }
+  if (body.category !== undefined || !partial) out.category = str(body.category) ?? null;
+  if (body.quarter !== undefined || !partial) {
+    const quarter = str(body.quarter);
+    if (quarter && !/^Q[1-4]$/i.test(quarter)) throw bad("quarter must be Q1, Q2, Q3 or Q4");
+    out.quarter = quarter ? quarter.toUpperCase() : null;
+  }
+  if (body.method !== undefined || !partial) {
+    const SYN: Record<string, string> = { FRAMEWORK: "FRAMEWORK_CALL_OFF", DIRECT_PROCUREMENT: "DIRECT_PURCHASE", REQUEST_FOR_QUOTATION: "RFQ" };
+    const raw = str(body.method)?.toUpperCase().replace(/[\s-]+/g, "_");
+    const m = raw ? SYN[raw] ?? raw : raw;
+    if (m && !PLAN_METHODS.includes(m)) throw bad(`method must be one of: ${PLAN_METHODS.join(", ")}`);
+    out.method = m ?? null;
+  }
+  if (body.estimatedValue !== undefined || !partial) out.estimatedValue = money(body.estimatedValue ?? 0, "estimatedValue");
+  if (body.department !== undefined || !partial) out.department = str(body.department) ?? plan.department ?? null;
+  if (body.businessUnit !== undefined || !partial) out.businessUnit = str(body.businessUnit) ?? plan.businessUnit ?? null;
+  if (body.budgetCode !== undefined || !partial) out.budgetCode = str(body.budgetCode)?.slice(0, 64) ?? null;
+  if (body.costCentre !== undefined || !partial) out.costCentre = str(body.costCentre)?.slice(0, 128) ?? null;
+  if (body.plannedStartDate !== undefined || !partial) out.plannedStartDate = date(body.plannedStartDate, "plannedStartDate");
+  if (body.requiredDeliveryDate !== undefined || !partial) out.requiredDeliveryDate = date(body.requiredDeliveryDate, "requiredDeliveryDate");
+  if (body.currencyCode !== undefined || !partial) out.currencyCode = (str(body.currencyCode) ?? plan.currencyCode ?? null)?.toUpperCase() ?? null;
+  if (body.responsibleOfficerId !== undefined || !partial) {
+    const id = str(body.responsibleOfficerId);
+    if (id) {
+      const u = await prisma.user.findUnique({ where: { id }, select: { id: true } });
+      if (!u) throw bad("The responsible officer was not found");
+    }
+    out.responsibleOfficerId = id ?? null;
+  }
+  return out;
+}
 
 async function planOrThrow(id: string) {
   const plan = await prisma.procurementPlan.findUnique({ where: { id }, include: { items: { orderBy: { createdAt: "asc" } } } });
@@ -345,7 +359,7 @@ export const ProcurementPlans = {
       include: { items: { orderBy: { createdAt: "asc" } } },
       take: 200,
     });
-    return rows.map(planOut);
+    return plansView(rows);
   },
 
   async create(body: any, userId: string) {
@@ -359,6 +373,7 @@ export const ProcurementPlans = {
             planNumber,
             name: name.slice(0, 255),
             department: str(body.department) ?? null,
+            businessUnit: str(body.businessUnit) ?? null,
             fiscalYear: fiscalYear.slice(0, 16),
             budget: money(body.budget ?? 0, "budget"),
             currencyCode: str(body.currencyCode) ?? null,
@@ -375,7 +390,7 @@ export const ProcurementPlans = {
       Number(fiscalYear.match(/(\d{4})/)?.[1]) || undefined
     );
     await audit(userId, "CREATE", "ProcurementPlan", plan.id, { planNumber: plan.planNumber, name: plan.name });
-    return planOut(plan);
+    return planView(plan);
   },
 
   async update(id: string, body: any, userId: string) {
@@ -388,34 +403,24 @@ export const ProcurementPlans = {
       data.name = n.slice(0, 255);
     }
     if (body.department !== undefined) data.department = str(body.department) ?? null;
+    if (body.businessUnit !== undefined) data.businessUnit = str(body.businessUnit) ?? null;
+    if (body.currencyCode !== undefined) data.currencyCode = str(body.currencyCode)?.toUpperCase() ?? null;
     if (body.fiscalYear !== undefined) data.fiscalYear = (str(body.fiscalYear) ?? plan.fiscalYear).slice(0, 16);
     if (body.budget !== undefined) data.budget = money(body.budget, "budget");
     if (body.notes !== undefined) data.notes = str(body.notes) ?? null;
     await prisma.procurementPlan.update({ where: { id }, data });
-    await audit(userId, "UPDATE", "ProcurementPlan", id, data);
-    return planOut(await planOrThrow(id));
+    await audit(userId, "UPDATE", "ProcurementPlan", id, data, previous(plan, data));
+    return planView(await planOrThrow(id));
   },
 
   async addItem(id: string, body: any, userId: string) {
     const plan = await planOrThrow(id);
     if (!EDITABLE_PLAN.includes(plan.status)) throw conflict(`${plan.planNumber} is ${plan.status}; lines are added to a draft or rejected plan`);
-    const description = str(body.description);
-    if (!description) throw bad("A line description is required");
-    const quarter = str(body.quarter);
-    if (quarter && !/^Q[1-4]$/i.test(quarter)) throw bad("quarter must be Q1, Q2, Q3 or Q4");
-    await prisma.procurementPlanItem.create({
-      data: {
-        planId: id,
-        description: description.slice(0, 255),
-        category: str(body.category) ?? null,
-        quarter: quarter ? quarter.toUpperCase() : null,
-        method: str(body.method) ?? null,
-        estimatedValue: money(body.estimatedValue ?? 0, "estimatedValue"),
-        department: str(body.department) ?? plan.department ?? null,
-      },
-    });
-    await audit(userId, "UPDATE", "ProcurementPlan", id, { addedLine: description });
-    return planOut(await planOrThrow(id));
+    const data = await lineFields(body, plan, false);
+    assertDates(data);
+    await prisma.procurementPlanItem.create({ data: { planId: id, ...data } });
+    await audit(userId, "UPDATE", "ProcurementPlan", id, { addedLine: data.description });
+    return planView(await planOrThrow(id));
   },
 
   async updateItem(id: string, itemId: string, body: any, userId: string) {
@@ -423,24 +428,14 @@ export const ProcurementPlans = {
     if (!EDITABLE_PLAN.includes(plan.status)) throw conflict(`${plan.planNumber} is ${plan.status}; lines are edited on a draft or rejected plan`);
     const item = plan.items.find((i) => i.id === itemId);
     if (!item) throw notFound("Plan line");
-    const data: any = {};
-    if (body.description !== undefined) {
-      const d = str(body.description);
-      if (!d) throw bad("A line description is required");
-      data.description = d.slice(0, 255);
-    }
-    if (body.category !== undefined) data.category = str(body.category) ?? null;
-    if (body.quarter !== undefined) {
-      const quarter = str(body.quarter);
-      if (quarter && !/^Q[1-4]$/i.test(quarter)) throw bad("quarter must be Q1, Q2, Q3 or Q4");
-      data.quarter = quarter ? quarter.toUpperCase() : null;
-    }
-    if (body.method !== undefined) data.method = str(body.method) ?? null;
-    if (body.estimatedValue !== undefined) data.estimatedValue = money(body.estimatedValue, "estimatedValue");
-    if (body.department !== undefined) data.department = str(body.department) ?? null;
+    const data = await lineFields(body, plan, true);
+    assertDates({
+      plannedStartDate: data.plannedStartDate !== undefined ? data.plannedStartDate : item.plannedStartDate,
+      requiredDeliveryDate: data.requiredDeliveryDate !== undefined ? data.requiredDeliveryDate : item.requiredDeliveryDate,
+    });
     await prisma.procurementPlanItem.update({ where: { id: itemId }, data });
     await audit(userId, "UPDATE", "ProcurementPlan", id, { editedLine: item.description });
-    return planOut(await planOrThrow(id));
+    return planView(await planOrThrow(id));
   },
 
   async removeItem(id: string, itemId: string, userId: string) {
@@ -450,7 +445,7 @@ export const ProcurementPlans = {
     if (!item) throw notFound("Plan line");
     await prisma.procurementPlanItem.delete({ where: { id: itemId } });
     await audit(userId, "UPDATE", "ProcurementPlan", id, { removedLine: item.description });
-    return planOut(await planOrThrow(id));
+    return planView(await planOrThrow(id));
   },
 
   async submit(id: string, userId: string) {
@@ -458,12 +453,28 @@ export const ProcurementPlans = {
     if (!EDITABLE_PLAN.includes(plan.status)) throw conflict(`${plan.planNumber} is ${plan.status} and cannot be submitted`);
     if (!plan.items.length) throw bad("Add at least one plan line before submitting");
     if (!(Number(plan.budget) > 0)) throw bad("Set the plan budget before submitting");
+    // SRD §10: every line is a complete, usable planning record before the plan can be approved and drawn on.
+    const gaps: string[] = [];
+    plan.items.forEach((i, n) => {
+      const miss: string[] = [];
+      if (!(Number(i.estimatedValue) > 0)) miss.push("an estimated value");
+      if (!i.method) miss.push("a procurement method");
+      if (!i.requiredDeliveryDate) miss.push("a required delivery date");
+      if (!i.budgetCode) miss.push("a budget code");
+      if (!i.responsibleOfficerId) miss.push("a responsible officer");
+      if (miss.length) gaps.push(`Line ${n + 1} (${i.description}) needs ${miss.join(", ")}`);
+    });
+    if (gaps.length) throw bad(gaps.slice(0, 5).join("; ") + (gaps.length > 5 ? `; and ${gaps.length - 5} more line(s)` : ""));
+    const lines = plan.items.reduce((s, i) => s + Number(i.estimatedValue || 0), 0);
+    if (lines > Number(plan.budget) + 0.005) {
+      throw bad(`The lines total ${lines.toFixed(2)}, more than the plan budget of ${Number(plan.budget).toFixed(2)}`);
+    }
     await prisma.procurementPlan.update({
       where: { id },
       data: { status: "SUBMITTED", submittedAt: new Date(), rejectionReason: null, ...(plan.status === "REJECTED" ? { version: plan.version + 1 } : {}) },
     });
-    await audit(userId, "SUBMIT", "ProcurementPlan", id, { status: "SUBMITTED" });
-    return planOut(await planOrThrow(id));
+    await audit(userId, "SUBMIT", "ProcurementPlan", id, { status: "SUBMITTED" }, { status: plan.status });
+    return planView(await planOrThrow(id));
   },
 
   async decide(id: string, decision: "APPROVED" | "REJECTED", userId: string, reason?: string) {
@@ -480,7 +491,58 @@ export const ProcurementPlans = {
           ? { status: "APPROVED", approvedById: userId, approvedAt: new Date() }
           : { status: "REJECTED", rejectionReason: r },
     });
-    await audit(userId, decision === "APPROVED" ? "APPROVE" : "REJECT", "ProcurementPlan", id, { status: decision, reason: r ?? null });
-    return planOut(await planOrThrow(id));
+    await audit(userId, decision === "APPROVED" ? "APPROVE" : "REJECT", "ProcurementPlan", id, { status: decision, reason: r ?? null }, { status: plan.status });
+    return planView(await planOrThrow(id));
+  },
+};
+
+/** Plan-line drawing: what each approved line has been consumed by, and the lines a requisition may still draw on. */
+export const ProcurementPlanUse = {
+  async lineConsumption(planItemId: string) {
+    const { ProcurementRequisitionRulesService } = await import("./ProcurementRequisitionRulesService");
+    const c = await ProcurementRequisitionRulesService.planLineConsumption(planItemId);
+    if (!c) throw notFound("Plan line");
+    return {
+      planId: c.item.planId,
+      planNumber: c.item.plan.planNumber,
+      planStatus: c.item.plan.status,
+      description: c.item.description,
+      planned: c.planned,
+      consumed: c.consumed,
+      remaining: c.remaining,
+      requisitions: c.requisitions,
+    };
+  },
+
+  /** Lines of approved plans only, with what is left, optionally narrowed to a department. */
+  async availableLines(filters: { department?: string; q?: string } = {}) {
+    const dept = str(filters.department);
+    const plans = await prisma.procurementPlan.findMany({
+      where: { status: "APPROVED" },
+      include: { items: { orderBy: { createdAt: "asc" } } },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    const views = await plansView(plans);
+    const q = str(filters.q)?.toLowerCase();
+    return views.flatMap((p) =>
+      p.items
+        .filter((i: any) => (!dept || !i.department || i.department === dept) && (!q || `${i.description} ${p.planNumber}`.toLowerCase().includes(q)))
+        .map((i: any) => ({
+          id: i.id,
+          planId: p.id,
+          planNumber: p.planNumber,
+          fiscalYear: p.fiscalYear,
+          requirement: i.description,
+          department: i.department,
+          budgetCode: i.budgetCode,
+          costCentre: i.costCentre,
+          currencyCode: i.currencyCode || p.currencyCode,
+          method: i.method,
+          estimatedValue: i.estimatedValue,
+          consumed: i.consumed,
+          remaining: i.remaining,
+        }))
+    );
   },
 };

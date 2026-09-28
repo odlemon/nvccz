@@ -2,6 +2,7 @@
 import { prisma } from "../utils/database";
 import { Decimal } from "decimal.js";
 import { buildJournalEntryWhereForGlReporting } from "../utils/journalEntryReportingFilter";
+import { baseContext, isBaseReport, toBaseAmounts } from '../utils/baseCurrencyAmounts';
 
 export interface BalanceSheetParams {
   asOfDate: Date;
@@ -208,9 +209,12 @@ export class BalanceSheetService {
       }
 
       // Posted JEs in range; same cashbook / VR / REV rules as cash-flow ending cash (see journalEntryReportingFilter)
+      // in the base currency (or none): every currency at base amounts (FX-01); otherwise that currency only
+      const baseCtx = await baseContext();
+      const baseMode = await isBaseReport(params.currencyId, baseCtx);
       const journalEntryWhere: any = buildJournalEntryWhereForGlReporting(
         { gte: startDate, lte: endDate },
-        params.currencyId
+        baseMode ? undefined : params.currencyId
       );
 
       if (params.currencyId) {
@@ -233,6 +237,7 @@ export class BalanceSheetService {
           chartOfAccountId: true,
           debitAmount: true,
           creditAmount: true,
+          recordedCurrencyId: true,
           journalEntryId: true,
           chartOfAccount: {
             select: {
@@ -250,11 +255,16 @@ export class BalanceSheetService {
               description: true,
               transactionDate: true,
               status: true,
+              usdZwgRateSnapshot: true,
               currencyId: true
             }
           }
         }
       });
+      if (baseMode) {
+        const r = await toBaseAmounts(journalLines as any[], baseCtx);
+        journalLines.length = 0; journalLines.push(...(r.lines as any));
+      }
 
       console.log(`✅ Retrieved ${journalLines.length} journal entry line(s)`);
       
@@ -982,8 +992,16 @@ export class BalanceSheetService {
       const totalLongTermLiabilities = longTermLiabilities.reduce((sum, acc) => sum + acc.balance, 0);
       const totalLiabilities = totalCurrentLiabilities + totalLongTermLiabilities;
 
-      // Calculate Retained Earnings (Net Income from Income Statement)
-      let retainedEarnings = await this.calculateRetainedEarnings(params.asOfDate);
+      // Retained and current earnings: the income-statement accounts' net, from the same journal lines as the rest of
+      // the sheet (same currency, dates and voided-pair rule). It was computed separately — every currency, voided
+      // reversals included — and then forced to balance the sheet, so a real difference could never show.
+      let retainedEarningsDec = new Decimal(0);
+      for (const line of journalLines) {
+        const fs = String(line.chartOfAccount?.financialStatement || "").toLowerCase();
+        if (!fs.includes("income")) continue;
+        retainedEarningsDec = retainedEarningsDec.plus(new Decimal(line.creditAmount)).minus(new Decimal(line.debitAmount));
+      }
+      let retainedEarnings = retainedEarningsDec.toNumber();
 
       const equityAccountTotal = equityAccounts.reduce((sum, acc) => sum + acc.balance, 0);
       let totalEquity = equityAccountTotal + retainedEarnings;
@@ -992,13 +1010,9 @@ export class BalanceSheetService {
       let difference = totalAssets - totalLiabilitiesAndEquity;
       const isBalancedInitial = Math.abs(difference) < 0.01;
 
+      // a difference is reported, never absorbed into retained earnings
       if (!isBalancedInitial) {
-        // Recalculate retained earnings from balance equation to remove rounding drift
-        const adjustedRetainedEarnings = totalAssets - totalLiabilities - equityAccountTotal;
-        retainedEarnings = adjustedRetainedEarnings;
-        totalEquity = equityAccountTotal + retainedEarnings;
-        totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
-        difference = totalAssets - totalLiabilitiesAndEquity;
+        console.warn(`Balance sheet does not balance by ${difference.toFixed(2)} (an account outside the balance sheet and income statement classes, or an unbalanced posting)`);
       }
 
       const isBalanced = Math.abs(difference) < 0.01;

@@ -207,8 +207,42 @@ export class FpaPlanningPmTaskBridge {
     }
   }
 
+  /**
+   * The other direction of the bridge. A Performance task that mirrors an FP&A planning task cannot be completed or
+   * deleted from Performance (that would bypass the FP&A submission and approval workflow and leave the two records
+   * disagreeing); starting it is mirrored into FP&A. Called before any stage change or trash on a Performance task.
+   */
+  static async guardPerformanceChange(taskId: string, change: { nextStage?: string; trash?: boolean }) {
+    const t = await prisma.task.findUnique({ where: { id: taskId }, select: { id: true, category: true, taskMetadata: true } });
+    if (!t || t.category !== FPA_MODEL_PLANNING_PM_CATEGORY) return;
+    const planningTaskId = (t.taskMetadata as any)?.planningTaskId;
+    if (change.trash) {
+      throw new Error("This task mirrors an FP&A planning task. Cancel or reassign the planning task in FP&A instead of deleting it here.");
+    }
+    if (!planningTaskId || !change.nextStage) return;
+    const pt = await prisma.planningTask.findUnique({ where: { id: String(planningTaskId) }, select: { id: true, status: true } });
+    if (!pt) return;
+    const next = String(change.nextStage).toLowerCase();
+    const cur = String(pt.status || "").toUpperCase();
+    if (next === "completed") {
+      throw new Error("This task mirrors an FP&A planning task. Submit the planning slice in FP&A; the task completes here automatically.");
+    }
+    if (next === "in_progress") {
+      if (["PENDING", "RETURNED"].includes(cur)) await prisma.planningTask.update({ where: { id: pt.id }, data: { status: "IN_PROGRESS" } });
+      return;
+    }
+    if (next === "todo" && cur !== "PENDING") {
+      throw new Error("The planning task is already " + cur.toLowerCase().replace("_", " ") + " in FP&A, so this task cannot go back to to-do.");
+    }
+  }
+
   static async syncStatus(planningTaskId: string, status: string) {
     try {
+      // a cancelled planning task is gone from the plan: its Performance mirror is removed, not shown as completed
+      if (["CANCELLED", "CANCELED"].includes(String(status || "").toUpperCase())) {
+        await FpaPlanningPmTaskBridge.trashLinked(planningTaskId);
+        return null;
+      }
       const existingId = await FpaPlanningPmTaskBridge.findLinkedPmTaskId(planningTaskId);
       if (!existingId) return null;
       const stage = mapStage(status);

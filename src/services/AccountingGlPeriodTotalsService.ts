@@ -4,19 +4,27 @@ import { prisma } from "../utils/database";
 
 /** Exclude performance-originated KPI journals from GL native totals (anti double-count). */
 function performanceJournalExcludeFilter() {
-  return {
-    AND: [
-      { NOT: { referenceNumber: { startsWith: "PERF-GOAL-" } } },
-      { NOT: { referenceNumber: { startsWith: "KPI-GOAL-" } } }
-    ]
-  };
+  return [
+    { NOT: { referenceNumber: { startsWith: "PERF-GOAL-" } } },
+    { NOT: { referenceNumber: { startsWith: "KPI-GOAL-" } } }
+  ];
 }
 
+/**
+ * Posted journals as Accounting's own statements count them (Income Statement, Trial Balance, GL detail, Balance Sheet):
+ * POSTED, without `VR-` / `REV-` reversal entries — a void is the original marked VOID plus an audit-only reversal. The
+ * goal sync used to count those reversals too, so a voided journal came off a goal twice and the goal disagreed with the
+ * income statement.
+ */
 function postedJournalWhere(periodStart: Date, periodEnd: Date, excludePerformance: boolean) {
   return {
     status: "POSTED",
     transactionDate: { gte: periodStart, lte: periodEnd },
-    ...(excludePerformance ? performanceJournalExcludeFilter() : {})
+    AND: [
+      { NOT: { referenceNumber: { startsWith: "VR-" } } },
+      { NOT: { referenceNumber: { startsWith: "REV-" } } },
+      ...(excludePerformance ? performanceJournalExcludeFilter() : [])
+    ]
   };
 }
 

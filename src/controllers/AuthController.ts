@@ -1,5 +1,6 @@
 // @ts-nocheck
 
+import { userAvailability } from "../config/userMasterAccess";
 import { Request, Response, NextFunction } from "express";
 import { PrismaClient } from "@prisma/client";
 import jwt from "jsonwebtoken";
@@ -57,10 +58,11 @@ export class AuthController {
       }
 
       const portal = normalizeAuthPortal(portalRaw);
-      const normalizedEmail = email.trim().toLowerCase();
+      let normalizedEmail = email.trim().toLowerCase();
       
-      const user = await prisma.user.findUnique({
-        where: { email: normalizedEmail },
+      // Work email, or the Network/SSO username from the User Master when no "@" is given.
+      const user = await prisma.user.findFirst({
+        where: normalizedEmail.includes("@") ? { email: normalizedEmail } : { ssoUsername: email.trim() },
         select: {
           id: true,
           email: true,
@@ -73,6 +75,8 @@ export class AuthController {
           roleId: true,
           tokenVersion: true,
           status: true,
+          effectiveDate: true,
+          endDate: true,
           role: {
             select: {
               name: true
@@ -97,18 +101,16 @@ export class AuthController {
       }
 
       // Only reveal account-status messages after credentials succeed (avoids probing).
-      const accountStatus = (user.status || "ACTIVE").toUpperCase();
-      if (accountStatus !== "ACTIVE") {
-        const statusMessages: Record<string, string> = {
-          SUSPENDED: "This account is suspended. Contact your administrator.",
-          LOCKED: "This account is locked. Contact your administrator.",
-          DEACTIVATED: "This account has been deactivated. Contact your administrator."
-        };
+      // Status and the effective/end-date validity window (User Master).
+      const availability = userAvailability(user);
+      if (availability.ok === false) {
         return res.status(403).json({
           success: false,
-          message: statusMessages[accountStatus] || "This account is not active. Contact your administrator."
+          code: availability.code,
+          message: availability.message
         });
       }
+      normalizedEmail = String(user.email).trim().toLowerCase();
 
       const roleNameFromDb = user.role?.name ? String(user.role.name).trim() : null;
       const roleCodeEffective =
@@ -120,7 +122,14 @@ export class AuthController {
         return res.status(403).json({ success: false, message: portalCheck.message });
       }
 
-      const requiresMfa = portal === "lp" && (await LpPortalMfaService.userRequiresMfaAtLogin(user.id));
+      // LP: policy + enrollment. Staff/other portals: require MFA when the user has enrolled TOTP (§44–45 path).
+      let requiresMfa = false;
+      if (portal === "lp") {
+        requiresMfa = await LpPortalMfaService.userRequiresMfaAtLogin(user.id);
+      } else {
+        const totp = await prisma.userMfaTotp.findUnique({ where: { userId: user.id } });
+        requiresMfa = Boolean(totp?.enabledAt);
+      }
       if (requiresMfa) {
         const mfaPendingToken = await LpPortalMfaService.createPendingToken(user.id);
         return res.status(200).json({
@@ -138,6 +147,8 @@ export class AuthController {
       }
 
       const token = signUserJwt(user, roleDisplay, roleCodeEffective, portal);
+      // User Master audit: Last Login. Written straight to the column so it does not touch updatedAt/modified-by.
+      await prisma.$executeRaw`UPDATE users SET last_login_at = NOW(3), lastSeen = NOW(3) WHERE id = ${user.id}`;
 
       // Check if user is an applicant (applicants don't have roles - identified by having an application)
       const application = await prisma.application.findFirst({
@@ -201,8 +212,13 @@ export class AuthController {
             userId: user.id,
             email: user.email,
           });
+          // Short-term investment interest is accrued by the scheduled 23:59 run (AccountingJobService), not on sign-in:
+          // a login-driven run booked interest whenever someone happened to sign in, and none on days nobody did.
+          // STI_LOGIN_ACCRUAL=on brings the old behaviour back if the scheduler is switched off.
           void Promise.all([
-            ShortTermInvestmentService.maybeRunDailyAccrualAfterLogin(user.id),
+            String(process.env.STI_LOGIN_ACCRUAL || "").toLowerCase() === "on"
+              ? ShortTermInvestmentService.maybeRunDailyAccrualAfterLogin(user.id)
+              : Promise.resolve(),
             AccountingGoalSyncService.maybeRunAfterLogin(user.id),
           ]);
         });
@@ -614,6 +630,22 @@ export class AuthController {
     }
   }
 
+  /**
+   * Sign-out. Tokens are stateless, so this does not revoke anything; it records that the person ended their session
+   * (SRD §33 Logout), with the IP and device the request came from.
+   */
+  async logout(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id;
+      if (userId) {
+        await AuditService.log({ userId, action: "LOGOUT", entityType: "User", entityId: userId });
+      }
+      res.status(200).json({ success: true, message: "Logged out" });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async mfaVerifyLogin(req: Request, res: Response, next: NextFunction) {
     try {
       const { mfaPendingToken, token } = req.body;
@@ -632,12 +664,9 @@ export class AuthController {
       });
       if (!user) return res.status(401).json({ success: false, message: "Unauthorized" });
 
-      const accountStatus = (user.status || "ACTIVE").toUpperCase();
-      if (accountStatus !== "ACTIVE") {
-        return res.status(403).json({
-          success: false,
-          message: "This account is not active. Contact your administrator.",
-        });
+      const availability = userAvailability(user);
+      if (availability.ok === false) {
+        return res.status(403).json({ success: false, code: availability.code, message: availability.message });
       }
 
       const roleNameFromDb = user.role?.name ? String(user.role.name).trim() : null;
@@ -645,6 +674,7 @@ export class AuthController {
         (user.roleCode && String(user.roleCode).trim()) || roleNameFromDb || null;
       const roleDisplay = roleNameFromDb || roleCodeEffective;
       const jwtToken = signUserJwt(user, roleDisplay, roleCodeEffective, "lp");
+      await prisma.$executeRaw`UPDATE users SET last_login_at = NOW(3), lastSeen = NOW(3) WHERE id = ${user.id}`;
 
       res.json({
         success: true,

@@ -4,6 +4,8 @@ import { StatementOfEquityController } from "../controllers/StatementOfEquityCon
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
 
+// Who may use these routes is decided by the Accounting access guard in front of every accounting router
+// (src/middleware/accountingAccessGuard.ts); the role-name lists that stood here refused the Finance Manager and auditors.
 const router = Router();
 
 /**
@@ -45,7 +47,7 @@ const router = Router();
  *       500:
  *         description: Internal server error
  */
-router.post("/generate", authenticate, authorize(["admin", "accountant"]), StatementOfEquityController.generateStatementOfEquity);
+router.post("/generate", authenticate, StatementOfEquityController.generateStatementOfEquity);
 
 export default router;
 

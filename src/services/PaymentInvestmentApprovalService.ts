@@ -35,6 +35,24 @@ export async function getUsdEquivalent(
   currencyCode: string,
   asOf: Date = new Date()
 ): Promise<number> {
+  const code = String(currencyCode || "USD").trim().toUpperCase();
+  if (code === "USD") return amount;
+  // Accounting's own rate for the day (recorded daily by the rate job): units of the currency per 1 USD, or the inverse
+  // pair. The quarterly-statement helper this used looked up a USD→USD quote for ZiG, found none and returned the ZiG
+  // amount unconverted, so 1,000,000 ZiG (about $37,500) counted as $1,000,000 and was held for CFO approval.
+  const aliases = code === "ZIG" || code === "ZWG" || code === "ZWL" ? ["ZIG", "ZWG", "ZWL"] : [code];
+  const [usd, other] = await Promise.all([
+    prisma.currency.findFirst({ where: { code: "USD" }, select: { id: true } }),
+    prisma.currency.findFirst({ where: { code: { in: aliases } }, select: { id: true } }),
+  ]);
+  if (usd && other) {
+    const direct = await prisma.exchangeRate.findFirst({ where: { fromCurrencyId: usd.id, toCurrencyId: other.id, date: { lte: asOf }, isActive: true }, orderBy: { date: "desc" } });
+    if (direct && Number(direct.rate) > 0) return amount / Number(direct.rate);
+    const inverse = await prisma.exchangeRate.findFirst({ where: { fromCurrencyId: other.id, toCurrencyId: usd.id, date: { lte: asOf }, isActive: true }, orderBy: { date: "desc" } });
+    if (inverse && Number(inverse.rate) > 0) return amount * Number(inverse.rate);
+  }
+  // no recorded rate: the older helper (which leaves the amount unconverted when it has no quote — the cautious side for
+  // an approval threshold)
   return QuarterlyStatementFxService.convert(amount, currencyCode, "USD", asOf);
 }
 

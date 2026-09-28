@@ -4,6 +4,8 @@ import RevenueSourceController from "../controllers/RevenueSourceController";
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
 
+// Who may use these routes is decided by the Accounting access guard in front of every accounting router
+// (src/middleware/accountingAccessGuard.ts); the role-name lists that stood here refused the Finance Manager and auditors.
 const router = Router();
 
 /**
@@ -61,7 +63,7 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post("/", authenticate, authorize(["admin", "accountant"]), RevenueSourceController.createRevenueSource);
+router.post("/", authenticate, RevenueSourceController.createRevenueSource);
 
 /**
  * @swagger
@@ -97,7 +99,7 @@ router.post("/", authenticate, authorize(["admin", "accountant"]), RevenueSource
  *                   items:
  *                     $ref: '#/components/schemas/RevenueSource'
  */
-router.get("/", authenticate, authorize(["admin", "accountant"]), RevenueSourceController.getAllRevenueSources);
+router.get("/", authenticate, RevenueSourceController.getAllRevenueSources);
 
 /**
  * @swagger
@@ -138,7 +140,7 @@ router.get("/", authenticate, authorize(["admin", "accountant"]), RevenueSourceC
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get("/:id", authenticate, authorize(["admin", "accountant"]), RevenueSourceController.getRevenueSourceById);
+router.get("/:id", authenticate, RevenueSourceController.getRevenueSourceById);
 
 /**
  * @swagger
@@ -201,7 +203,7 @@ router.get("/:id", authenticate, authorize(["admin", "accountant"]), RevenueSour
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.put("/:id", authenticate, authorize(["admin", "accountant"]), RevenueSourceController.updateRevenueSource);
+router.put("/:id", authenticate, RevenueSourceController.updateRevenueSource);
 
 /**
  * @swagger
@@ -248,6 +250,6 @@ router.put("/:id", authenticate, authorize(["admin", "accountant"]), RevenueSour
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.delete("/:id", authenticate, authorize(["admin", "accountant"]), RevenueSourceController.deleteRevenueSource);
+router.delete("/:id", authenticate, RevenueSourceController.deleteRevenueSource);
 
 export default router; 

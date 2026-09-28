@@ -183,7 +183,7 @@ export class ShortTermInvestmentController {
         realizedFxGlAccountId: optId(b.realizedFxGlAccountId),
         startDateIso: String(b.startDateIso || b.startDate || ""),
         maturityDateIso: b.maturityDateIso ?? b.maturityDate ?? null,
-        initialApy: b.initialApy ?? b.apy,
+        initialApy: b.initialApyPercent != null && String(b.initialApyPercent).trim() !== "" ? { percent: b.initialApyPercent } : b.initialApy ?? b.apy,
         initialApyEffectiveFromIso: b.initialApyEffectiveFromIso ?? b.effectiveFromIso,
       };
 
@@ -337,7 +337,7 @@ export class ShortTermInvestmentController {
       const row = await ShortTermInvestmentService.appendApyRate({
         instrumentId: id,
         effectiveFromIso: String(b.effectiveFromIso || b.effectiveFrom || ""),
-        apy: b.apy,
+        apy: b.apyPercent != null && String(b.apyPercent).trim() !== "" ? { percent: b.apyPercent } : b.apy,
         userId,
         ipAddress: req.ip,
         userAgent: req.get("user-agent"),
@@ -386,6 +386,7 @@ export class ShortTermInvestmentController {
       const row = await ShortTermInvestmentService.voidInstrument({
         instrumentId: id,
         actorId: userId,
+        reason: req.body?.reason ? String(req.body.reason).slice(0, 500) : null,
       });
       res.json({ success: true, data: row });
     } catch (e: any) {
@@ -426,7 +427,7 @@ export class ShortTermInvestmentController {
         return;
       }
       const { accrualId } = req.params;
-      const row = await ShortTermInvestmentService.approveAccrualJournal(accrualId, userId);
+      const row = await ShortTermInvestmentService.approveAccrualJournal(accrualId, req.user);
       res.json({ success: true, data: row });
     } catch (e: any) {
       res.status(400).json({ success: false, error: e?.message ?? String(e) });
@@ -449,7 +450,7 @@ export class ShortTermInvestmentController {
       }
       const data = await ShortTermInvestmentService.approveAllPendingAccrualJournalsForInstrument(
         instrumentId,
-        userId
+        req.user
       );
       res.json({ success: true, data });
     } catch (e: any) {

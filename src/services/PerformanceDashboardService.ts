@@ -871,7 +871,7 @@ export class PerformanceDashboardService {
   ): Promise<PerformanceDashboardData["budgetTracker"]> {
     try {
       const [glAccounts, payrollSliceRaw, budget] = await Promise.all([
-        getPostedPeriodExpenseByAccount(windowStart, windowEnd),
+        getPostedPeriodExpenseByAccount(windowStart, windowEnd, { excludePerformanceJournals: true }),
         getPayrollExpenseBudgetSliceForPeriod(windowStart, windowEnd),
         this.getAccountingBudgetForPeriod(windowStart, windowEnd),
       ]);

@@ -15,6 +15,27 @@ function accountOrIbanChanged(
 }
 
 export class VendorBankService {
+  /** Last four digits only, for narratives and logs. */
+  static maskAccount(n: string | null | undefined) {
+    const s = String(n || "");
+    return s.length <= 4 ? "****" : `****${s.slice(-4)}`;
+  }
+
+  /**
+   * The account a bank payment goes to: the vendor's active primary bank, in the payment currency when one is held.
+   * A vendor with no usable bank account cannot be paid by bank (409), rather than paid to nowhere.
+   */
+  static async requirePayee(vendorId: string, currencyCode?: string | null) {
+    const banks = await prisma.vendorBank.findMany({ where: { vendorId, isActive: true }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] });
+    const inCurrency = currencyCode ? banks.find((b) => String(b.currencyCode).toUpperCase() === String(currencyCode).toUpperCase()) : null;
+    const chosen = inCurrency || banks.find((b) => b.isPrimary) || banks[0];
+    if (!chosen) {
+      const { VendorPolicyError } = await import("../config/vendorStatus");
+      throw new VendorPolicyError("VENDOR_BANK_MISSING", "This vendor has no active bank account on record, so it cannot be paid by bank. Add the vendor's banking details first.", 409);
+    }
+    return chosen;
+  }
+
   static async listByVendor(vendorId: string) {
     return prisma.vendorBank.findMany({
       where: { vendorId, isActive: true },

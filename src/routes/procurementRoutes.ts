@@ -1,15 +1,23 @@
 // @ts-nocheck
+import { normalizeAccessProfile } from "../config/userMasterAccess";
+import { vendorPortalReadLimiter, vendorPortalWriteLimiter } from "../middleware/vendorPortalRateLimit";
 import express from "express";
 import { ProcurementController } from "../controllers/ProcurementController";
 import { ProcurementAccessController } from "../controllers/ProcurementAccessController";
 import { ProcurementApprovalMatrixController } from "../controllers/ProcurementApprovalMatrixController";
+import { ProcurementRequisitionFlowController as Flow } from "../controllers/ProcurementRequisitionFlowController";
+import { SourcingController as Src } from "../controllers/SourcingController";
+import { P2pController as P2p } from "../controllers/P2pController";
 import { ProcurementAuditController } from "../controllers/ProcurementAuditController";
+import { ProcurementInsightsController as Insights } from "../controllers/ProcurementInsightsController";
 import procurementRegistersRoutes from "./procurementRegistersRoutes";
 import { authenticate } from "../middleware/authenticate";
 import { requireAnyPermission, requireInternalStaffUser } from "../middleware/permissionAuth";
 import { PROCUREMENT_PERMISSIONS as PROC_PERMS } from "../config/procurementPermissions";
 import multer from "multer";
 
+const quotationCaptureUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 20 } });
+const requisitionUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 10 } });
 const router = express.Router();
 
 // Configure multer for proof of payment file uploads (PDF or images)
@@ -80,6 +88,7 @@ const uploadPublicVendorInvoicePdf = multer({
  */
 router.post(
   "/invoices/upload-document",
+  vendorPortalWriteLimiter,
   // A refused file type or an oversized file is the uploader's mistake, said as a 400; it reached Express's default
   // handler and answered 500.
   (req, res, next) =>
@@ -179,15 +188,24 @@ const staffCaptureWhenAuthenticated = (req, res, next) => {
     ),
   );
 };
-router.post("/invoices", staffCaptureWhenAuthenticated, ProcurementController.createProcurementInvoice);
+router.post("/invoices", vendorPortalWriteLimiter, staffCaptureWhenAuthenticated, ProcurementController.createProcurementInvoice);
 
 // PUBLIC, token-scoped: the PO behind a vendor's emailed invoice link, so the vendor invoice form
 // can show the order and prefill its lines. `?token=` is the signed PO_VENDOR_INVOICE token.
-router.get("/vendor-portal/purchase-order", ProcurementController.getVendorPortalPurchaseOrder);
+router.get("/vendor-portal/purchase-order", vendorPortalReadLimiter, ProcurementController.getVendorPortalPurchaseOrder);
 
 // PUBLIC, token-scoped: the RFQ behind a vendor's emailed quotation link, so the quotation form can show what is
 // being bought and prefill the lines and the vendor's own details. `?token=` is the signed RFQ_SUBMIT token.
-router.get("/vendor-portal/rfq", ProcurementController.getVendorPortalRfq);
+router.get("/vendor-portal/rfq", vendorPortalReadLimiter, ProcurementController.getVendorPortalRfq);
+
+// PUBLIC, token-scoped clarifications: a supplier sees only what was sent to every invitee or to them, plus their own
+// questions (never another supplier's), and can ask a question while the event is open.
+router.get("/vendor-portal/clarifications", vendorPortalReadLimiter, ProcurementController.getVendorPortalClarifications);
+router.post("/vendor-portal/clarifications", vendorPortalWriteLimiter, ProcurementController.postVendorPortalClarification);
+
+// PUBLIC: Suite 04.3 — scan the PO PDF QR (or open the email verification link) without a staff session.
+// Must sit above `authenticate` or phone scans get 401. Token is `po_pdf_verification_token`.
+router.get("/purchase-orders/verify", ProcurementController.verifyPurchaseOrderToken);
 
 // All routes below require authentication
 router.use(authenticate);
@@ -196,9 +214,42 @@ router.use(authenticate);
 // create internal requisitions. Vendors never reach these: their flows use signed
 // vendorPortalToken links on the public routes declared above this line.
 router.use(requireInternalStaffUser());
+// User Master access profile: a READ_ONLY person can look at procurement but every write is refused, including the
+// requisition and approval routes that carry no permission of their own.
+router.use((req: any, res: any, next: any) => {
+  const isRead = req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS";
+  if (!isRead && normalizeAccessProfile(req.user?.accessProfile) === "READ_ONLY") {
+    return res.status(403).json({
+      success: false,
+      code: "ACCESS_PROFILE_READ_ONLY",
+      message: "Your access profile is read-only in Procurement.",
+    });
+  }
+  next();
+});
 
 // The caller's effective procurement grants, which the V23 workspace gates its controls on.
 router.get("/me/access", ProcurementAccessController.getMyAccess);
+
+// Bank payment file from vendors' own banking details (declared before any "/invoices/:id" route).
+router.get("/invoices/payment-file", requireAnyPermission([PROC_PERMS.invoicesPay]), ProcurementController.exportPaymentBankFile);
+
+const { ProcurementNtsRemainingController } = require("../controllers/ProcurementNtsRemainingController");
+router.get("/settings", requireAnyPermission([PROC_PERMS.auditView, PROC_PERMS.rfqView]), ProcurementNtsRemainingController.getSettings);
+router.put("/settings", requireAnyPermission([PROC_PERMS.auditView]), ProcurementNtsRemainingController.putSettings);
+router.post(
+  "/compliance-reminders/run",
+  requireAnyPermission([PROC_PERMS.vendorsManage, PROC_PERMS.vendorsApprove]),
+  ProcurementNtsRemainingController.runComplianceReminders
+);
+router.get("/rpa-jobs", requireAnyPermission([PROC_PERMS.auditView]), ProcurementNtsRemainingController.listRpaJobs);
+router.post("/rpa-jobs", requireAnyPermission([PROC_PERMS.auditView]), ProcurementNtsRemainingController.enqueueRpaJob);
+router.get("/ai-usage", requireAnyPermission([PROC_PERMS.auditView]), ProcurementNtsRemainingController.aiUsageSummary);
+// Retired: a procurement officer typing committee members' declarations for them proved nothing. Each member declares for
+// themselves from the configured wording (POST /rfqs/:id/evaluation/declaration).
+router.post("/rfqs/:id/conflict-declarations", Src.gone("Declarations are made by each committee member: POST /procurement/rfqs/:id/evaluation/declaration."));
+router.get("/authz/dept-isolation-probe", ProcurementNtsRemainingController.deptIsolationProbe);
+router.get("/consolidation-fx", requireAnyPermission([PROC_PERMS.ordersView, PROC_PERMS.rfqView]), ProcurementNtsRemainingController.consolidationFx);
 
 // The requisition approval matrix: who decides a requisition, step by step. Staff read it; an administrator or the
 // CFO changes it (the service refuses anyone else).
@@ -214,6 +265,41 @@ router.get("/currencies", requireAnyPermission([PROC_PERMS.rfqManage, PROC_PERMS
 
 // The procurement audit trail, newest first, from the audit_logs rows the services write.
 router.get("/audit-events", requireAnyPermission([PROC_PERMS.auditView]), ProcurementAuditController.listEvents);
+router.get("/audit-events/facets", requireAnyPermission([PROC_PERMS.auditView]), ProcurementAuditController.facets);
+router.get("/audit-events/export", requireAnyPermission([PROC_PERMS.auditView]), ProcurementAuditController.exportCsv);
+router.get("/audit-events/:id", requireAnyPermission([PROC_PERMS.auditView]), ProcurementAuditController.getEvent);
+
+// SRD §34-§40: notification rules and log, numbering formats, currency and exchange rates, reports and their exports, dashboards, statuses.
+const settingsRead = requireAnyPermission([PROC_PERMS.auditView, PROC_PERMS.rfqView, PROC_PERMS.ordersView]);
+const settingsWrite = requireAnyPermission([PROC_PERMS.auditView]);
+router.get("/notification-rules", settingsRead, Insights.getRules);
+router.put("/notification-rules", settingsWrite, Insights.putRules);
+router.get("/notification-log", requireAnyPermission([PROC_PERMS.auditView]), Insights.notificationLog);
+router.post("/notification-jobs/run", settingsWrite, Insights.runJobs);
+router.get("/numbering", settingsRead, Insights.getNumbering);
+router.put("/numbering", settingsWrite, Insights.putNumbering);
+router.get("/fx", settingsRead, Insights.getFx);
+router.put("/fx", settingsWrite, Insights.putFx);
+router.get("/fx/rates", settingsRead, Insights.listRates);
+router.post("/fx/rates", settingsWrite, Insights.saveRate);
+router.delete("/fx/rates/:id", settingsWrite, Insights.deleteRate);
+router.get("/fx/convert", settingsRead, Insights.convertPreview);
+router.get("/reports", requireAnyPermission([PROC_PERMS.reportsView]), Insights.reports);
+router.get("/reports/:key/export", requireAnyPermission([PROC_PERMS.reportsExport]), Insights.exportReport);
+router.get("/reports/:key", requireAnyPermission([PROC_PERMS.reportsView]), Insights.report);
+router.get("/dashboards/me", Insights.myDashboard);
+router.get("/dashboards/procurement", requireAnyPermission([PROC_PERMS.dashboardView]), Insights.dashboard);
+router.get("/dashboards/executive", requireAnyPermission([PROC_PERMS.dashboardExecutive]), Insights.executive);
+router.get("/statuses", Insights.statuses);
+router.put("/requisitions/:id/cancel", Insights.cancelRequisition);
+router.put("/requisitions/:id/close", requireAnyPermission([PROC_PERMS.rfqManage, PROC_PERMS.ordersManage]), Insights.closeRequisition);
+router.post("/rfqs/:id/approve", requireAnyPermission([PROC_PERMS.rfqAward, PROC_PERMS.rfqManage]), Insights.approveRfq);
+router.post("/rfqs/:id/publish", requireAnyPermission([PROC_PERMS.rfqManage]), Insights.publishRfq);
+router.post("/rfqs/:id/close", requireAnyPermission([PROC_PERMS.rfqManage]), Insights.closeRfq);
+router.post("/rfqs/:id/cancel", requireAnyPermission([PROC_PERMS.rfqManage]), Insights.cancelRfq);
+router.put("/purchase-orders/:id/cancel", requireAnyPermission([PROC_PERMS.ordersManage]), Insights.cancelPurchaseOrder);
+router.put("/purchase-orders/:id/close", requireAnyPermission([PROC_PERMS.ordersManage]), Insights.closePurchaseOrder);
+router.get("/status-history", requireAnyPermission([PROC_PERMS.auditView, PROC_PERMS.rfqView, PROC_PERMS.ordersView]), Insights.statusHistory);
 
 // Plans, contracts and the document vault (staff-only by the guards above; each route has its own grant).
 router.use(procurementRegistersRoutes);
@@ -525,6 +611,25 @@ router.put("/requisitions/:id/approve", ProcurementController.approvePurchaseReq
  */
 router.put("/requisitions/:id/reject", ProcurementController.rejectPurchaseRequisition);
 
+// SRD §11/§12: return for amendment, comments, delegation, decision history, position, attachments.
+router.post("/requisitions/context", Flow.context);
+router.put("/requisitions/:id/return", Flow.returnForAmendment);
+router.post("/requisitions/:id/comments", Flow.comment);
+router.post("/requisitions/:id/delegate", Flow.delegate);
+router.get("/requisitions/:id/delegate-candidates", Flow.delegateCandidates);
+router.get("/requisitions/:id/decisions", Flow.decisions);
+router.get("/requisitions/:id/position", Flow.position);
+router.get("/requisitions/:id/attachments", Flow.attachments);
+router.post("/requisitions/:id/attachments", requisitionUpload.array("files", 10), Flow.addAttachment);
+router.delete("/requisitions/:id/attachments/:attachmentId", Flow.removeAttachment);
+// Budget master, requisition policy and the form's vocabulary.
+router.get("/budgets", Flow.budgets);
+router.post("/budgets", Flow.saveBudget);
+router.put("/budgets/:id", Flow.saveBudget);
+router.get("/requisition-options", Flow.options);
+router.get("/requisition-policy", Flow.policy);
+router.put("/requisition-policy", Flow.savePolicy);
+
 /**
  * @swagger
  * /procurement/requisitions/{id}:
@@ -567,10 +672,32 @@ router.put("/requisitions/:id", ProcurementController.updatePurchaseRequisition)
 
 router.post("/purchase-orders", requireAnyPermission([PROC_PERMS.ordersManage]), ProcurementController.createPurchaseOrder);
 router.get("/purchase-orders", requireAnyPermission([PROC_PERMS.ordersView]), ProcurementController.getAllPurchaseOrders);
-/** Must be before /purchase-orders/:id or "verify" is captured as an id (Suite 04 PDF verification). */
-router.get("/purchase-orders/verify", ProcurementController.verifyPurchaseOrderToken);
+/** Public verify is registered above `authenticate` (Suite 04.3). Keep this path free of `:id` traps. */
+// §21 the PO's own approval. The queue and the decision are open to any signed-in approver: the server checks they hold the step.
+router.get("/purchase-orders/approval-queue", P2p.poApprovalQueue);
+router.post("/purchase-orders/:id/submit-for-approval", requireAnyPermission([PROC_PERMS.ordersManage, PROC_PERMS.ordersSend]), P2p.poSubmitForApproval);
+router.post("/purchase-orders/:id/approval/decide", P2p.poDecide);
+router.get("/purchase-orders/:id/approvals", requireAnyPermission([PROC_PERMS.ordersView]), P2p.poApprovals);
+router.get("/p2p/config", P2p.config);
+
+// §29-§31 the optional AI layer. Every route is gated in the service by the organisation's switch, groups, types and limits.
+router.get("/ai/status", P2p.aiStatus);
+router.get("/ai/usage", requireAnyPermission([PROC_PERMS.auditView]), P2p.aiUsage);
+router.get("/ai/extractions", requireAnyPermission([PROC_PERMS.aiUse]), P2p.aiList);
+router.post("/ai/extract", requireAnyPermission([PROC_PERMS.aiUse]), requisitionUpload.single("document"), P2p.aiExtract);
+router.get("/ai/extractions/:id", requireAnyPermission([PROC_PERMS.aiUse]), P2p.aiGet);
+router.get("/ai/extractions/:id/source", requireAnyPermission([PROC_PERMS.aiUse]), P2p.aiSource);
+router.put("/ai/extractions/:id/fields/:key", requireAnyPermission([PROC_PERMS.aiUse]), P2p.aiDecide);
+router.post("/ai/extractions/:id/complete", requireAnyPermission([PROC_PERMS.aiUse]), P2p.aiComplete);
+router.get("/ai/extractions/:id/confirmed", requireAnyPermission([PROC_PERMS.aiUse]), P2p.aiConfirmed);
+router.post("/ai/extractions/:id/discard", requireAnyPermission([PROC_PERMS.aiUse]), P2p.aiDiscard);
 router.get("/purchase-orders/:id", requireAnyPermission([PROC_PERMS.ordersView]), ProcurementController.getPurchaseOrderById);
 router.post("/purchase-orders/:id/send", requireAnyPermission([PROC_PERMS.ordersSend]), ProcurementController.sendPurchaseOrder);
+router.post(
+  "/purchase-orders/:id/amend",
+  requireAnyPermission([PROC_PERMS.ordersManage]),
+  ProcurementController.amendPurchaseOrder
+);
 router.post("/purchase-orders/:id/convert-to-bill", requireAnyPermission([PROC_PERMS.ordersManage, PROC_PERMS.invoicesPay]), ProcurementController.convertPOToBill);
 
 /**
@@ -686,7 +813,22 @@ router.post("/rfq", requireAnyPermission([PROC_PERMS.rfqManage]), ProcurementCon
  *       401:
  *         description: Unauthorized
  */
-router.get("/rfq", requireAnyPermission([PROC_PERMS.rfqView]), ProcurementController.getAllRFQs);
+/**
+ * The event register: procurement staff with the view grant, and evaluation committee members, who hold no procurement role but
+ * must be able to find the events they sit on. The controller narrows a committee member's list to those events.
+ */
+async function rfqListAccess(req: any, res: any, next: any) {
+  try {
+    const { userHasEffectivePermission, isModulePrivilegedUser } = await import("../config/cfoModulePermissions");
+    if (isModulePrivilegedUser(req.user) || userHasEffectivePermission(req.user, PROC_PERMS.rfqView)) return next();
+    const { prisma } = await import("../utils/database");
+    if (req.user?.id && (await prisma.rfqEvaluationMember.count({ where: { userId: req.user.id } })) > 0) return next();
+  } catch {
+    /* fall through to the refusal */
+  }
+  return res.status(403).json({ success: false, message: "Insufficient permissions. Required one of: procurement.rfq.view" });
+}
+router.get("/rfq", rfqListAccess, ProcurementController.getAllRFQs);
 
 /**
  * @swagger
@@ -716,7 +858,7 @@ router.get("/rfq", requireAnyPermission([PROC_PERMS.rfqView]), ProcurementContro
  *       401:
  *         description: Unauthorized
  */
-router.get("/rfqs/:id/comparison-matrix", requireAnyPermission([PROC_PERMS.rfqView]), ProcurementController.getRfqComparisonMatrix);
+router.get("/rfqs/:id/comparison-matrix", Src.comparison);
 
 /**
  * @swagger
@@ -735,7 +877,41 @@ router.get("/rfqs/:id/comparison-matrix", requireAnyPermission([PROC_PERMS.rfqVi
  *         description: Use vendor-quotations accept/reject instead
  */
 router.post("/rfqs/:id/award", ProcurementController.awardRfq);
+router.post("/rfqs/:id/open-bids", Src.open);
+router.put("/rfqs/:id/scoring-config", Src.gone("Evaluation criteria are set with PUT /procurement/rfqs/:id/evaluation/criteria."));
+
+// SRD §15-§20 (sourcing, opening, evaluation, award). Access to submissions is decided server-side in SourcingAccessService.
+router.get("/rfqs/award-queue", Src.awardQueue);
+router.get("/rfqs/:id/sourcing", Src.state);
+router.get("/rfqs/:id/opening", Src.opening);
+router.get("/rfqs/:id/opening/verify", Src.verifyOpening);
+router.post("/rfqs/:id/open", Src.open);
+router.put("/rfqs/:id/fx-rate", Src.setFxRate);
+router.post(
+  "/rfqs/:id/quotations/capture",
+  quotationCaptureUpload.fields([{ name: "documents", maxCount: 10 }, { name: "technicalDocuments", maxCount: 10 }]),
+  Src.capture
+);
+router.get("/rfqs/:id/quotations/:qid/verify", Src.verifyQuotation);
+router.put("/rfqs/:id/evaluation/criteria", Src.setCriteria);
+router.post("/rfqs/:id/evaluation/criteria/default", Src.applyDefaultCriteria);
+router.put("/rfqs/:id/evaluation/committee", Src.setCommittee);
+router.post("/rfqs/:id/evaluation/declaration", Src.declare);
+router.put("/rfqs/:id/evaluation/scores", Src.saveScores);
+router.get("/rfqs/:id/evaluation/my-scorecard", Src.myScorecard);
+router.post("/rfqs/:id/evaluation/scorecard/submit", Src.submitScorecard);
+router.get("/rfqs/:id/evaluation/consolidation", Src.consolidation);
+router.get("/evaluation-declaration-options", Src.declarationOptions);
+router.post("/evaluation-declaration-options", Src.saveDeclarationOption);
+router.put("/evaluation-declaration-options/:id", Src.saveDeclarationOption);
+router.get("/rfqs/:id/recommendation", Src.recommendation);
+router.post("/rfqs/:id/recommendation", Src.prepareRecommendation);
+router.post("/rfqs/:id/recommendation/submit", Src.submitRecommendation);
+router.post("/rfqs/:id/recommendation/decide", Src.decideRecommendation);
 router.patch("/rfqs/:id/closing", requireAnyPermission([PROC_PERMS.rfqManage]), ProcurementController.patchRfqExtend);
+// Formal reopen after the deadline: reason required, audited, recorded in rfq_reopen_events.
+router.post("/rfqs/:id/reopen", requireAnyPermission([PROC_PERMS.rfqManage]), ProcurementController.postRfqReopen);
+router.get("/rfqs/:id/reopen-events", requireAnyPermission([PROC_PERMS.rfqView]), ProcurementController.getRfqReopenEvents);
 /**
  * @swagger
  * /procurement/rfqs/{id}/clarifications:
@@ -897,6 +1073,13 @@ router.put("/invoices/:id/approve", requireAnyPermission([PROC_PERMS.invoicesApp
 
 // Reject an invoice awaiting approval, with a reason; the approver's grant decides both outcomes.
 router.put("/invoices/:id/reject", requireAnyPermission([PROC_PERMS.invoicesApprove]), ProcurementController.rejectProcurementInvoice);
+router.patch(
+  "/invoices/:id/finance-handoff",
+  requireAnyPermission([PROC_PERMS.invoicesApprove, PROC_PERMS.invoicesPay]),
+  ProcurementController.patchInvoiceFinanceHandoff
+);
+router.post("/invoices/:id/finance-handoff", requireAnyPermission([PROC_PERMS.invoicesApprove, PROC_PERMS.invoicesPay]), ProcurementController.patchInvoiceFinanceHandoff);
+router.get("/invoices/:id/finance-handoff", requireAnyPermission([PROC_PERMS.invoicesView]), ProcurementController.getInvoiceFinanceHandoff);
 
 // Re-run the three-way match. It also runs on its own when an invoice is created and when a GRN
 // on the same PO is recorded, approved or rejected; this is for an approver who wants it now.
@@ -1234,6 +1417,7 @@ router.get("/goods-received-notes", requireAnyPermission([PROC_PERMS.receivingVi
  *         description: Not found
  */
 router.get("/goods-received-notes/:id", requireAnyPermission([PROC_PERMS.receivingView]), ProcurementController.getGoodsReceivedNoteById);
+router.post("/goods-received-notes/upload", requireAnyPermission([PROC_PERMS.receivingManage]), requisitionUpload.array("files", 10), P2p.uploadReceiptFiles);
 router.post("/goods-received-notes", requireAnyPermission([PROC_PERMS.receivingManage]), ProcurementController.createGoodsReceivedNote);
 
 /**

@@ -333,6 +333,30 @@ router.get('/reorder-levels', InventoryController.getReorderLevelAlerts); // Ali
  */
 router.get('/dashboard', InventoryController.getInventoryDashboard);
 
+/** The inventory accounts' ledger balances beside the value of the stock that posts to them. */
+router.get('/tie-out', async (_req: any, res: any) => {
+  try { const { InventoryLedgerService } = await import('../services/InventoryLedgerService'); res.json({ success: true, data: await InventoryLedgerService.tieOut() }); }
+  catch (e: any) { res.status(500).json({ success: false, message: e?.message || 'Failed to compare the ledger and stock' }); }
+});
+/** The latest stock movements across items (?itemId= for one), each with its item, who recorded it and its journal. */
+router.get('/movements', async (req: any, res: any) => {
+  try {
+    const { prisma } = await import('../utils/database');
+    const rows = await prisma.stockMovement.findMany({ where: req.query.itemId ? { itemId: String(req.query.itemId) } : {}, orderBy: { createdAt: 'desc' }, take: Math.min(500, Number(req.query.limit) || 200), include: { item: { select: { skuNumber: true, itemName: true, unitOfMeasure: true } }, createdBy: { select: { firstName: true, lastName: true, email: true } } } });
+    const refs = rows.map((m) => `STK-${m.id}`);
+    const jes = await prisma.journalEntry.findMany({ where: { referenceNumber: { in: refs } }, select: { id: true, referenceNumber: true, status: true } });
+    const byRef = new Map(jes.map((j) => [j.referenceNumber, j]));
+    res.json({ success: true, data: rows.map((m) => ({ ...m, journal: byRef.get(`STK-${m.id}`) || null })) });
+  } catch (e: any) { res.status(500).json({ success: false, message: e?.message || 'Failed to list stock movements' }); }
+});
+/** Opening + receipts − issues ± adjustments = closing, per item, for ?from=&to= (tenant days). */
+router.get('/roll-forward', async (req: any, res: any) => {
+  const ok = (d: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
+  if (!ok(req.query.from) || !ok(req.query.to)) { res.status(400).json({ success: false, message: 'Give from and to dates (YYYY-MM-DD).' }); return; }
+  try { const { InventoryLedgerService } = await import('../services/InventoryLedgerService'); res.json({ success: true, data: await InventoryLedgerService.rollForward(String(req.query.from), String(req.query.to)) }); }
+  catch (e: any) { res.status(500).json({ success: false, message: e?.message || 'Failed to build the roll-forward' }); }
+});
+
 /**
  * @swagger
  * /accounting/inventory/sales-invoice:

@@ -5,6 +5,7 @@ import multer from "multer";
 import { authenticate } from "../middleware/authenticate";
 import { methodGuard } from "../middleware/methodGuard"
 import { PerformanceIntegrationController } from "../controllers/PerformanceIntegrationController";
+import { PerformanceIntegrationOverviewService, IntegrationError } from "../services/PerformanceIntegrationOverviewService";
 
 const router = express.Router();
 const READ_KEYS = ["performance.integration.view", "performance.integration.manage"]
@@ -197,6 +198,21 @@ const upload = multer({
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
+const irun = (fn) => async (req: any, res: any) => {
+  try {
+    res.json({ success: true, data: await fn(req) });
+  } catch (e: any) {
+    res.status(e instanceof IntegrationError ? e.statusCode : 500).json({ success: false, message: e?.message || "Error" });
+  }
+};
+router.get("/overview", authenticate, guard, irun(() => PerformanceIntegrationOverviewService.overview()));
+// Performance → Accounting postings: outcomes, retry of failed postings, and the per-goal tie-out with the ledger
+router.get("/gl-postings", authenticate, guard, irun(async () => { const { PerformanceGlPostingService } = await import("../services/PerformanceGlPostingService"); return PerformanceGlPostingService.overview(); }));
+router.post("/gl-postings/retry", authenticate, guard, irun(async (req) => { const { PerformanceGlPostingService } = await import("../services/PerformanceGlPostingService"); return PerformanceGlPostingService.retryFailed({ eventId: req.body?.eventId, goalId: req.body?.goalId, actorId: req.user?.id }); }));
+router.get("/gl-reconciliation", authenticate, guard, irun(async (req) => { const { PerformanceGlPostingService } = await import("../services/PerformanceGlPostingService"); return PerformanceGlPostingService.reconcile(req.query?.goalId ? String(req.query.goalId) : undefined); }));
+router.post("/mappings", authenticate, guard, irun((req) => PerformanceIntegrationOverviewService.saveMapping(req.body || {}, req.user)));
+router.delete("/mappings/:goalId", authenticate, guard, irun((req) => PerformanceIntegrationOverviewService.removeMapping(req.params.goalId, req.user)));
+router.post("/refresh", authenticate, guard, irun((req) => PerformanceIntegrationOverviewService.refreshAll(req.user, req.body && req.body.goalId)));
 router.post("/sync", authenticate, guard, PerformanceIntegrationController.runManualSync);
 
 /**

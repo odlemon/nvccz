@@ -3,6 +3,7 @@ import express from "express";
 import { IndividualGoalToTaskController } from "../controllers/IndividualGoalToTaskController";
 import { authenticate } from "../middleware/authenticate";
 import { methodGuard } from "../middleware/methodGuard"
+import { goalRule, scoped, personInScope, departmentInScope } from "../services/PerformanceScope";
 
 const router = express.Router();
 const READ_KEYS = ["performance.goals.view", "performance.goals.manage"]
@@ -16,6 +17,8 @@ const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 // See design-refs/performance-role-matrix.md §4.1.
 router.use(authenticate);
 router.use(guard);
+const userRule = scoped(async (req, a) => ((await personInScope(a, req.params.userId)) ? null : "That person is outside what your role can see."));
+const deptRule = scoped(async (req, a) => (departmentInScope(a, req.params.departmentName) ? null : "That department is outside what your role can see."));
 
 /**
  * @swagger
@@ -48,7 +51,7 @@ router.use(guard);
  *       500:
  *         description: Internal server error
  */
-router.post("/individual-goals/:individualGoalId/convert-to-tasks", IndividualGoalToTaskController.convertIndividualGoalToTasks);
+router.post("/individual-goals/:individualGoalId/convert-to-tasks", goalRule("individualGoalId", "write"), IndividualGoalToTaskController.convertIndividualGoalToTasks);
 
 /**
  * @swagger
@@ -81,7 +84,7 @@ router.post("/individual-goals/:individualGoalId/convert-to-tasks", IndividualGo
  *       500:
  *         description: Internal server error
  */
-router.post("/users/:userId/convert-goals-to-tasks", IndividualGoalToTaskController.convertUserGoalsToTasks);
+router.post("/users/:userId/convert-goals-to-tasks", userRule, IndividualGoalToTaskController.convertUserGoalsToTasks);
 
 /**
  * @swagger
@@ -115,7 +118,7 @@ router.post("/users/:userId/convert-goals-to-tasks", IndividualGoalToTaskControl
  *       500:
  *         description: Internal server error
  */
-router.post("/departments/:departmentName/convert-goals-to-tasks", IndividualGoalToTaskController.convertDepartmentGoalsToTasks);
+router.post("/departments/:departmentName/convert-goals-to-tasks", deptRule, IndividualGoalToTaskController.convertDepartmentGoalsToTasks);
 
 /**
  * @swagger
@@ -190,7 +193,7 @@ router.post("/departments/:departmentName/convert-goals-to-tasks", IndividualGoa
  *       500:
  *         description: Internal server error
  */
-router.get("/users/:userId/performance-tasks", IndividualGoalToTaskController.getUserPerformanceTasks);
+router.get("/users/:userId/performance-tasks", userRule, IndividualGoalToTaskController.getUserPerformanceTasks);
 
 /**
  * @swagger
@@ -266,6 +269,6 @@ router.get("/users/:userId/performance-tasks", IndividualGoalToTaskController.ge
  *       500:
  *         description: Internal server error
  */
-router.get("/departments/:departmentName/performance-tasks", IndividualGoalToTaskController.getDepartmentPerformanceTasks);
+router.get("/departments/:departmentName/performance-tasks", deptRule, IndividualGoalToTaskController.getDepartmentPerformanceTasks);
 
 export default router;

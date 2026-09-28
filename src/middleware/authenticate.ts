@@ -1,5 +1,6 @@
 // @ts-nocheck
 // src/middleware/authenticate.ts
+import { currentRequestContext } from "../utils/requestContext";
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import {
@@ -7,6 +8,7 @@ import {
   userMatchesAuthorizeRoleList,
 } from "../config/cfoModulePermissions";
 import { prisma } from "../utils/database";
+import { userAvailability } from "../config/userMasterAccess";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_here";
 const DEBUG_AUTH = process.env.DEBUG_AUTH === "1" || process.env.DEBUG_AUTH === "true";
 
@@ -24,6 +26,9 @@ export function createToken(userId: string): string {
 }
 
 export async function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
+  // Already verified earlier in this same request (e.g. by a module access guard in front of the router): the user was
+  // loaded and checked moments ago, so do not load it again.
+  if ((req as any).__authenticated && req.user) return next();
   if (DEBUG_AUTH) {
     console.log(`🔐 Auth check for ${req.method} ${req.path}`);
     console.log(`📋 Headers:`, req.headers.authorization ? "Authorization header present" : "No Authorization header");
@@ -64,11 +69,13 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       return;
     }
 
-    const accountStatus = String((user as any).status || "ACTIVE").toUpperCase();
-    if (accountStatus !== "ACTIVE") {
+    // User Master: status plus the effective/end-date validity window, checked on every request.
+    const availability = userAvailability(user);
+    if (availability.ok === false) {
       res.status(403).json({
         success: false,
-        message: "This account is not active. Contact your administrator."
+        code: availability.code,
+        message: availability.message
       });
       return;
     }
@@ -81,6 +88,10 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     }
     
     req.user = user;
+    Object.defineProperty(req, "__authenticated", { value: true, enumerable: false, configurable: true });
+    // The audit writer reads the actor from here when a caller did not pass one, so no row is written anonymously.
+    const _ctx = currentRequestContext();
+    if (_ctx) _ctx.userId = (user as any)?.id;
     if (DEBUG_AUTH) console.log(`✅ Auth successful for ${req.path}`);
 
     next();

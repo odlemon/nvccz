@@ -39,6 +39,10 @@ export const PROCUREMENT_PERMISSIONS = {
 
   quotationsView: "procurement.quotations.view",
   quotationsManage: "procurement.quotations.manage",
+  /** Capturing a quotation received through an approved alternative channel, on the supplier's behalf. */
+  quotationsCapture: "procurement.quotations.capture",
+  /** Formally opening sealed bids after the closing deadline (§16). */
+  bidsOpen: "procurement.bids.open",
 
   ordersView: "procurement.orders.view",
   ordersManage: "procurement.orders.manage",
@@ -52,6 +56,10 @@ export const PROCUREMENT_PERMISSIONS = {
   invoicesView: "procurement.invoices.view",
   invoicesApprove: "procurement.invoices.approve",
   invoicesPay: "procurement.invoices.pay",
+  /** Using the optional AI layer to read documents (§29). Whether AI is on, and for whom, is an organisation setting on top of this. */
+  aiUse: "procurement.ai.use",
+  /** Approving an invoice over open three-way match exceptions, with a recorded reason (§24). */
+  invoicesOverrideMatch: "procurement.invoices.override_match",
 
   vendorsView: "procurement.vendors.view",
   vendorsManage: "procurement.vendors.manage",
@@ -78,6 +86,12 @@ export const PROCUREMENT_PERMISSIONS = {
   /** Procurement document vault: tender packs, contracts, vendor submissions, evidence. */
   documentsView: "procurement.documents.view",
   documentsManage: "procurement.documents.manage",
+
+  /** The procurement reports (§37) and their PDF / CSV / XLSX exports; exporting is granted separately from reading. */
+  reportsView: "procurement.reports.view",
+  reportsExport: "procurement.reports.export",
+  /** The executive dashboard (§35): organisation-wide spend, concentration and exceptions. */
+  dashboardExecutive: "procurement.dashboard.executive",
 } as const
 
 export type ProcurementPermission =
@@ -106,16 +120,17 @@ export const PROCUREMENT_ROLE_GRANTS: Record<string, string[]> = {
     P.dashboardView,
     P.requisitionsViewAll,
     P.rfqView, P.rfqManage, P.rfqAward,
-    P.quotationsView, P.quotationsManage,
+    P.quotationsView, P.quotationsManage, P.quotationsCapture, P.bidsOpen,
     P.ordersView, P.ordersManage, P.ordersSend,
     P.receivingView, P.receivingManage, P.receivingApprove,
-    P.invoicesView,
+    P.invoicesView, P.aiUse,
     P.vendorsView, P.vendorsManage, P.vendorsApprove, P.vendorBanksView,
     P.intakeView,
     P.auditView,
     P.plansView, P.plansManage,
     P.contractsView, P.contractsManage,
     P.documentsView, P.documentsManage,
+    P.reportsView, P.reportsExport,
   ],
 
   // Runs RFQs and raises and sends POs; cannot award or approve receipts.
@@ -123,22 +138,23 @@ export const PROCUREMENT_ROLE_GRANTS: Record<string, string[]> = {
     P.dashboardView,
     P.requisitionsViewAll,
     P.rfqView, P.rfqManage,
-    P.quotationsView, P.quotationsManage,
+    P.quotationsView, P.quotationsManage, P.quotationsCapture,
     P.ordersView, P.ordersManage, P.ordersSend,
     P.receivingView, P.receivingManage,
-    P.invoicesView,
+    P.invoicesView, P.aiUse,
     P.vendorsView, P.vendorsManage,
     P.intakeView,
     P.plansView, P.plansManage,
     P.contractsView, P.contractsManage,
     P.documentsView, P.documentsManage,
+    P.reportsView,
   ],
 
   Buyer: [
     P.dashboardView,
     P.requisitionsViewAll,
     P.rfqView, P.rfqManage,
-    P.quotationsView, P.quotationsManage,
+    P.quotationsView, P.quotationsManage, P.quotationsCapture,
     P.ordersView,
     P.receivingView, P.receivingManage,
     P.invoicesView,
@@ -168,7 +184,7 @@ export const PROCUREMENT_ROLE_GRANTS: Record<string, string[]> = {
   Accountant: [
     P.dashboardView,
     P.ordersView, P.receivingView,
-    P.invoicesView, P.invoicesPay,
+    P.invoicesView, P.invoicesPay, P.aiUse,
     P.vendorsView, P.vendorBanksView,
     P.intakeView, P.intakeManage,
     P.contractsView,
@@ -177,7 +193,7 @@ export const PROCUREMENT_ROLE_GRANTS: Record<string, string[]> = {
   "Finance Officer": [
     P.dashboardView,
     P.ordersView, P.receivingView,
-    P.invoicesView, P.invoicesPay,
+    P.invoicesView, P.invoicesPay, P.aiUse,
     P.vendorsView, P.vendorBanksView,
     P.intakeView, P.intakeManage,
     P.contractsView,
@@ -185,9 +201,12 @@ export const PROCUREMENT_ROLE_GRANTS: Record<string, string[]> = {
   ],
 
   // Approves invoices and the procurement plan's budget, and owns vendor bank details; does not pay.
-  "Finance Manager": [...ALL_VIEW, P.invoicesApprove, P.vendorsApprove, P.vendorBanksView, P.vendorBanksManage, P.plansApprove],
-  "Chief Financial Officer": [...ALL_VIEW, P.invoicesApprove, P.rfqAward, P.vendorsApprove, P.vendorBanksView, P.plansApprove],
-  CEO: [...ALL_VIEW, P.rfqAward, P.plansApprove],
+  "Finance Manager": [...ALL_VIEW, P.reportsExport, P.aiUse, P.invoicesApprove, P.invoicesOverrideMatch, P.vendorsApprove, P.vendorBanksView, P.vendorBanksManage, P.plansApprove],
+  "Chief Financial Officer": [...ALL_VIEW, P.reportsExport, P.dashboardExecutive, P.aiUse, P.invoicesApprove, P.invoicesOverrideMatch, P.rfqAward, P.vendorsApprove, P.vendorBanksView, P.plansApprove],
+  CEO: [...ALL_VIEW, P.reportsExport, P.dashboardExecutive, P.rfqAward, P.plansApprove],
+  // The board reads the executive picture and the reports; it does not browse registers or the audit trail.
+  "Board Chairman": [P.dashboardView, P.reportsView, P.dashboardExecutive],
+  "Board Member": [P.dashboardView, P.reportsView, P.dashboardExecutive],
 
-  "Internal Auditor": [...ALL_VIEW, P.vendorBanksView],
+  "Internal Auditor": [...ALL_VIEW, P.reportsExport, P.vendorBanksView],
 }

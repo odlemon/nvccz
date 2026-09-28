@@ -9,6 +9,10 @@ import {
   deriveParentStageFromRollup
 } from "./performanceGoalRollupUtils";
 import { resolveDefaultDepartmentGoalAssigneeId } from "./performanceGoalDefaultAssignee";
+import { canBypassPerformanceDepartmentGate } from "./PerformanceReviewService";
+import { userHasEffectivePermission } from "../config/cfoModulePermissions";
+import { isPerfAdmin, perfActor, registerWhere } from "./PerformanceScope";
+import { TimesheetService } from "./TimesheetService";
 
 export class PerformanceWorkflowService {
   /**
@@ -427,5 +431,137 @@ export class PerformanceWorkflowService {
       console.error('❌ Performance Workflow Automation failed:', error);
       throw error;
     }
+  }
+
+  /**
+   * The approval inbox: every item across Performance that is waiting on the signed-in person and that
+   * they are actually allowed to act on — the same permission and maker-checker rules the action's own
+   * route applies, so nothing is listed that would then be refused. Self-scoped: no resource permission
+   * gates the read (like `/tasks/my`), because what is listed is filtered to the caller.
+   *
+   * Each item says where it is acted on (`page`, optional `tab`), so the inbox opens the right place.
+   */
+  static async pendingForMe(actor: any) {
+    const me = await prisma.user.findUnique({ where: { id: actor.id }, include: { role: true, department: true, employee: true } });
+    if (!me) return { total: 0, items: [] };
+    const can = (...keys: string[]) => keys.some((k) => userHasEffectivePermission(actor, k));
+    const admin = isPerfAdmin(me);
+    const nameOf = (u: any) => (u ? [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email : "");
+    const items: Array<{ kind: string; id: string; title: string; detail: string; since: Date | null; page: string; tab?: string }> = [];
+    const USER = { select: { firstName: true, lastName: true, email: true } } as const;
+
+    const tasks: Array<Promise<void>> = [];
+
+    // Timesheets submitted by someone in the approver's department (as TimesheetService.listForManager scopes a team); never one's own.
+    if (can("accounting.timesheets.manage")) {
+      tasks.push((async () => {
+        // timesheets the approve route would accept from this person (TimesheetService.approverReach), narrowed to their own
+        // department when they have one: an organisation-wide approver may act on anyone's, but their inbox is their team's
+        const pending = await TimesheetService.listPendingApproval(me.id);
+        const dept = me.department?.name || me.userDepartment || null;
+        const team = await prisma.user.findMany({ where: { OR: [...(me.departmentId ? [{ departmentId: me.departmentId }] : []), ...(dept ? [{ userDepartment: dept }] : [])] }, select: { id: true } });
+        const teamIds = new Set(team.map((u) => u.id));
+        for (const t of pending.filter((x) => !dept || teamIds.has(x.userId))) {
+          items.push({ kind: "timesheet", id: t.id, title: `Timesheet from ${nameOf(t.user)}`, detail: `Week ending ${t.weekEnding.toISOString().slice(0, 10)}`, since: t.submittedAt, page: "timesheets", tab: "audit" });
+        }
+      })());
+    }
+
+    // Reviews: the reviewee's self-assessment, the reviewer's manager review, and finalizing a complete review.
+    tasks.push((async () => {
+      const bypass = canBypassPerformanceDepartmentGate(me);
+      const rows = await prisma.performanceReview.findMany({
+        where: { isLocked: false, OR: [{ revieweeId: me.id }, { reviewerId: me.id }, ...(bypass ? [{ stage: "FINAL_REVIEW" }] : [])] },
+        include: { reviewee: USER }
+      });
+      for (const r of rows) {
+        const stage = String(r.stage || "").toUpperCase();
+        if (r.revieweeId === me.id && ["SELF_REVIEW", "SELF_ASSESSMENT"].includes(stage)) {
+          items.push({ kind: "review", id: r.id, title: `Your self-assessment: ${r.title}`, detail: "Write and submit your self-assessment", since: r.updatedAt, page: "reviews", tab: "mine" });
+        } else if (r.reviewerId === me.id && r.revieweeId !== me.id && stage === "MANAGER_REVIEW") {
+          items.push({ kind: "review", id: r.id, title: `Review ${nameOf(r.reviewee)}: ${r.title}`, detail: "Manager feedback and rating", since: r.updatedAt, page: "reviews", tab: "team" });
+        } else if (r.revieweeId !== me.id && (r.reviewerId === me.id || bypass) && String(r.selfFeedback || "").trim() && String(r.managerFeedback || "").trim() && (r.ratingValue != null || r.overallScore != null)) {
+          items.push({ kind: "review", id: r.id, title: `Finalize ${nameOf(r.reviewee)}: ${r.title}`, detail: "Complete — ready to finalize", since: r.updatedAt, page: "reviews", tab: "team" });
+        }
+      }
+    })());
+
+    // Contracts that name this person as a signatory, are signable (objectives weighted to 100%), and lack their signature on the current version.
+    tasks.push((async () => {
+      const contracts = await prisma.performanceContract.findMany({
+        where: { status: { notIn: ["ARCHIVED", "CANCELLED", "CLOSED"] }, OR: [{ subjectUserId: me.id }, { reviewerUserId: me.id }, { approverUserId: me.id }] },
+        include: { goals: { select: { scorecardWeight: true } } }
+      });
+      if (!contracts.length) return;
+      const sigs = await prisma.performanceContractSignature.findMany({ where: { contractId: { in: contracts.map((c) => c.id) }, userId: me.id } });
+      for (const c of contracts) {
+        const sum = c.goals.reduce((a, g) => a + Number(g.scorecardWeight || 0), 0);
+        const pct = Math.round((sum <= 1.0001 ? sum * 100 : sum) * 100) / 100;
+        if (!c.goals.length || Math.abs(pct - 100) > 0.01) continue;
+        const roles = [c.subjectUserId === me.id && "employee", c.reviewerUserId === me.id && "reviewer", c.approverUserId === me.id && "approver"].filter(Boolean);
+        const unsigned = roles.filter((role) => !sigs.some((s) => s.contractId === c.id && s.role === role && s.versionNo === c.versionNo));
+        if (unsigned.length) items.push({ kind: "contract", id: c.id, title: c.title, detail: `Your signature as ${unsigned.join(" and ")}`, since: c.updatedAt, page: "contracts" });
+      }
+    })());
+
+    // KPI definitions submitted for approval — not by someone who created or owns them (administrators excepted).
+    if (can("performance.kpi.manage")) {
+      tasks.push((async () => {
+        const where: any = { approvalStatus: "pending_approval" };
+        if (!admin) where.AND = [{ createdById: { not: me.id } }, { OR: [{ ownerId: null }, { ownerId: { not: me.id } }] }];
+        for (const k of await prisma.kPI.findMany({ where, select: { id: true, code: true, name: true, updatedAt: true } })) {
+          items.push({ kind: "kpi", id: k.id, title: `KPI ${k.code || ""} ${k.name}`.replace(/\s+/g, " ").trim(), detail: "Definition awaiting approval", since: k.updatedAt, page: "kpiManagement" });
+        }
+      })());
+    }
+
+    // Vault documents in review — not the uploader's or owner's own (administrators excepted).
+    if (can("performance.documents.manage")) {
+      tasks.push((async () => {
+        const where: any = { status: "in_review" };
+        if (!admin) where.AND = [{ OR: [{ uploadedById: null }, { uploadedById: { not: me.id } }] }, { OR: [{ ownerId: null }, { ownerId: { not: me.id } }] }];
+        // only documents the approver can see (a department manager approves their own department's documents)
+        const scope = registerWhere(await perfActor(actor), ["ownerId", "uploadedById"]);
+        if (scope.OR) where.AND = [...(where.AND || []), scope];
+        for (const d of await prisma.performanceDocument.findMany({ where, select: { id: true, name: true, folder: true, updatedAt: true } })) {
+          items.push({ kind: "document", id: d.id, title: d.name, detail: `Document in review · ${d.folder}`, since: d.updatedAt, page: "vault" });
+        }
+      })());
+    }
+
+    // BSC weight proposals — not one's own (administrators excepted). Decided by BSC governance, as the proposal's own route requires.
+    if (can("performance.bsc.manage")) {
+      tasks.push((async () => {
+        const where: any = { status: "pending" };
+        if (!admin) where.proposedById = { not: me.id };
+        for (const p of await prisma.performancePillarProposal.findMany({ where })) {
+          items.push({ kind: "pillar", id: p.id, title: "BSC weight change", detail: String(p.reason || "").slice(0, 140), since: p.createdAt, page: "bscPillars" });
+        }
+      })());
+    }
+
+    // Strategy decisions proposed by someone else (administrators excepted).
+    if (can("performance.config.manage")) {
+      tasks.push((async () => {
+        const where: any = { status: "proposed" };
+        if (!admin) where.OR = [{ proposedById: null }, { proposedById: { not: me.id } }];
+        for (const d of await prisma.performanceStrategyDecision.findMany({ where })) {
+          items.push({ kind: "decision", id: d.id, title: d.title, detail: "Strategy decision awaiting approval", since: d.createdAt, page: "strategy", tab: "reviews" });
+        }
+      })());
+    }
+
+    // Values fed by a source system and held for approval before they count.
+    if (can("performance.integration.manage")) {
+      tasks.push((async () => {
+        for (const g of await prisma.performanceGoal.findMany({ where: { isPendingApproval: true }, select: { id: true, title: true, updatedAt: true } })) {
+          items.push({ kind: "integration", id: g.id, title: g.title, detail: "Synced value awaiting approval", since: g.updatedAt, page: "integrations" });
+        }
+      })());
+    }
+
+    await Promise.all(tasks);
+    items.sort((a, b) => +new Date(a.since || 0) - +new Date(b.since || 0));
+    return { total: items.length, items };
   }
 }

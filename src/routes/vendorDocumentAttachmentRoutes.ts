@@ -1,5 +1,6 @@
 // @ts-nocheck
 import express from "express";
+import { vendorPortalReadLimiter, vendorPortalWriteLimiter } from "../middleware/vendorPortalRateLimit";
 import multer from "multer";
 import { authenticate } from "../middleware/authenticate";
 import { VendorDocumentAttachmentController } from "../controllers/VendorDocumentAttachmentController";
@@ -27,10 +28,11 @@ router.put("/settings", authenticate, VendorDocumentAttachmentController.updateS
 
 router.post(
   "/portal/upload",
+  vendorPortalWriteLimiter,
   uploadDocument.single("document"),
   VendorDocumentAttachmentController.portalUpload
 );
-router.get("/portal/:attachmentId/download", VendorDocumentAttachmentController.portalDownload);
+router.get("/portal/:attachmentId/download", vendorPortalReadLimiter, VendorDocumentAttachmentController.portalDownload);
 
 router.post(
   "/quotations/:quotationId/attachments",

@@ -79,7 +79,8 @@ export class InvoiceController {
         description: finalDescription,
         items,
         isTaxable: Boolean(isTaxable),
-        createdById
+        createdById,
+        dueDate: dueDate ? parseDate(dueDate) : null,
       };
 
       const invoice = await InvoiceService.createInvoice(invoiceParams);
@@ -267,12 +268,16 @@ export class InvoiceController {
         return;
       }
 
-      const invoice = await InvoiceService.sendInvoice(id);
+      const actingUser = (req as any).user;
+      const invoice = await InvoiceService.sendInvoice(id, {
+        user: actingUser,
+        performedById: actingUser?.id,
+      });
 
       logger.info("Invoice sent successfully", {
         invoiceId: invoice.id,
         status: invoice.status,
-        userId: (req as any).user?.id
+        userId: actingUser?.id
       });
 
       ResponseHelper.success(res, "Invoice sent successfully", invoice);
@@ -342,7 +347,7 @@ export class InvoiceController {
         return;
       }
 
-      const invoice = await InvoiceService.voidInvoice(id, reason);
+      const invoice = await InvoiceService.voidInvoice(id, reason, req.user?.id);
 
       logger.info("Invoice voided successfully", {
         invoiceId: invoice.id,

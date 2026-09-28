@@ -1,7 +1,5 @@
 import { prisma } from "../utils/database";
-import { Decimal } from "@prisma/client/runtime/library";
 import { DataIntegrationService } from "./DataIntegrationService";
-import { computeKpiLineProgressPercent } from "./performanceGoalRollupUtils";
 
 const AUM_CODE = "AUM_TOTAL";
 
@@ -69,21 +67,16 @@ export class AumRealtimeSyncService {
     });
 
     if (goalRows.length) {
-      const dec = new Decimal(totalStr);
+      const { PerformanceGoalProgressEventService } = await import("./PerformanceGoalProgressEventService");
       for (const g of goalRows) {
-        const pct = computeKpiLineProgressPercent(
-          [{ ...g, currentValue: dec, preciseCurrentValue: totalStr }],
-          g.kpi
-        );
+        // value, progress and zone come from the event ledger (recomputed), not a direct overwrite
+        await PerformanceGoalProgressEventService.setValueFromIntegration(g.id, Number(totalStr), `realtime-aum:${now.toISOString()}`, g.createdById);
         await prisma.performanceGoal.update({
           where: { id: g.id },
           data: {
-            currentValue: dec,
-            preciseCurrentValue: totalStr,
             lastSyncedValue: totalStr,
             lastSyncedAt: now,
-            syncEndpointPath: "in-process://realtime-aum",
-            progressPercentage: new Decimal(Math.min(100, Math.max(0, pct)).toFixed(2))
+            ...(g.syncEndpointPath && /\/v1\//.test(String(g.syncEndpointPath)) ? {} : { syncEndpointPath: "in-process://realtime-aum" })
           }
         });
       }

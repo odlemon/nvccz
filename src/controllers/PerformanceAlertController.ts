@@ -1,6 +1,14 @@
 import type { Response } from "express";
 import type { AuthRequest } from "../middleware/authenticate";
 import PerformanceAlertService from "../services/PerformanceAlertService";
+import PerformanceAlertRuleService from "../services/PerformanceAlertRuleService";
+import { perfActor } from "../services/PerformanceScope";
+
+/** The caller's reach over the register (PerformanceScope): none for the organisation scope. */
+async function alertScopeFor(req: any) {
+  const a = await perfActor(req.user);
+  return a.org ? null : { userId: a.id, departmentId: a.scope === "department" ? a.departmentId : null };
+}
 
 /** Service errors carry `statusCode` (400 validation / 404 not found); everything else is a 500. */
 function statusFor(e: unknown): number {
@@ -32,6 +40,7 @@ export default class PerformanceAlertController {
         search: asString(search),
         limit: limit !== undefined ? Number(limit) : undefined,
         offset: offset !== undefined ? Number(offset) : undefined,
+        scope: await alertScopeFor(req),
       });
       res.json({ success: true, data: alerts });
     } catch (e: unknown) {
@@ -40,9 +49,9 @@ export default class PerformanceAlertController {
   }
 
   /** GET /summary — board KPI counts. Declared before GET /:id in the router. */
-  static async getSummary(_req: AuthRequest, res: Response) {
+  static async getSummary(req: AuthRequest, res: Response) {
     try {
-      const summary = await PerformanceAlertService.summary();
+      const summary = await PerformanceAlertService.summary(await alertScopeFor(req));
       res.json({ success: true, data: summary });
     } catch (e: unknown) {
       res.status(statusFor(e)).json({ success: false, message: messageFor(e, "Failed to load alert summary") });
@@ -131,6 +140,7 @@ export default class PerformanceAlertController {
         return;
       }
       const alert = await PerformanceAlertService.acknowledge(req.params.id, userId);
+      await PerformanceAlertRuleService.recordEvent(req.params.id, "acknowledged", req.body?.note ?? null, userId);
       res.json({ success: true, message: "Alert acknowledged", data: alert });
     } catch (e: unknown) {
       res.status(statusFor(e)).json({ success: false, message: messageFor(e, "Failed to acknowledge alert") });
@@ -140,7 +150,13 @@ export default class PerformanceAlertController {
   /** POST /:id/escalate */
   static async escalateAlert(req: AuthRequest, res: Response) {
     try {
+      const note = String(req.body?.note ?? "").trim();
+      if (!note) {
+        res.status(400).json({ success: false, message: "Say why the alert is being escalated." });
+        return;
+      }
       const alert = await PerformanceAlertService.escalate(req.params.id);
+      await PerformanceAlertRuleService.recordEvent(req.params.id, "escalated", note, req.user?.id ?? null);
       res.json({ success: true, message: "Alert escalated", data: alert });
     } catch (e: unknown) {
       res.status(statusFor(e)).json({ success: false, message: messageFor(e, "Failed to escalate alert") });
@@ -155,7 +171,13 @@ export default class PerformanceAlertController {
         res.status(401).json({ success: false, message: "Unauthorized" });
         return;
       }
+      const note = String(req.body?.note ?? "").trim();
+      if (!note) {
+        res.status(400).json({ success: false, message: "Say how the alert was resolved." });
+        return;
+      }
       const alert = await PerformanceAlertService.resolve(req.params.id, userId);
+      await PerformanceAlertRuleService.recordEvent(req.params.id, "resolved", note, userId);
       res.json({ success: true, message: "Alert resolved", data: alert });
     } catch (e: unknown) {
       res.status(statusFor(e)).json({ success: false, message: messageFor(e, "Failed to resolve alert") });

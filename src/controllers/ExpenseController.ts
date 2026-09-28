@@ -83,8 +83,10 @@ export class ExpenseController {
         receiptNumber,
         isTaxable: Boolean(isTaxable),
         paymentMethod,
-        createdById: req.user!.id
-      };
+        createdById: req.user!.id,
+        // paid from this bank account (its ledger account is credited, and the payment is a cashbook line)
+        ...(req.body?.bankId ? { bankId: String(req.body.bankId) } : {}),
+      } as any;
 
       const expense = await ExpenseService.createExpense(expenseParams);
 

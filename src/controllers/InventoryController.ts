@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { InventoryService } from '../services/InventoryService';
 import { PrismaClient } from '@prisma/client';
 import { isNegativeStockConfirmationRequiredError } from '../errors/InventoryErrors';
+import { userHasEffectivePermission } from '../config/cfoModulePermissions';
 
 import { prisma } from '../utils/database';
 
@@ -69,7 +70,8 @@ export class InventoryController {
         reorderLevel,
         unitOfMeasure,
         vendorId,
-        inventoryAssetAccountId
+        inventoryAssetAccountId,
+        openingContraAccountId
       } = req.body;
 
       // Validation
@@ -90,6 +92,7 @@ export class InventoryController {
         unitOfMeasure,
         vendorId,
         inventoryAssetAccountId,
+        openingContraAccountId,
         createdById: userId
       });
 
@@ -100,6 +103,7 @@ export class InventoryController {
       });
     } catch (error: any) {
       console.error('Error creating inventory item:', error);
+      if (error?.statusCode) { res.status(error.statusCode).json({ success: false, message: error.message }); return; }
       
       // Check for specific error types
       if (error.message && error.message.includes('already exists')) {
@@ -231,7 +235,7 @@ export class InventoryController {
         data: updatedItem
       });
     } catch (error: any) {
-      console.error('Error updating inventory item:', error);
+      console.error('Error updating inventory item:', error); if (error?.statusCode) { res.status(error.statusCode).json({ success: false, message: error.message }); return; }
       res.status(500).json({
         error: 'Failed to update inventory item',
         details: error.message
@@ -259,7 +263,7 @@ export class InventoryController {
         message: 'Inventory item deleted successfully'
       });
     } catch (error: any) {
-      console.error('Error deleting inventory item:', error);
+      console.error('Error deleting inventory item:', error); if (error?.statusCode) { res.status(error.statusCode).json({ success: false, message: error.message }); return; }
       res.status(500).json({
         error: 'Failed to delete inventory item',
         details: error.message
@@ -284,14 +288,18 @@ export class InventoryController {
         quantity,
         unitCost,
         reference,
-        description
+        description,
+        contraAccountId
       } = req.body;
 
-      // Validation
-      if (!itemId || !movementType || !quantity || !unitCost) {
-        res.status(400).json({
-          error: 'Missing required fields: itemId, movementType, quantity, unitCost'
-        });
+      // Validation (a unit cost is given for receipts only; everything else leaves at the average cost)
+      if (!itemId || !movementType || !quantity || (movementType === 'IN' && !unitCost)) {
+        res.status(400).json({ success: false, message: 'Give the item, the movement, the quantity and, for a receipt, the unit cost.' });
+        return;
+      }
+      // a count adjustment writes stock up or off: approvers only (SRD ACC-INV-06 count variance approval)
+      if (movementType === 'ADJUSTMENT' && !userHasEffectivePermission(req.user, 'manage_ledger')) {
+        res.status(403).json({ success: false, message: 'Count adjustments are made by an approver.' });
         return;
       }
 
@@ -308,11 +316,12 @@ export class InventoryController {
         itemId,
         movementType,
         quantity: parseFloat(quantity),
-        unitCost: parseFloat(unitCost),
+        unitCost: unitCost != null ? parseFloat(unitCost) : 0,
         reference,
         description,
         createdById: userId,
         acknowledgeNegativeStock,
+        contraAccountId,
       });
 
       res.status(201).json({
@@ -322,6 +331,7 @@ export class InventoryController {
       });
     } catch (error: any) {
       console.error('Error recording stock movement:', error);
+      if (error?.statusCode) { res.status(error.statusCode).json({ success: false, message: error.message }); return; }
       if (isNegativeStockConfirmationRequiredError(error)) {
         res.status(409).json({
           success: false,
@@ -598,7 +608,7 @@ export class InventoryController {
         return;
       }
 
-      const { itemId, quantity, movementType } = req.body;
+      const { itemId, quantity, movementType, contraAccountId, unitCost } = req.body;
 
       // Validation
       if (!itemId || !quantity || !movementType) {
@@ -615,14 +625,14 @@ export class InventoryController {
         return;
       }
 
-      await InventoryService.updateStockQuantity(itemId, quantity, movementType, userId);
+      await InventoryService.updateStockQuantity(itemId, quantity, movementType, userId, contraAccountId, unitCost != null ? Number(unitCost) : undefined);
 
       res.json({
         success: true,
         message: 'Stock quantity updated successfully'
       });
     } catch (error: any) {
-      console.error('Error updating stock quantity:', error);
+      console.error('Error updating stock quantity:', error); if (error?.statusCode) { res.status(error.statusCode).json({ success: false, message: error.message }); return; }
       res.status(500).json({
         error: 'Failed to update stock quantity',
         details: error.message
@@ -752,21 +762,24 @@ export class InventoryController {
         return;
       }
 
-      const { itemId, quantity, reason } = req.body;
+      const { itemId, quantity, reason, contraAccountId } = req.body;
 
       // Validation
       if (!itemId || !quantity || !reason) {
-        res.status(400).json({
-          error: 'Missing required fields: itemId, quantity, reason'
-        });
+        res.status(400).json({ success: false, message: 'Give the item, the counted difference (+ found, − missing) and the reason.' });
+        return;
+      }
+      if (!userHasEffectivePermission(req.user, 'manage_ledger')) {
+        res.status(403).json({ success: false, message: 'Count adjustments are made by an approver.' });
         return;
       }
 
       const adjustment = await InventoryService.createInventoryAdjustment(
-        itemId, 
-        quantity, 
-        reason, 
-        userId
+        itemId,
+        Number(quantity),
+        reason,
+        userId,
+        contraAccountId
       );
 
       res.json({
@@ -776,6 +789,8 @@ export class InventoryController {
       });
     } catch (error: any) {
       console.error('Error creating inventory adjustment:', error);
+      if (error?.statusCode) { res.status(error.statusCode).json({ success: false, message: error.message }); return; }
+      if (isNegativeStockConfirmationRequiredError(error)) { res.status(409).json({ success: false, code: error.code, message: error.message, shortages: error.shortages }); return; }
       res.status(500).json({
         error: 'Failed to create inventory adjustment',
         details: error.message

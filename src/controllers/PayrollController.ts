@@ -151,8 +151,13 @@ export class PayrollController {
    */
   static async getEmployees(req: Request, res: Response) {
     try {
+      // `isActive: false` also covers a SUSPENDED employee, not only a terminated one — filtering on `isActive: true`
+      // here made suspending someone remove them from the roster entirely, with no page left in the UI that could
+      // show their record again to reinstate them. `terminated: true` is the one state that actually leaves the
+      // roster; a suspended employee stays listed (the frontend already derives a "Suspended employee" exception
+      // for them precisely because they're still on the roster) and its drawer offers Reinstate instead of Edit.
       const employees = await prisma.employee.findMany({
-        where: { isActive: true, terminated: false },
+        where: { terminated: false },
         include: {
           user: {
             select: { firstName: true, lastName: true, email: true }

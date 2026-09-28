@@ -79,14 +79,22 @@ export class VendorDocumentAttachmentController {
           message: "entityType must be VENDOR_QUOTATION or PROCUREMENT_INVOICE"
         });
       }
-      const entityId = req.body?.entityId ? String(req.body.entityId).trim() : null;
+      // A supplier stages a file and links it when they submit. Naming an existing record here would let one supplier attach
+      // files to another's quotation or invoice, so it is refused outright.
+      if (req.body?.entityId) {
+        return res.status(400).json({ success: false, message: "Upload the file first; it is linked to your submission when you submit." });
+      }
+      const entityId = null;
+      // §15/§16: in a two-envelope event a supplier says which of its documents are technical; anything else is commercial.
+      const envelope = String(req.body?.envelope || "").toUpperCase() === "TECHNICAL" ? "TECHNICAL" : "COMMERCIAL";
 
       const data = await VendorDocumentAttachmentService.upload({
         file,
         entityType,
         entityId,
         actor: { kind: "portal", vendorPortalToken },
-        meta: requestMeta(req)
+        meta: requestMeta(req),
+        overrides: entityType === "VENDOR_QUOTATION" ? { envelope } : undefined
       });
       res.status(201).json({ success: true, data });
     } catch (error: any) {
@@ -119,23 +127,13 @@ export class VendorDocumentAttachmentController {
     }
   }
 
-  static async staffUploadToQuotation(req: Request, res: Response) {
-    try {
-      const file = (req as any).file;
-      if (!file?.buffer?.length) {
-        return res.status(400).json({ success: false, message: "Multipart field document is required" });
-      }
-      const data = await VendorDocumentAttachmentService.upload({
-        file,
-        entityType: "VENDOR_QUOTATION",
-        entityId: req.params.quotationId,
-        actor: staffActor(req),
-        meta: requestMeta(req)
-      });
-      res.status(201).json({ success: true, data });
-    } catch (error: any) {
-      res.status(400).json({ success: false, message: error.message });
-    }
+  static async staffUploadToQuotation(_req: Request, res: Response) {
+    // §15: a quotation's documents are what the supplier submitted, or what an authorised user captured on the supplier's behalf
+    // through POST /procurement/rfqs/:id/quotations/capture. Attaching a file to someone else's submission is not offered.
+    return res.status(403).json({
+      success: false,
+      message: "Documents are attached to a quotation by the supplier, or by capturing the quotation on their behalf. They cannot be added afterwards.",
+    });
   }
 
   static async staffUploadToProcurementInvoice(req: Request, res: Response) {
@@ -191,8 +189,8 @@ export class VendorDocumentAttachmentController {
       );
       res.json({ success: true, data });
     } catch (error: any) {
-      const status = error.message?.includes("Authentication") ? 401 : 404;
-      res.status(status).json({ success: false, message: error.message });
+      const status = error.status || error.statusCode || (error.message?.includes("Authentication") ? 401 : 404);
+      res.status(status).json({ success: false, message: error.message, code: error.code });
     }
   }
 
@@ -207,8 +205,8 @@ export class VendorDocumentAttachmentController {
       res.send(buffer);
     } catch (error: any) {
       const msg = String(error.message || "");
-      const status = msg.includes("not found") ? 404 : msg.includes("Authentication") ? 401 : 400;
-      res.status(status).json({ success: false, message: error.message });
+      const status = error.status || error.statusCode || (msg.includes("not found") ? 404 : msg.includes("Authentication") ? 401 : 400);
+      res.status(status).json({ success: false, message: error.message, code: error.code });
     }
   }
 

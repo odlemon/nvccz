@@ -719,10 +719,9 @@ export class AccountingDashboardService {
       let taxDelta = 0;
       let belowDelta = 0;
 
-      if (accountNoValue >= 4000 && accountNoValue <= 4099) {
+      // 41xx is investment income (dividends, interest, gains), not returns: every 4xxx account is revenue as recorded
+      if (accountNoValue >= 4000 && accountNoValue <= 4999) {
         revenueDelta = credit - debit;
-      } else if (accountNoValue >= 4100 && accountNoValue <= 4199) {
-        revenueDelta = -(credit - debit);
       } else if (accountNoValue >= 5000 && accountNoValue <= 5999) {
         opexDelta = debit - credit;
       } else if (accountNoValue >= 6100 && accountNoValue <= 6199) {

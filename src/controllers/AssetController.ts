@@ -93,6 +93,11 @@ export class AssetController {
       });
     } catch (error: any) {
       console.error('Error creating asset:', error);
+      // a refusal the caller can act on (missing funding source, bad account, …) is a 400 with its reason
+      if (!/prisma|ECONN|timeout/i.test(String(error?.message || ''))) {
+        res.status(400).json({ success: false, error: error?.message || 'Failed to create asset' });
+        return;
+      }
       res.status(500).json({
         error: 'Failed to create asset',
         details: error.message
@@ -560,6 +565,18 @@ export class AssetController {
   /**
    * Post monthly depreciation for all assets
    */
+  /** GET /accounting/assets/depreciation/preview?period=YYYY-MM — what the run would post, without posting. */
+  static async previewMonthlyDepreciation(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const now = new Date();
+      const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const period = String(req.query.period || `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`);
+      res.json({ success: true, data: await AssetService.previewMonthlyDepreciation(period) });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error?.message || 'Failed to preview depreciation' });
+    }
+  }
+
   static async postMonthlyDepreciation(req: AuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;
@@ -569,6 +586,15 @@ export class AssetController {
       }
 
       const { asOfDate, period } = req.body || {};
+      // a month is depreciated once it has ended (the scheduled run posts the month just ended on the 1st)
+      if (typeof period === 'string' && period.trim()) {
+        const now = new Date();
+        const current = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        if (period.trim() >= current) {
+          res.status(400).json({ success: false, error: `${period.trim()} has not ended yet; depreciation is posted for a month once it is over.` });
+          return;
+        }
+      }
       const result = await AssetService.postMonthlyDepreciation({
         createdById: userId,
         asOfDate: asOfDate ? parseDate(asOfDate) : undefined,

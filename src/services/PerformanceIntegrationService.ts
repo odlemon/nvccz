@@ -200,6 +200,12 @@ export class PerformanceIntegrationService {
           previousStage: goal.stage,
           progressPercentage: goal.progressPercentage
         });
+        // keep the event ledger in step: currentValue is the sum of the goal's events, so the value goes in as an
+        // integration event (counted, not posted to the GL) as well as on the goal
+        {
+          const { PerformanceGoalProgressEventService } = await import("./PerformanceGoalProgressEventService");
+          await PerformanceGoalProgressEventService.setValueFromIntegration(goal.id, Number(numericValue), `integration_sync:${new Date().toISOString()}`, actor.id);
+        }
         goalUpdateData.currentValue = numericValue;
         goalUpdateData.progressPercentage = progressState.progressPercentage;
         goalUpdateData.stage = progressState.stage;
@@ -898,6 +904,12 @@ export class PerformanceIntegrationService {
       progressPercentage: goal.progressPercentage
     });
 
+    // keep the event ledger in step: currentValue is the sum of the goal's events, so the value goes in as an
+    // integration event (counted, not posted to the GL) as well as on the goal
+    {
+      const { PerformanceGoalProgressEventService } = await import("./PerformanceGoalProgressEventService");
+      await PerformanceGoalProgressEventService.setValueFromIntegration(goal.id, Number(approvedNum), `integration_approve:${new Date().toISOString()}`, params.actor.id);
+    }
     const legacyData = legacyProgressFieldsForGoal(goal, approvedNum);
     const performanceRiskZone = resolveGoalEscalationStatus({
       preciseCurrentValue: String(approvedNum),
@@ -1017,6 +1029,12 @@ export class PerformanceIntegrationService {
       previousStage: goal.stage,
       progressPercentage: goal.progressPercentage
     });
+    // keep the event ledger in step: currentValue is the sum of the goal's events, so the value goes in as an
+    // integration event (counted, not posted to the GL) as well as on the goal
+    {
+      const { PerformanceGoalProgressEventService } = await import("./PerformanceGoalProgressEventService");
+      await PerformanceGoalProgressEventService.setValueFromIntegration(goal.id, Number(numericValue), `integration_override:${new Date().toISOString()}`, params.actor.id);
+    }
     const updatedGoal = await prisma.performanceGoal.update({
       where: { id: goal.id },
       data: {

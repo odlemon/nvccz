@@ -3,6 +3,8 @@ import express from "express";
 import { authenticate } from "../middleware/authenticate";
 import { methodGuard } from "../middleware/methodGuard"
 import { PerformanceScorecardController } from "../controllers/PerformanceScorecardController";
+import { prisma } from "../utils/database";
+import { scoped, orgOnly, personInScope, departmentInScope } from "../services/PerformanceScope";
 
 const router = express.Router();
 const READ_KEYS = ["performance.scorecards.view", "performance.scorecards.manage"]
@@ -11,6 +13,41 @@ const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 router.use(authenticate);
 router.use(guard);
+
+/*
+ * Row scope (PerformanceScope), on top of scorecards.view / .manage:
+ *   an employee's scorecard   - seen by the person, their department's manager scope, the organisation scope; changed by a
+ *                               manager of that person (never one's own, administrators excepted)
+ *   a department's scorecard  - seen and changed by that department's manager scope and the organisation scope
+ *   CEO and Board scorecards  - the organisation scope (the CEO also sees their own)
+ */
+const isCeo = (u: any) => String(u?.roleCode || "").toUpperCase() === "CEO";
+const empView = (param = "employeeId") => scoped(async (req, a) => ((await personInScope(a, req.params[param])) ? null : "This scorecard is outside what your role can see."));
+const empWrite = (param = "employeeId") => scoped(async (req, a) => {
+  const uid = req.params[param];
+  if (uid === a.id && !a.isAdmin) return "No one edits their own scorecard.";
+  return (await personInScope(a, uid)) ? null : "Your role cannot change this person's scorecard.";
+});
+const deptName = async (req: any) => {
+  if (req.params.department) return req.params.department;
+  const d = req.params.departmentId ? await prisma.department.findUnique({ where: { id: String(req.params.departmentId) }, select: { name: true } }) : null;
+  return d?.name || null;
+};
+const deptRule = scoped(async (req, a) => (departmentInScope(a, await deptName(req)) ? null : "This department's scorecard is outside what your role can see."));
+const ceoView = scoped(async (req, a) => (a.org || isCeo(req.user) ? null : "The CEO scorecard is for organisation-wide roles."));
+const orgRule = orgOnly("This scorecard is for organisation-wide roles.");
+const byIdRule = (mode: "view" | "write") => scoped(async (req, a) => {
+  const sc = await prisma.performanceScorecard.findUnique({ where: { id: String(req.params.scorecardId) }, select: { scorecardType: true, subjectUserId: true, departmentName: true } });
+  if (!sc) return null;
+  const t = String(sc.scorecardType || "").toUpperCase();
+  if (t === "EMPLOYEE" || (sc.subjectUserId && t !== "CEO" && t !== "BOARD")) {
+    if (mode === "write" && sc.subjectUserId === a.id && !a.isAdmin) return "No one edits their own scorecard.";
+    return (await personInScope(a, sc.subjectUserId)) ? null : "This scorecard is outside what your role can see.";
+  }
+  if (t === "DEPARTMENT") return departmentInScope(a, sc.departmentName) ? null : "This department's scorecard is outside what your role can see.";
+  if (t === "CEO" && mode === "view" && isCeo(req.user)) return null;
+  return a.org ? null : "This scorecard is for organisation-wide roles.";
+});
 
 /**
  * @swagger
@@ -326,7 +363,7 @@ router.get("/user", PerformanceScorecardController.getUserScorecard);
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.get("/employee/:employeeId", PerformanceScorecardController.getEmployeeScorecard);
+router.get("/employee/:employeeId", empView(), PerformanceScorecardController.getEmployeeScorecard);
 
 /**
  * @swagger
@@ -361,16 +398,18 @@ router.get("/employee/:employeeId", PerformanceScorecardController.getEmployeeSc
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.post("/employee/:employeeId/generate", PerformanceScorecardController.generateEmployeeScorecard);
+router.post("/employee/:employeeId/generate", empWrite(), PerformanceScorecardController.generateEmployeeScorecard);
 
 // Phase 2 scorecard editing — documented under Swagger tag "Phase two Scorecard Editing"
 router.get(
   "/employee/:employeeId/persisted",
+  empView(),
   PerformanceScorecardController.getEmployeeScorecardPersisted
 );
 
 router.put(
   "/employee/:employeeId/edit",
+  empWrite(),
   PerformanceScorecardController.editEmployeeScorecardPersisted
 );
 
@@ -482,19 +521,23 @@ router.put(
  */
 router.get(
   "/department/by-id/:departmentId",
+  deptRule,
   PerformanceScorecardController.getDepartmentScorecardById
 );
 router.post(
   "/department/by-id/:departmentId/generate",
+  deptRule,
   PerformanceScorecardController.generateDepartmentScorecardById
 );
 
 router.get(
   "/department/by-id/:departmentId/persisted",
+  deptRule,
   PerformanceScorecardController.getDepartmentScorecardPersistedById
 );
 router.put(
   "/department/by-id/:departmentId/edit",
+  deptRule,
   PerformanceScorecardController.editDepartmentScorecardPersistedById
 );
 /**
@@ -554,17 +597,20 @@ router.put(
  */
 router.put(
   "/department/by-id/:departmentId/qualitative-evaluation",
+  deptRule,
   PerformanceScorecardController.putDepartmentQualitativeEvaluationById
 );
-router.get("/department/:department", PerformanceScorecardController.getDepartmentScorecard);
+router.get("/department/:department", deptRule, PerformanceScorecardController.getDepartmentScorecard);
 
 router.get(
   "/department/:department/persisted",
+  deptRule,
   PerformanceScorecardController.getDepartmentScorecardPersisted
 );
 
 router.put(
   "/department/:department/edit",
+  deptRule,
   PerformanceScorecardController.editDepartmentScorecardPersisted
 );
 
@@ -607,7 +653,7 @@ router.put(
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.post("/department/:department/generate", PerformanceScorecardController.generateDepartmentScorecard);
+router.post("/department/:department/generate", deptRule, PerformanceScorecardController.generateDepartmentScorecard);
 
 /**
  * @swagger
@@ -784,6 +830,7 @@ router.post("/department/:department/generate", PerformanceScorecardController.g
  */
 router.put(
   "/department/:department/qualitative-evaluation",
+  deptRule,
   PerformanceScorecardController.putDepartmentQualitativeEvaluation
 );
 
@@ -909,6 +956,7 @@ router.put(
  */
 router.put(
   "/employee/:employeeId/qualitative-evaluation",
+  empWrite(),
   PerformanceScorecardController.putEmployeeQualitativeEvaluation
 );
 
@@ -998,6 +1046,7 @@ router.put(
  */
 router.put(
   "/board/qualitative-evaluation",
+  orgRule,
   PerformanceScorecardController.putBoardQualitativeEvaluation
 );
 
@@ -1087,6 +1136,7 @@ router.put(
  */
 router.put(
   "/ceo/qualitative-evaluation",
+  orgRule,
   PerformanceScorecardController.putCEOQualitativeEvaluation
 );
 
@@ -1144,7 +1194,7 @@ router.put(
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.get("/ceo", PerformanceScorecardController.getCEOScorecard);
+router.get("/ceo", ceoView, PerformanceScorecardController.getCEOScorecard);
 
 /**
  * @swagger
@@ -1185,10 +1235,10 @@ router.get("/ceo", PerformanceScorecardController.getCEOScorecard);
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.post("/ceo/generate", PerformanceScorecardController.generateCEOScorecard);
+router.post("/ceo/generate", orgRule, PerformanceScorecardController.generateCEOScorecard);
 
-router.get("/ceo/persisted", PerformanceScorecardController.getCEOScorecardPersisted);
-router.put("/ceo/edit", PerformanceScorecardController.editCEOScorecardPersisted);
+router.get("/ceo/persisted", ceoView, PerformanceScorecardController.getCEOScorecardPersisted);
+router.put("/ceo/edit", orgRule, scoped(async (req, a) => (isCeo(req.user) && !a.isAdmin ? "No one edits their own scorecard." : null)), PerformanceScorecardController.editCEOScorecardPersisted);
 
 /**
  * @swagger
@@ -1238,7 +1288,7 @@ router.put("/ceo/edit", PerformanceScorecardController.editCEOScorecardPersisted
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.get("/board", PerformanceScorecardController.getBoardScorecard);
+router.get("/board", orgRule, PerformanceScorecardController.getBoardScorecard);
 
 /**
  * @swagger
@@ -1275,10 +1325,10 @@ router.get("/board", PerformanceScorecardController.getBoardScorecard);
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.post("/board/generate", PerformanceScorecardController.generateBoardScorecard);
+router.post("/board/generate", orgRule, PerformanceScorecardController.generateBoardScorecard);
 
-router.get("/board/persisted", PerformanceScorecardController.getBoardScorecardPersisted);
-router.put("/board/edit", PerformanceScorecardController.editBoardScorecardPersisted);
+router.get("/board/persisted", orgRule, PerformanceScorecardController.getBoardScorecardPersisted);
+router.put("/board/edit", orgRule, PerformanceScorecardController.editBoardScorecardPersisted);
 
 /**
  * @swagger
@@ -1319,8 +1369,8 @@ router.put("/board/edit", PerformanceScorecardController.editBoardScorecardPersi
  */
 router.get("/org-bsc", PerformanceScorecardController.getOrgBSCDashboard);
 
-router.get("/:scorecardId", PerformanceScorecardController.getScorecardById);
-router.put("/:scorecardId/edit", PerformanceScorecardController.editScorecard);
+router.get("/:scorecardId", byIdRule("view"), PerformanceScorecardController.getScorecardById);
+router.put("/:scorecardId/edit", byIdRule("write"), PerformanceScorecardController.editScorecard);
 
 /**
  * @swagger
@@ -1356,6 +1406,6 @@ router.put("/:scorecardId/edit", PerformanceScorecardController.editScorecard);
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
-router.post("/:scorecardId/finalize", PerformanceScorecardController.finalizeScorecard);
+router.post("/:scorecardId/finalize", byIdRule("write"), PerformanceScorecardController.finalizeScorecard);
 
 export default router;

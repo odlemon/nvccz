@@ -210,6 +210,7 @@ router.get("/debtors-age-analysis", InvoiceController.getDebtorsAgeAnalysis);
  *       500:
  *         description: Internal server error
  */
+router.get("/summary", InvoiceController.getInvoiceSummary);
 router.get("/:id", InvoiceController.getInvoiceById);
 
 /**
@@ -334,7 +335,7 @@ router.delete("/:id", InvoiceController.deleteInvoice);
  *       500:
  *         description: Internal server error
  */
-router.get("/summary", InvoiceController.getInvoiceSummary);
+// (moved above "/:id": declared after it, "/summary" was read as an invoice id)
 
 /**
  * @swagger

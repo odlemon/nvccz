@@ -64,7 +64,8 @@ export class ApprovalController {
       });
     } catch (error: any) {
       console.error("Error approving approval:", error);
-      res.status(400).json({
+      res.status((error as any)?.statusCode || 400).json({
+        code: (error as any)?.code,
         success: false,
         message: error.message || "Failed to approve approval"
       });
@@ -107,9 +108,46 @@ export class ApprovalController {
       });
     } catch (error: any) {
       console.error("Error rejecting approval:", error);
-      res.status(400).json({
+      res.status((error as any)?.statusCode || 400).json({
+        code: (error as any)?.code,
         success: false,
         message: error.message || "Failed to reject approval"
+      });
+    }
+  }
+
+  /** §12 — delegate a pending approval to another user */
+  static async delegateApproval(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+      const { delegatedToId, reason, entityId } = req.body || {};
+      if (!delegatedToId) {
+        return res.status(400).json({ success: false, message: "delegatedToId is required" });
+      }
+      const approvalId = req.params.id;
+      const result =
+        entityId || !approvalId
+          ? await ApprovalService.delegateApprovalForEntity({
+              entityId: String(entityId || approvalId),
+              fromUserId: userId,
+              delegatedToId,
+              reason: typeof reason === "string" ? reason : undefined,
+            })
+          : await ApprovalService.delegateApproval({
+              approvalId,
+              fromUserId: userId,
+              delegatedToId,
+              reason: typeof reason === "string" ? reason : undefined,
+            });
+      res.status(200).json({ success: true, message: "Approval delegated", data: result });
+    } catch (error: any) {
+      console.error("Error delegating approval:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to delegate approval",
       });
     }
   }

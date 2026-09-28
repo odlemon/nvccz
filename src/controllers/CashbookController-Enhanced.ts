@@ -124,6 +124,8 @@ export class CashbookControllerEnhanced {
    * PUT /api/cashbook/entries/:id/reconcile
    */
   static async reconcileEntry(req: AuthRequest, res: Response) {
+    // an entry is reconciled only by finishing a bank reconciliation (SRD ACC-CB-26: N → R via bank rec)
+    return res.status(409).json({ success: false, message: "Entries are reconciled by finishing a bank reconciliation, not one by one." });
     try {
       const { id } = req.params;
       const { bankTransactionId } = req.body;

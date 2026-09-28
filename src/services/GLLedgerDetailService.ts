@@ -3,6 +3,8 @@ import { prisma } from "../utils/database";
 import { Decimal } from "decimal.js";
 import { MultiCurrencyService } from "./MultiCurrencyService";
 import { isDebitNaturalBalance } from "../utils/chartOfAccountsNaturalBalance";
+import { baseContext, lineBaseRate } from "../utils/baseCurrencyAmounts";
+import { buildJournalEntryWhereForGlReporting } from "../utils/journalEntryReportingFilter";
 
 export interface GLLedgerDetailParams {
   accountNo: string; // e.g., "1100"
@@ -255,6 +257,7 @@ export class GLLedgerDetailService {
           id: true,
           debitAmount: true,
           creditAmount: true,
+          recordedCurrencyId: true,
           journalEntry: {
             select: {
               id: true,
@@ -262,6 +265,7 @@ export class GLLedgerDetailService {
               transactionDate: true,
               status: true,
               description: true,
+              usdZwgRateSnapshot: true,
               currencyId: true,
               cashbookEntries: {
                 select: {
@@ -334,6 +338,7 @@ export class GLLedgerDetailService {
 
       // Cache for exchange rates to avoid repeated lookups
       const exchangeRateCache = new Map<string, number>();
+      const glBaseCtx = await baseContext();
 
       for (const line of journalEntryLines) {
         const je = line.journalEntry;
@@ -363,22 +368,15 @@ export class GLLedgerDetailService {
         if (includeMultiCurrency && baseCurrencyId && transactionCurrencyId && transactionCurrencyId !== baseCurrencyId) {
           try {
             // Create cache key: currencyId_date
-            const cacheKey = `${transactionCurrencyId}_${baseCurrencyId}_${transactionDate.toISOString().split('T')[0]}`;
+            const cacheKey = `${je.id}_${(line as any).recordedCurrencyId || transactionCurrencyId}`;
             
-            // Check cache first
+            // the rate locked on the journal when it was posted (FX-01), the same one every report uses
             if (exchangeRateCache.has(cacheKey)) {
               exchangeRate = exchangeRateCache.get(cacheKey)!;
             } else {
-              // Get exchange rate at transaction date (time of posting)
-              const rate = await MultiCurrencyService.convertCurrency({
-                amount: 1,
-                fromCurrencyId: transactionCurrencyId,
-                toCurrencyId: baseCurrencyId,
-                date: transactionDate
-              });
-              
-              exchangeRate = rate.exchangeRate;
-              // Cache the rate
+              const locked = lineBaseRate(glBaseCtx, je as any, (line as any).recordedCurrencyId);
+              if (locked == null) throw new Error("Exchange rate not found");
+              exchangeRate = locked;
               exchangeRateCache.set(cacheKey, exchangeRate);
             }
             
@@ -578,25 +576,13 @@ export class GLLedgerDetailService {
         return 0;
       }
 
-      // Get all journal entry lines before startDate
-      const openingJournalEntryWhere: any = {
-        transactionDate: {
-          lt: startDate
-        },
-        status: {
-          in: ['POSTED', 'PENDING']
-        }
-      };
-
-      // Add currency filter if provided
-      if (currencyId) {
-        openingJournalEntryWhere.currencyId = currencyId;
-      }
+      // posted journals before the start, voided pairs left out: the same rule as the period's lines (drafts were
+      // counted here, so the running balance did not follow on from the ledger)
+      const openingJournalEntryWhere: any = buildJournalEntryWhereForGlReporting({ lt: startDate }, currencyId);
 
       if (allowedJournalEntryIds && allowedJournalEntryIds.length > 0) {
         openingJournalEntryWhere.id = { in: allowedJournalEntryIds };
       }
-      // Note: If currencyId not provided, include all entries (currencyId is required in schema, so all should have it)
 
       const openingLines = await prisma.journalEntryLine.findMany({
         where: {
@@ -654,20 +640,7 @@ export class GLLedgerDetailService {
         return 0;
       }
 
-      // Get all journal entry lines before startDate
-      const openingJournalEntryWhere: any = {
-        transactionDate: {
-          lt: startDate
-        },
-        status: {
-          in: ['POSTED', 'PENDING']
-        }
-      };
-
-      // Add currency filter if provided
-      if (currencyId) {
-        openingJournalEntryWhere.currencyId = currencyId;
-      }
+      const openingJournalEntryWhere: any = buildJournalEntryWhereForGlReporting({ lt: startDate }, currencyId);
 
       if (allowedJournalEntryIds && allowedJournalEntryIds.length > 0) {
         openingJournalEntryWhere.id = { in: allowedJournalEntryIds };
@@ -699,6 +672,7 @@ export class GLLedgerDetailService {
 
       // Calculate opening balance in base currency
       let balance = 0;
+      const openingCtx = await baseContext();
       for (const line of openingLines) {
         // Use Decimal arithmetic - NO ROUNDING during calculations
         const debitAmount = new Decimal(line.debitAmount || 0).toNumber();
@@ -709,22 +683,14 @@ export class GLLedgerDetailService {
         let debitAmountBase = debitAmount;
         let creditAmountBase = creditAmount;
         
-        // Convert to base currency if different
-        if (transactionCurrencyId !== baseCurrencyId) {
-          try {
-            const rate = await MultiCurrencyService.convertCurrency({
-              amount: 1,
-              fromCurrencyId: transactionCurrencyId,
-              toCurrencyId: baseCurrencyId,
-              date: transactionDate
-            });
-            
-            debitAmountBase = debitAmount * rate.exchangeRate;
-            creditAmountBase = creditAmount * rate.exchangeRate;
-          } catch (error) {
-            // Use transaction amount as-is if conversion fails
-            console.warn(`   ⚠️  Could not convert opening balance for transaction ${line.journalEntry.referenceNumber}`);
-          }
+        // at the rate locked on the journal when it was posted (FX-01)
+        const lockedRate = lineBaseRate(openingCtx, line.journalEntry as any, (line as any).recordedCurrencyId);
+        if (lockedRate != null && lockedRate !== 1) {
+          debitAmountBase = debitAmount * lockedRate;
+          creditAmountBase = creditAmount * lockedRate;
+        } else if (lockedRate == null && transactionCurrencyId !== baseCurrencyId) {
+          console.warn(`   ⚠️  No rate for opening balance line of ${line.journalEntry.referenceNumber}`);
+          continue;
         }
         
         if (isDebitNaturalBalance(account.naturalBalance, account.accountType)) {

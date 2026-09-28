@@ -4,6 +4,8 @@ import multer from "multer";
 import { authenticate } from "../middleware/authenticate";
 import { methodGuard } from "../middleware/methodGuard"
 import { BscWorkflowController } from "../controllers/BscWorkflowController";
+import { prisma } from "../utils/database";
+import { scoped, goalById, goalWritable } from "../services/PerformanceScope";
 
 const router = express.Router();
 const READ_KEYS = ["performance.bsc.view", "performance.bsc.manage"]
@@ -38,6 +40,13 @@ router.post(
   "/statutory-submissions/:id/manager-sign-off",
   authenticate,
   guard,
+  // separation of duties: the signer is not the submitter, and can change the goal the submission is for (PerformanceScope)
+  scoped(async (req, a) => {
+    const sub = await prisma.bscStatutorySubmission.findUnique({ where: { id: String(req.params.id) }, select: { submittedById: true, performanceGoalId: true } });
+    if (!sub) return null;
+    if (sub.submittedById === a.id) return "The person who submitted this cannot also sign it off.";
+    return (await goalWritable(a, await goalById(sub.performanceGoalId))) ? null : "Your role cannot sign off this goal's submissions.";
+  }),
   BscWorkflowController.postStatutoryManagerSignOff
 );
 router.get(

@@ -175,6 +175,18 @@ export class PerformanceGoalProgressEventService {
   }
 
   /** Seed a single manual event from existing goal current when no events exist yet. */
+  /**
+   * Sets a goal to a value measured elsewhere (another module computed it) through the event ledger: one "integration"
+   * event of the difference, so currentValue stays the sum of the events (a direct write was undone by the next
+   * check-in) and nothing is posted to the GL for it.
+   */
+  static async setValueFromIntegration(goalId: string, value: number, sourceRef: string, createdById: string): Promise<{ eventId: string; total: number } | null> {
+    const agg = await prisma.performanceGoalProgressEvent.aggregate({ where: { goalId }, _sum: { amount: true } });
+    const delta = Math.round((Number(value) - Number(agg._sum.amount || 0)) * 1000) / 1000;
+    if (!Number.isFinite(delta) || Math.abs(delta) < 0.0005) return null;
+    return this.recordEvent({ goalId, amount: delta, recordedAt: new Date(), source: "integration", sourceRef, createdById });
+  }
+
   static async ensureBaselineFromGoalCurrent(goalId: string, createdById: string): Promise<void> {
     const count = await prisma.performanceGoalProgressEvent.count({ where: { goalId } });
     if (count > 0) return;
@@ -189,7 +201,8 @@ export class PerformanceGoalProgressEventService {
       goalId,
       amount: baseline,
       recordedAt: goal.updatedAt ?? new Date(),
-      source: "manual",
+      // history from before the event ledger: counted in the goal, never posted to the GL (its origin may be the GL itself)
+      source: "baseline",
       sourceRef: "baseline_migration",
       createdById
     });

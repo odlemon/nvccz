@@ -4,6 +4,8 @@ import RevenueController from "../controllers/RevenueController";
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
 
+// Who may use these routes is decided by the Accounting access guard in front of every accounting router
+// (src/middleware/accountingAccessGuard.ts); the role-name lists that stood here refused the Finance Manager and auditors.
 const router = Router();
 
 /**
@@ -98,7 +100,7 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post("/", authenticate, authorize(["admin", "accountant"]), RevenueController.prototype.createRevenue);
+router.post("/", authenticate, RevenueController.prototype.createRevenue);
 
 /**
  * @swagger
@@ -189,7 +191,7 @@ router.post("/", authenticate, authorize(["admin", "accountant"]), RevenueContro
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get("/", authenticate, authorize(["admin", "accountant"]), RevenueController.prototype.getRevenues);
+router.get("/", authenticate, RevenueController.prototype.getRevenues);
 
 /**
  * @swagger
@@ -242,7 +244,7 @@ router.get("/", authenticate, authorize(["admin", "accountant"]), RevenueControl
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get("/:id", authenticate, authorize(["admin", "accountant"]), RevenueController.prototype.getRevenueById);
+router.get("/:id", authenticate, RevenueController.prototype.getRevenueById);
 
 /**
  * @swagger
@@ -331,7 +333,7 @@ router.get("/:id", authenticate, authorize(["admin", "accountant"]), RevenueCont
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.put("/:id", authenticate, authorize(["admin", "accountant"]), RevenueController.prototype.updateRevenue);
+router.put("/:id", authenticate, RevenueController.prototype.updateRevenue);
 
 /**
  * @swagger
@@ -384,6 +386,6 @@ router.put("/:id", authenticate, authorize(["admin", "accountant"]), RevenueCont
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.delete("/:id", authenticate, authorize(["admin", "accountant"]), RevenueController.prototype.deleteRevenue);
+router.delete("/:id", authenticate, RevenueController.prototype.deleteRevenue);
 
 export default router; 

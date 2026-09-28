@@ -1,5 +1,6 @@
 // @ts-nocheck
 import crypto from "crypto";
+import { VendorGateService } from "./VendorGateService";
 import { prisma } from "../utils/database";
 import AuditService from "./AuditService";
 import { FirebaseStorageService } from "./FirebaseStorageService";
@@ -134,9 +135,24 @@ export class VendorDocumentAttachmentService {
       version: row.version,
       uploadSource: row.uploadSource,
       portalTokenKind: row.portalTokenKind,
+      envelope: row.envelope,
+      captureChannel: row.captureChannel ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt
     };
+  }
+
+  /**
+   * §16: a member of staff may read a quotation's documents only as far as the sourcing event releases them to their role.
+   * The commercial envelope also needs the price release. Other entity types are unchanged.
+   */
+  static async assertStaffMayReadQuotationDocument(userId: string, quotationId: string, envelope: string, what: string) {
+    const q = await prisma.vendorQuotation.findUnique({ where: { id: quotationId }, select: { procurementRfqId: true } });
+    if (!q?.procurementRfqId) return;
+    const user = await prisma.user.findUnique({ where: { id: userId }, include: { role: true } });
+    const { SourcingAccessService } = await import("./sourcing/SourcingAccessService");
+    if (envelope === "TECHNICAL") await SourcingAccessService.assertCanSeeSubmissions(user, q.procurementRfqId, what);
+    else await SourcingAccessService.assertCanSeePrices(user, q.procurementRfqId, what);
   }
 
   static async syncLegacyFields(entityType: VendorDocumentEntityType, entityId: string) {
@@ -210,6 +226,8 @@ export class VendorDocumentAttachmentService {
     entityId?: string | null;
     actor: AttachmentActor;
     meta?: { ipAddress?: string; userAgent?: string };
+    /** §15: a document captured on a supplier's behalf says so, by which channel, and which envelope it belongs to. */
+    overrides?: { uploadSource?: string; envelope?: "TECHNICAL" | "COMMERCIAL"; captureChannel?: string };
   }) {
     if (!isVendorDocumentEntityType(params.entityType)) {
       throw new Error("Invalid entity type");
@@ -225,12 +243,13 @@ export class VendorDocumentAttachmentService {
 
     let vendorId: string | null = null;
     let portalTokenKind: string | null = null;
-    let uploadSource = VENDOR_DOCUMENT_UPLOAD_SOURCES.STAFF;
+    let uploadSource: string = params.overrides?.uploadSource || VENDOR_DOCUMENT_UPLOAD_SOURCES.STAFF;
     let uploadedById: string | null = null;
 
     if (params.actor.kind === "portal") {
       const ctx = this.resolvePortalContext(params.actor.vendorPortalToken, params.entityType);
       vendorId = ctx.vendorId;
+      await VendorGateService.assertTransactable(ctx.vendorId, params.entityType === VENDOR_DOCUMENT_ENTITY_TYPES.VENDOR_QUOTATION ? "QUOTE" : "INVOICE");
       portalTokenKind = ctx.portalTokenKind;
       uploadSource = VENDOR_DOCUMENT_UPLOAD_SOURCES.VENDOR_PORTAL;
       uploadedById = null;
@@ -255,9 +274,10 @@ export class VendorDocumentAttachmentService {
       .slice(0, 64);
     const folderKey = `${params.entityType}/${vendorKey}`;
 
+    // The stored object's name carries a random token: an address for a quotation document cannot be guessed.
     const { filePath, downloadURL } = await FirebaseStorageService.uploadVendorRecordAttachment(
       buffer,
-      originalName,
+      `${crypto.randomBytes(12).toString("hex")}-${originalName}`,
       folderKey,
       normalizedMime
     );
@@ -278,7 +298,9 @@ export class VendorDocumentAttachmentService {
         version: 1,
         uploadedById,
         uploadSource,
-        portalTokenKind
+        portalTokenKind,
+        envelope: params.overrides?.envelope || "COMMERCIAL",
+        captureChannel: params.overrides?.captureChannel || null
       }
     });
 
@@ -354,14 +376,24 @@ export class VendorDocumentAttachmentService {
   static async listAttachments(entityType: VendorDocumentEntityType, entityId: string, actor: AttachmentActor) {
     await this.assertAccessToEntity(entityType, entityId, actor);
 
-    const rows = await prisma.vendorDocumentAttachment.findMany({
+    let rows = await prisma.vendorDocumentAttachment.findMany({
       where: {
         entityType,
         entityId,
-        status: { in: [VENDOR_DOCUMENT_STATUSES.ACTIVE] }
+        // Superseded versions stay on record and are listed: what was originally submitted is always retrievable.
+        status: { in: [VENDOR_DOCUMENT_STATUSES.ACTIVE, VENDOR_DOCUMENT_STATUSES.SUPERSEDED] }
       },
       orderBy: { createdAt: "asc" }
     });
+    if (actor.kind === "staff" && entityType === VENDOR_DOCUMENT_ENTITY_TYPES.VENDOR_QUOTATION) {
+      const q = await prisma.vendorQuotation.findUnique({ where: { id: entityId }, select: { procurementRfqId: true } });
+      if (q?.procurementRfqId) {
+        const user = await prisma.user.findUnique({ where: { id: actor.userId }, include: { role: true } });
+        const { SourcingAccessService } = await import("./sourcing/SourcingAccessService");
+        const ctx = await SourcingAccessService.resolve(user, q.procurementRfqId);
+        if (!ctx.priceVisible) rows = rows.filter((r) => r.envelope === "TECHNICAL");
+      }
+    }
 
     if (actor.kind === "staff") {
       await AuditService.log({
@@ -383,6 +415,9 @@ export class VendorDocumentAttachmentService {
     }
 
     if (actor.kind === "staff") {
+      if (row.entityType === VENDOR_DOCUMENT_ENTITY_TYPES.VENDOR_QUOTATION && row.entityId) {
+        await this.assertStaffMayReadQuotationDocument(actor.userId, row.entityId, row.envelope, `document ${row.id}`);
+      }
       return row;
     }
 
@@ -411,7 +446,12 @@ export class VendorDocumentAttachmentService {
     actor: AttachmentActor
   ) {
     const ent = await this.assertEntityExists(entityType, entityId);
-    if (actor.kind === "staff") return ent;
+    if (actor.kind === "staff") {
+      if (entityType === VENDOR_DOCUMENT_ENTITY_TYPES.VENDOR_QUOTATION) {
+        await this.assertStaffMayReadQuotationDocument(actor.userId, entityId, "TECHNICAL", `documents of quotation ${entityId}`);
+      }
+      return ent;
+    }
     const ctx = this.resolvePortalContext(actor.vendorPortalToken, entityType);
     if (ent.vendorId && ent.vendorId !== ctx.vendorId) {
       throw new Error("Access denied");
@@ -468,6 +508,9 @@ export class VendorDocumentAttachmentService {
     }
     if (params.actor.kind === "portal") {
       throw new Error("Portal users cannot replace attachments; upload a new staged file before submit");
+    }
+    if (existing.entityType === VENDOR_DOCUMENT_ENTITY_TYPES.VENDOR_QUOTATION) {
+      throw new Error("A submitted quotation document is retained as submitted and cannot be replaced. The supplier revises their quotation instead.");
     }
 
     const buffer = params.file.buffer;
@@ -531,6 +574,9 @@ export class VendorDocumentAttachmentService {
     const row = await this.assertAccessToAttachment(params.attachmentId, params.actor);
     if (params.actor.kind === "portal") {
       throw new Error("Portal users cannot delete attachments");
+    }
+    if (row.entityType === VENDOR_DOCUMENT_ENTITY_TYPES.VENDOR_QUOTATION) {
+      throw new Error("A submitted quotation document is retained on record and cannot be deleted.");
     }
 
     const updated = await prisma.vendorDocumentAttachment.update({

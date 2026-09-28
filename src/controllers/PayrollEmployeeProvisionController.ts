@@ -19,6 +19,7 @@ import bcrypt from "bcryptjs"
 import { randomBytes } from "crypto"
 import { prisma } from "../utils/database"
 import { PayrollAuditService } from "../services/payroll/PayrollAuditService"
+import { resolveEmployeePictureUrl } from "../services/payrollEmployeePictureUpload"
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -117,6 +118,18 @@ export class PayrollEmployeeProvisionController {
       const provisionalPassword = randomBytes(24).toString("base64url")
       const hashed = await bcrypt.hash(provisionalPassword, 10)
 
+      // Upload the optional photo before the transaction: a slow or failed upload shouldn't hold DB locks, and a
+      // failure here rejects the request before any user or employee row exists.
+      let pictureUrl: string | null = null
+      try {
+        pictureUrl = await resolveEmployeePictureUrl(req)
+      } catch (uploadErr) {
+        return res.status(400).json({
+          success: false,
+          message: uploadErr instanceof Error ? uploadErr.message : "Picture upload failed",
+        })
+      }
+
       const created = await prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
           data: {
@@ -132,6 +145,7 @@ export class PayrollEmployeeProvisionController {
 
         const employee = await tx.employee.create({
           data: {
+            pictureUrl,
             userId: user.id,
             employeeNumber: String(employeeNumber).trim(),
             basicSalary: basic,
@@ -171,6 +185,17 @@ export class PayrollEmployeeProvisionController {
         detail: `Created ${created.user.firstName} ${created.user.lastName} (${created.user.email}) with role ${role.name}`,
         actor: (req as any).user,
       })
+
+      // the same optional Performance new-hire counter as POST /payroll/employees (this is the path the Add employee form
+      // uses, so a hire made here was never counted)
+      const counterGoalId = (req.body ?? {}).bscNewHireCounterGoalId
+      if (counterGoalId != null && String(counterGoalId).trim()) {
+        const { PerformancePayrollBscHookService } = await import("../services/PerformancePayrollBscHookService")
+        PerformancePayrollBscHookService.onEmployeeCreated({
+          bscNewHireCounterGoalId: String(counterGoalId).trim(),
+          createdByUserId: (req as any).user?.id ?? null,
+        }).catch((err) => console.warn("[payroll-bsc-hook] new hire KPI skipped:", err?.message || err))
+      }
 
       return res.status(201).json({
         success: true,

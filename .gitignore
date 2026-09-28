@@ -66,3 +66,6 @@ yarn-error.log*
 /docs/Untitled
 /tmp-*
 /tmp-*/
+
+# generated review PDFs (personal data)
+storage/performance/reviews/

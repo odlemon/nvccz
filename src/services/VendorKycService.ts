@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { VENDOR_DOCUMENT_TYPES, VENDOR_DOCUMENT_TYPE_LABELS } from "../config/vendorStatus";
+import { VendorGateService } from "./VendorGateService";
 import { prisma } from "../utils/database";
 import {
   remoteUploadService,
@@ -54,11 +56,12 @@ export const VENDOR_KYC_PORTAL_DOCUMENT_TYPES: {
   },
 ];
 
-const ALLOWED_TYPES = new Set(VENDOR_KYC_PORTAL_DOCUMENT_TYPES.map((d) => d.code));
+const ALLOWED_TYPES = new Set<string>([...VENDOR_KYC_PORTAL_DOCUMENT_TYPES.map((d) => d.code), ...VENDOR_DOCUMENT_TYPES]);
 
-const TYPE_LABEL_BY_CODE = Object.fromEntries(
-  VENDOR_KYC_PORTAL_DOCUMENT_TYPES.map((d) => [d.code, d.label])
-);
+const TYPE_LABEL_BY_CODE: Record<string, string> = {
+  ...VENDOR_DOCUMENT_TYPE_LABELS,
+  ...Object.fromEntries(VENDOR_KYC_PORTAL_DOCUMENT_TYPES.map((d) => [d.code, d.label])),
+};
 
 /** Drop `cb` cache-buster from KYC API `fileUrl` only (DB may still store `?cb=1` from upload). */
 function stripKycPublicMediaCacheQuery(url: string): string {
@@ -102,9 +105,7 @@ export class VendorKycService {
   static assertDocumentType(t: string) {
     const u = String(t || "").trim().toUpperCase().replace(/\s+/g, "_");
     if (!ALLOWED_TYPES.has(u)) {
-      const hint = VENDOR_KYC_PORTAL_DOCUMENT_TYPES.map(
-        (d) => `${d.code} (${d.label})`
-      ).join("; ");
+      const hint = [...ALLOWED_TYPES].join(", ");
       throw new Error(`Invalid documentType. Use one of: ${hint}`);
     }
     return u;
@@ -159,6 +160,11 @@ export class VendorKycService {
         isVerified: true,
         verifiedById: true,
         verifiedAt: true,
+        expiryDate: true,
+        issueDate: true,
+        documentNumber: true,
+        notifyDaysBefore: true,
+        lastExpiryNoticeAt: true,
         uploadedById: true,
         createdAt: true,
         updatedAt: true,
@@ -221,11 +227,71 @@ export class VendorKycService {
       isVerified: d.isVerified,
       verifiedById: d.verifiedById,
       verifiedAt: d.verifiedAt,
+      expiryDate: d.expiryDate ?? null,
+      issueDate: d.issueDate ?? null,
+      documentNumber: d.documentNumber ?? null,
+      notifyDaysBefore: d.notifyDaysBefore ?? null,
+      lastExpiryNoticeAt: d.lastExpiryNoticeAt ?? null,
       uploadedById: d.uploadedById,
       createdAt: d.createdAt,
       updatedAt: d.updatedAt,
       isEncrypted: d.isEncrypted,
     };
+  }
+
+  /** Validate the optional dates/lead-time a staff member enters with a document. Empty string / null clears. */
+  static cleanMeta(m: { expiryDate?: any; issueDate?: any; documentNumber?: any; notifyDaysBefore?: any }) {
+    const out: Record<string, any> = {};
+    const date = (v: any, label: string) => {
+      if (v === null || v === "") return null;
+      const d = new Date(String(v).length === 10 ? `${v}T00:00:00.000Z` : v);
+      if (Number.isNaN(d.getTime())) throw new Error(`${label} is not a valid date`);
+      return d;
+    };
+    if (m.expiryDate !== undefined) out.expiryDate = date(m.expiryDate, "Expiry date");
+    if (m.issueDate !== undefined) out.issueDate = date(m.issueDate, "Issue date");
+    if (out.expiryDate && out.issueDate && out.expiryDate < out.issueDate) throw new Error("Expiry date cannot be before the issue date");
+    if (m.documentNumber !== undefined) {
+      const s = m.documentNumber == null ? "" : String(m.documentNumber).trim();
+      if (s.length > 64) throw new Error("Document number is too long (max 64)");
+      out.documentNumber = s || null;
+    }
+    if (m.notifyDaysBefore !== undefined) {
+      if (m.notifyDaysBefore === null || m.notifyDaysBefore === "") out.notifyDaysBefore = null;
+      else {
+        const n = Number(m.notifyDaysBefore);
+        if (!Number.isInteger(n) || n < 0 || n > 730) throw new Error("Notice period must be a whole number of days from 0 to 730");
+        out.notifyDaysBefore = n;
+      }
+    }
+    return out;
+  }
+
+  /** A tax clearance document's expiry is the vendor's tax clearance expiry; keep the two the same date. */
+  private static async syncTaxFromDocument(vendorId: string, docType: string, expiryDate: Date | null | undefined) {
+    if (!expiryDate || !["TAX_CLEARANCE", "ITF263"].includes(docType)) return;
+    await prisma.vendor.update({
+      where: { id: vendorId },
+      data: {
+        taxClearanceExpiryDate: expiryDate,
+        taxComplianceStatus: expiryDate.getTime() >= Date.now() ? "ACTIVE" : "EXPIRED",
+        taxRevalidationAlertNotifiedAt: null,
+      },
+    });
+  }
+
+  /** Edit a document's expiry / issue date / number / notice period (configurable per document). */
+  static async updateMeta(documentId: string, meta: any) {
+    const doc = await prisma.vendorKycDocument.findUnique({ where: { id: documentId } });
+    if (!doc) throw new Error("Document not found");
+    const data = this.cleanMeta(meta);
+    if (Object.keys(data).length === 0) throw new Error("Nothing to update");
+    // A changed expiry date is a renewal: the pre-expiry notice is armed again.
+    if ("expiryDate" in data) data.lastExpiryNoticeAt = null;
+    const row = await prisma.vendorKycDocument.update({ where: { id: documentId }, data });
+    if ("expiryDate" in data) await this.syncTaxFromDocument(doc.vendorId, doc.documentType, data.expiryDate);
+    await VendorGateService.refresh(doc.vendorId);
+    return row;
   }
 
   /**
@@ -238,10 +304,12 @@ export class VendorKycService {
     documentType: string;
     file: Express.Multer.File;
     uploadedById: string;
+    meta?: { expiryDate?: any; issueDate?: any; documentNumber?: any; notifyDaysBefore?: any };
   }) {
     const docType = this.assertDocumentType(params.documentType);
     const vendor = await prisma.vendor.findUnique({ where: { id: params.vendorId } });
     if (!vendor) throw new Error("Vendor not found");
+    const meta = this.cleanMeta(params.meta || {});
 
     const { downloadURL } = await FirebaseStorageService.uploadApplicationDocument(
       params.file.buffer,
@@ -260,8 +328,11 @@ export class VendorKycService {
         encryptionIv: null,
         encryptionAuthTag: null,
         uploadedById: params.uploadedById,
+        ...meta,
       },
     });
+    await this.syncTaxFromDocument(params.vendorId, docType, meta.expiryDate);
+    await VendorGateService.refresh(params.vendorId);
 
     return row;
   }

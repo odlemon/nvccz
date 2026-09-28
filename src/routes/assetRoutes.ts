@@ -106,6 +106,14 @@ router.get('/', AssetController.getAssets);
  *       401:
  *         description: Unauthorized
  */
+/** Posted supplier bills an asset can be bought on (its cost is moved out of the bill's expense line, FA-07). */
+router.get('/bills', async (_req: any, res: any) => {
+  try {
+    const { prisma } = await import('../utils/database');
+    const rows = await prisma.procurementInvoice.findMany({ where: { journalEntry: { status: 'POSTED' } }, orderBy: { invoiceDate: 'desc' }, take: 200, select: { id: true, invoiceNumber: true, invoiceDate: true, subtotal: true, totalAmount: true, vendor: { select: { name: true } } } });
+    res.json({ success: true, data: rows.map((b) => ({ id: b.id, invoiceNumber: b.invoiceNumber, date: b.invoiceDate, supplier: b.vendor?.name || null, netAmount: Number(b.subtotal), total: Number(b.totalAmount) })) });
+  } catch (e: any) { res.status(500).json({ success: false, message: e?.message || 'Failed to list bills' }); }
+});
 router.get('/register', AssetController.getAssetRegister);
 
 /**
@@ -546,6 +554,7 @@ router.get('/dashboard/asset-dashboard', AssetController.getAssetDashboard);
  *       401:
  *         description: Unauthorized
  */
+router.get('/depreciation/preview', AssetController.previewMonthlyDepreciation);
 router.post('/depreciation/monthly', AssetController.postMonthlyDepreciation);
 
 /**

@@ -2,7 +2,6 @@ import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
 import { VC_CAC_MARKETING_EXPENSE_CATEGORY_NAMES } from "../config/vcCacMarketingExpenseCategories";
 import { logger } from "../utils/logger";
-import { computeKpiLineProgressPercent } from "./performanceGoalRollupUtils";
 
 export const VC_CAC_KPI_CODE = "VC_CUSTOMER_ACQUISITION_COST";
 
@@ -158,36 +157,29 @@ export class VcCacSyncService {
     });
 
     if (goalRows.length) {
+      const { PerformanceGoalProgressEventService } = await import("./PerformanceGoalProgressEventService");
       if (cac != null) {
-        const v = new Decimal(cacStr);
         for (const g of goalRows) {
-          const pct = computeKpiLineProgressPercent(
-            [{ ...g, currentValue: v, preciseCurrentValue: cacStr }],
-            g.kpi
-          );
+          // value, progress and zone come from the event ledger (recomputed), not a direct overwrite
+          await PerformanceGoalProgressEventService.setValueFromIntegration(g.id, Number(cacStr), `realtime-vc-cac:${now.toISOString()}`, g.createdById);
           await prisma.performanceGoal.update({
             where: { id: g.id },
             data: {
-              currentValue: v,
-              preciseCurrentValue: cacStr,
               lastSyncedValue: cacStr,
               lastSyncedAt: now,
-              syncEndpointPath: "in-process://realtime-vc-cac",
-              progressPercentage: new Decimal(Math.min(100, Math.max(0, pct)).toFixed(2))
+              ...(g.syncEndpointPath && /\/v1\//.test(String(g.syncEndpointPath)) ? {} : { syncEndpointPath: "in-process://realtime-vc-cac" })
             }
           });
         }
       } else {
+        // no active customer: the ratio cannot be computed now — the goal keeps its value; the sync records "nothing to measure"
         for (const g of goalRows) {
           await prisma.performanceGoal.update({
             where: { id: g.id },
             data: {
-              currentValue: null,
-              preciseCurrentValue: null,
               lastSyncedValue: null,
               lastSyncedAt: now,
-              syncEndpointPath: "in-process://realtime-vc-cac",
-              progressPercentage: new Decimal("0")
+              ...(g.syncEndpointPath && /\/v1\//.test(String(g.syncEndpointPath)) ? {} : { syncEndpointPath: "in-process://realtime-vc-cac" })
             }
           });
         }

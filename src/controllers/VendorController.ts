@@ -14,9 +14,70 @@ import { VendorKycService } from "../services/VendorKycService";
 import { listVendorsEligibleForRfqQuery } from "../services/VendorProcurementListService";
 import { VendorSelfRegistrationService } from "../services/VendorSelfRegistrationService";
 import AuditService from "../services/AuditService";
-import { userHasEffectivePermission } from "../config/cfoModulePermissions";
+import { userHasEffectivePermission, isModulePrivilegedUser } from "../config/cfoModulePermissions";
 import { PROCUREMENT_PERMISSIONS as PROC_PERMS } from "../config/procurementPermissions";
 import { EmailNotificationService } from "../services/EmailNotificationService";
+import { VendorLifecycleService } from "../services/VendorLifecycleService";
+import { VendorGateService } from "../services/VendorGateService";
+import { VendorComplianceJobService } from "../services/VendorComplianceJobService";
+import {
+  RISK_CLASSIFICATIONS,
+  VENDOR_STATUSES,
+  VENDOR_STATUS_LABELS,
+  VENDOR_DOCUMENT_TYPES,
+  VENDOR_DOCUMENT_TYPE_LABELS,
+  VendorPolicyError,
+  TRANSITIONS,
+  documentExpiryState,
+  normalizeVendorStatus,
+} from "../config/vendorStatus";
+
+const cleanStr = (v: any, max = 255) => {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  if (s.length > max) throw new VendorPolicyError("VALIDATION", `Value too long (max ${max}): ${s.slice(0, 30)}...`, 400);
+  return s;
+};
+
+/** Commodity/service categories: a list of short labels. */
+function cleanCategories(v: any) {
+  if (v === undefined) return undefined;
+  if (v === null) return [];
+  const list = Array.isArray(v) ? v : String(v).split(",");
+  return [...new Set(list.map((x: any) => String(x).trim()).filter(Boolean))].slice(0, 30);
+}
+
+function cleanRisk(v: any) {
+  if (v === undefined) return undefined;
+  if (v === null || String(v).trim() === "") return null;
+  const r = String(v).trim().toUpperCase();
+  if (!(RISK_CLASSIFICATIONS as readonly string[]).includes(r)) {
+    throw new VendorPolicyError("VALIDATION", `Invalid risk classification. Valid: ${RISK_CLASSIFICATIONS.join(", ")}`, 400);
+  }
+  return r;
+}
+
+function cleanEmail(v: any) {
+  const s = cleanStr(v, 255);
+  if (s && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)) throw new VendorPolicyError("VALIDATION", "Contact email is not a valid email address", 400);
+  return s;
+}
+
+/** A settlement currency named by code (the UI works in codes) resolved to its id; unknown codes are refused. */
+async function resolveSettlementCurrency(codeRaw: any) {
+  if (codeRaw === undefined) return undefined;
+  if (codeRaw === null || String(codeRaw).trim() === "") return null;
+  const code = String(codeRaw).trim().toUpperCase();
+  const cur = await prisma.currency.findFirst({ where: { code } });
+  if (!cur) throw new VendorPolicyError("VALIDATION", `Currency ${code} is not set up`, 400);
+  return cur.id;
+}
+
+function policyStatus(error: any, fallback = 400) {
+  return error instanceof VendorPolicyError ? error.statusCode : fallback;
+}
 
 /** KYC fields for API responses (never expose encryption IV / auth tag). */
 const VENDOR_KYC_API_SELECT = {
@@ -29,6 +90,11 @@ const VENDOR_KYC_API_SELECT = {
   isVerified: true,
   verifiedById: true,
   verifiedAt: true,
+  expiryDate: true,
+  issueDate: true,
+  documentNumber: true,
+  notifyDaysBefore: true,
+  lastExpiryNoticeAt: true,
   uploadedById: true,
   createdAt: true,
   updatedAt: true,
@@ -61,7 +127,23 @@ export class VendorController {
         isBlacklisted,
         blacklistReason,
         registrationStatus,
+        country,
+        tradingName,
+        riskRating,
+        registrationNumber,
+        commodityCategories,
+        notes,
+        settlementCurrencyCode,
       } = req.body;
+      const currencyFromCode = await resolveSettlementCurrency(settlementCurrencyCode);
+
+      // Status is never set on create: a new vendor is a Draft and moves through the lifecycle (approval, etc.).
+      if (req.body?.lifecycleStatus !== undefined || req.body?.registrationStatus !== undefined || req.body?.isBlacklisted !== undefined) {
+        return res.status(400).json({
+          success: false,
+          message: "Vendor status cannot be set on create. A new vendor is a Draft; use POST /vendors/:id/status to move it.",
+        });
+      }
 
       let taxNumber = taxNumberRaw;
       if (
@@ -69,11 +151,7 @@ export class VendorController {
         taxNumber === null ||
         String(taxNumber).trim() === ""
       ) {
-        if (vatNumber !== undefined && vatNumber !== null && String(vatNumber).trim() !== "") {
-          taxNumber = vatNumber;
-        } else {
-          taxNumber = undefined;
-        }
+        taxNumber = undefined;
       }
 
       // Validation
@@ -149,15 +227,29 @@ export class VendorController {
           address,
           paymentTerms,
           ...(normalizedCat ? { category: normalizedCat } : {}),
-          ...(settlementCurrencyId !== undefined ? { settlementCurrencyId } : {}),
-          ...(isBlacklisted !== undefined ? { isBlacklisted: !!isBlacklisted } : {}),
-          ...(blacklistReason !== undefined ? { blacklistReason } : {}),
-          ...(registrationStatus !== undefined
-            ? { registrationStatus: String(registrationStatus).toUpperCase() }
-            : {}),
+          ...(currencyFromCode !== undefined ? { settlementCurrencyId: currencyFromCode } : settlementCurrencyId !== undefined ? { settlementCurrencyId } : {}),
+          vendorCode: await VendorLifecycleService.nextVendorCode(),
+          lifecycleStatus: "DRAFT",
+          approvalStatus: "NOT_SUBMITTED",
+          registrationStatus: "PENDING_REVIEW",
+          ...(country !== undefined ? { country: cleanStr(country, 64) } : {}),
+          ...(tradingName !== undefined ? { tradingName: cleanStr(tradingName) } : {}),
+          ...(riskRating !== undefined ? { riskRating: cleanRisk(riskRating) } : {}),
+          ...(registrationNumber !== undefined ? { registrationNumber: cleanStr(registrationNumber, 64) } : {}),
+          ...(vatNumber !== undefined ? { vatNumber: cleanStr(vatNumber, 64) } : {}),
+          ...(commodityCategories !== undefined ? { commodityCategories: cleanCategories(commodityCategories) } : {}),
+          ...(notes !== undefined ? { notes: cleanStr(notes, 5000) } : {}),
           ...taxData,
         }
       });
+      await VendorGateService.refresh(vendor.id);
+      await AuditService.log({
+        userId: req.user!.id,
+        action: "VENDOR_CREATE",
+        entityType: "Vendor",
+        entityId: vendor.id,
+        newValues: { vendorCode: vendor.vendorCode, name: vendor.name, lifecycleStatus: "DRAFT" },
+      }).catch(() => undefined);
 
       if (!("skip" in compliance)) {
         await maybeSendImmediateTaxAlertForNewVendor({
@@ -185,9 +277,9 @@ export class VendorController {
               },
       });
     } catch (error: any) {
-      res.status(500).json({
+      res.status(policyStatus(error, 500)).json({
         success: false,
-        message: "Failed to create vendor",
+        message: error instanceof VendorPolicyError ? error.message : "Failed to create vendor",
         error: error.message
       });
     }
@@ -200,12 +292,31 @@ export class VendorController {
     try {
       const { isActive, search, vendorOrigin, registrationStatus } = req.query;
 
+      // Bring stored compliance/expiry in step with today's date before anyone reads a status off the list.
+      await VendorComplianceJobService.syncLapsed().catch(() => undefined);
+
       const where: any = {};
 
-      if (isActive !== undefined) {
+      const statusFilter = String(req.query.status || "")
+        .split(",")
+        .map((s) => normalizeVendorStatus(s))
+        .filter(Boolean);
+      if (statusFilter.length) {
+        // Asking for a status by name shows vendors in it, including Inactive/Blocked.
+        // "ACTIVE" is the pre-status-model spelling of Approved; rows created by older code paths may still carry it.
+        const wanted = statusFilter.includes("APPROVED") ? [...statusFilter, "ACTIVE"] : statusFilter;
+        where.lifecycleStatus = wanted.length === 1 ? wanted[0] : { in: wanted };
+      } else if (isActive !== undefined) {
         where.isActive = isActive === "true";
       } else {
         where.isActive = true;
+      }
+      if (req.query.compliance) {
+        const c = String(req.query.compliance).toUpperCase();
+        if (["COMPLIANT", "EXPIRING_SOON", "NON_COMPLIANT", "PENDING"].includes(c)) where.complianceStatus = c;
+      }
+      if (req.query.approvalStatus) {
+        where.approvalStatus = String(req.query.approvalStatus).toUpperCase();
       }
 
       // staff = created in accounting; portal = self-registered; omit = both
@@ -232,6 +343,10 @@ export class VendorController {
         where.AND.push({
           OR: [
             { name: { contains: search as string } },
+            { tradingName: { contains: search as string } },
+            { vendorCode: { contains: search as string } },
+            { registrationNumber: { contains: search as string } },
+            { taxNumber: { contains: search as string } },
             { contactPerson: { contains: search as string } },
             { email: { contains: search as string } },
           ],
@@ -268,17 +383,45 @@ export class VendorController {
         ...(Object.keys(listInclude).length ? { include: listInclude as any } : {}),
       });
 
-      let data: any[] = vendors as any[];
-      if (includeParam.includes("kyc")) {
-        data = data.map((v) => ({
-          ...v,
-          kycDocuments: attachStaffKycDownloadUrls(v.kycDocuments),
-        }));
-      }
+      const canSeeBanks = userHasEffectivePermission(req.user, PROC_PERMS.vendorBanksView) || isModulePrivilegedUser(req.user);
+      const noticeDays = await VendorGateService.noticeDays();
+      // Documents with an expiry date decide compliance, whether or not the caller asked for the file list.
+      const expiryDocs = await prisma.vendorKycDocument.findMany({
+        where: { vendorId: { in: (vendors as any[]).map((v) => v.id) }, expiryDate: { not: null } },
+        select: { vendorId: true, documentType: true, expiryDate: true, notifyDaysBefore: true },
+      });
+      const docsByVendor = new Map<string, any[]>();
+      for (const d of expiryDocs) docsByVendor.set(d.vendorId, [...(docsByVendor.get(d.vendorId) || []), d]);
+
+      let data: any[] = (vendors as any[]).map((v) => {
+        const summary = VendorGateService.summarize(v, docsByVendor.get(v.id) || [], noticeDays);
+        const { banks, kycDocuments, ...rest } = v as any;
+        return {
+          ...rest,
+          vendorStatus: normalizeVendorStatus(v.lifecycleStatus) || "DRAFT",
+          vendorStatusLabel: VENDOR_STATUS_LABELS[normalizeVendorStatus(v.lifecycleStatus) || "DRAFT"],
+          transactable: summary.transactable,
+          blockedReasons: summary.blockedReasons,
+          complianceIssues: summary.compliance.issues,
+          complianceWarnings: summary.compliance.warnings,
+          // Banking details are finance's: only a caller with the banks permission receives them.
+          ...(banks !== undefined ? { banks: canSeeBanks ? banks : [] } : {}),
+          ...(kycDocuments !== undefined
+            ? {
+                kycDocuments: attachStaffKycDownloadUrls(kycDocuments).map((d: any) => ({
+                  ...d,
+                  typeLabel: VENDOR_DOCUMENT_TYPE_LABELS[d.documentType] || d.documentType,
+                  expiryState: documentExpiryState(d.expiryDate, d.notifyDaysBefore ?? noticeDays),
+                })),
+              }
+            : {}),
+        };
+      });
 
       res.status(200).json({
         success: true,
         data,
+        documentExpiryNoticeDays: noticeDays,
         meta: {
           note: "Includes staff-created and portal self-registered vendors (isActive=true by default). Use ?vendorOrigin=portal|staff and ?registrationStatus=PENDING_REVIEW to filter.",
           includeHint:
@@ -325,10 +468,40 @@ export class VendorController {
           message: "Vendor not found",
         });
       }
+      // Banking details are finance's: a caller without the banks permission gets none.
+      if (!(userHasEffectivePermission(req.user, PROC_PERMS.vendorBanksView) || isModulePrivilegedUser(req.user))) {
+        (vendor as any).banks = [];
+      }
 
+      const fresh = await VendorGateService.refresh(id);
+      const noticeDays = await VendorGateService.noticeDays();
+      const status = normalizeVendorStatus((fresh || vendor).lifecycleStatus) || "DRAFT";
+      const kyc = attachStaffKycDownloadUrls(vendor.kycDocuments).map((d: any) => ({
+        ...d,
+        typeLabel: VENDOR_DOCUMENT_TYPE_LABELS[d.documentType] || d.documentType,
+        expiryState: documentExpiryState(d.expiryDate, d.notifyDaysBefore ?? noticeDays),
+      }));
+      const [poCount, invoiceCount, quoteCount] = await Promise.all([
+        prisma.purchaseOrder.count({ where: { vendorId: id } }),
+        prisma.procurementInvoice.count({ where: { vendorId: id } }),
+        prisma.vendorQuotation.count({ where: { vendorId: id } }),
+      ]);
+      const gates: Record<string, { ok: boolean; reasons: string[] }> = {};
+      for (const a of ["INVITE", "AWARD", "PO", "PAY"] as const) {
+        const r = await VendorGateService.evaluate(id, a);
+        gates[a] = { ok: r.ok, reasons: r.reasons };
+      }
       const data = {
         ...vendor,
-        kycDocuments: attachStaffKycDownloadUrls(vendor.kycDocuments),
+        ...(fresh ? { lifecycleStatus: fresh.lifecycleStatus, complianceStatus: fresh.complianceStatus, taxComplianceStatus: fresh.taxComplianceStatus, statusReason: fresh.statusReason } : {}),
+        vendorStatus: status,
+        vendorStatusLabel: VENDOR_STATUS_LABELS[status],
+        kycDocuments: kyc,
+        compliance: fresh?.compliance ?? null,
+        availableMoves: VendorLifecycleService.availableMoves(fresh || vendor, req.user),
+        gates,
+        history: { purchaseOrders: poCount, invoices: invoiceCount, quotations: quoteCount },
+        documentExpiryNoticeDays: noticeDays,
       };
 
       res.status(200).json({
@@ -368,24 +541,32 @@ export class VendorController {
         isBlacklisted,
         blacklistReason,
         registrationStatus,
+        country,
+        tradingName,
+        riskRating,
+        registrationNumber,
+        commodityCategories,
+        notes,
+        settlementCurrencyCode,
       } = req.body;
+      const currencyFromCode = await resolveSettlementCurrency(settlementCurrencyCode);
 
-      const taxNumber =
-        taxNumberRaw !== undefined
-          ? taxNumberRaw
-          : vatNumber !== undefined
-            ? vatNumber
-            : undefined;
+      const taxNumber = taxNumberRaw !== undefined ? taxNumberRaw : undefined;
 
-      // Blacklisting and registration status are decisions for a role that approves vendors (they have their own
-      // routes, guarded by procurement.vendors.approve); the plain update must not be a way round that.
+      // Status, blocking and activation are decisions with their own guarded route (permission, reason, audit, and
+      // segregation of duties). The plain update must never be a way round that.
       if (
-        (isBlacklisted !== undefined || blacklistReason !== undefined || registrationStatus !== undefined) &&
-        !userHasEffectivePermission(req.user, PROC_PERMS.vendorsApprove)
+        req.body?.lifecycleStatus !== undefined ||
+        isBlacklisted !== undefined ||
+        blacklistReason !== undefined ||
+        registrationStatus !== undefined ||
+        isActive !== undefined ||
+        req.body?.approvalStatus !== undefined ||
+        req.body?.complianceStatus !== undefined
       ) {
-        return res.status(403).json({
+        return res.status(400).json({
           success: false,
-          message: "Blacklisting a vendor or changing its registration status needs vendor approval rights.",
+          message: "Status fields cannot be edited here. Use POST /vendors/:id/status (with a reason) to change a vendor's status.",
         });
       }
 
@@ -464,7 +645,11 @@ export class VendorController {
       if (phone !== undefined) updateData.phone = phone;
       if (address !== undefined) updateData.address = address;
       if (paymentTerms !== undefined) updateData.paymentTerms = paymentTerms;
-      if (isActive !== undefined) updateData.isActive = isActive;
+      if (registrationNumber !== undefined) updateData.registrationNumber = cleanStr(registrationNumber, 64);
+      if (vatNumber !== undefined) updateData.vatNumber = cleanStr(vatNumber, 64);
+      if (commodityCategories !== undefined) updateData.commodityCategories = cleanCategories(commodityCategories);
+      if (notes !== undefined) updateData.notes = cleanStr(notes, 5000);
+      if (email !== undefined) updateData.email = cleanEmail(email);
 
       if (category !== undefined) {
         updateData.category =
@@ -472,27 +657,29 @@ export class VendorController {
             ? null
             : normalizeVendorCategory(category);
       }
-      if (settlementCurrencyId !== undefined) {
+      if (currencyFromCode !== undefined) {
+        updateData.settlementCurrencyId = currencyFromCode;
+      } else if (settlementCurrencyId !== undefined) {
         updateData.settlementCurrencyId = settlementCurrencyId || null;
       }
-      if (isBlacklisted !== undefined) updateData.isBlacklisted = !!isBlacklisted;
-      if (blacklistReason !== undefined) updateData.blacklistReason = blacklistReason;
-      if (registrationStatus !== undefined) {
-        updateData.registrationStatus = String(registrationStatus).toUpperCase();
-      }
+      if (country !== undefined) updateData.country = cleanStr(country, 64);
+      if (tradingName !== undefined) updateData.tradingName = cleanStr(tradingName);
+      if (riskRating !== undefined) updateData.riskRating = cleanRisk(riskRating);
 
       if (itfCompliance && !("skip" in itfCompliance)) {
         updateData.taxComplianceStatus = itfCompliance.taxComplianceStatus;
         updateData.taxClearanceExpiryDate = itfCompliance.taxClearanceExpiryDate;
         updateData.taxRevalidationAlertDueAt = itfCompliance.taxRevalidationAlertDueAt;
         updateData.taxRevalidationAlertNotifiedAt = null;
-        updateData.isActive = itfCompliance.isActive;
       }
 
-      const vendor = await prisma.vendor.update({
+      let vendor = await prisma.vendor.update({
         where: { id },
         data: updateData
       });
+      // A renewed clearance brings an auto-expired vendor back; a lapsed one takes an approved vendor out.
+      await VendorGateService.refresh(id);
+      vendor = (await prisma.vendor.findUnique({ where: { id } })) || vendor;
 
       const changed = Object.keys(updateData).filter(
         (k) => String((existingVendor as any)[k] ?? "") !== String((vendor as any)[k] ?? "")
@@ -523,62 +710,122 @@ export class VendorController {
         data: vendor
       });
     } catch (error: any) {
-      res.status(500).json({
+      res.status(policyStatus(error, 500)).json({
         success: false,
-        message: "Failed to update vendor",
+        message: error instanceof VendorPolicyError ? error.message : "Failed to update vendor",
         error: error.message
       });
     }
   }
 
   /**
-   * Delete vendor (soft delete)
+   * Remove a vendor. A vendor with any historical transaction (orders, invoices, quotations, RFQ invitations,
+   * expenses, cashbook) is NEVER destroyed: it is made Inactive and kept with its full history. Only a vendor
+   * nothing ever referenced is deleted outright.
    */
   static async deleteVendor(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
-
-      // Check if vendor exists
-      const vendor = await prisma.vendor.findUnique({
-        where: { id }
-      });
-
+      const vendor = await prisma.vendor.findUnique({ where: { id } });
       if (!vendor) {
-        return res.status(404).json({
-          success: false,
-          message: "Vendor not found"
+        return res.status(404).json({ success: false, message: "Vendor not found" });
+      }
+      const counts = await Promise.all([
+        prisma.purchaseOrder.count({ where: { vendorId: id } }),
+        prisma.procurementInvoice.count({ where: { vendorId: id } }),
+        prisma.purchaseInvoice.count({ where: { vendorId: id } }),
+        prisma.vendorQuotation.count({ where: { vendorId: id } }),
+        prisma.rfqVendorInvitation.count({ where: { vendorId: id } }),
+        prisma.expense.count({ where: { vendorId: id } }),
+        prisma.cashbookEntry.count({ where: { vendorId: id } }),
+      ]);
+      const hasHistory = counts.some((c) => c > 0);
+      if (hasHistory) {
+        const status = normalizeVendorStatus(vendor.lifecycleStatus);
+        if (status !== "INACTIVE") {
+          // Deactivation is a status change like any other: same permission, reason and audit.
+          const from = status || "DRAFT";
+          if (["APPROVED", "SUSPENDED", "BLOCKED", "EXPIRED", "DRAFT", "PENDING_REVIEW", "PENDING_APPROVAL"].includes(from)) {
+            await VendorLifecycleService.transition(id, "INACTIVE", req.user, {
+              reason: String(req.body?.reason || "Removed from the registry (has transaction history, so kept)"),
+              audit: { ip: req.ip, ua: req.get("user-agent") },
+            });
+          }
+        }
+        await AuditService.log({
+          userId: req.user!.id,
+          action: "VENDOR_SOFT_DELETE",
+          entityType: "Vendor",
+          entityId: id,
+          newValues: { reason: "Has transaction history; record preserved", purchaseOrders: counts[0], invoices: counts[1] + counts[2], quotations: counts[3] },
+        }).catch(() => undefined);
+        return res.status(200).json({
+          success: true,
+          deactivated: true,
+          message: `${vendor.name} has transaction history, so the record was kept and the vendor was made Inactive instead of deleted.`,
         });
       }
-
-      // Check if vendor has expenses
-      const expenseCount = await prisma.expense.count({
-        where: { vendorId: id }
-      });
-
-      if (expenseCount > 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Cannot delete vendor that has associated expenses"
-        });
-      }
-
-      // Soft delete by setting isActive to false
-      await prisma.vendor.update({
-        where: { id },
-        data: { isActive: false }
-      });
-
-      res.status(200).json({
-        success: true,
-        message: "Vendor deleted successfully"
-      });
+      await prisma.$transaction([
+        prisma.vendorBank.deleteMany({ where: { vendorId: id } }),
+        prisma.vendorKycDocument.deleteMany({ where: { vendorId: id } }),
+        prisma.rfqClarification.deleteMany({ where: { vendorId: id } }),
+        prisma.vendor.delete({ where: { id } }),
+      ]);
+      await AuditService.log({
+        userId: req.user!.id,
+        action: "VENDOR_DELETE",
+        entityType: "Vendor",
+        entityId: id,
+        oldValues: { vendorCode: vendor.vendorCode, name: vendor.name },
+      }).catch(() => undefined);
+      res.status(200).json({ success: true, deactivated: false, message: "Vendor deleted (it had no history)." });
     } catch (error: any) {
-      res.status(500).json({
+      res.status(policyStatus(error, 500)).json({
         success: false,
-        message: "Failed to delete vendor",
-        error: error.message
+        message: error instanceof VendorPolicyError ? error.message : "Failed to delete vendor",
+        error: error.message,
       });
     }
+  }
+
+  /** POST /vendors/:id/status { status, reason }: the only route that changes a vendor's status. */
+  static async changeVendorStatus(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const to = req.body?.status;
+      if (!to) return res.status(400).json({ success: false, message: "status is required" });
+      const vendor = await VendorLifecycleService.transition(id, to, req.user, {
+        reason: req.body?.reason,
+        audit: { ip: req.ip, ua: req.get("user-agent") },
+      });
+      res.status(200).json({
+        success: true,
+        message: `Vendor is now ${VENDOR_STATUS_LABELS[normalizeVendorStatus(vendor.lifecycleStatus) || "DRAFT"]}.`,
+        data: vendor,
+      });
+    } catch (error: any) {
+      res.status(policyStatus(error, 400)).json({ success: false, code: error?.code, message: error.message });
+    }
+  }
+
+  /** GET /vendors/status-options: statuses, transitions and document types for the UI (no hard-coded lists in the client). */
+  static async getStatusOptions(_req: AuthRequest, res: Response) {
+    res.status(200).json({
+      success: true,
+      data: {
+        statuses: VENDOR_STATUSES.map((s) => ({ code: s, label: VENDOR_STATUS_LABELS[s] })),
+        risk: RISK_CLASSIFICATIONS,
+        documentTypes: VENDOR_DOCUMENT_TYPES.filter((t) => !["CR14", "BANK_LETTER", "ITF263"].includes(t)).map((t) => ({
+          code: t,
+          label: VENDOR_DOCUMENT_TYPE_LABELS[t],
+        })),
+        expiryNoticeDays: await VendorGateService.noticeDays(),
+        // The moves the lifecycle allows, so the UI never hard-codes them.
+        transitions: Object.fromEntries(
+          Object.entries(TRANSITIONS).map(([from, rules]) => [from, (rules as any[]).map((r) => ({ to: r.to, label: VENDOR_STATUS_LABELS[r.to], needs: r.needs, reasonRequired: !!r.reason }))])
+        ),
+      },
+    });
   }
 
   /**
@@ -657,7 +904,7 @@ export class VendorController {
   static async listPendingReviewVendors(req: AuthRequest, res: Response) {
     try {
       const rows = await prisma.vendor.findMany({
-        where: { registrationStatus: "PENDING_REVIEW" },
+        where: { registrationStatus: "PENDING_REVIEW", selfRegistered: true, lifecycleStatus: "PENDING_REVIEW" },
         orderBy: { createdAt: "desc" },
         include: { _count: { select: { banks: true, kycDocuments: true } } },
       });
@@ -672,7 +919,7 @@ export class VendorController {
   static async approveVendorRegistration(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
-      const vendor = await VendorSelfRegistrationService.approvePendingVendor(id);
+      const vendor = await VendorSelfRegistrationService.approvePendingVendor(id, req.user);
       await AuditService.log({
         userId: req.user!.id,
         action: "APPROVE_REGISTRATION",
@@ -698,7 +945,7 @@ export class VendorController {
       }
       res.status(200).json({ success: true, data: vendor });
     } catch (error: any) {
-      res.status(400).json({ success: false, message: error.message });
+      res.status(policyStatus(error, 400)).json({ success: false, code: error?.code, message: error.message });
     }
   }
 
@@ -738,90 +985,36 @@ export class VendorController {
     }
   }
 
-  /** Blacklist: excluded from GET /vendors/for-rfq and blocked from POST /procurement/rfq (and new POs). */
+  /** Block a vendor (Blocked status): cannot be invited, awarded, issued a PO or paid. Same as POST /:id/status BLOCKED. */
   static async blacklistVendor(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
       const reasonRaw = req.body?.blacklistReason ?? req.body?.reason;
-      const blacklistReason =
-        reasonRaw != null && String(reasonRaw).trim() !== ""
-          ? String(reasonRaw).trim()
-          : "Blacklisted";
-
-      const before = await prisma.vendor.findUnique({ where: { id } });
-      if (!before) {
-        return res.status(404).json({ success: false, message: "Vendor not found" });
-      }
-
-      const vendor = await prisma.vendor.update({
-        where: { id },
-        data: { isBlacklisted: true, blacklistReason },
+      const vendor = await VendorLifecycleService.transition(id, "BLOCKED", req.user, {
+        reason: reasonRaw != null && String(reasonRaw).trim() !== "" ? String(reasonRaw).trim() : "Blocked",
+        audit: { ip: req.ip, ua: req.get("user-agent") },
       });
-
-      await AuditService.log({
-        userId: req.user.id,
-        action: "BLACKLIST",
-        entityType: "Vendor",
-        entityId: id,
-        oldValues: {
-          isBlacklisted: before.isBlacklisted,
-          blacklistReason: before.blacklistReason,
-        },
-        newValues: {
-          isBlacklisted: true,
-          blacklistReason: vendor.blacklistReason,
-        },
-        ipAddress: req.ip || undefined,
-        userAgent: req.get("user-agent") || undefined,
-      });
-
       res.status(200).json({
         success: true,
-        message: "Vendor blacklisted. They will not appear in RFQ vendor picker and cannot be sent new RFQs.",
+        message: "Vendor blocked. They cannot be invited to RFQs, awarded, issued purchase orders or paid.",
         data: vendor,
       });
     } catch (error: any) {
-      res.status(400).json({ success: false, message: error.message });
+      res.status(policyStatus(error, 400)).json({ success: false, code: error?.code, message: error.message });
     }
   }
 
+  /** Reinstate a blocked vendor (Blocked -> Approved), with a reason. */
   static async unblacklistVendor(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
-      const before = await prisma.vendor.findUnique({ where: { id } });
-      if (!before) {
-        return res.status(404).json({ success: false, message: "Vendor not found" });
-      }
-
-      const vendor = await prisma.vendor.update({
-        where: { id },
-        data: { isBlacklisted: false, blacklistReason: null },
+      const vendor = await VendorLifecycleService.transition(id, "APPROVED", req.user, {
+        reason: String(req.body?.reason || "Reinstated"),
+        audit: { ip: req.ip, ua: req.get("user-agent") },
       });
-
-      await AuditService.log({
-        userId: req.user.id,
-        action: "UNBLACKLIST",
-        entityType: "Vendor",
-        entityId: id,
-        oldValues: {
-          isBlacklisted: before.isBlacklisted,
-          blacklistReason: before.blacklistReason,
-        },
-        newValues: {
-          isBlacklisted: false,
-          blacklistReason: null,
-        },
-        ipAddress: req.ip || undefined,
-        userAgent: req.get("user-agent") || undefined,
-      });
-
-      res.status(200).json({
-        success: true,
-        message: "Vendor removed from blacklist.",
-        data: vendor,
-      });
+      res.status(200).json({ success: true, message: "Vendor reinstated.", data: vendor });
     } catch (error: any) {
-      res.status(400).json({ success: false, message: error.message });
+      res.status(policyStatus(error, 400)).json({ success: false, code: error?.code, message: error.message });
     }
   }
 
@@ -898,13 +1091,74 @@ export class VendorController {
         documentType,
         file,
         uploadedById: req.user.id,
+        meta: {
+          expiryDate: req.body.expiryDate ?? req.body.expiry_date,
+          issueDate: req.body.issueDate ?? req.body.issue_date,
+          documentNumber: req.body.documentNumber ?? req.body.document_number,
+          notifyDaysBefore: req.body.notifyDaysBefore ?? req.body.notify_days_before,
+        },
       });
+      await AuditService.log({
+        userId: req.user.id,
+        action: "VENDOR_DOCUMENT_UPLOAD",
+        entityType: "Vendor",
+        entityId: id,
+        newValues: { documentId: row.id, documentType: row.documentType, expiryDate: row.expiryDate },
+      }).catch(() => undefined);
       res.status(201).json({
         success: true,
         data: VendorKycService.formatKycDocumentResponse(row as Record<string, unknown>),
       });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /** PUT /vendors/kyc-documents/:documentId: set/renew a document's expiry, issue date, number and notice period. */
+  static async updateVendorKyc(req: AuthRequest, res: Response) {
+    try {
+      const row = await VendorKycService.updateMeta(req.params.documentId, req.body || {});
+      await AuditService.log({
+        userId: req.user.id,
+        action: "VENDOR_DOCUMENT_UPDATE",
+        entityType: "Vendor",
+        entityId: row.vendorId,
+        newValues: { documentId: row.id, expiryDate: row.expiryDate, notifyDaysBefore: row.notifyDaysBefore },
+      }).catch(() => undefined);
+      res.status(200).json({ success: true, data: VendorKycService.formatKycDocumentResponse(row as Record<string, unknown>) });
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /** GET/PUT /vendors/document-settings: default pre-expiry lead time (days) for vendor documents. */
+  static async getDocumentSettings(_req: AuthRequest, res: Response) {
+    res.status(200).json({ success: true, data: { expiryNoticeDays: await VendorGateService.noticeDays() } });
+  }
+
+  static async updateDocumentSettings(req: AuthRequest, res: Response) {
+    try {
+      const n = Number(req.body?.expiryNoticeDays);
+      if (!Number.isInteger(n) || n < 0 || n > 730) {
+        return res.status(400).json({ success: false, message: "expiryNoticeDays must be a whole number of days from 0 to 730" });
+      }
+      const existing = await prisma.vendorDocumentUploadSettings.findFirst();
+      if (existing) await prisma.vendorDocumentUploadSettings.update({ where: { id: existing.id }, data: { expiryNoticeDays: n } });
+      else await prisma.vendorDocumentUploadSettings.create({ data: { id: "default", allowedFileTypes: [], expiryNoticeDays: n } });
+      await AuditService.log({ userId: req.user.id, action: "VENDOR_DOCUMENT_SETTINGS_UPDATE", entityType: "VendorDocumentUploadSettings", entityId: "default", newValues: { expiryNoticeDays: n } }).catch(() => undefined);
+      res.status(200).json({ success: true, data: { expiryNoticeDays: n } });
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /** POST /vendors/compliance-cycle: run the expiry sync and pre-expiry notifications now. */
+  static async runComplianceCycle(_req: AuthRequest, res: Response) {
+    try {
+      const summary = await VendorComplianceJobService.runCycle();
+      res.status(200).json({ success: true, data: summary });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
     }
   }
 

@@ -2,6 +2,7 @@
 import express from 'express';
 import { MultiCurrencyController } from '../controllers/MultiCurrencyController';
 import { authenticate } from '../middleware/authenticate';
+import { FxRatesController } from '../controllers/FxRatesController';
 
 const router = express.Router();
 
@@ -52,6 +53,20 @@ router.use(authenticate);
  *       401:
  *         description: Unauthorized
  */
+// the stored rate table (what the ledger converts with), exposure by currency — FxRatesController
+router.get('/rates', FxRatesController.list);
+router.post('/rates', FxRatesController.upsert);
+router.get('/exposure', FxRatesController.exposure);
+// month-end revaluation of foreign-currency balances (FX-01): what it would book, and the draft journal for an approver
+router.get('/revaluation', async (req: any, res: any) => {
+  try { const { FxRevaluationService } = await import('../services/FxRevaluationService'); res.json({ success: true, data: await FxRevaluationService.preview(String(req.query.asOf || '')) }); }
+  catch (e: any) { res.status(e?.statusCode || 500).json({ success: false, message: e?.message || 'Failed to preview the revaluation' }); }
+});
+router.post('/revaluation', async (req: any, res: any) => {
+  try { const { FxRevaluationService } = await import('../services/FxRevaluationService'); res.status(201).json({ success: true, data: await FxRevaluationService.prepare(String(req.body?.asOf || ''), req.user.id) }); }
+  catch (e: any) { res.status(e?.statusCode || 500).json({ success: false, message: e?.message || 'Failed to prepare the revaluation' }); }
+});
+
 router.post('/exchange-rates', MultiCurrencyController.createExchangeRate);
 
 /**

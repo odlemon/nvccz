@@ -2,6 +2,19 @@
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
 import { parseDate } from "../utils/dateHelper";
+import { userHasEffectivePermission } from "../config/cfoModulePermissions";
+import { perfScopeOf } from "./PerformanceScope";
+
+/**
+ * The week-ending and entry dates are DATE columns. parseDate() anchors a date-only string at noon UTC, and a
+ * DATE column never equals a noon timestamp, so lookups by that value missed the row that had just been saved
+ * (a second entry in a week hit the unique index instead of updating). Dates are compared at UTC midnight.
+ */
+function asDateOnly(input: string | Date): Date {
+  const d = new Date(parseDate(input));
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
 
 export type UpsertEntryInput = {
   projectId: string;
@@ -9,6 +22,7 @@ export type UpsertEntryInput = {
   hours: number | string;
   billable?: boolean;
   notes?: string | null;
+  taskId?: string | null;
 };
 
 const EDITABLE_STATUSES = ["DRAFT", "RETURNED"];
@@ -24,7 +38,7 @@ export class TimesheetService {
 
   /** Fetch the user's timesheet for a given week-ending date, creating a DRAFT one if absent. */
   static async getOrCreateTimesheet(userId: string, weekEnding: string | Date) {
-    const weekEndingDate = parseDate(weekEnding);
+    const weekEndingDate = asDateOnly(weekEnding);
     return prisma.timesheet.upsert({
       where: { userId_weekEnding: { userId, weekEnding: weekEndingDate } },
       update: {},
@@ -47,9 +61,32 @@ export class TimesheetService {
   }
 
   /** Timesheets awaiting a manager decision (SUBMITTED). */
-  static async listPendingApproval() {
+  /**
+   * Who may approve or return someone's timesheet: someone in the same department (the approval guard already required
+   * accounting.timesheets.manage), or an organisation-wide approver — the
+   * Performance organisation scope. Never one's own. Without this a manager could approve another department's week by id.
+   */
+  static async approverReach(approverId: string): Promise<{ all: boolean; departments: string[]; departmentId: string | null }> {
+    const u: any = await prisma.user.findUnique({ where: { id: approverId }, include: { role: true, department: { select: { name: true } } } });
+    if (!u) return { all: false, departments: [], departmentId: null };
+    if (perfScopeOf(u) === "organization") return { all: true, departments: [], departmentId: null };
+    const names = [u.userDepartment, u.department?.name].filter(Boolean).map((x: string) => String(x));
+    return { all: false, departments: [...new Set(names)], departmentId: u.departmentId || null };
+  }
+
+  private static async assertApproverReach(timesheet: any, approverId: string) {
+    const reach = await TimesheetService.approverReach(approverId);
+    if (reach.all) return;
+    const owner: any = await prisma.user.findUnique({ where: { id: timesheet.userId }, select: { userDepartment: true, departmentId: true } });
+    const same = (!!reach.departmentId && owner?.departmentId === reach.departmentId) || (!!owner?.userDepartment && reach.departments.includes(owner.userDepartment));
+    if (!same) throw Object.assign(new Error("You can only approve timesheets from your own department"), { statusCode: 403 });
+  }
+
+  static async listPendingApproval(approverId?: string) {
+    const reach = approverId ? await TimesheetService.approverReach(approverId) : { all: true, departments: [], departmentId: null };
+    const scope = reach.all ? {} : { user: { OR: [...(reach.departmentId ? [{ departmentId: reach.departmentId }] : []), ...(reach.departments.length ? [{ userDepartment: { in: reach.departments } }] : []), { id: "__none__" }] } };
     return prisma.timesheet.findMany({
-      where: { status: "SUBMITTED" },
+      where: { status: "SUBMITTED", ...scope, ...(approverId ? { userId: { not: approverId } } : {}) },
       orderBy: { submittedAt: "asc" },
       include: {
         user: { select: { id: true, firstName: true, lastName: true, email: true } },
@@ -70,12 +107,9 @@ export class TimesheetService {
    * permission, not a department-scoped one.
    */
   static async listForManager(managerUserId: string) {
-    const manager = await prisma.user.findUnique({
-      where: { id: managerUserId },
-      select: { userDepartment: true },
-    });
-
-    const where = manager?.userDepartment ? { user: { userDepartment: manager.userDepartment } } : {};
+    // the same reach as approving: the whole organisation for an organisation-wide approver, otherwise one's department
+    const reach = await TimesheetService.approverReach(managerUserId);
+    const where = reach.all ? {} : { user: { OR: [...(reach.departmentId ? [{ departmentId: reach.departmentId }] : []), ...(reach.departments.length ? [{ userDepartment: { in: reach.departments } }] : []), { id: managerUserId }] } };
 
     return prisma.timesheet.findMany({
       where,
@@ -113,11 +147,16 @@ export class TimesheetService {
     if (hoursDec.lessThanOrEqualTo(0) || hoursDec.greaterThan(24)) {
       throw new Error("hours must be greater than 0 and no more than 24");
     }
-    const entryDate = parseDate(input.date);
+    const entryDate = asDateOnly(input.date);
 
     const existing = await prisma.timesheetEntry.findFirst({
-      where: { timesheetId, projectId: input.projectId, date: entryDate },
+      where: { timesheetId, projectId: input.projectId, date: entryDate, taskId: input.taskId ?? null },
     });
+
+    // One day cannot hold more than 24 hours across all lines.
+    const sameDay = await prisma.timesheetEntry.findMany({ where: { timesheetId, date: entryDate }, select: { id: true, hours: true } });
+    const others = sameDay.filter((e) => !existing || e.id !== existing.id).reduce((a, e) => a + Number(e.hours), 0);
+    if (others + Number(hoursDec) > 24) throw new Error(`That day would total ${others + Number(hoursDec)} hours. A day holds at most 24.`);
 
     if (existing) {
       return prisma.timesheetEntry.update({
@@ -126,6 +165,7 @@ export class TimesheetService {
           hours: hoursDec,
           billable: input.billable ?? existing.billable,
           notes: input.notes !== undefined ? input.notes : existing.notes,
+          taskId: input.taskId !== undefined ? input.taskId : existing.taskId,
         },
         include: { project: true },
       });
@@ -139,9 +179,20 @@ export class TimesheetService {
         hours: hoursDec,
         billable: input.billable ?? false,
         notes: input.notes ?? null,
+        taskId: input.taskId ?? null,
       },
       include: { project: true },
     });
+  }
+
+  /** Remove one line from a week that is still editable. */
+  static async deleteEntry(entryId: string, userId: string) {
+    const entry = await prisma.timesheetEntry.findUnique({ where: { id: entryId }, include: { timesheet: true } });
+    if (!entry) throw new Error("Entry not found");
+    if (entry.timesheet.userId !== userId) throw new Error("You can only change your own timesheet");
+    if (!EDITABLE_STATUSES.includes(entry.timesheet.status)) throw new Error(`Cannot edit entries on a ${entry.timesheet.status} timesheet`);
+    await prisma.timesheetEntry.delete({ where: { id: entryId } });
+    return { id: entryId };
   }
 
   /** DRAFT|RETURNED -> SUBMITTED. */
@@ -161,7 +212,7 @@ export class TimesheetService {
     }
     return prisma.timesheet.update({
       where: { id: timesheetId },
-      data: { status: "SUBMITTED", submittedAt: new Date() },
+      data: { status: "SUBMITTED", submittedAt: new Date(), returnReason: null },
     });
   }
 
@@ -177,6 +228,7 @@ export class TimesheetService {
     if (timesheet.userId === approvedById) {
       throw new Error("You cannot approve your own timesheet");
     }
+    await TimesheetService.assertApproverReach(timesheet, approvedById);
     return prisma.timesheet.update({
       where: { id: timesheetId },
       data: { status: "APPROVED", approvedById, approvedAt: new Date() },
@@ -184,7 +236,7 @@ export class TimesheetService {
   }
 
   /** SUBMITTED -> RETURNED (sent back to the employee for correction). */
-  static async returnTimesheet(timesheetId: string, approvedById: string) {
+  static async returnTimesheet(timesheetId: string, approvedById: string, reason?: string) {
     const timesheet = await prisma.timesheet.findUnique({ where: { id: timesheetId } });
     if (!timesheet) {
       throw new Error("Timesheet not found");
@@ -195,9 +247,12 @@ export class TimesheetService {
     if (timesheet.userId === approvedById) {
       throw new Error("You cannot return your own timesheet");
     }
+    await TimesheetService.assertApproverReach(timesheet, approvedById);
+    const why = String(reason || "").trim();
+    if (!why) throw new Error("Say what needs to be corrected before returning the timesheet");
     return prisma.timesheet.update({
       where: { id: timesheetId },
-      data: { status: "RETURNED", approvedById, approvedAt: new Date() },
+      data: { status: "RETURNED", approvedById, approvedAt: new Date(), returnReason: why.slice(0, 500) },
     });
   }
 }

@@ -3,11 +3,15 @@ import express from "express";
 import { PerformanceReviewCycleController } from "../controllers/PerformanceReviewCycleController";
 import { authenticate } from "../middleware/authenticate";
 import { methodGuard } from "../middleware/methodGuard"
+import { orgOnly } from "../services/PerformanceScope";
 
 const router = express.Router();
 const READ_KEYS = ["performance.reviews.view", "performance.reviews.manage"]
 const WRITE_KEYS = ["performance.reviews.manage"]
 const guard = methodGuard(READ_KEYS, WRITE_KEYS)
+// review cycles run across the whole organisation: setting one up, changing, closing or deleting it needs reviews.manage
+// with the organisation scope (HR, executives, administrators)
+const cycleAdmin = orgOnly("Review cycles are run by organisation-wide roles (HR, executives, administrators).")
 
 /**
  * @swagger-disabled-legacy
@@ -145,7 +149,7 @@ const guard = methodGuard(READ_KEYS, WRITE_KEYS)
  *       401:
  *         description: Unauthorized
  */
-router.post("/", authenticate, guard, PerformanceReviewCycleController.createReviewCycle);
+router.post("/", authenticate, guard, cycleAdmin, PerformanceReviewCycleController.createReviewCycle);
 
 /**
  * @swagger-disabled-legacy
@@ -241,6 +245,8 @@ router.get("/", authenticate, guard, PerformanceReviewCycleController.getAllRevi
  *       401:
  *         description: Unauthorized
  */
+// declared before "/:cycleId", which otherwise took "active" for a cycle id
+router.get("/active", authenticate, guard, PerformanceReviewCycleController.getActiveReviewCycle);
 router.get("/:cycleId", authenticate, guard, PerformanceReviewCycleController.getReviewCycleById);
 
 /**
@@ -318,7 +324,7 @@ router.get("/:cycleId", authenticate, guard, PerformanceReviewCycleController.ge
  *       401:
  *         description: Unauthorized
  */
-router.put("/:cycleId", authenticate, guard, PerformanceReviewCycleController.updateReviewCycle);
+router.put("/:cycleId", authenticate, guard, cycleAdmin, PerformanceReviewCycleController.updateReviewCycle);
 
 /**
  * @swagger-disabled-legacy
@@ -352,7 +358,7 @@ router.put("/:cycleId", authenticate, guard, PerformanceReviewCycleController.up
  *       401:
  *         description: Unauthorized
  */
-router.delete("/:cycleId", authenticate, guard, PerformanceReviewCycleController.deleteReviewCycle);
+router.delete("/:cycleId", authenticate, guard, cycleAdmin, PerformanceReviewCycleController.deleteReviewCycle);
 
 /**
  * @swagger-disabled-legacy
@@ -383,7 +389,7 @@ router.delete("/:cycleId", authenticate, guard, PerformanceReviewCycleController
  *       401:
  *         description: Unauthorized
  */
-router.get("/active", authenticate, guard, PerformanceReviewCycleController.getActiveReviewCycle);
+
 
 /**
  * @swagger-disabled-legacy
@@ -410,7 +416,7 @@ router.get("/active", authenticate, guard, PerformanceReviewCycleController.getA
  *       401:
  *         description: Unauthorized
  */
-router.post("/check-deadlines", authenticate, guard, PerformanceReviewCycleController.checkReviewCycleDeadlines);
+router.post("/check-deadlines", authenticate, guard, cycleAdmin, PerformanceReviewCycleController.checkReviewCycleDeadlines);
 
 /**
  * @swagger-disabled-legacy
@@ -514,6 +520,6 @@ router.get("/:cycleId/stats", authenticate, guard, PerformanceReviewCycleControl
  *       401:
  *         description: Unauthorized
  */
-router.post("/:cycleId/close", authenticate, guard, PerformanceReviewCycleController.closeReviewCycle);
+router.post("/:cycleId/close", authenticate, guard, cycleAdmin, PerformanceReviewCycleController.closeReviewCycle);
 
 export default router;

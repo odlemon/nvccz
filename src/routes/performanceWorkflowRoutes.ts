@@ -3,6 +3,7 @@ import express from "express";
 import { PerformanceWorkflowController } from "../controllers/PerformanceWorkflowController";
 import { authenticate } from "../middleware/authenticate";
 import { methodGuard } from "../middleware/methodGuard"
+import { requireInternalStaffUser } from "../middleware/permissionAuth"
 
 const router = express.Router();
 const READ_KEYS = ["performance.workflow.view", "performance.workflow.manage"]
@@ -41,6 +42,20 @@ const guard = methodGuard(READ_KEYS, WRITE_KEYS)
  *       401:
  *         description: Unauthorized
  */
+/**
+ * @swagger
+ * /api/performance/workflow/pending:
+ *   get:
+ *     summary: The approval inbox — every item waiting on the signed-in person that they may act on
+ *     tags: [Performance Workflow]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: "{ total, items: [{ kind, id, title, detail, since, page, tab? }] }"
+ */
+router.get("/pending", authenticate, requireInternalStaffUser(), PerformanceWorkflowController.pendingForMe);
+
 router.post("/auto-assign-goals/:goalId", authenticate, guard, PerformanceWorkflowController.autoAssignGoals);
 
 /**

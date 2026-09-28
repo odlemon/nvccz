@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { PerformanceReviewCycleService } from "../services/PerformanceReviewCycleService";
 import { isAdminViewer, isCEO, isHRLeader, isSysAdmin } from "../services/performanceScorecardSupport";
+import { perfScopeOf } from "../services/PerformanceScope";
 
 export class PerformanceReviewCycleController {
   /**
@@ -27,7 +28,8 @@ export class PerformanceReviewCycleController {
         where: { id: userId },
         include: { role: true }
       });
-      if (!actor || !(isCEO(actor) || isHRLeader(actor) || isSysAdmin(actor) || isAdminViewer(actor))) {
+      // who may run cycles is decided by the router (reviews.manage + the organisation scope); this stays as a second check
+      if (!actor || perfScopeOf(actor) !== "organization") {
         return res.status(403).json({
           success: false,
           message:

@@ -4,6 +4,9 @@ import { logger } from "../utils/logger";
 import { isModulePrivilegedUser } from "../config/cfoModulePermissions";
 import { isExternalPortalUser } from "../utils/portalAuth";
 import AuditService from "./AuditService";
+import { UserMasterPolicyService } from "./UserMasterPolicyService";
+import { ProcurementDecisionLogService } from "./ProcurementDecisionLogService";
+import { isUserAvailable, fullNameOf } from "../config/userMasterAccess";
 
 const STAGE = "PURCHASE_REQUISITION";
 const STEP_NOTIFICATION = "PROCUREMENT_REQUISITION_APPROVAL";
@@ -131,7 +134,12 @@ export class ProcurementRequisitionApprovalService {
           kind: d.kind,
           who: d.who,
           aboveAmount: d.aboveAmount,
-          approvers: s.rows.map((r) => ({ id: r.approverId, name: personName(r.approver) })),
+          approvers: s.rows.map((r) => ({
+            id: r.approverId,
+            name: personName(r.approver),
+            status: r.status,
+            note: r.comments ?? null,
+          })),
           status,
           decidedBy: decided ? personName(decided.delegatedTo || decided.approver) : null,
           decidedById: decided ? decided.delegatedToId || decided.approverId : null,
@@ -165,7 +173,7 @@ export class ProcurementRequisitionApprovalService {
     for (const r of list) r.project = projects.find((p) => p.id === r.projectId) ?? null;
     if (!ids.length) return requisitions;
     const requests = await prisma.approvalRequest.findMany({
-      where: { entityId: { in: ids }, stageType: STAGE, status: { in: ["PENDING", "APPROVED", "REJECTED"] } },
+      where: { entityId: { in: ids }, stageType: STAGE, status: { in: ["PENDING", "APPROVED", "REJECTED", "RETURNED"] } },
       orderBy: { requestDate: "desc" },
       include: APPROVALS_INCLUDE,
     });
@@ -194,7 +202,7 @@ export class ProcurementRequisitionApprovalService {
    * The decider must be an approver on the step the requisition is at. An administrator or the CFO may decide a step
    * assigned to someone else, and is recorded as the person who acted.
    */
-  static async decide(params: { requisitionId: string; actorId: string; decision: "APPROVE" | "REJECT"; reason?: string }) {
+  static async decide(params: { requisitionId: string; actorId: string; decision: "APPROVE" | "REJECT" | "RETURN" | "COMMENT"; reason?: string }) {
     const request = await this.openRequest(params.requisitionId);
     const step = request ? this.currentStepOf(request) : null;
     if (!request || step == null) return null;
@@ -220,6 +228,29 @@ export class ProcurementRequisitionApprovalService {
 
     const row = own || atStep[0];
     const { ApprovalService } = await import("./ApprovalService");
+    const stepInfo = { stepNumber: row.stage.stepNumber, stepName: row.stage.stepName };
+    const onBehalfOfId = own ? null : row.approverId;
+
+    if (params.decision === "COMMENT" || params.decision === "RETURN") {
+      await UserMasterPolicyService.assertCanAct(prisma, params.actorId);
+      const text = String(params.reason || "").trim();
+      if (!text) throw badRequest(params.decision === "RETURN" ? "A comment is required to return a requisition for amendment." : "Write a comment first.");
+      const req = await prisma.purchaseRequisition.findUnique({ where: { id: params.requisitionId }, select: { requestedById: true } });
+      if (req?.requestedById === params.actorId) throw badRequest("You raised this requisition, so you cannot act on its approval.", 403);
+      if (params.decision === "COMMENT") {
+        await ProcurementDecisionLogService.record({
+          entityType: "PurchaseRequisition", entityId: params.requisitionId, requestId: request.id, approvalId: row.id, ...stepInfo,
+          actorId: params.actorId, onBehalfOfId, action: "COMMENTED", comments: text,
+          previousStatus: "PENDING_APPROVAL", resultingStatus: "PENDING_APPROVAL",
+        });
+        await AuditService.log({ userId: params.actorId, action: "COMMENT", entityType: "PurchaseRequisition", entityId: params.requisitionId, newValues: { step: stepInfo.stepName, comment: text } });
+        const same = await prisma.purchaseRequisition.findUnique({ where: { id: params.requisitionId }, include: REQUISITION_INCLUDE });
+        same.approvalRoute = this.routeOf(request, await this.roleNames());
+        return same;
+      }
+      return this.returnForAmendment({ request, row, actor, text, stepInfo, onBehalfOfId });
+    }
+
     if (params.decision === "APPROVE") {
       await ApprovalService.approveApproval({
         approvalId: row.id,
@@ -240,6 +271,15 @@ export class ProcurementRequisitionApprovalService {
     }
     const route = this.routeOf(after, await this.roleNames());
     const decidedStep = route.steps.find((s) => s.stepNumber === step);
+    await ProcurementDecisionLogService.record({
+      entityType: "PurchaseRequisition", entityId: params.requisitionId, requestId: request.id, approvalId: row.id, ...stepInfo,
+      actorId: params.actorId, onBehalfOfId,
+      action: params.decision === "REJECT" ? "REJECTED" : "APPROVED",
+      comments: params.reason || (own ? null : `Approved by ${personName(actor)} as an administrator`),
+      previousStatus: "PENDING_APPROVAL",
+      resultingStatus: after.status === "APPROVED" ? "APPROVED" : after.status === "REJECTED" ? "REJECTED" : "PENDING_APPROVAL",
+      detail: { step: `${decidedStep?.position ?? "?"} of ${route.totalSteps}`, waitingOn: route.waitingOn?.who ?? null },
+    });
     await AuditService.log({
       userId: params.actorId,
       action: params.decision === "REJECT" ? "REJECT" : after.status === "APPROVED" ? "APPROVE" : "APPROVE_STEP",
@@ -261,6 +301,102 @@ export class ProcurementRequisitionApprovalService {
     });
     requisition.approvalRoute = route;
     return requisition;
+  }
+
+  /**
+   * Return for amendment: unlike a rejection this is not a verdict. The route is closed, the requisition goes back to its
+   * requester as RETURNED, they amend it and resubmit, and it is routed afresh (criteria may have changed with the
+   * amendment). A content fingerprint makes an unchanged resubmission impossible.
+   */
+  private static async returnForAmendment(a: { request: any; row: any; actor: any; text: string; stepInfo: any; onBehalfOfId: string | null }) {
+    const { request, row, actor, text, stepInfo, onBehalfOfId } = a;
+    const { computePurchaseRequisitionContentFingerprint } = await import("../utils/purchaseRequisitionContentFingerprint");
+    const current = await prisma.purchaseRequisition.findUnique({ where: { id: request.entityId }, include: { items: true } });
+    if (!current) throw badRequest("Requisition not found", 404);
+    const now = new Date();
+    await prisma.$transaction(async (tx) => {
+      await tx.approval.update({ where: { id: row.id }, data: { status: "RETURNED", comments: text, rejectedAt: now } });
+      await tx.approval.updateMany({
+        where: { requestId: request.id, status: "PENDING" },
+        data: { status: "CANCELLED", comments: "Closed: the requisition was returned for amendment" },
+      });
+      await tx.approvalRequest.update({ where: { id: request.id }, data: { status: "RETURNED", rejectionReason: text, rejectedAt: now } });
+      await tx.purchaseRequisition.update({
+        where: { id: current.id },
+        data: { status: "RETURNED", rejectionReason: text, rejectionContentFingerprint: computePurchaseRequisitionContentFingerprint(current as any) },
+      });
+    });
+    await ProcurementDecisionLogService.record({
+      entityType: "PurchaseRequisition", entityId: current.id, requestId: request.id, approvalId: row.id, ...stepInfo,
+      actorId: actor.id, onBehalfOfId, action: "RETURNED", comments: text,
+      previousStatus: "PENDING_APPROVAL", resultingStatus: "RETURNED",
+    });
+    await AuditService.log({
+      userId: actor.id, action: "RETURN", entityType: "PurchaseRequisition", entityId: current.id,
+      newValues: { status: "RETURNED", step: stepInfo.stepName, reason: text, ...(onBehalfOfId ? { onBehalfOf: onBehalfOfId } : {}) },
+    });
+    try {
+      const { notify } = await import("./notifications/ProcurementNotifier");
+      const r = await prisma.purchaseRequisition.findUnique({ where: { id: current.id }, select: { id: true, requisitionNumber: true, title: true, requestedById: true } });
+      if (r) await notify("REQUISITION_RETURNED", { userIds: [r.requestedById], actorId: actor.id, entityType: "PurchaseRequisition", entityId: r.id, vars: { ref: r.requisitionNumber, title: r.title, actor: personName(actor), reason: text } });
+    } catch (e: any) {
+      logger.error("Return notification failed", { error: String(e?.message || e) });
+    }
+    const out = await prisma.purchaseRequisition.findUnique({ where: { id: current.id }, include: REQUISITION_INCLUDE });
+    const after = await prisma.approvalRequest.findUnique({ where: { id: request.id }, include: APPROVALS_INCLUDE });
+    out.approvalRoute = this.routeOf(after, await this.roleNames());
+    return out;
+  }
+
+  /** Who the current approver could hand this step to: the same rules the delegation gate applies, each with a reason if not. */
+  static async delegateCandidates(requisitionId: string, actorId: string) {
+    const request = await this.openRequest(requisitionId);
+    const step = request ? this.currentStepOf(request) : null;
+    if (!request || step == null) throw badRequest("This requisition is not waiting on an approver.", 409);
+    const row = request.approvals.find((x) => x.status === "PENDING" && x.stage.stepNumber === step && x.approverId === actorId);
+    if (!row) throw badRequest("You are not an approver on the step this requisition is at.", 403);
+    const canDelegate = row.stage.canDelegate === true;
+    const amount = await UserMasterPolicyService.entityAmount(prisma, STAGE, requisitionId, request.entityData);
+    const requisition = await prisma.purchaseRequisition.findUnique({ where: { id: requisitionId }, select: { requestedById: true } });
+    const peers = request.approvals.filter((x) => x.status === "PENDING" && x.stage.stepNumber === step).map((x) => x.approverId);
+    const staff = await prisma.user.findMany({
+      where: { id: { not: actorId } },
+      select: { id: true, firstName: true, lastName: true, email: true, roleCode: true, userDepartment: true, status: true, effectiveDate: true, endDate: true, approvalLimitAmount: true, approvalLevel: true, accessProfile: true, procurementFunction: true, role: { select: { name: true } } },
+      orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+    });
+    const people = staff
+      .filter((u) => !isExternalPortalUser(u))
+      .map((u) => {
+        const why = UserMasterPolicyService.delegateIneligibility(u, {
+          requesterId: request.requestedById, raiserId: requisition?.requestedById, amount,
+          minApprovalLevel: row.stage.minApprovalLevel ?? null, alreadyAtStep: peers,
+        });
+        return { id: u.id, name: personName(u), role: u.role?.name ?? null, department: u.userDepartment ?? null, eligible: !why, reason: why?.message ?? null };
+      });
+    return { canDelegate, step: row.stage.stepName, amount, people };
+  }
+
+  /** Hands the caller's step to another user. Allowed only where the matrix step allows delegation and the delegate is eligible. */
+  static async delegate(params: { requisitionId: string; actorId: string; delegatedToId: string; reason?: string }) {
+    const request = await this.openRequest(params.requisitionId);
+    const step = request ? this.currentStepOf(request) : null;
+    if (!request || step == null) throw badRequest("This requisition is not waiting on an approver.", 409);
+    const row = request.approvals.find((x) => x.status === "PENDING" && x.stage.stepNumber === step && x.approverId === params.actorId);
+    if (!row) throw badRequest("Only an approver on the step this requisition is at can delegate it.", 403);
+    if (row.stage.canDelegate !== true) throw badRequest(`Delegation is not allowed on the step "${row.stage.stepName}". Ask an administrator to enable it in the approval matrix.`, 403);
+    if (!String(params.reason || "").trim()) throw badRequest("Say why you are delegating.");
+    const { ApprovalService } = await import("./ApprovalService");
+    await ApprovalService.delegateApproval({ approvalId: row.id, fromUserId: params.actorId, delegatedToId: params.delegatedToId, reason: String(params.reason).trim() });
+    await this.notifyCurrentStepQuietly(request.id);
+    const out = await prisma.purchaseRequisition.findUnique({ where: { id: params.requisitionId }, include: REQUISITION_INCLUDE });
+    const after = await this.openRequest(params.requisitionId);
+    out.approvalRoute = after ? this.routeOf(after, await this.roleNames()) : null;
+    return out;
+  }
+
+  /** The requisition's decision history: every submit, decision, comment, delegation and return, in order. */
+  static async decisions(requisitionId: string) {
+    return ProcurementDecisionLogService.list("PurchaseRequisition", requisitionId);
   }
 
   /** Requisitions waiting on this person: they are an approver on the step each one is at. */
@@ -334,47 +470,30 @@ export class ProcurementRequisitionApprovalService {
         },
       });
       if (r) {
-        const title = clip(`${r.requisitionNumber} needs your approval`, 150);
-        const message = clip(
-          `${personName(r.requestedBy)} requests "${r.title}" (${r.department ?? "no department"}, ${r.currency?.code ?? "USD"} ${money(r.totalAmount)}). Step ${waiting.position} of ${route.totalSteps}: ${waiting.who}.`,
-          180
-        );
-        for (const row of rows) {
-          const earlier = await prisma.notification.findMany({
-            where: { userId: row.approverId, type: STEP_NOTIFICATION, relatedEntityId: r.id },
-            select: { data: true },
+        const earlier = await prisma.notification.findMany({
+          where: { userId: { in: rows.map((x) => x.approverId) }, type: "PROCUREMENT_APPROVAL_REQUIRED", relatedEntityId: r.id },
+          select: { userId: true, data: true },
+        });
+        const fresh = rows.filter((row) => !earlier.some((n: any) => n.userId === row.approverId && n.data?.requestId === request.id && n.data?.stepNumber === step));
+        if (waiting.position === 1) {
+          // the route has just started: the requester gets a receipt for the submission
+          const { notify: receipt } = await import("./notifications/ProcurementNotifier");
+          await receipt("REQUISITION_SUBMITTED", {
+            userIds: [r.requestedBy.id], entityType: "PurchaseRequisition", entityId: r.id, data: { path: REQUISITIONS_PATH, requestId: request.id },
+            vars: { ref: r.requisitionNumber, title: r.title, department: r.department, amount: `${r.currency?.code ?? ""} ${money(r.totalAmount)}`.trim(), steps: route.totalSteps },
           });
-          if (earlier.some((n) => n.data?.requestId === request.id && n.data?.stepNumber === step)) continue;
-          await prisma.notification.create({
-            data: {
-              userId: row.approverId,
-              type: STEP_NOTIFICATION,
-              title,
-              message,
-              relatedEntity: "PurchaseRequisition",
-              relatedEntityId: r.id,
-              data: {
-                path: APPROVALS_PATH,
-                requisitionId: r.id,
-                requisitionNumber: r.requisitionNumber,
-                requestId: request.id,
-                stepNumber: step,
-                position: waiting.position,
-                totalSteps: route.totalSteps,
-              },
-            },
+        }
+        if (fresh.length) {
+          const { notify } = await import("./notifications/ProcurementNotifier");
+          const amount = `${r.currency?.code ?? ""} ${money(r.totalAmount)}`.trim();
+          await notify("APPROVAL_REQUIRED", {
+            data: { path: APPROVALS_PATH, requisitionId: r.id, requisitionNumber: r.requisitionNumber, requestId: request.id, stepNumber: step, position: waiting.position, totalSteps: route.totalSteps },
+            userIds: fresh.map((x) => x.approverId), entityType: "PurchaseRequisition", entityId: r.id,
+            vars: { ref: r.requisitionNumber, title: r.title, amount, requester: personName(r.requestedBy), department: r.department, step: `${waiting.position} of ${route.totalSteps}` },
           });
         }
       }
     }
-
-    // Email through the engine's own step notification, numbered as the approver sees the route.
-    const { ProcurementApprovalConfigService } = await import("./ProcurementApprovalConfigService");
-    await ProcurementApprovalConfigService.sendApprovalStepNotifications(
-      request.id,
-      { ...rows[0].stage, stepNumber: waiting.position },
-      request.stageType
-    );
   }
 
   static async afterDecisionQuietly(
@@ -409,6 +528,12 @@ export class ProcurementRequisitionApprovalService {
     const by = personName(actor);
     const route = this.routeOf(request, await this.roleNames());
     const decidedSteps = route.steps.filter((s) => s.status === "APPROVED").length;
+
+    if (outcome === "REJECTED") {
+      const { notify } = await import("./notifications/ProcurementNotifier");
+      await notify("REQUISITION_REJECTED", { userIds: [r.requestedBy.id], actorId: actorId ?? null, entityType: "PurchaseRequisition", entityId: r.id, vars: { ref: r.requisitionNumber, title: r.title, actor: by, reason: reason ?? "no reason given" } });
+      return;
+    }
 
     let title: string;
     let message: string;
@@ -463,11 +588,32 @@ export class ProcurementRequisitionApprovalService {
   // ------------------------------------------------------------------ the approval matrix
 
   /** The route in force: the active configuration without a department that holds requisition steps. */
-  static async generalConfig(db: any = prisma) {
+  static async generalConfig(db: any = prisma, stage: string = STAGE) {
     return db.procurementApprovalConfig.findFirst({
-      where: { isActive: true, department: null, stages: { some: { stageType: STAGE } } },
+      where: { isActive: true, department: null, stages: { some: { stageType: stage } } },
       orderBy: { updatedAt: "desc" },
     });
+  }
+
+  /** The nine routing criteria a step can carry (amount is `aboveAmount`/amountMin/amountMax); empty lists mean "any". */
+  static cleanRules(raw: any) {
+    const r = raw && typeof raw === "object" ? raw : {};
+    const list = (k: string) => (Array.isArray(r[k]) ? [...new Set(r[k].map((x: any) => String(x).trim()).filter(Boolean))].slice(0, 50) : []);
+    const num = (k: string) => (r[k] === "" || r[k] == null || !Number.isFinite(Number(r[k])) ? null : Number(r[k]));
+    return {
+      departments: list("departments"), businessUnits: list("businessUnits"), costCentres: list("costCentres"),
+      categories: list("categories"), branches: list("branches"), methods: list("methods"),
+      riskLevels: list("riskLevels"), exceptionTypes: list("exceptionTypes"),
+      amountMin: num("amountMin"), amountMax: num("amountMax"),
+    };
+  }
+
+  static rulesToJson(rules: ReturnType<typeof ProcurementRequisitionApprovalService.cleanRules>) {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(rules)) {
+      if (Array.isArray(v) ? v.length : v != null) out[k] = v;
+    }
+    return Object.keys(out).length ? out : null;
   }
 
   static matrixStep(stage: any, roleNames: Map<string, string>, staff: any[], departments: string[]) {
@@ -491,6 +637,8 @@ export class ProcurementRequisitionApprovalService {
     return {
       stepNumber: stage.stepNumber,
       name: stage.stepName,
+      canDelegate: stage.canDelegate === true,
+      matchRules: this.cleanRules(stage.matchRules),
       kind: d.kind,
       who: d.who,
       aboveAmount: d.aboveAmount,
@@ -498,31 +646,32 @@ export class ProcurementRequisitionApprovalService {
       deputy: stage.requiredDepartmentRole === "DEPUTY",
       roleCode: d.kind === "ROLE" ? roleCode : null,
       userId: stage.userId || null,
+      minApprovalLevel: stage.minApprovalLevel ?? null,
       people,
     };
   }
 
   /** The requisition approval matrix, with who holds each step today, and the decisions made by permission. */
-  static async matrix(user: any) {
+  static async matrix(user: any, stage: string = STAGE) {
     const canEdit = isModulePrivilegedUser(user);
     const [roleNames, staff, config, roles] = await Promise.all([
       this.roleNames(),
       this.internalStaff(),
-      this.generalConfig(),
+      this.generalConfig(prisma, stage),
       prisma.role.findMany({ select: { name: true, permissions: true, _count: { select: { users: true } } } }),
     ]);
     const departments = [...new Set([...REQUISITION_DEPARTMENTS, ...staff.map((u) => u.userDepartment).filter(Boolean)])];
     const stageInclude = { user: { select: PERSON }, department: { select: { name: true } } };
     const stages = config
       ? await prisma.procurementApprovalStage.findMany({
-          where: { configId: config.id, stageType: STAGE },
+          where: { configId: config.id, stageType: stage },
           orderBy: { stepNumber: "asc" },
           include: stageInclude,
         })
       : [];
     const departmentConfigs = await prisma.procurementApprovalConfig.findMany({
-      where: { isActive: true, department: { not: null }, stages: { some: { stageType: STAGE } } },
-      include: { stages: { where: { stageType: STAGE }, orderBy: { stepNumber: "asc" }, include: stageInclude } },
+      where: { isActive: true, department: { not: null }, stages: { some: { stageType: stage } } },
+      include: { stages: { where: { stageType: stage }, orderBy: { stepNumber: "asc" }, include: stageInclude } },
     });
     const roleCounts = new Map<string, number>();
     for (const u of staff) if (u.roleCode) roleCounts.set(u.roleCode, (roleCounts.get(u.roleCode) || 0) + 1);
@@ -565,7 +714,7 @@ export class ProcurementRequisitionApprovalService {
    * waiting keeps the route it was given, and history still reads; the new route applies to requisitions submitted
    * from now on.
    */
-  static async saveMatrix(user: any, input: any) {
+  static async saveMatrix(user: any, input: any, stage: string = STAGE) {
     if (!isModulePrivilegedUser(user)) {
       throw badRequest("Only an administrator or the Chief Financial Officer can change the approval matrix.", 403);
     }
@@ -582,9 +731,18 @@ export class ProcurementRequisitionApprovalService {
       if (above != null && (!Number.isFinite(above) || above < 0)) {
         throw badRequest(`Step ${n}: the amount must be a number of zero or more.`);
       }
+      const minLevelRaw = s?.minApprovalLevel === "" || s?.minApprovalLevel == null ? null : Number(s.minApprovalLevel);
+      if (minLevelRaw != null && (!Number.isInteger(minLevelRaw) || minLevelRaw < 0 || minLevelRaw > 99)) {
+        throw badRequest(`Step ${n}: the minimum approval level must be a whole number from 0 to 99.`);
+      }
       if (n === 1 && above != null) {
         throw badRequest("Step 1 applies to every requisition, so it cannot carry an amount. Put amount conditions on later steps.");
       }
+      const rules = this.cleanRules(s?.matchRules);
+      if (rules.amountMin != null && rules.amountMax != null && rules.amountMin > rules.amountMax) {
+        throw badRequest(`Step ${n}: the amount range is upside down (from is above to).`);
+      }
+      const extra = { canDelegate: s?.canDelegate === true, rules: this.rulesToJson(rules) };
       if (kind === "DEPARTMENT_HEAD") {
         const department = s?.department ? String(s.department) : null;
         if (department && !departments.has(department)) throw badRequest(`Step ${n}: ${department} is not a department.`);
@@ -597,38 +755,42 @@ export class ProcurementRequisitionApprovalService {
             throw badRequest(`Step ${n}: nobody is ${role === "DEPUTY" ? "deputy head" : "head or deputy head"} of ${department}.`);
           }
         }
-        return { kind, department, role, above, who: `${role === "DEPUTY" ? "Deputy head" : "Head"} of ${department ?? "the requester's department"}` };
+        return { kind, department, role, above, minLevel: minLevelRaw, who: `${role === "DEPUTY" ? "Deputy head" : "Head"} of ${department ?? "the requester's department"}`, ...extra };
       }
       if (kind === "ROLE") {
         const code = String(s?.roleCode || "");
         if (!staff.some((u) => u.roleCode === code)) {
           throw badRequest(`Step ${n}: nobody holds the ${roleNames.get(code) || code || "chosen"} role, so the step could never be decided.`);
         }
-        return { kind, roleCode: code, above, who: roleNames.get(code) || code };
+        return { kind, roleCode: code, above, minLevel: minLevelRaw, who: roleNames.get(code) || code, ...extra };
       }
       if (kind === "USER") {
         const person = staff.find((u) => u.id === s?.userId);
         if (!person) throw badRequest(`Step ${n}: choose a member of staff.`);
-        return { kind, userId: person.id, above, who: personName(person) };
+        return { kind, userId: person.id, above, minLevel: minLevelRaw, who: personName(person), ...extra };
       }
       throw badRequest(`Step ${n}: choose who decides the step.`);
     });
+    // At least one step must apply to every requisition, or a requisition matching none would have nobody to decide it.
+    if (!clean.some((c) => c.above == null && !c.rules)) {
+      throw badRequest("At least one step must apply to every requisition (no amount and no routing conditions), so no requisition is left without an approver.");
+    }
     const seen = new Map<string, number>();
     clean.forEach((c, i) => {
-      const key = [c.kind, c.department, c.role, c.roleCode, c.userId, c.above].join("|");
+      const key = [c.kind, c.department, c.role, c.roleCode, c.userId, c.above, c.minLevel, JSON.stringify(c.rules)].join("|");
       if (seen.has(key)) throw badRequest(`Step ${i + 1} repeats step ${seen.get(key)}.`);
       seen.set(key, i + 1);
     });
     const nameOf = (c) => clip(c.above != null ? `${c.who} (above ${money(c.above)})` : c.who, 180);
 
-    const before = await this.matrix(user);
+    const before = await this.matrix(user, stage);
     const configId = await prisma.$transaction(async (tx) => {
-      let config = await this.generalConfig(tx);
+      let config = await this.generalConfig(tx, stage);
       if (!config) {
         config = await tx.procurementApprovalConfig.create({
           data: {
-            name: "Requisition approval route",
-            description: "Who approves a purchase requisition, in order",
+            name: stage === STAGE ? "Requisition approval route" : "Award recommendation approval route",
+            description: stage === STAGE ? "Who approves a purchase requisition, in order" : "Who approves an award recommendation, in order",
             isActive: true,
             createdById: user.id,
             department: null,
@@ -637,7 +799,7 @@ export class ProcurementRequisitionApprovalService {
       }
       // Every active general configuration's requisition steps go, so exactly one general route is in force.
       const current = await tx.procurementApprovalStage.findMany({
-        where: { stageType: STAGE, config: { isActive: true, department: null } },
+        where: { stageType: stage, config: { isActive: true, department: null } },
         include: { _count: { select: { approvals: true } } },
         orderBy: [{ configId: "asc" }, { stepNumber: "asc" }],
       });
@@ -656,7 +818,7 @@ export class ProcurementRequisitionApprovalService {
           });
         }
         const top = await tx.procurementApprovalStage.aggregate({
-          where: { configId: archive.id, stageType: STAGE },
+          where: { configId: archive.id, stageType: stage },
           _max: { stepNumber: true },
         });
         // Retired in a new block of a hundred, in order, so a past request still reads its steps in sequence.
@@ -672,7 +834,7 @@ export class ProcurementRequisitionApprovalService {
         await tx.procurementApprovalStage.create({
           data: {
             configId: config.id,
-            stageType: STAGE,
+            stageType: stage,
             stepNumber: i + 1,
             stepName: nameOf(c),
             stepType: c.kind === "DEPARTMENT_HEAD" ? "DEPARTMENT" : c.kind,
@@ -681,8 +843,10 @@ export class ProcurementRequisitionApprovalService {
             requiredUserDepartment: c.kind === "DEPARTMENT_HEAD" ? c.department : null,
             requiredDepartmentRole: c.kind === "DEPARTMENT_HEAD" ? c.role : null,
             amountThreshold: c.above,
+            minApprovalLevel: c.minLevel ?? null,
             isRequired: true,
-            canDelegate: false,
+            canDelegate: c.canDelegate === true,
+            matchRules: c.rules ?? undefined,
             autoApprove: false,
             approvalOrder: "SEQUENTIAL",
           },
@@ -695,11 +859,11 @@ export class ProcurementRequisitionApprovalService {
     await AuditService.log({
       userId: user.id,
       action: "UPDATE",
-      entityType: "ProcurementApprovalMatrix",
+      entityType: stage === STAGE ? "ProcurementApprovalMatrix" : "AwardApprovalMatrix",
       entityId: configId,
       oldValues: { steps: before.steps.map((s) => s.name) },
-      newValues: { steps: clean.map(nameOf) },
+      newValues: { steps: clean.map((c) => ({ step: nameOf(c), canDelegate: c.canDelegate, rules: c.rules })) },
     });
-    return this.matrix(user);
+    return this.matrix(user, stage);
   }
 }

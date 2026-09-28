@@ -160,7 +160,7 @@ export class CreditNoteController {
 
       const { id } = req.params;
 
-      const creditNote = await CreditNoteService.sendCreditNote(id, userId);
+      const creditNote = await CreditNoteService.sendCreditNote(id, userId, req.user);
 
       res.json({
         success: true,

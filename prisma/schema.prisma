@@ -33,6 +33,30 @@ model User {
   mustChangePassword                    Boolean                         @default(false) @map("must_change_password")
   /// SRD User Master: ACTIVE | SUSPENDED | LOCKED | DEACTIVATED. Enforced at login.
   status                                String                          @default("ACTIVE") @db.VarChar(32)
+  /// §7 ProcMS user master extensions
+  approvalLimitAmount                   Decimal?                        @map("approval_limit_amount") @db.Decimal(15, 2)
+  delegatedApproverId                   String?                         @map("delegated_approver_id")
+  branch                                String?                         @db.VarChar(128)
+  businessUnit                          String?                         @map("business_unit") @db.VarChar(128)
+  costCentre                            String?                         @map("cost_centre") @db.VarChar(128)
+  /// SRD User Master extension (db:migrate:user-master)
+  employeeCode                          String?                         @unique @map("employee_code") @db.VarChar(64)
+  mobileNumber                          String?                         @map("mobile_number") @db.VarChar(32)
+  location                              String?                         @db.VarChar(128)
+  jobTitle                              String?                         @map("job_title") @db.VarChar(128)
+  reportingManagerId                    String?                         @map("reporting_manager_id") @db.VarChar(191)
+  procurementFunction                   String?                         @map("procurement_function") @db.VarChar(48)
+  accessProfile                         String?                         @map("access_profile") @db.VarChar(48)
+  approvalLevel                         Int?                            @map("approval_level")
+  sodRestrictions                       Json?                           @map("sod_restrictions")
+  ssoUsername                           String?                         @unique @map("sso_username") @db.VarChar(128)
+  uatRole                               String?                         @map("uat_role") @db.VarChar(64)
+  effectiveDate                         DateTime?                       @map("effective_date")
+  endDate                               DateTime?                       @map("end_date")
+  lastLoginAt                           DateTime?                       @map("last_login_at")
+  createdById                           String?                         @map("created_by_id") @db.VarChar(191)
+  updatedById                           String?                         @map("updated_by_id") @db.VarChar(191)
+  deactivatedAt                         DateTime?                       @map("deactivated_at")
   role                                  Role                            @relation(fields: [roleId], references: [id])
   posts                                 Post[]
   replies                               Reply[]
@@ -682,10 +706,33 @@ model Vendor {
   /// Auto-calculated performance rating (1–5 stars) derived from GRN delivery history.
   vendorRating                   Decimal?                       @map("vendor_rating") @db.Decimal(3, 2)
   vendorRatingUpdatedAt          DateTime?                      @map("vendor_rating_updated_at")
+  /// ISO country / territory for vendor master (SRD §8.1).
+  country                        String?                        @db.VarChar(64)
+  tradingName                    String?                        @map("trading_name") @db.VarChar(255)
+  /// LOW | MEDIUM | HIGH | CRITICAL
+  riskRating                     String?                        @map("risk_rating") @db.VarChar(32)
+  /// DRAFT | PENDING_REVIEW | ACTIVE | SUSPENDED | INACTIVE (SRD §8.2 lifecycle; registrationStatus remains onboarding).
+  lifecycleStatus                String?                        @default("DRAFT") @map("lifecycle_status") @db.VarChar(32)
   /// Primary settlement currency for PO generation (e.g. USD, ZiG, ZAR).
   settlementCurrencyId           String?                        @map("settlement_currency_id")
   /// Onboarding lifecycle: PENDING_REVIEW (self-reg awaiting GP approval), ACTIVE, SUSPENDED.
   registrationStatus             String                         @default("ACTIVE") @map("registration_status")
+  /// SRD §8: Vendor Code, registration/VAT numbers, commodity categories, notes, onboarding + compliance (db:migrate:vendor-master).
+  vendorCode                     String?                        @unique @map("vendor_code") @db.VarChar(32)
+  registrationNumber             String?                        @map("registration_number") @db.VarChar(64)
+  vatNumber                      String?                        @map("vat_number") @db.VarChar(64)
+  commodityCategories            Json?                          @map("commodity_categories")
+  onboardingDate                 DateTime?                      @map("onboarding_date")
+  /// NOT_SUBMITTED | PENDING_APPROVAL | APPROVED | REJECTED
+  approvalStatus                 String                         @default("NOT_SUBMITTED") @map("approval_status") @db.VarChar(24)
+  /// COMPLIANT | EXPIRING_SOON | NON_COMPLIANT | PENDING (derived from tax clearance + document expiry)
+  complianceStatus               String                         @default("PENDING") @map("compliance_status") @db.VarChar(24)
+  notes                          String?                        @db.Text
+  approvedById                   String?                        @map("approved_by_id") @db.VarChar(191)
+  approvedAt                     DateTime?                      @map("approved_at")
+  statusReason                   String?                        @map("status_reason") @db.Text
+  statusChangedAt                DateTime?                      @map("status_changed_at")
+  statusChangedById              String?                        @map("status_changed_by_id") @db.VarChar(191)
   /// True when vendor self-registered via the external vendor portal.
   selfRegistered                 Boolean                        @default(false) @map("self_registered")
   /// Unique one-time token embedded in the self-registration link.
@@ -756,6 +803,12 @@ model VendorKycDocument {
   isEncrypted       Boolean   @default(true) @map("is_encrypted")
   encryptionIv      String?   @map("encryption_iv") @db.Text
   encryptionAuthTag String?   @map("encryption_auth_tag") @db.VarChar(64)
+  expiryDate        DateTime? @map("expiry_date") @db.Date
+  issueDate         DateTime? @map("issue_date") @db.Date
+  documentNumber    String?   @map("document_number") @db.VarChar(64)
+  /// Lead time for the pre-expiry notice on this document; null = the settings default.
+  notifyDaysBefore  Int?      @map("notify_days_before")
+  lastExpiryNoticeAt DateTime? @map("last_expiry_notice_at")
   isVerified        Boolean   @default(false) @map("is_verified")
   verifiedById      String?   @map("verified_by_id")
   verifiedAt        DateTime? @map("verified_at")
@@ -2189,12 +2242,15 @@ model AuditLog {
   newValues  Json?
   ipAddress  String?
   userAgent  String?
+  /// One of the eighteen event classes in src/services/audit/auditEventTypes.ts (SRD §33); OTHER for control blocks and denials.
+  eventType  String?   @map("event_type") @db.VarChar(32)
   createdAt  DateTime @default(now())
   user       User?    @relation(fields: [userId], references: [id])
 
   @@index([entityType, entityId])
   @@index([userId, createdAt])
   @@index([createdAt])
+  @@index([eventType, createdAt], map: "audit_logs_event_type_created_idx")
   @@map("audit_logs")
 }
 
@@ -2238,6 +2294,7 @@ model Task {
   activities            Json?
   status                String?
   isTrashed             Boolean          @default(false)
+  projectId             String?          @map("project_id")
   category              String?
   applicationId         String?
   fromDueDiligence      Boolean          @default(false)
@@ -2470,6 +2527,7 @@ model PerformanceGoal {
   dataSourceModule         String?
   departmentName           String?
   lastCheckDate            DateTime?
+  confidence               String?                        @db.VarChar(16)
   nextCheckDate            DateTime?
   progressPercentage       Decimal?                       @default(0.00) @db.Decimal(5, 2)
   targetOperator           String?
@@ -2535,6 +2593,7 @@ model PerformanceGoalProgressEvent {
   /// manual | task | activity | gl_sync
   source         String          @db.VarChar(32)
   sourceRef      String?         @map("source_ref") @db.VarChar(191)
+  note           String?         @db.VarChar(500)
   journalEntryId String?         @map("journal_entry_id")
   createdById    String          @map("created_by_id")
   createdAt      DateTime        @default(now()) @map("created_at")
@@ -2617,6 +2676,7 @@ model PerformanceContract {
   allocatedBudget       Decimal?               @db.Decimal(15, 2)
   actualSpend           Decimal?               @db.Decimal(15, 2)
   stretchScoringEnabled Boolean                @default(false)
+  versionNo             Int                    @default(1)
   strategyDocumentUrl   String?                @db.Text
   visionStatement       String?                @db.Text
   sectionWeights        Json?
@@ -2695,6 +2755,8 @@ model PerformanceTheme {
   description      String?           @db.Text
   color            String?
   status           String            @default("ACTIVE")
+  ownerId          String?
+  perspective      String?
   createdById      String
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -2783,6 +2845,19 @@ model KPI {
   isFinancial           Boolean           @default(false) @map("is_financial")
   /// BSC org pillar: Financial | Customer & Market | Internal Operations | Learning, Growth & HR
   scorecardPillar       String?           @map("scorecard_pillar") @db.VarChar(64)
+  ownerId               String?           @map("owner_id")
+  sourceSystem          String?           @map("source_system") @db.VarChar(64)
+  updateMethod          String?           @map("update_method") @db.VarChar(16)
+  frequency             String?           @db.VarChar(16)
+  targetValue           Decimal?          @map("target_value") @db.Decimal(18, 6)
+  amberThreshold        Decimal?          @map("amber_threshold") @db.Decimal(9, 4)
+  redThreshold          Decimal?          @map("red_threshold") @db.Decimal(9, 4)
+  evidenceRule          String?           @map("evidence_rule") @db.VarChar(255)
+  approvalStatus        String            @default("approved") @map("approval_status") @db.VarChar(24)
+  approvedById          String?           @map("approved_by_id")
+  approvedAt            DateTime?         @map("approved_at")
+  reviewNote            String?           @map("review_note") @db.VarChar(1000)
+  createdById           String?           @map("created_by_id")
   performanceGoals      PerformanceGoal[]
   activityLogs          ActivityLog[]
 
@@ -2798,6 +2873,8 @@ model ScorecardPillar {
   description   String?                @db.Text
   /// BSC pillar weight % (0–100); kept in sync with `performance_strategies.pillar_weights` on strategy save.
   weight        Decimal?               @db.Decimal(5, 2)
+  ownerId       String?                @map("owner_id")
+  shortName     String?                @map("short_name") @db.VarChar(40)
   isSystem      Boolean                @default(false) @map("is_system")
   createdAt     DateTime               @default(now()) @map("created_at")
   updatedAt     DateTime               @updatedAt @map("updated_at")
@@ -2850,6 +2927,14 @@ model PurchaseRequisition {
   department                  String?
   /// SRD §7 requisition form "Project/Cost Center": a row of the projects register (Accounting), or null.
   projectId                   String?                   @map("project_id") @db.VarChar(191)
+  /// §11 Branch / BU / Budget Code / delivery
+  branch                      String?                   @db.VarChar(128)
+  businessUnit                String?                   @map("business_unit") @db.VarChar(128)
+  costCentre                  String?                   @map("cost_centre") @db.VarChar(128)
+  budgetCode                  String?                   @map("budget_code") @db.VarChar(64)
+  deliveryLocation            String?                   @map("delivery_location") @db.Text
+  /// §10 link to annual plan line
+  planItemId                  String?                   @map("plan_item_id") @db.VarChar(191)
   requestedBy                 User                      @relation("RequisitionRequestedBy", fields: [requestedById], references: [id])
   approvedBy                  User?                     @relation("RequisitionApprovedBy", fields: [approvedById], references: [id])
   currency                    Currency?                 @relation("RequisitionCurrency", fields: [currencyId], references: [id])
@@ -2858,6 +2943,12 @@ model PurchaseRequisition {
   items                       PurchaseRequisitionItem[]
   purchaseOrders              PurchaseOrder[]
   procurementRfqs             ProcurementRfq[]
+  requiredDate                DateTime?                 @map("required_date") @db.Date
+  procurementMethod           String?                   @map("procurement_method") @db.VarChar(32)
+  riskLevel                   String?                   @map("risk_level") @db.VarChar(16)
+  exceptionType               String?                   @map("exception_type") @db.VarChar(32)
+  resubmissionCount           Int                       @default(0) @map("resubmission_count")
+  suggestedVendorId           String?                   @map("suggested_vendor_id") @db.VarChar(191)
 
   @@index([portfolioCompanyId])
   @@index([fundId])
@@ -2935,6 +3026,18 @@ model PurchaseOrder {
   goodsReceivedNotes          GoodsReceivedNote[]
   linkedVendorBills           PurchaseInvoice[]     @relation("PurchaseInvoiceSourcePO")
   vendorInvoiceIntakes        VendorInvoiceIntake[]
+  planItemId                  String?               @map("plan_item_id") @db.VarChar(191)
+  /// §21: the order carries what the award and the requisition already said, not re-keyed.
+  vendorCode                  String?               @map("vendor_code") @db.VarChar(64)
+  rfqId                       String?               @map("rfq_id") @db.VarChar(191)
+  awardRecommendationId       String?               @map("award_recommendation_id") @db.VarChar(191)
+  costCentre                  String?               @map("cost_centre") @db.VarChar(128)
+  budgetCode                  String?               @map("budget_code") @db.VarChar(64)
+  glCode                      String?               @map("gl_code") @db.VarChar(64)
+  purchaseConditions          String?               @map("purchase_conditions") @db.Text
+  /// NOT_REQUIRED | PENDING | APPROVED | REJECTED
+  approvalStatus              String                @default("NOT_REQUIRED") @map("approval_status") @db.VarChar(24)
+  approvalRequestId           String?               @map("approval_request_id") @db.VarChar(191)
 
   @@index([portfolioCompanyId])
   @@index([fundId])
@@ -3001,6 +3104,8 @@ model VendorQuotation {
   rejectionReason             String?               @db.Text
   rejectionContentFingerprint String?               @map("rejection_content_fingerprint") @db.VarChar(64)
   invoiceId                   String?               @unique
+  acknowledgedAt              DateTime?             @map("acknowledged_at")
+  supersededAt                DateTime?             @map("superseded_at")
   submittedAt                 DateTime              @default(now())
   updatedAt                   DateTime              @updatedAt
   reviewedBy                  User?                 @relation("QuotationReviewedBy", fields: [reviewedById], references: [id])
@@ -3008,6 +3113,20 @@ model VendorQuotation {
   purchaseOrder               PurchaseOrder?        @relation("QuotationPO")
   procurementRfq              ProcurementRfq?       @relation("QuotationToProcurementRfq", fields: [procurementRfqId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   items                       VendorQuotationItem[]
+  /// §15 (db:migrate:sourcing-evaluation)
+  quotationReference   String?   @map("quotation_reference") @db.VarChar(64)
+  quotationDate        DateTime? @map("quotation_date") @db.Date
+  /// VENDOR_PORTAL | STAFF_CAPTURE
+  submissionMethod     String    @default("VENDOR_PORTAL") @map("submission_method") @db.VarChar(24)
+  captureChannel       String?   @map("capture_channel") @db.VarChar(32)
+  capturedById         String?   @map("captured_by_id") @db.VarChar(191)
+  captureReason        String?   @map("capture_reason") @db.Text
+  receivedAt           DateTime? @map("received_at")
+  vatRate              Decimal?  @map("vat_rate") @db.Decimal(7, 4)
+  deliveryPeriodDays   Int?      @map("delivery_period_days")
+  /// The record as submitted, frozen at submission; snapshotSha256 proves it has not been altered since.
+  submittedSnapshot    Json?     @map("submitted_snapshot")
+  snapshotSha256       String?   @map("snapshot_sha256") @db.VarChar(64)
 
   @@index([procurementRfqId])
   @@index([vendorId])
@@ -3028,6 +3147,18 @@ model ProcurementRfq {
   priceWeight                 Decimal?              @map("price_weight") @db.Decimal(5, 4)
   technicalWeight             Decimal?              @map("technical_weight") @db.Decimal(5, 4)
   scoringConfig               Json?                 @map("scoring_config")
+  /// §16: sealed until formal bid opening (staff); PUBLIC_LISTING RFQs default to sealed when true.
+  sealedBidding               Boolean               @default(false) @map("sealed_bidding")
+  bidOpenedAt                 DateTime?             @map("bid_opened_at")
+  bidOpenedById               String?               @map("bid_opened_by_id")
+  bidOpeningAttendeesJson     Json?                 @map("bid_opening_attendees_json")
+  /// §13 RFQ | RFP | TENDER | DIRECT
+  procurementMethod           String?               @default("RFQ") @map("procurement_method") @db.VarChar(32)
+  /// §19 conflict / participation declarations package
+  conflictDeclarationsJson    Json?                 @map("conflict_declarations_json")
+  /// §20: null | PENDING_APPROVAL | APPROVED | REJECTED
+  recommendationStatus        String?               @map("recommendation_status") @db.VarChar(32)
+  awardRecommendationJson     Json?                 @map("award_recommendation_json")
   /// Winning quote id (no Prisma relation — avoids cycle with VendorQuotation.procurementRfq).
   awardedQuotationId          String?               @unique @map("awarded_quotation_id")
   awardRationale              String?               @map("award_rationale") @db.Text
@@ -3046,6 +3177,12 @@ model ProcurementRfq {
   invitations                 RfqVendorInvitation[]
   clarifications              RfqClarification[]
   quotations                  VendorQuotation[]     @relation("QuotationToProcurementRfq")
+  planItemId                  String?               @map("plan_item_id") @db.VarChar(191)
+  evaluationMode              String                @default("SINGLE_ENVELOPE") @map("evaluation_mode") @db.VarChar(16)
+  passRule                    String                @default("ALL") @map("pass_rule") @db.VarChar(12)
+  minEvaluators               Int                   @default(1) @map("min_evaluators")
+  criteriaLockedAt            DateTime?             @map("criteria_locked_at")
+  fxOverrides                 Json?                 @map("fx_overrides")
 
   @@index([requisitionId])
   @@index([status])
@@ -3059,6 +3196,10 @@ model RfqVendorInvitation {
   /// Legacy opaque token; RFQ emails now use stateless signed tokens (see `vendorPortalToken`). Optional.
   invitationToken  String?        @map("invitation_token") @db.VarChar(512)
   emailSentAt      DateTime?      @map("email_sent_at")
+  /// §14 PENDING | SENT | FAILED | BOUNCED
+  deliveryStatus   String?        @default("PENDING") @map("delivery_status") @db.VarChar(32)
+  deliveryError    String?        @map("delivery_error") @db.Text
+  lastDeliveryAttemptAt DateTime? @map("last_delivery_attempt_at")
   createdAt        DateTime       @default(now()) @map("created_at")
   procurementRfq   ProcurementRfq @relation(fields: [procurementRfqId], references: [id], onDelete: Cascade)
   vendor           Vendor         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
@@ -3093,9 +3234,93 @@ model ProcurementSettings {
   autoApproveMatchedInvoices Boolean  @default(false) @map("auto_approve_matched_invoices")
   /// The largest invoice total approved automatically; null for no limit.
   autoApproveInvoiceLimit    Decimal? @map("auto_approve_invoice_limit") @db.Decimal(15, 2)
+  /// §24 three-way match price variance %
+  matchPriceVariancePct      Decimal? @default(2.00) @map("match_price_variance_pct") @db.Decimal(5, 2)
+  matchQtyTolerancePct       Decimal? @default(0.00) @map("match_qty_tolerance_pct") @db.Decimal(5, 2)
+  /// §39 numbering templates — placeholders {YYYY}{MM}{DD}{####}
+  prNumberFormat             String?  @default("PR-{YYYY}-{######}") @map("pr_number_format") @db.VarChar(64)
+  poNumberFormat             String?  @default("PO_{YYYY}{MM}{DD}_{####}") @map("po_number_format") @db.VarChar(64)
+  rfqNumberFormat            String?  @default("RFQ_{YYYY}{MM}{DD}_{####}") @map("rfq_number_format") @db.VarChar(64)
+  tenderNumberFormat         String?  @map("tender_number_format") @db.VarChar(64)
+  grnNumberFormat            String?  @map("grn_number_format") @db.VarChar(64)
+  invoiceNumberFormat        String?  @map("invoice_number_format") @db.VarChar(64)
+  quotationNumberFormat      String?  @map("quotation_number_format") @db.VarChar(64)
+  /// §38 the currency consolidated figures are reported in (the default currency when empty), where rates come from, and how old a rate may be
+  reportingCurrencyCode      String?  @map("reporting_currency_code") @db.VarChar(8)
+  fxSource                   String   @default("TABLE") @map("fx_source") @db.VarChar(16)
+  fxSourceUrl                String?  @map("fx_source_url") @db.VarChar(255)
+  fxMaxAgeDays               Int      @default(30) @map("fx_max_age_days")
+  /// §38 consolidation FX target currency
+  consolidationFxCurrencyId  String?  @map("consolidation_fx_currency_id")
+  /// §34 notification rules JSON
+  notificationRulesJson      Json?    @map("notification_rules_json")
+  /// §40 status vocabulary overlays
+  statusVocabularyJson       Json?    @map("status_vocabulary_json")
   updatedAt                DateTime @updatedAt @map("updated_at")
+  suggestedVendorPolicy      String   @default("ALLOWED_APPROVED_ONLY") @map("suggested_vendor_policy") @db.VarChar(32)
+  budgetCheckMode            String   @default("ENFORCE") @map("budget_check_mode") @db.VarChar(16)
+  planLinkPolicy             String   @default("OPTIONAL") @map("plan_link_policy") @db.VarChar(16)
+  sealedBiddingDefault       Boolean  @default(true) @map("sealed_bidding_default")
+  minOpeningAttendees        Int      @default(2) @map("min_opening_attendees")
+  requireEvaluatorDeclaration Boolean @default(true) @map("require_evaluator_declaration")
+  defaultEvaluationCriteria  Json?    @map("default_evaluation_criteria")
+  /// §24 matching: value, tax and rounding tolerances; ENFORCE blocks approval of an invoice with open exceptions until overridden.
+  matchValueTolerancePct     Decimal  @default(2.00) @map("match_value_tolerance_pct") @db.Decimal(5, 2)
+  matchTaxTolerancePct       Decimal  @default(1.00) @map("match_tax_tolerance_pct") @db.Decimal(5, 2)
+  matchAmountToleranceAbs    Decimal  @default(0.50) @map("match_amount_tolerance_abs") @db.Decimal(15, 2)
+  matchEnforcement           String   @default("ENFORCE") @map("match_enforcement") @db.VarChar(8)
+  poApprovalRequired         Boolean  @default(false) @map("po_approval_required")
+  /// §29-§31 the optional AI layer: switch, monthly limits, approved roles and permitted document types.
+  aiEnabled                  Boolean  @default(true) @map("ai_enabled")
+  aiMonthlyDocumentLimit     Int?     @map("ai_monthly_document_limit")
+  aiMonthlyCallLimit         Int?     @map("ai_monthly_call_limit")
+  aiAllowedRoleCodes         Json?    @map("ai_allowed_role_codes")
+  aiAllowedDocumentTypes     Json?    @map("ai_allowed_document_types")
 
   @@map("procurement_settings")
+}
+
+/// §28 RPA job ledger (Phase 2 ops without SmartStream).
+model ProcurementRpaJob {
+  id            String    @id
+  jobType       String    @map("job_type") @db.VarChar(64)
+  status        String    @default("QUEUED") @db.VarChar(32)
+  payloadJson   Json?     @map("payload_json")
+  resultJson    Json?     @map("result_json")
+  errorMessage  String?   @map("error_message") @db.Text
+  createdById   String?   @map("created_by_id")
+  startedAt     DateTime? @map("started_at")
+  finishedAt    DateTime? @map("finished_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([status], map: "procurement_rpa_jobs_status_idx")
+  @@index([jobType], map: "procurement_rpa_jobs_type_idx")
+  @@map("procurement_rpa_jobs")
+}
+
+/// §31 AI usage monitoring.
+model ProcurementAiUsage {
+  id        String   @id
+  userId    String?  @map("user_id")
+  feature   String   @db.VarChar(64)
+  units     Int      @default(1)
+  metaJson  Json?    @map("meta_json")
+  createdAt DateTime @default(now()) @map("created_at")
+  documentType String? @map("document_type") @db.VarChar(48)
+  /// SUCCESS | FAILED | BLOCKED
+  status       String  @default("SUCCESS") @db.VarChar(16)
+  model        String? @db.VarChar(96)
+  entityType   String? @map("entity_type") @db.VarChar(48)
+  entityId     String? @map("entity_id") @db.VarChar(191)
+  documentName String? @map("document_name") @db.VarChar(255)
+  durationMs   Int?    @map("duration_ms")
+  errorMessage String? @map("error_message") @db.VarChar(500)
+
+  @@index([userId], map: "procurement_ai_usage_user_idx")
+  @@index([feature], map: "procurement_ai_usage_feature_idx")
+  @@index([createdAt], map: "procurement_ai_usage_created_idx")
+  @@map("procurement_ai_usage")
 }
 
 /// Phase 2 — vendor quotation/invoice PDF upload constraints (singleton).
@@ -3104,6 +3329,7 @@ model VendorDocumentUploadSettings {
   maxFileSizeBytes        Int      @default(15728640) @map("max_file_size_bytes")
   allowedFileTypes        Json     @map("allowed_file_types")
   maxAttachmentsPerRecord Int      @default(5) @map("max_attachments_per_record")
+  expiryNoticeDays        Int      @default(30) @map("expiry_notice_days")
   updatedAt               DateTime @updatedAt @map("updated_at")
 
   @@map("vendor_document_upload_settings")
@@ -3134,6 +3360,9 @@ model VendorDocumentAttachment {
   vendor           Vendor?   @relation("VendorDocumentAttachments", fields: [vendorId], references: [id], onDelete: SetNull)
   uploadedBy       User?     @relation("VendorDocumentAttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
   deletedBy        User?     @relation("VendorDocumentAttachmentDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  /// TECHNICAL | COMMERCIAL: what a two-envelope evaluation may show an evaluator before pricing is released.
+  envelope         String    @default("COMMERCIAL") @map("envelope") @db.VarChar(12)
+  captureChannel   String?   @map("capture_channel") @db.VarChar(32)
 
   @@index([entityType, entityId])
   @@index([vendorId])
@@ -3188,6 +3417,8 @@ model ProcurementInvoice {
   /// the payment's own proof-of-payment upload, so paying an invoice never overwrites its document.
   proofOfPaymentPath          String?                  @map("proof_of_payment_path")
   proofOfPaymentType          String?                  @map("proof_of_payment_type")
+  /// VENDOR_PORTAL when the supplier submitted it through its signed link (attributed to a system user), else STAFF.
+  submittedVia                String?                  @map("submitted_via") @db.VarChar(16)
   approvedById                String?
   approvedAt                  DateTime?
   /// MANUAL (a person approved it) or AUTOMATIC (an exact match, when the organisation has switched that on).
@@ -3199,6 +3430,8 @@ model ProcurementInvoice {
   rejectionReason             String?                  @map("rejection_reason") @db.Text
   rejectionContentFingerprint String?                  @map("rejection_content_fingerprint") @db.VarChar(64)
   paymentStatus               String                   @default("PENDING")
+  /// §25 Phase 1 finance handoff: READY_FOR_FINANCE | SUBMITTED | ACCEPTED | REJECTED | PAID | CLOSED
+  financeHandoffStatus        String?                  @default("READY_FOR_FINANCE") @map("finance_handoff_status") @db.VarChar(32)
   paymentDate                 DateTime?
   paymentReference            String?
   journalEntryId              String?
@@ -3217,7 +3450,31 @@ model ProcurementInvoice {
   createdBy                   User                     @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
   items                       ProcurementInvoiceItem[]
   usdZwgRateSnapshot          Decimal?                 @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
+  /// §23: the supplier's own invoice number (what makes a duplicate a duplicate) and its normalised key, unique per vendor.
+  supplierInvoiceNumber       String?                  @map("supplier_invoice_number") @db.VarChar(128)
+  supplierInvoiceKey          String?                  @map("supplier_invoice_key") @db.VarChar(128)
+  grnId                       String?                  @map("grn_id") @db.VarChar(191)
+  rfqId                       String?                  @map("rfq_id") @db.VarChar(191)
+  paymentTerms                String?                  @map("payment_terms") @db.VarChar(191)
+  /// STATED (the supplier's own VAT figure) | COMPUTED (worked out at the active rate)
+  taxSource                   String                   @default("COMPUTED") @map("tax_source") @db.VarChar(16)
+  matchResult                 Json?                    @map("match_result")
+  matchedAt                   DateTime?                @map("matched_at")
+  matchOverrideReason         String?                  @map("match_override_reason") @db.Text
+  matchOverrideById           String?                  @map("match_override_by_id") @db.VarChar(191)
+  matchOverrideAt             DateTime?                @map("match_override_at")
+  financeSubmittedAt          DateTime?                @map("finance_submitted_at")
+  financeSubmittedById        String?                  @map("finance_submitted_by_id") @db.VarChar(191)
+  financeAcceptedAt           DateTime?                @map("finance_accepted_at")
+  financeAcceptedById         String?                  @map("finance_accepted_by_id") @db.VarChar(191)
+  financeReturnedAt           DateTime?                @map("finance_returned_at")
+  financeReturnedById         String?                  @map("finance_returned_by_id") @db.VarChar(191)
+  financeReturnReason         String?                  @map("finance_return_reason") @db.Text
+  financeClosedAt             DateTime?                @map("finance_closed_at")
+  financeClosedById           String?                  @map("finance_closed_by_id") @db.VarChar(191)
 
+  @@unique([vendorId, supplierInvoiceKey], map: "procurement_invoices_vendor_supplier_key")
+  @@index([grnId], map: "procurement_invoices_grn_idx")
   @@map("procurement_invoices")
 }
 
@@ -3260,12 +3517,43 @@ model ProcurementDocument {
   mimeType       String?  @map("mime_type") @db.VarChar(128)
   fileSizeBytes  Int?     @map("file_size_bytes")
   uploadedById   String?  @map("uploaded_by_id")
+  originalName      String? @map("original_name") @db.VarChar(255)
+  extension         String? @db.VarChar(16)
+  /// The record the document belongs to, resolved from the reference typed or supplied at upload.
+  relatedRecordType String? @map("related_record_type") @db.VarChar(32)
+  relatedRecordId   String? @map("related_record_id") @db.VarChar(64)
+  currentVersionNo  Int     @default(1) @map("current_version_no")
+  checksum          String? @db.VarChar(64)
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
+  versions       ProcurementDocumentVersion[]
 
+  @@index([relatedRecordType, relatedRecordId], map: "procurement_documents_related_idx")
   @@index([folder], map: "procurement_documents_folder_idx")
   @@index([status], map: "procurement_documents_status_idx")
   @@map("procurement_documents")
+}
+
+/// Every stored file of a vault document, oldest to newest: a new version adds a row, the earlier ones stay retrievable.
+model ProcurementDocumentVersion {
+  id            String   @id @default(cuid())
+  documentId    String   @map("document_id")
+  versionNo     Int      @map("version_no")
+  versionLabel  String   @map("version_label") @db.VarChar(16)
+  originalName  String?  @map("original_name") @db.VarChar(255)
+  fileUrl       String   @map("file_url") @db.Text
+  storagePath   String?  @map("storage_path") @db.VarChar(512)
+  mimeType      String?  @map("mime_type") @db.VarChar(128)
+  fileSizeBytes BigInt?  @map("file_size_bytes")
+  checksum      String?  @db.VarChar(64)
+  changeNote    String?  @map("change_note") @db.Text
+  uploadedById  String?  @map("uploaded_by_id") @db.VarChar(191)
+  uploadedAt    DateTime @default(now()) @map("uploaded_at")
+  document      ProcurementDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, versionNo], map: "procurement_document_versions_doc_no_key")
+  @@index([documentId], map: "procurement_document_versions_doc_idx")
+  @@map("procurement_document_versions")
 }
 
 /// Contracts register: the agreement that follows an award (an accepted quotation) or stands alone.
@@ -3317,6 +3605,7 @@ model ProcurementPlan {
   createdAt       DateTime              @default(now()) @map("created_at")
   updatedAt       DateTime              @updatedAt @map("updated_at")
   items           ProcurementPlanItem[]
+  businessUnit    String?               @map("business_unit") @db.VarChar(128)
 
   @@index([fiscalYear], map: "procurement_plans_fiscal_year_idx")
   @@index([status], map: "procurement_plans_status_idx")
@@ -3337,6 +3626,15 @@ model ProcurementPlanItem {
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
   plan           ProcurementPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  /// SRD §10 plan fields (db:migrate:planning-requisitions)
+  requirement          String?         @db.VarChar(255)
+  businessUnit         String?         @map("business_unit") @db.VarChar(128)
+  plannedStartDate     DateTime?       @map("planned_start_date") @db.Date
+  requiredDeliveryDate DateTime?       @map("required_delivery_date") @db.Date
+  budgetCode           String?         @map("budget_code") @db.VarChar(64)
+  costCentre           String?         @map("cost_centre") @db.VarChar(128)
+  responsibleOfficerId String?         @map("responsible_officer_id") @db.VarChar(191)
+  currencyCode         String?         @map("currency_code") @db.VarChar(8)
 
   @@index([planId], map: "procurement_plan_items_plan_idx")
   @@map("procurement_plan_items")
@@ -3439,6 +3737,8 @@ model GoodsReceivedNote {
   id                          String                  @id @default(cuid())
   grnNumber                   String                  @unique
   purchaseOrderId             String
+  /// §38 the receipt carries its own currency (that of its purchase order)
+  currencyId                  String?  @map("currency_id") @db.VarChar(191)
   status                      String                  @default("DRAFT")
   receivedDate                DateTime                @default(now())
   receivedById                String
@@ -3455,6 +3755,10 @@ model GoodsReceivedNote {
   geoCapturedAt               DateTime?               @map("geo_captured_at")
   /// True when created via investee applicant portal (may require GP review).
   submittedByInvestee         Boolean                 @default(false) @map("submitted_by_investee")
+  deliveryNoteNumber          String?                 @map("delivery_note_number") @db.VarChar(128)
+  locationName                String?                 @map("location_name") @db.VarChar(191)
+  /// GOODS | SERVICE | MIXED
+  receiptType                 String                  @default("GOODS") @map("receipt_type") @db.VarChar(16)
   createdAt                   DateTime                @default(now())
   updatedAt                   DateTime                @updatedAt
   purchaseOrder               PurchaseOrder           @relation(fields: [purchaseOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -3481,6 +3785,11 @@ model GoodsReceivedNoteItem {
   /// GOODS | SERVICE (SES-style milestone / hours).
   lineType             String            @default("GOODS") @map("line_type") @db.VarChar(32)
   milestoneDescription String?           @map("milestone_description") @db.Text
+  /// §22 service receipt: the period the service was completed in, the amount confirmed and the evidence of it.
+  servicePeriodStart   DateTime?         @map("service_period_start") @db.Date
+  servicePeriodEnd     DateTime?         @map("service_period_end") @db.Date
+  serviceAmount        Decimal?          @map("service_amount") @db.Decimal(15, 2)
+  serviceEvidence      Json?             @map("service_evidence")
   serialNumbers        Json?             @map("serial_numbers")
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
@@ -3791,6 +4100,8 @@ model ExchangeRate {
   toCurrencyId   String
   rate           Decimal  @db.Decimal(15, 6)
   isActive       Boolean  @default(true)
+  /// TABLE | URL | MANUAL: where the rate came from
+  source         String?  @db.VarChar(16)
   createdById    String
   createdAt      DateTime @default(now())
   fromCurrency   Currency @relation("ExchangeRateFrom", fields: [fromCurrencyId], references: [id])
@@ -5767,6 +6078,10 @@ model ProcurementApprovalStage {
   requiredDepartmentRole String?
   requiredUserDepartment String?
   roleCode               String?
+  /// §12 multi-dimension filters: { departments?, costCentres?, categories?, branches?, methods?, riskLevels? }
+  matchRules             Json?                      @map("match_rules")
+  /// Approvers on this step must hold at least this User.approvalLevel (db:migrate:user-master)
+  minApprovalLevel       Int?                       @map("min_approval_level")
   config                 ProcurementApprovalConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
   user                   User?                     @relation("ApprovalStageUser", fields: [userId], references: [id])
   role                   Role?                     @relation("ApprovalStageRole", fields: [roleId], references: [id])
@@ -12062,6 +12377,12 @@ model Project {
   budget      Decimal? @db.Decimal(14, 2)
   status      String   @default("ACTIVE") @db.VarChar(32)
   isActive    Boolean  @default(true) @map("is_active")
+  ownerId        String?   @map("owner_id")
+  goalId         String?   @map("goal_id")
+  departmentName String?   @map("department_name") @db.VarChar(120)
+  startDate      DateTime? @map("start_date") @db.Date
+  endDate        DateTime? @map("end_date") @db.Date
+  description    String?   @db.Text
   createdById String?  @map("created_by_id")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
@@ -12083,6 +12404,7 @@ model Timesheet {
   submittedAt  DateTime? @map("submitted_at")
   approvedById String?   @map("approved_by_id")
   approvedAt   DateTime? @map("approved_at")
+  returnReason String?   @map("return_reason") @db.VarChar(500)
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
@@ -12104,6 +12426,7 @@ model TimesheetEntry {
   hours       Decimal  @db.Decimal(5, 2)
   billable    Boolean  @default(false)
   notes       String?  @db.VarChar(500)
+  taskId      String?  @map("task_id")
   createdAt   DateTime @default(now()) @map("created_at")
 
   timesheet Timesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
@@ -12132,6 +12455,10 @@ model PerformanceCorrectiveAction {
   progress     Int?
   targetDate   DateTime? @map("target_date")
   closedAt     DateTime? @map("closed_at")
+  rootCause       String?   @map("root_cause") @db.VarChar(120)
+  resolutionNotes String?   @map("resolution_notes") @db.Text
+  sourceType      String?   @map("source_type") @db.VarChar(32)
+  sourceId        String?   @map("source_id") @db.VarChar(64)
   createdById  String    @map("created_by_id")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
@@ -12147,6 +12474,23 @@ model PerformanceCorrectiveAction {
   /// relation scalar. The migration creates it.
   @@index([createdById], map: "performance_corrective_actions_created_by_idx")
   @@map("performance_corrective_actions")
+}
+
+/// Status / progress history for a corrective action (created by run-performance-sweep-migration.ts).
+model PerformanceCorrectiveActionEvent {
+  id         String   @id @default(cuid())
+  actionId   String   @map("action_id")
+  eventType  String   @map("event_type") @db.VarChar(32)
+  fromStatus String?  @map("from_status") @db.VarChar(32)
+  toStatus   String?  @map("to_status") @db.VarChar(32)
+  progress   Int?
+  note       String?  @db.Text
+  actorId    String?  @map("actor_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([actionId], map: "pca_events_action_idx")
+  @@index([createdAt], map: "pca_events_created_idx")
+  @@map("performance_corrective_action_events")
 }
 
 /// Performance module alert register. Table created by scripts/run-performance-alerts-migration.ts.
@@ -12237,6 +12581,11 @@ model PerformanceDocument {
   ownerId        String?   @map("owner_id")
   departmentId   String?   @map("department_id")
   retentionUntil DateTime? @map("retention_until")
+  retentionClass String?   @map("retention_class") @db.VarChar(48)
+  audience       String?   @db.VarChar(64)
+  approvedById   String?   @map("approved_by_id")
+  approvedAt     DateTime? @map("approved_at")
+  currentVersionNo Int     @default(1) @map("current_version_no")
   uploadedById   String?   @map("uploaded_by_id")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
@@ -12269,4 +12618,571 @@ model PerformanceSetting {
 
   @@index([updatedById], map: "performance_settings_updated_by_idx")
   @@map("performance_settings")
+}
+
+/// Every formal reopen of a sourcing event after its deadline (SRD §9 submission lock). Never deleted.
+model RfqReopenEvent {
+  id                String   @id @default(cuid())
+  procurementRfqId  String   @map("procurement_rfq_id")
+  reopenedById      String   @map("reopened_by_id")
+  reason            String   @db.Text
+  previousStatus    String?  @map("previous_status") @db.VarChar(32)
+  previousClosingAt DateTime? @map("previous_closing_at")
+  newClosingAt      DateTime @map("new_closing_at")
+  vendorIds         Json?    @map("vendor_ids")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([procurementRfqId], map: "rfq_reopen_events_rfq_idx")
+  @@map("rfq_reopen_events")
+}
+
+/// Atomic counters (requisition numbering). Bumped inside the creating transaction, so a rollback leaves no gap.
+model DocumentSequence {
+  seqKey    String   @id @map("seq_key") @db.VarChar(191)
+  counter   BigInt   @default(0)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("document_sequences")
+}
+
+model PurchaseRequisitionAttachment {
+  id            String   @id @default(cuid())
+  requisitionId String   @map("requisition_id")
+  fileName      String   @map("file_name") @db.VarChar(255)
+  fileUrl       String   @map("file_url") @db.Text
+  mimeType      String?  @map("mime_type") @db.VarChar(128)
+  fileSizeBytes Int?     @map("file_size_bytes")
+  uploadedById  String   @map("uploaded_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([requisitionId], map: "pr_attachments_req_idx")
+  @@map("purchase_requisition_attachments")
+}
+
+/// The budget master a requisition's Budget Code / Cost Centre draws on.
+model ProcurementBudget {
+  id            String   @id @default(cuid())
+  financialYear String   @map("financial_year") @db.VarChar(16)
+  budgetCode    String   @map("budget_code") @db.VarChar(64)
+  costCentre    String   @default("") @map("cost_centre") @db.VarChar(128)
+  department    String?  @db.VarChar(191)
+  description   String?  @db.VarChar(255)
+  amount        Decimal  @default(0.00) @db.Decimal(15, 2)
+  currencyCode  String?  @map("currency_code") @db.VarChar(8)
+  status        String   @default("ACTIVE") @db.VarChar(16)
+  glCode        String?  @map("gl_code") @db.VarChar(64)
+  createdById   String?  @map("created_by_id") @db.VarChar(191)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([financialYear, budgetCode, costCentre], map: "procurement_budgets_key")
+  @@map("procurement_budgets")
+}
+
+/// One row per approval decision: who, what, when, comments, previous and resulting status.
+model ProcurementDecisionLog {
+  id                String   @id @default(cuid())
+  entityType        String   @map("entity_type") @db.VarChar(32)
+  entityId          String   @map("entity_id") @db.VarChar(191)
+  approvalRequestId String?  @map("approval_request_id") @db.VarChar(191)
+  approvalId        String?  @map("approval_id") @db.VarChar(191)
+  stepNumber        Int?     @map("step_number")
+  stepName          String?  @map("step_name") @db.VarChar(191)
+  actorId           String?  @map("actor_id") @db.VarChar(191)
+  onBehalfOfId      String?  @map("on_behalf_of_id") @db.VarChar(191)
+  action            String   @db.VarChar(24)
+  comments          String?  @db.Text
+  previousStatus    String?  @map("previous_status") @db.VarChar(48)
+  resultingStatus   String?  @map("resulting_status") @db.VarChar(48)
+  detail            Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId, createdAt], map: "procurement_decision_log_entity_idx")
+  @@map("procurement_decision_log")
+}
+
+/// §16: the immutable record of a formal bid opening (database triggers refuse UPDATE and DELETE).
+model RfqBidOpening {
+  id                    String   @id @default(cuid())
+  rfqId                 String   @unique @map("rfq_id")
+  openedAt              DateTime @map("opened_at")
+  openedById            String   @map("opened_by_id")
+  notes                 String?  @db.Text
+  submissionsCount      Int      @default(0) @map("submissions_count")
+  reportingCurrencyCode String?  @map("reporting_currency_code") @db.VarChar(8)
+  fxSnapshot            Json?    @map("fx_snapshot")
+  recordSha256          String?  @map("record_sha256") @db.VarChar(64)
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  @@map("rfq_bid_openings")
+}
+
+model RfqBidOpeningAttendee {
+  id        String   @id @default(cuid())
+  openingId String   @map("opening_id")
+  userId    String?  @map("user_id")
+  name      String   @db.VarChar(191)
+  role      String?  @db.VarChar(64)
+  external  Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([openingId], map: "rfq_bid_opening_attendees_opening")
+  @@map("rfq_bid_opening_attendees")
+}
+
+/// §19: declaration wording is configuration, not code.
+model EvaluationDeclarationOption {
+  id              String   @id @default(cuid())
+  code            String   @unique @db.VarChar(32)
+  label           String   @db.VarChar(191)
+  statement       String   @db.Text
+  /// CLEAR | DISCLOSED | RECUSE
+  effect          String   @default("CLEAR") @db.VarChar(12)
+  requiresDetails Boolean  @default(false) @map("requires_details")
+  active          Boolean  @default(true)
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("evaluation_declaration_options")
+}
+
+model RfqEvaluationCriterion {
+  id          String   @id @default(cuid())
+  rfqId       String   @map("rfq_id")
+  code        String   @db.VarChar(48)
+  name        String   @db.VarChar(191)
+  category    String   @default("TECHNICAL") @db.VarChar(24)
+  /// PASS_FAIL | SCORED | PRICE (price is computed from the quotations, never scored by hand)
+  kind        String   @default("SCORED") @db.VarChar(12)
+  weight      Decimal  @default(0) @db.Decimal(7, 3)
+  maxScore    Int      @default(100) @map("max_score")
+  mandatory   Boolean  @default(false)
+  sortOrder   Int      @default(0) @map("sort_order")
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([rfqId, code], map: "rfq_evaluation_criteria_code")
+  @@map("rfq_evaluation_criteria")
+}
+
+model RfqEvaluationMember {
+  id                    String    @id @default(cuid())
+  rfqId                 String    @map("rfq_id")
+  userId                String    @map("user_id")
+  role                  String    @default("MEMBER") @db.VarChar(16)
+  addedById             String?   @map("added_by_id")
+  declarationCode       String?   @map("declaration_code") @db.VarChar(32)
+  declarationStatement  String?   @map("declaration_statement") @db.Text
+  declarationDetails    String?   @map("declaration_details") @db.Text
+  declaredAt            DateTime? @map("declared_at")
+  recused               Boolean   @default(false)
+  scorecardSubmittedAt  DateTime? @map("scorecard_submitted_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  @@unique([rfqId, userId], map: "rfq_evaluation_committee_member")
+  @@map("rfq_evaluation_committee")
+}
+
+model RfqEvaluationScore {
+  id          String   @id @default(cuid())
+  rfqId       String   @map("rfq_id")
+  quotationId String   @map("quotation_id")
+  criterionId String   @map("criterion_id")
+  evaluatorId String   @map("evaluator_id")
+  score       Decimal? @db.Decimal(7, 2)
+  passed      Boolean?
+  comment     String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([quotationId, criterionId, evaluatorId], map: "rfq_evaluation_scores_one")
+  @@index([rfqId], map: "rfq_evaluation_scores_rfq")
+  @@map("rfq_evaluation_scores")
+}
+
+model RfqEvaluationNote {
+  id          String   @id @default(cuid())
+  rfqId       String   @map("rfq_id")
+  quotationId String   @map("quotation_id")
+  evaluatorId String   @map("evaluator_id")
+  comment     String?  @db.Text
+  attachments Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([quotationId, evaluatorId], map: "rfq_evaluation_notes_one")
+  @@map("rfq_evaluation_notes")
+}
+
+/// §20: the recommendation package; approval routing is the approval engine's AWARD_RECOMMENDATION stage.
+model RfqAwardRecommendation {
+  id                     String    @id @default(cuid())
+  rfqId                  String    @map("rfq_id")
+  version                Int       @default(1)
+  /// DRAFT | PENDING_APPROVAL | APPROVED | REJECTED | SUPERSEDED
+  status                 String    @default("DRAFT") @db.VarChar(24)
+  recommendedQuotationId String    @map("recommended_quotation_id")
+  recommendedAmount      Decimal   @default(0.00) @map("recommended_amount") @db.Decimal(15, 2)
+  currencyCode           String?   @map("currency_code") @db.VarChar(8)
+  justification          String?   @db.Text
+  deviations             String?   @db.Text
+  evaluationSummary      Json?     @map("evaluation_summary")
+  supportingDocuments    Json?     @map("supporting_documents")
+  preparedById           String    @map("prepared_by_id")
+  submittedAt            DateTime? @map("submitted_at")
+  approvalRequestId      String?   @map("approval_request_id")
+  decidedAt              DateTime? @map("decided_at")
+  decisionComments       String?   @map("decision_comments") @db.Text
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([rfqId, version], map: "rfq_award_recommendations_rfq")
+  @@map("rfq_award_recommendations")
+}
+
+/// §25: every finance handoff transition, append-only: who moved an invoice from what to what, when, and why.
+model ProcurementInvoiceHandoffEvent {
+  id         String   @id @default(cuid())
+  invoiceId  String   @map("invoice_id") @db.VarChar(191)
+  fromStatus String?  @map("from_status") @db.VarChar(32)
+  toStatus   String   @map("to_status") @db.VarChar(32)
+  actorId    String?  @map("actor_id") @db.VarChar(191)
+  comment    String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([invoiceId, createdAt], map: "pihe_invoice_idx")
+  @@map("procurement_invoice_handoff_events")
+}
+
+/// §29: an AI reading of a document, held for a person to review. Nothing here is official until it is confirmed and applied.
+model ProcurementAiExtraction {
+  id            String   @id @default(cuid())
+  documentType  String   @map("document_type") @db.VarChar(48)
+  sourceType    String   @map("source_type") @db.VarChar(32)
+  sourceRef     String?  @map("source_ref") @db.VarChar(191)
+  fileName      String?  @map("file_name") @db.VarChar(255)
+  filePath      String?  @map("file_path") @db.VarChar(500)
+  requestedById String   @map("requested_by_id") @db.VarChar(191)
+  /// PENDING_REVIEW | REVIEWED | DISCARDED
+  status        String   @default("PENDING_REVIEW") @db.VarChar(24)
+  fields        Json?
+  missing       Json?
+  inconsistencies Json?
+  summary       String?  @db.Text
+  model         String?  @db.VarChar(96)
+  appliedTo     Json?    @map("applied_to")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([requestedById, createdAt], map: "pae_requester_idx")
+  @@index([sourceType, sourceRef], map: "pae_source_idx")
+  @@map("procurement_ai_extractions")
+}
+
+
+/// Enterprise risk register (created by run-performance-sweep-migration.ts, step S3).
+model PerformanceRisk {
+  id                  String    @id @default(cuid())
+  reference           String    @unique @db.VarChar(32)
+  title               String    @db.VarChar(255)
+  description         String?   @db.Text
+  category            String    @db.VarChar(64)
+  ownerId             String?   @map("owner_id")
+  departmentId        String?   @map("department_id")
+  inherentLikelihood  Int       @map("inherent_likelihood")
+  inherentImpact      Int       @map("inherent_impact")
+  residualLikelihood  Int?      @map("residual_likelihood")
+  residualImpact      Int?      @map("residual_impact")
+  appetiteLimit       Int       @default(10) @map("appetite_limit")
+  controls            String?   @db.Text
+  status              String    @default("identified") @db.VarChar(32)
+  reviewFrequencyDays Int       @default(90) @map("review_frequency_days")
+  nextReviewDate      DateTime? @map("next_review_date")
+  lastReviewedAt      DateTime? @map("last_reviewed_at")
+  createdById         String    @map("created_by_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([status], map: "performance_risks_status_idx")
+  @@index([ownerId], map: "performance_risks_owner_idx")
+  @@map("performance_risks")
+}
+
+model PerformanceRiskTreatment {
+  id          String    @id @default(cuid())
+  riskId      String    @map("risk_id")
+  title       String    @db.VarChar(255)
+  description String?   @db.Text
+  ownerId     String?   @map("owner_id")
+  status      String    @default("open") @db.VarChar(32)
+  dueDate     DateTime  @map("due_date")
+  completedAt DateTime? @map("completed_at")
+  notes       String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([riskId], map: "performance_risk_treatments_risk_idx")
+  @@index([status], map: "performance_risk_treatments_status_idx")
+  @@map("performance_risk_treatments")
+}
+
+model PerformanceRiskHistory {
+  id            String   @id @default(cuid())
+  riskId        String   @map("risk_id")
+  event         String   @db.VarChar(48)
+  note          String?  @db.Text
+  inherentScore Int?     @map("inherent_score")
+  residualScore Int?     @map("residual_score")
+  status        String?  @db.VarChar(32)
+  actorId       String?  @map("actor_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([riskId], map: "performance_risk_history_risk_idx")
+  @@map("performance_risk_history")
+}
+
+
+/// Alert rules (created by run-performance-sweep-migration.ts, step S4).
+model PerformanceAlertRule {
+  id                   String   @id @default(cuid())
+  code                 String   @unique @db.VarChar(64)
+  name                 String   @db.VarChar(160)
+  description          String?  @db.Text
+  source               String   @db.VarChar(48)
+  severity             String   @default("warning") @db.VarChar(16)
+  threshold            Int      @default(0)
+  level1Minutes        Int      @default(1440) @map("level1_minutes")
+  level2Minutes        Int      @default(4320) @map("level2_minutes")
+  level3Minutes        Int      @default(10080) @map("level3_minutes")
+  resolveWithinMinutes Int      @default(10080) @map("resolve_within_minutes")
+  channels             String   @default("in_app") @db.VarChar(64)
+  isActive             Boolean  @default(true) @map("is_active")
+  createdById          String?  @map("created_by_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("performance_alert_rules")
+}
+
+model PerformanceAlertEvent {
+  id        String   @id @default(cuid())
+  alertId   String   @map("alert_id")
+  event     String   @db.VarChar(32)
+  note      String?  @db.Text
+  actorId   String?  @map("actor_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([alertId], map: "performance_alert_events_alert_idx")
+  @@map("performance_alert_events")
+}
+
+
+/// Vault version history and event log (created by run-performance-sweep-migration.ts, step S5).
+model PerformanceDocumentVersion {
+  id            String   @id @default(cuid())
+  documentId    String   @map("document_id")
+  versionNo     Int      @map("version_no")
+  fileUrl       String   @map("file_url") @db.Text
+  storagePath   String?  @map("storage_path") @db.VarChar(512)
+  mimeType      String?  @map("mime_type") @db.VarChar(128)
+  fileSizeBytes Int?     @map("file_size_bytes")
+  content       String?  @db.LongText
+  changeNote    String?  @map("change_note") @db.VarChar(500)
+  uploadedById  String?  @map("uploaded_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([documentId, versionNo], map: "performance_document_versions_doc_no_key")
+  @@map("performance_document_versions")
+}
+
+model PerformanceDocumentEvent {
+  id         String   @id @default(cuid())
+  documentId String   @map("document_id")
+  event      String   @db.VarChar(32)
+  note       String?  @db.Text
+  actorId    String?  @map("actor_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([documentId], map: "performance_document_events_doc_idx")
+  @@map("performance_document_events")
+}
+
+
+/// Weight change proposals for the four BSC perspectives (created by run-performance-sweep-migration.ts, step S8).
+model PerformancePillarProposal {
+  id              String    @id @default(cuid())
+  weights         Json
+  previousWeights Json?     @map("previous_weights")
+  reason          String    @db.Text
+  status          String    @default("pending") @db.VarChar(16)
+  versionNo       Int?      @map("version_no")
+  proposedById    String    @map("proposed_by_id")
+  decidedById     String?   @map("decided_by_id")
+  decidedAt       DateTime? @map("decided_at")
+  decisionNote    String?   @map("decision_note") @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@index([status], map: "performance_pillar_proposals_status_idx")
+  @@map("performance_pillar_proposals")
+}
+
+
+/// Contract sign-off per version and event log (created by run-performance-sweep-migration.ts, step S9).
+model PerformanceContractSignature {
+  id         String   @id @default(cuid())
+  contractId String   @map("contract_id")
+  role       String   @db.VarChar(16)
+  userId     String   @map("user_id")
+  versionNo  Int      @map("version_no")
+  note       String?  @db.VarChar(500)
+  signedAt   DateTime @default(now()) @map("signed_at")
+
+  @@index([contractId], map: "performance_contract_signatures_contract_idx")
+  @@map("performance_contract_signatures")
+}
+
+model PerformanceContractEvent {
+  id         String   @id @default(cuid())
+  contractId String   @map("contract_id")
+  event      String   @db.VarChar(32)
+  note       String?  @db.Text
+  actorId    String?  @map("actor_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([contractId], map: "performance_contract_events_contract_idx")
+  @@map("performance_contract_events")
+}
+
+
+/// Reports, runs, schedules and compliance controls (created by run-performance-sweep-migration.ts, step S12).
+model PerformanceReportDefinition {
+  id          String   @id @default(cuid())
+  reference   String   @unique @db.VarChar(32)
+  name        String   @db.VarChar(200)
+  description String?  @db.Text
+  type        String   @db.VarChar(48)
+  category    String   @db.VarChar(32)
+  format      String   @default("HTML") @db.VarChar(8)
+  filters     Json?
+  ownerId     String?  @map("owner_id")
+  status      String   @default("active") @db.VarChar(16)
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("performance_report_definitions")
+}
+
+model PerformanceReportRun {
+  id            String    @id @default(cuid())
+  definitionId  String    @map("definition_id")
+  status        String    @db.VarChar(24)
+  format        String    @default("HTML") @db.VarChar(8)
+  trigger       String    @default("manual") @db.VarChar(16)
+  generatedById String?   @map("generated_by_id")
+  generatedAt   DateTime  @default(now()) @map("generated_at")
+  rowCount      Int       @default(0) @map("row_count")
+  contentHtml   String?   @map("content_html") @db.LongText
+  contentCsv    String?   @map("content_csv") @db.LongText
+  checksum      String?   @db.VarChar(32)
+  error         String?   @db.Text
+  publishedById String?   @map("published_by_id")
+  publishedAt   DateTime? @map("published_at")
+
+  @@index([definitionId], map: "performance_report_runs_definition_idx")
+  @@index([generatedAt], map: "performance_report_runs_generated_idx")
+  @@map("performance_report_runs")
+}
+
+model PerformanceReportSchedule {
+  id           String    @id @default(cuid())
+  definitionId String    @map("definition_id")
+  frequency    String    @db.VarChar(16)
+  recipientIds Json      @map("recipient_ids")
+  nextRunAt    DateTime  @map("next_run_at")
+  lastRunAt    DateTime? @map("last_run_at")
+  isActive     Boolean   @default(true) @map("is_active")
+  createdById  String?   @map("created_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([isActive, nextRunAt], map: "performance_report_schedules_due_idx")
+  @@map("performance_report_schedules")
+}
+
+model PerformanceComplianceControl {
+  id          String   @id @default(cuid())
+  code        String   @unique @db.VarChar(48)
+  name        String   @db.VarChar(200)
+  description String?  @db.Text
+  controlType String   @map("control_type") @db.VarChar(16)
+  testKey     String?  @map("test_key") @db.VarChar(48)
+  frequency   String   @default("monthly") @db.VarChar(16)
+  ownerId     String?  @map("owner_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("performance_compliance_controls")
+}
+
+model PerformanceComplianceTest {
+  id           String   @id @default(cuid())
+  controlId    String   @map("control_id")
+  result       String   @db.VarChar(8)
+  exceptions   Int      @default(0)
+  detail       String?  @db.Text
+  testedById   String?  @map("tested_by_id")
+  testedAt     DateTime @default(now()) @map("tested_at")
+
+  @@index([controlId], map: "performance_compliance_tests_control_idx")
+  @@map("performance_compliance_tests")
+}
+
+
+/// Strategy hub records (created by run-performance-sweep-migration.ts, step S13).
+model PerformanceStrategyReview {
+  id          String    @id @default(cuid())
+  strategyId  String?   @map("strategy_id")
+  title       String    @db.VarChar(200)
+  scope       String?   @db.VarChar(500)
+  scheduledFor DateTime @map("scheduled_for")
+  heldAt      DateTime? @map("held_at")
+  status      String    @default("planned") @db.VarChar(16)
+  outcome     String?   @db.Text
+  createdById String?   @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("performance_strategy_reviews")
+}
+
+model PerformanceStrategyDecision {
+  id           String    @id @default(cuid())
+  reviewId     String?   @map("review_id")
+  title        String    @db.VarChar(255)
+  type         String    @default("other") @db.VarChar(24)
+  description  String?   @db.Text
+  rationale    String?   @db.Text
+  ownerId      String?   @map("owner_id")
+  proposedById String?   @map("proposed_by_id")
+  status       String    @default("proposed") @db.VarChar(16)
+  decidedById  String?   @map("decided_by_id")
+  decidedAt    DateTime? @map("decided_at")
+  decisionNote String?   @map("decision_note") @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([status], map: "performance_strategy_decisions_status_idx")
+  @@map("performance_strategy_decisions")
+}
+
+model PerformanceStrategyAssumption {
+  id          String    @id @default(cuid())
+  statement   String    @db.VarChar(1000)
+  status      String    @default("valid") @db.VarChar(16)
+  ownerId     String?   @map("owner_id")
+  reviewDate  DateTime? @map("review_date")
+  evidence    String?   @db.VarChar(1000)
+  createdById String?   @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("performance_strategy_assumptions")
 }

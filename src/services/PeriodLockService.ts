@@ -736,6 +736,35 @@ export default class PeriodLockService {
     const entries = draft.moduleLocks ?? [];
     const warnings = this.dependencyWarningsFromDraft(entries);
 
+    // Locking the ledger is the last close task (SRD ACC-PER-07): a month whose close checklist still has open tasks is
+    // not locked, unless the person holds the lock override. Draft journals dated in the month are reported: once it is
+    // locked they can no longer be posted.
+    const closing = entries.filter((e) => e.moduleCode === "GL" && (e.lockStatus === "LOCKED" || e.lockStatus === "CLOSED"));
+    if (closing.length) {
+      const actor: any = await prisma.user.findUnique({ where: { id: params.userId }, include: { role: true } }).catch(() => null);
+      const canOverride = !!actor && userHasEffectivePermission(actor, OVERRIDE_PERM);
+      for (const e of closing) {
+        const [period, open, current] = await Promise.all([
+          prisma.fiscalPeriod.findUnique({ where: { id: e.fiscalPeriodId }, select: { name: true, startDate: true, endDate: true } }),
+          prisma.accountingCloseTask.findMany({ where: { fiscalPeriodId: e.fiscalPeriodId, status: { not: "COMPLETE" } }, select: { task: true } }),
+          prisma.modulePeriodLock.findUnique({ where: { moduleCode_fiscalPeriodId: { moduleCode: "GL", fiscalPeriodId: e.fiscalPeriodId } }, select: { lockStatus: true } }),
+        ]);
+        if (current && (current.lockStatus === "LOCKED" || current.lockStatus === "CLOSED")) continue; // already locked
+        if (open.length && !canOverride) {
+          throw new PeriodLockValidationError(
+            `${period?.name || "The period"} still has ${open.length} open close task(s) (${open.slice(0, 3).map((t) => t.task).join("; ")}${open.length > 3 ? "; …" : ""}). Complete them before locking the ledger.`,
+            { fiscalPeriodId: e.fiscalPeriodId, openTasks: open.length }
+          );
+        }
+        if (open.length) warnings.push(`${period?.name || e.fiscalPeriodId}: locked with ${open.length} open close task(s) under the override.`);
+        if (period) {
+          const end = new Date(period.endDate.getTime() + 86400000 - 1);
+          const drafts = await prisma.journalEntry.count({ where: { status: "PENDING", transactionDate: { gte: period.startDate, lte: end } } });
+          if (drafts) warnings.push(`${period.name}: ${drafts} draft journal(s) dated in the month can no longer be posted once it is locked.`);
+        }
+      }
+    }
+
     await prisma.$transaction(
       async (tx) => {
         // Preflight: ensure draft fiscalPeriodIds exist to avoid FK constraint errors.

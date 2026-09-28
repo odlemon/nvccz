@@ -495,6 +495,9 @@ export class MultiCurrencyController {
    * Revalue foreign currency bank account
    */
   static async revalueForeignCurrencyBank(req: AuthRequest, res: Response): Promise<void> {
+    // retired: it valued the whole bank ledger at one rate and booked the full movement again on every run (FX-01)
+    res.status(410).json({ success: false, message: 'Bank revaluation is part of the month-end revaluation: GET/POST /api/accounting/multi-currency/revaluation.' });
+    return;
     try {
       const userId = req.user?.id;
       if (!userId) {

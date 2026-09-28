@@ -4,7 +4,11 @@ import express from "express";
 import multer from "multer";
 import { authenticate } from "../middleware/authenticate";
 import { requireAnyPermission } from "../middleware/permissionAuth";
+import { PerformanceVaultService, VaultError } from "../services/PerformanceVaultService";
 import { PerformanceDocumentController } from "../controllers/PerformanceDocumentController";
+import { isPerfAdmin } from "../services/PerformanceScope";
+import { prisma } from "../utils/database";
+import { perfActor, scoped, registerPlacement, documentWhere, documentVisible, documentWritable } from "../services/PerformanceScope";
 
 const router = express.Router();
 
@@ -151,6 +155,37 @@ router.get("/", read, PerformanceDocumentController.list);
  */
 router.get("/folders", read, PerformanceDocumentController.folders);
 
+// ---- vault workflow (versions, review, approval, retention)
+const vrun = (fn) => async (req: any, res: any) => {
+  try {
+    res.json({ success: true, data: await fn(req) });
+  } catch (e: any) {
+    res.status(e instanceof VaultError ? e.statusCode : 500).json({ success: false, message: e?.message || "Error" });
+  }
+};
+const isAdmin = (req: any) => isPerfAdmin(req.user);
+// by audience and owner (PerformanceScope.documentVisible / documentWritable)
+const docRule = (mode: "view" | "write") => scoped(async (req, a) => {
+  const d = await prisma.performanceDocument.findUnique({ where: { id: String(req.params.id) }, select: { ownerId: true, uploadedById: true, departmentId: true, audience: true, status: true } });
+  if (!d) return null;
+  if (mode === "view") return documentVisible(a, d) ? null : "This document is outside what your role can see.";
+  return documentWritable(a, d) ? null : "Your role cannot change this document.";
+});
+const docPlacement = registerPlacement("document");
+router.get("/vault/meta", read, vrun(() => PerformanceVaultService.meta()));
+router.get("/vault", read, vrun(async (req) => PerformanceVaultService.list(documentWhere(await perfActor(req.user)))));
+router.post("/vault/authored", write, docPlacement, vrun((req) => PerformanceVaultService.createAuthored(req.body || {}, req.user)));
+router.post("/vault/upload", write, performanceDocumentUpload.single("file"), docPlacement, vrun((req) => PerformanceVaultService.upload(req.file, req.body || {}, req.user)));
+router.get("/vault/:id", read, docRule("view"), vrun((req) => PerformanceVaultService.get(req.params.id)));
+router.get("/vault/:id/content", read, docRule("view"), vrun((req) => PerformanceVaultService.content(req.params.id, req.query.version ? Number(req.query.version) : undefined)));
+router.put("/vault/:id", write, docRule("write"), docPlacement, vrun((req) => PerformanceVaultService.updateMeta(req.params.id, req.body || {}, req.user)));
+router.post("/vault/:id/versions", write, docRule("write"), performanceDocumentUpload.single("file"), vrun((req) => PerformanceVaultService.addVersion(req.params.id, req.file, req.body || {}, req.user)));
+router.post("/vault/:id/submit", write, docRule("write"), vrun((req) => PerformanceVaultService.transition(req.params.id, "in_review", req.body?.note, req.user, isAdmin(req))));
+router.post("/vault/:id/approve", write, docRule("write"), vrun((req) => PerformanceVaultService.transition(req.params.id, "approved", req.body?.note, req.user, isAdmin(req))));
+router.post("/vault/:id/reject", write, docRule("write"), vrun((req) => PerformanceVaultService.transition(req.params.id, "draft", req.body?.note, req.user, isAdmin(req))));
+router.post("/vault/:id/archive", write, docRule("write"), vrun((req) => PerformanceVaultService.transition(req.params.id, "archived", req.body?.note, req.user, isAdmin(req))));
+router.delete("/vault/:id", write, docRule("write"), vrun((req) => PerformanceVaultService.remove(req.params.id, req.user)));
+
 /**
  * @swagger
  * /performance/documents/{id}:
@@ -170,7 +205,7 @@ router.get("/folders", read, PerformanceDocumentController.folders);
  *       404:
  *         description: Performance document not found
  */
-router.get("/:id", read, PerformanceDocumentController.getById);
+router.get("/:id", read, docRule("view"), PerformanceDocumentController.getById);
 
 /**
  * @swagger
@@ -218,7 +253,7 @@ router.get("/:id", read, PerformanceDocumentController.getById);
  *       400:
  *         description: No file uploaded or invalid metadata
  */
-router.post("/", write, performanceDocumentUpload.single("file"), PerformanceDocumentController.upload);
+router.post("/", write, performanceDocumentUpload.single("file"), docPlacement, PerformanceDocumentController.upload);
 
 /**
  * @swagger
@@ -239,7 +274,7 @@ router.post("/", write, performanceDocumentUpload.single("file"), PerformanceDoc
  *       404:
  *         description: Performance document not found
  */
-router.patch("/:id", write, PerformanceDocumentController.update);
+router.patch("/:id", write, docRule("write"), docPlacement, PerformanceDocumentController.update);
 
 /**
  * @swagger
@@ -260,6 +295,6 @@ router.patch("/:id", write, PerformanceDocumentController.update);
  *       404:
  *         description: Performance document not found
  */
-router.delete("/:id", write, PerformanceDocumentController.remove);
+router.delete("/:id", write, docRule("write"), PerformanceDocumentController.remove);
 
 export default router;

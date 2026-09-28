@@ -3,10 +3,12 @@ import express from "express";
 import { PerformanceBreakdownController } from "../controllers/PerformanceBreakdownController";
 import { authenticate } from "../middleware/authenticate";
 import { methodGuard } from "../middleware/methodGuard"
+import { goalRule, orgOnly, scoped, personInScope, departmentInScope } from "../services/PerformanceScope";
 
 const router = express.Router();
-const READ_KEYS = ["performance.breakdown.view", "performance.breakdown.manage"]
-const WRITE_KEYS = ["performance.breakdown.manage"]
+// breaking a goal down to departments and people is part of goals (the matrix has no separate row for it)
+const READ_KEYS = ["performance.goals.view", "performance.goals.manage"]
+const WRITE_KEYS = ["performance.goals.manage"]
 const guard = methodGuard(READ_KEYS, WRITE_KEYS)
 
 /**
@@ -95,7 +97,7 @@ const guard = methodGuard(READ_KEYS, WRITE_KEYS)
  *       500:
  *         description: Internal server error
  */
-router.post("/departments", authenticate, guard, PerformanceBreakdownController.createDepartmentBreakdown);
+router.post("/departments", authenticate, guard, orgOnly("Breaking a company goal down across departments needs an organisation-wide role."), PerformanceBreakdownController.createDepartmentBreakdown);
 
 /**
  * @swagger
@@ -182,7 +184,7 @@ router.post("/departments", authenticate, guard, PerformanceBreakdownController.
  *       500:
  *         description: Internal server error
  */
-router.post("/individuals", authenticate, guard, PerformanceBreakdownController.createIndividualBreakdown);
+router.post("/individuals", authenticate, guard, goalRule("departmentGoalId", "write"), scoped(async (req, a) => { for (const u of Array.isArray(req.body?.selectedUsers) ? req.body.selectedUsers : []) if (!(await personInScope(a, typeof u === "object" ? u?.id || u?.userId : u))) return "You can only assign goals to people in your department."; }), PerformanceBreakdownController.createIndividualBreakdown);
 
 /**
  * @swagger
@@ -275,6 +277,6 @@ router.get("/departments/available", authenticate, guard, PerformanceBreakdownCo
  */
 // Returns id, firstName, lastName and email for every user in the department — this was
 // reachable with no token at all. Same omission as the route above.
-router.get("/users/:departmentName", authenticate, guard, PerformanceBreakdownController.getUsersByDepartment);
+router.get("/users/:departmentName", authenticate, guard, scoped(async (req, a) => (departmentInScope(a, req.params.departmentName) ? null : "You can only list your own department's people.")), PerformanceBreakdownController.getUsersByDepartment);
 
 export default router;

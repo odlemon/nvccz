@@ -20,6 +20,8 @@ export interface CreateInventoryItemParams {
   unitOfMeasure?: string;
   vendorId?: string; // Link to vendor (supplier)
   inventoryAssetAccountId?: string; // Optional - will auto-select "Inventory" account if not provided
+  /** Where an opening quantity came from (opening balances, a payable): required when quantityOnHand > 0. */
+  openingContraAccountId?: string;
   createdById: string;
 }
 
@@ -33,6 +35,10 @@ export interface StockMovementParams {
   createdById: string;
   /** When policy allows negative stock, must be true to record an OUT that drives on-hand below zero. */
   acknowledgeNegativeStock?: boolean;
+  /** The other side of the movement's journal (see InventoryLedgerService). */
+  contraAccountId?: string | null;
+  /** The caller posts its own journal (a sales invoice's cost of sales). */
+  skipJournal?: boolean;
 }
 
 export interface InventoryValuationParams {
@@ -192,6 +198,10 @@ export class InventoryService {
         console.log(`✓ Using provided Inventory account: ${assetAccount.accountNo} ${assetAccount.accountName}`);
       }
 
+      if (quantityOnHand > 0 && !params.openingContraAccountId) {
+        throw Object.assign(new Error('An opening quantity needs the account it came from (opening balances or a payable).'), { statusCode: 400 });
+      }
+
       // Check if SKU already exists
       const existingItem = await prisma.inventoryItem.findUnique({
         where: { skuNumber }
@@ -208,7 +218,8 @@ export class InventoryService {
           skuNumber,
           description,
           costOfPurchase: new Decimal(costOfPurchase),
-          quantityOnHand: new Decimal(quantityOnHand),
+          // the opening quantity is received below: setting it here as well counted it twice
+          quantityOnHand: new Decimal(0),
           reorderLevel: new Decimal(reorderLevel),
           unitOfMeasure,
           supplierId: vendorId, // Map vendorId to supplierId for database
@@ -243,9 +254,11 @@ export class InventoryService {
           quantity: quantityOnHand,
           unitCost: costOfPurchase,
           reference: 'INITIAL_STOCK',
-          description: 'Initial stock entry',
-          createdById
+          description: 'Opening stock',
+          createdById,
+          contraAccountId: params.openingContraAccountId,
         });
+        Object.assign(inventoryItem, await prisma.inventoryItem.findUnique({ where: { id: inventoryItem.id }, select: { quantityOnHand: true, costOfPurchase: true } }));
       }
 
       // Audit log
@@ -268,98 +281,24 @@ export class InventoryService {
    * Record stock movement and update quantity
    */
   static async recordStockMovement(params: StockMovementParams): Promise<StockMovement> {
-    try {
-      const {
-        itemId,
-        movementType,
-        quantity,
-        unitCost,
-        reference,
-        description,
-        createdById,
-        acknowledgeNegativeStock,
-      } = params;
-
-      // Get current item
-      const item = await prisma.inventoryItem.findUnique({
-        where: { id: itemId }
-      });
-
-      if (!item) {
-        throw new Error('Inventory item not found');
-      }
-
-      const settings = await this.getInventorySettings();
-
-      // Calculate new quantity
-      let newQuantity = Number(item.quantityOnHand);
-      if (movementType === 'IN' || movementType === 'ADJUSTMENT') {
-        newQuantity += quantity;
-      } else if (movementType === 'OUT') {
-        newQuantity -= quantity;
-        if (newQuantity < 0) {
-          if (!settings.allowNegativeStock) {
-            throw new Error(
-              `Insufficient stock for "${item.itemName}" (SKU ${item.skuNumber}): on hand ${Number(
-                item.quantityOnHand
-              )}, requested ${quantity}, shortfall ${quantity - Number(item.quantityOnHand)}`
-            );
-          }
-          if (!acknowledgeNegativeStock) {
-            throw new NegativeStockConfirmationRequiredError(
-              [
-                {
-                  itemId: item.id,
-                  itemName: item.itemName,
-                  skuNumber: item.skuNumber,
-                  quantityOnHand: Number(item.quantityOnHand),
-                  quantityRequested: quantity,
-                  shortfall: quantity - Number(item.quantityOnHand),
-                  projectedQuantityAfterSale: newQuantity,
-                },
-              ],
-              `Insufficient stock for "${item.itemName}" (SKU ${item.skuNumber}). Set acknowledgeNegativeStock: true to post this OUT.`
-            );
-          }
-        }
-      }
-
-      // Create stock movement record
-      const stockMovement = await prisma.stockMovement.create({
-        data: {
-          itemId,
-          movementType,
-          quantity: new Decimal(quantity),
-          unitCost: new Decimal(unitCost),
-          totalCost: new Decimal(quantity * unitCost),
-          reference,
-          description,
-          createdById
-        }
-      });
-
-      // Update item quantity
-      await prisma.inventoryItem.update({
-        where: { id: itemId },
-        data: {
-          quantityOnHand: new Decimal(newQuantity)
-        }
-      });
-
-      // Audit log
-      await AuditService.log({
-        userId: createdById,
-        action: 'CREATE',
-        entityType: 'StockMovement',
-        entityId: stockMovement.id,
-        newValues: stockMovement,
-      });
-
-      return stockMovement;
-    } catch (error) {
-      console.error('Error recording stock movement:', error);
-      throw error;
+    // quantity, moving average cost and the ledger move together (InventoryLedgerService)
+    if (params.movementType === 'TRANSFER') {
+      throw Object.assign(new Error('Transfers between locations are not kept: stock has one location.'), { statusCode: 400 });
     }
+    const { InventoryLedgerService } = await import('./InventoryLedgerService');
+    const r = await InventoryLedgerService.moveStock({
+      itemId: params.itemId,
+      movementType: params.movementType,
+      quantity: params.quantity,
+      unitCost: params.unitCost,
+      contraAccountId: params.contraAccountId,
+      reference: params.reference,
+      description: params.description,
+      createdById: params.createdById,
+      acknowledgeNegativeStock: params.acknowledgeNegativeStock,
+      skipJournal: params.skipJournal,
+    });
+    return Object.assign(r.movement, { journalReference: r.journal ? r.journal.referenceNumber : null, onHandAfter: r.onHand, averageCostAfter: r.averageCost });
   }
 
   /**
@@ -428,6 +367,7 @@ export class InventoryService {
           description: `Sales invoice ${invoiceId}`,
           createdById,
           acknowledgeNegativeStock: negativeStockApplied,
+          skipJournal: true,
         });
 
         await this.createCOGSJournalEntry(salesInvoiceItem, createdById);
@@ -451,9 +391,11 @@ export class InventoryService {
       // Get COGS account
       const cogsAccount = await prisma.chartOfAccounts.findFirst({
         where: {
-          accountName: { contains: 'Cost of Goods Sold' },
+          OR: [{ accountName: { contains: 'Cost of Sales' } }, { accountName: { contains: 'Cost of Goods Sold' } }],
+          accountType: 'Expense',
           isActive: true
-        }
+        },
+        orderBy: { accountNo: 'asc' }
       });
 
       if (!cogsAccount) {
@@ -470,13 +412,15 @@ export class InventoryService {
         throw new Error('Inventory item not found');
       }
 
-      // Create journal entry for COGS
+      if (!(Number(salesInvoiceItem.totalCost) > 0)) return;
+      // the base currency and the tenant's day (it named a currency "default" that does not exist)
+      const { InventoryLedgerService } = await import('./InventoryLedgerService');
       const journalEntry = await createJournalEntryWithAuditSequence({
-        transactionDate: new Date(),
+        transactionDate: await InventoryLedgerService.tenantToday(),
         referenceNumber: `COGS-${salesInvoiceItem.id}`,
         description: `COGS for ${inventoryItem.itemName}`,
         totalAmount: salesInvoiceItem.totalCost,
-        currencyId: 'default',
+        currencyId: await InventoryLedgerService.baseCurrencyId(),
         status: 'POSTED',
         createdById,
       });
@@ -720,7 +664,16 @@ export class InventoryService {
       if (!item) {
         throw new Error('Inventory item not found');
       }
-
+      const moved = await prisma.stockMovement.count({ where: { itemId } });
+      if (moved > 0 && updates.costOfPurchase != null && Number(updates.costOfPurchase) !== Number(item.costOfPurchase)) {
+        throw Object.assign(new Error('The cost follows the stock received (weighted average); it is not changed by hand.'), { statusCode: 409 });
+      }
+      if (moved > 0 && updates.inventoryAssetAccountId && updates.inventoryAssetAccountId !== item.inventoryAssetAccountId) {
+        throw Object.assign(new Error('Stock has moved through this item, so its inventory account stays.'), { statusCode: 409 });
+      }
+      if (updates.isActive === false && Number(item.quantityOnHand) !== 0) {
+        throw Object.assign(new Error('Switch an item off only when none is on hand.'), { statusCode: 409 });
+      }
       const updatedItem = await prisma.inventoryItem.update({
         where: { id: itemId },
         data: {
@@ -785,8 +738,8 @@ export class InventoryService {
       }
 
       // Check if item has stock
-      if (Number(item.quantityOnHand) > 0) {
-        throw new Error('Cannot delete item with remaining stock');
+      if (Number(item.quantityOnHand) !== 0) {
+        throw Object.assign(new Error('Cannot delete an item with stock on hand (or below zero)'), { statusCode: 409 });
       }
 
       await prisma.inventoryItem.update({
@@ -811,16 +764,17 @@ export class InventoryService {
   /**
    * Update stock quantity (simplified method)
    */
-  static async updateStockQuantity(itemId: string, quantity: number, movementType: 'IN' | 'OUT', createdById: string): Promise<void> {
+  static async updateStockQuantity(itemId: string, quantity: number, movementType: 'IN' | 'OUT', createdById: string, contraAccountId?: string, unitCost?: number): Promise<void> {
     try {
       await this.recordStockMovement({
         itemId,
         movementType,
         quantity,
-        unitCost: 0, // Will be calculated from average cost
+        unitCost: unitCost ?? 0,
         reference: 'MANUAL_ADJUSTMENT',
         description: `Manual stock ${movementType.toLowerCase()} adjustment`,
-        createdById
+        createdById,
+        contraAccountId,
       });
     } catch (error) {
       console.error('Error updating stock quantity:', error);
@@ -897,21 +851,21 @@ export class InventoryService {
   static async createInventoryAdjustment(
     itemId: string, 
     quantity: number, 
-    reason: string, 
-    createdById: string
+    reason: string,
+    createdById: string,
+    contraAccountId?: string
   ): Promise<StockMovement> {
     try {
-      const movementType = quantity > 0 ? 'ADJUSTMENT' : 'ADJUSTMENT';
-      const absoluteQuantity = Math.abs(quantity);
-
+      // the signed count difference: a shortfall reduces stock (it was always added before)
       return await this.recordStockMovement({
         itemId,
         movementType: 'ADJUSTMENT',
-        quantity: absoluteQuantity,
-        unitCost: 0, // Will be calculated from average cost
+        quantity: Number(quantity),
+        unitCost: 0,
         reference: `ADJUSTMENT-${Date.now()}`,
         description: `Inventory adjustment: ${reason}`,
-        createdById
+        createdById,
+        contraAccountId,
       });
     } catch (error) {
       console.error('Error creating inventory adjustment:', error);

@@ -257,7 +257,7 @@ router.post("/match/:paymentId", OpenItemMatchingController.matchPaymentToInvoic
  *       401:
  *         description: Unauthorized
  */
-router.post("/unmatch", OpenItemMatchingController.unmatchPaymentFromInvoices);
+router.post("/unmatch/:paymentId", OpenItemMatchingController.unmatchPaymentFromInvoices);
 
 /**
  * @swagger

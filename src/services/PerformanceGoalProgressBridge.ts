@@ -5,6 +5,7 @@ import { PerformanceGoalProgressEventService } from "./PerformanceGoalProgressEv
 import { KpiAccountingIntegrationService } from "./KpiAccountingIntegrationService";
 import { AccountingGoalSyncService } from "./AccountingGoalSyncService";
 import type { ProgressEventSource } from "./performanceGoalSyncUtils";
+import { PerformanceGlPostingService } from "./PerformanceGlPostingService";
 
 export type ApplyProgressDeltaInput = {
   goalId: string;
@@ -44,29 +45,8 @@ export class PerformanceGoalProgressBridge {
       createdById: input.actorId
     });
 
-    if (!input.skipJournal && goal.kpi && delta > 0) {
-      try {
-        const journalEntryId = await KpiAccountingIntegrationService.postPerformanceProgressJournal({
-          goalId: input.goalId,
-          eventId,
-          amount: delta,
-          recordedAt: input.recordedAt ?? new Date(),
-          actorId: input.actorId
-        });
-        if (journalEntryId) {
-          await prisma.performanceGoalProgressEvent.update({
-            where: { id: eventId },
-            data: { journalEntryId }
-          });
-        }
-      } catch (err: any) {
-        logger.warn("Performance progress JE failed (goal progress recorded)", {
-          goalId: input.goalId,
-          eventId,
-          message: err?.message
-        });
-      }
-    }
+    // posted, reversed (a downward correction), skipped or failed — recorded on the event; never throws for a posting problem
+    if (!input.skipJournal && goal.kpi) await PerformanceGlPostingService.postEvent(eventId, input.actorId);
 
     await AccountingGoalSyncService.cascadeAfterGoalUpdate(input.goalId, goal.kpiId);
 
@@ -151,29 +131,7 @@ export class PerformanceGoalProgressBridge {
       skipRecompute: true
     });
 
-    try {
-      const journalEntryId = await KpiAccountingIntegrationService.postPerformanceProgressJournal({
-        goalId: companyGoalId,
-        eventId,
-        amount: increment,
-        recordedAt: new Date(),
-        actorId: input.actorId,
-        preloadedGoal: companyGoal
-      });
-      if (journalEntryId) {
-        await prisma.performanceGoalProgressEvent.update({
-          where: { id: eventId },
-          data: { journalEntryId }
-        });
-      }
-      return journalEntryId;
-    } catch (err: any) {
-      logger.warn("Company task progress JE failed", {
-        companyGoalId,
-        eventId,
-        message: err?.message
-      });
-      return null;
-    }
+    const r = await PerformanceGlPostingService.postEvent(eventId, input.actorId);
+    return r.journalEntryId || null;
   }
 }

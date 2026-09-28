@@ -24,14 +24,15 @@ export class PublicProcurementController {
       if (!po) {
         return res.status(404).json({ success: false, message: "Invalid or expired link" });
       }
-      await prisma.purchaseOrder.update({
-        where: { id: po.id },
-        data: { vendorAcknowledgedAt: new Date() },
-      });
+      // Acknowledging twice does not rewrite the first acknowledgement.
+      const acknowledgedAt = po.vendorAcknowledgedAt ?? new Date();
+      if (!po.vendorAcknowledgedAt) {
+        await prisma.purchaseOrder.update({ where: { id: po.id }, data: { vendorAcknowledgedAt: acknowledgedAt } });
+      }
       res.json({
         success: true,
         message: "Purchase order acknowledged. Thank you.",
-        data: { poNumber: po.poNumber, acknowledgedAt: new Date().toISOString() },
+        data: { poNumber: po.poNumber, acknowledgedAt: acknowledgedAt.toISOString() },
       });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });

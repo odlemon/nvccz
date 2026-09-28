@@ -1,9 +1,37 @@
 //@ts-nocheck
-/** Suite 06 — AI-assisted invoice extraction and 3-way match thresholds (env-tunable). */
+/** Suite 06 — AI-assisted invoice extraction and 3-way match thresholds (settings + env). */
+import { prisma } from "../utils/database";
+
+let cachedMatchPct: { at: number; value: number } | null = null;
+
+/** Prefer ProcurementSettings.matchPriceVariancePct; fall back to env then 2%. */
+export async function resolveMatchPriceVariancePct(): Promise<number> {
+  const now = Date.now();
+  if (cachedMatchPct && now - cachedMatchPct.at < 30_000) return cachedMatchPct.value;
+  try {
+    const row = await prisma.procurementSettings.findUnique({ where: { id: "default" } });
+    const fromDb = row?.matchPriceVariancePct != null ? Number(row.matchPriceVariancePct) : NaN;
+    if (Number.isFinite(fromDb) && fromDb >= 0) {
+      cachedMatchPct = { at: now, value: fromDb };
+      return fromDb;
+    }
+  } catch {
+    /* settings table may not be migrated yet */
+  }
+  const fromEnv = Number(process.env.SUITE06_PRICE_VARIANCE_PCT);
+  const value = Number.isFinite(fromEnv) && fromEnv >= 0 ? fromEnv : 2;
+  cachedMatchPct = { at: now, value };
+  return value;
+}
 
 export function getSuite06PriceVariancePct(): number {
+  if (cachedMatchPct) return cachedMatchPct.value;
   const v = Number(process.env.SUITE06_PRICE_VARIANCE_PCT);
-  return Number.isFinite(v) && v > 0 ? v : 1;
+  return Number.isFinite(v) && v >= 0 ? v : 2;
+}
+
+export function invalidateMatchVarianceCache() {
+  cachedMatchPct = null;
 }
 
 /** Overall extraction confidence below this routes intake to human verification (default 0.85). */

@@ -16,6 +16,13 @@ import {
   hasChartOfAccountsUpdatableField,
 } from '../services/ChartOfAccountsUpdateService';
 
+async function auditCoa(userId: string | undefined, action: string, id: string, oldValues: any, newValues: any) {
+  if (!userId) return;
+  const { default: AuditService } = await import('../services/AuditService');
+  await AuditService.log({ userId, action, entityType: 'ChartOfAccounts', entityId: id, oldValues, newValues }).catch(() => null);
+}
+const coaView = (a: any) => a && ({ accountNo: a.accountNo, accountName: a.accountName, accountType: a.accountType, financialStatement: a.financialStatement, parentId: a.parentId, notes: a.notes, isActive: a.isActive });
+
 export class ChartOfAccountsController {
   /**
    * POST /api/accounting/chart-of-accounts/bulk-import — validate CSV; on success create all accounts in one transaction.
@@ -129,6 +136,7 @@ export class ChartOfAccountsController {
         }
       });
 
+      await auditCoa(req.user?.id, 'CREATE', chartOfAccounts.id, null, coaView(chartOfAccounts));
       return ResponseHelper.created(res, "Chart of accounts entry created successfully", chartOfAccounts);
     } catch (error) {
       next(error);
@@ -165,6 +173,8 @@ export class ChartOfAccountsController {
 
       const chartOfAccounts = await prisma.chartOfAccounts.findMany({
         where,
+        // how many journal lines and sub-accounts each has: an account in use can be switched off, never deleted
+        include: { _count: { select: { journalEntryLines: true, children: true } } },
         orderBy: [
           { accountType: 'asc' },
           { accountNo: 'asc' }
@@ -217,10 +227,12 @@ export class ChartOfAccountsController {
       const patch = req.body || {};
 
       if (isModulePrivilegedUser(req.user)) {
+        const before = await prisma.chartOfAccounts.findUnique({ where: { id } });
         const result = await applyChartOfAccountsUpdate(id, patch);
         if (!result.ok) {
           return ResponseHelper.error(res, result.message, undefined, result.status);
         }
+        await auditCoa(req.user?.id, 'UPDATE', id, coaView(before), coaView(result.data));
         return ResponseHelper.success(res, "Chart of accounts updated successfully", result.data);
       }
 
@@ -236,6 +248,13 @@ export class ChartOfAccountsController {
       const existingAccount = await prisma.chartOfAccounts.findUnique({ where: { id } });
       if (!existingAccount) {
         return ResponseHelper.notFound(res, "Chart of accounts not found");
+      }
+
+      // the same checks the change meets when it is applied, so a change that could never be applied is refused now
+      const { validateChartOfAccountsUpdate } = await import('../services/ChartOfAccountsUpdateService');
+      const precheck = await validateChartOfAccountsUpdate(id, patch);
+      if (!precheck.ok) {
+        return ResponseHelper.error(res, precheck.message, undefined, precheck.status);
       }
 
       const { ApprovalService } = await import('../services/ApprovalService');
@@ -259,6 +278,7 @@ export class ChartOfAccountsController {
         );
       }
 
+      await auditCoa(req.user?.id, 'CHANGE_REQUESTED', id, coaView(existingAccount), patch);
       return ResponseHelper.success(
         res,
         "Change submitted for CFO approval",
@@ -420,9 +440,16 @@ export class ChartOfAccountsController {
       }
 
       // Delete the chart of accounts entry
+      // an account a bank account posts to stays, even before anything is posted
+      const bankLinks = await prisma.bank.count({ where: { glAccountId: id } });
+      if (bankLinks > 0) {
+        return ResponseHelper.badRequest(res, "A bank account posts to this account; it cannot be deleted.");
+      }
+
       await prisma.chartOfAccounts.delete({
         where: { id }
       });
+      await auditCoa(req.user?.id, 'DELETE', id, coaView(existingAccount), null);
 
       return ResponseHelper.success(res, "Chart of accounts deleted successfully");
     } catch (error) {

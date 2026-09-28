@@ -2,6 +2,7 @@ import type { Response } from "express";
 import type { AuthRequest } from "../middleware/authenticate";
 import CorrectiveActionService from "../services/CorrectiveActionService";
 import type { CorrectiveActionUpdateInput } from "../services/CorrectiveActionService";
+import { perfActor, registerWhere } from "../services/PerformanceScope";
 
 /** Service errors carry `statusCode` (400 validation / 404 not found); anything else is a 500. */
 function statusFor(error: any): number {
@@ -13,7 +14,7 @@ export class CorrectiveActionController {
   static async list(req: AuthRequest, res: Response) {
     try {
       const { status, severity, ownerId, departmentId } = req.query as Record<string, string | undefined>;
-      const rows = await CorrectiveActionService.list({ status, severity, ownerId, departmentId });
+      const rows = await CorrectiveActionService.list({ status, severity, ownerId, departmentId }, registerWhere(await perfActor(req.user), ["ownerId", "createdById"]));
       res.json({ success: true, data: rows });
     } catch (error: any) {
       res
@@ -23,14 +24,34 @@ export class CorrectiveActionController {
   }
 
   /** GET /summary — dashboard counters. */
-  static async summary(_req: AuthRequest, res: Response) {
+  static async summary(req: AuthRequest, res: Response) {
     try {
-      const data = await CorrectiveActionService.summary();
+      const data = await CorrectiveActionService.summary(registerWhere(await perfActor(req.user), ["ownerId", "createdById"]));
       res.json({ success: true, data });
     } catch (error: any) {
       res
         .status(statusFor(error))
         .json({ success: false, message: error?.message ?? "Failed to load corrective action summary" });
+    }
+  }
+
+  /** GET /:id/events */
+  static async events(req: AuthRequest, res: Response) {
+    try {
+      await CorrectiveActionService.getById(req.params.id);
+      res.json({ success: true, data: await CorrectiveActionService.events(req.params.id) });
+    } catch (error: any) {
+      res.status(statusFor(error)).json({ success: false, message: error?.message ?? "Failed to load history" });
+    }
+  }
+
+  /** GET /events?days=180 — portfolio history for the recovery trend. */
+  static async portfolioEvents(req: AuthRequest, res: Response) {
+    try {
+      const days = Math.min(730, Math.max(7, Number(req.query.days) || 180));
+      res.json({ success: true, data: await CorrectiveActionService.portfolioEvents(new Date(Date.now() - days * 86400000), registerWhere(await perfActor(req.user), ["ownerId", "createdById"])) });
+    } catch (error: any) {
+      res.status(statusFor(error)).json({ success: false, message: error?.message ?? "Failed to load history" });
     }
   }
 
@@ -67,6 +88,8 @@ export class CorrectiveActionController {
         status: body.status ?? null,
         progress: body.progress ?? null,
         targetDate: body.targetDate ?? null,
+        sourceType: body.sourceType ?? null,
+        sourceId: body.sourceId ?? null,
         createdById,
       });
 
@@ -93,13 +116,17 @@ export class CorrectiveActionController {
         "status",
         "progress",
         "targetDate",
+        "rootCause",
+        "resolutionNotes",
+        "note",
       ]) {
         if (Object.prototype.hasOwnProperty.call(body, key)) patch[key] = body[key];
       }
 
       const data = await CorrectiveActionService.update(
         req.params.id,
-        patch as CorrectiveActionUpdateInput
+        patch as CorrectiveActionUpdateInput,
+        req.user?.id ?? null
       );
       res.json({ success: true, data, message: "Corrective action updated" });
     } catch (error: any) {

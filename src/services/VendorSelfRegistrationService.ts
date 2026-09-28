@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { VendorLifecycleService } from "./VendorLifecycleService";
 import crypto from "crypto";
 import { prisma } from "../utils/database";
 import { normalizeVendorCategory } from "../utils/vendorCategoryNormalize";
@@ -159,6 +160,9 @@ export class VendorSelfRegistrationService {
           ...(normalizedCat ? { category: normalizedCat } : {}),
           ...(settlementCurrencyId ? { settlementCurrencyId } : {}),
           registrationStatus: "PENDING_REVIEW",
+          lifecycleStatus: "PENDING_REVIEW",
+          approvalStatus: "NOT_SUBMITTED",
+          vendorCode: await VendorLifecycleService.nextVendorCode(tx),
           selfRegistered: true,
           selfRegistrationToken: token,
           isActive: true,
@@ -328,18 +332,17 @@ export class VendorSelfRegistrationService {
     });
   }
 
-  static async approvePendingVendor(vendorId: string) {
+  static async approvePendingVendor(vendorId: string, actor?: any) {
     const v = await prisma.vendor.findUnique({ where: { id: vendorId } });
     if (!v) throw new Error("Vendor not found");
     if (v.registrationStatus !== "PENDING_REVIEW") {
       throw new Error("Vendor is not in PENDING_REVIEW status");
     }
+    // Review and approval are both recorded on the vendor's status trail; the portal link is closed.
+    await VendorLifecycleService.approveSelfRegistration(vendorId, actor);
     return prisma.vendor.update({
       where: { id: vendorId },
-      data: {
-        registrationStatus: "ACTIVE",
-        selfRegistrationToken: null,
-      },
+      data: { selfRegistrationToken: null },
     });
   }
 
@@ -360,6 +363,10 @@ export class VendorSelfRegistrationService {
       data: {
         registrationStatus: "DECLINED",
         isActive: false,
+        lifecycleStatus: "INACTIVE",
+        approvalStatus: "REJECTED",
+        statusReason: why,
+        statusChangedAt: new Date(),
         selfRegistrationToken: null,
       },
     });

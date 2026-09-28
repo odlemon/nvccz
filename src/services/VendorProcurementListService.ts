@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
+import { VendorGateService } from "./VendorGateService";
 import { normalizeVendorCategory } from "../utils/vendorCategoryNormalize";
 
 /**
@@ -24,14 +25,12 @@ export async function listVendorsEligibleForRfqQuery(opts: {
     }
   }
 
-  const where: any = {
-    isActive: true,
-    isBlacklisted: false,
-    registrationStatus: { notIn: ["SUSPENDED", "PENDING_REVIEW"] },
-  };
+  // Eligibility is the vendor gate's own definition (status, approval, blacklist, live expiry), not a re-statement of it.
+  const where: any = { ...VendorGateService.eligibleWhere() };
+  where.AND = where.AND || [];
 
   if (categoryFilter) {
-    where.category = categoryFilter;
+    where.AND.push({ OR: [{ category: categoryFilter }, { commodityCategories: { array_contains: categoryFilter } }] });
   }
 
   if (opts.search && String(opts.search).trim() !== "") {

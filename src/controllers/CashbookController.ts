@@ -10,12 +10,27 @@ import AuditService from "../services/AuditService";
 import { createJournalEntryWithAuditSequence } from "../services/AuditTrailSequenceService";
 import { parseDate } from "../utils/dateHelper";
 
+/** True when the date falls on a later calendar day than today in the tenant's time zone. */
+async function isAfterToday(d: Date | null | undefined): Promise<boolean> {
+  if (!d || Number.isNaN(new Date(d).getTime())) return false;
+  const { default: FiscalCalendarService } = await import("../services/FiscalCalendarService");
+  const tz = await FiscalCalendarService.getFiscalTimezone().catch(() => "Africa/Harare");
+  const key = (x: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(x);
+  return key(new Date(d)) > key(new Date());
+}
+
 interface AuthRequest extends Request {
   user?: {
     id: string;
     email: string;
     roleId: string;
   };
+}
+
+async function auditBank(req: any, action: string, id: string, oldValues: any, newValues: any) {
+  const { default: AuditService } = await import('../services/AuditService');
+  const pick = (b: any) => b && ({ name: b.name, accountNumber: b.accountNumber, currency: b.currency?.code ?? b.currencyId, glAccount: b.glAccount ? `${b.glAccount.accountNo} ${b.glAccount.accountName}` : b.glAccountId, branchCode: b.branchCode, swiftCode: b.swiftCode, isActive: b.isActive });
+  await AuditService.log({ userId: req.user?.id, action, entityType: 'Bank', entityId: id, oldValues: pick(oldValues), newValues: pick(newValues) }).catch(() => null);
 }
 
 export default class CashbookController {
@@ -97,6 +112,11 @@ export default class CashbookController {
         return ResponseHelper.badRequest(res, 'vendorId required for supplier transactions');
       }
 
+      // money that has not moved yet is not in the cashbook: no entry dated after today (tenant time)
+      if (await isAfterToday(parseDate(transactionDate))) {
+        return ResponseHelper.badRequest(res, 'A cashbook entry cannot be dated after today.');
+      }
+
       const result = await CashbookService.createCashReceipt({
         bankId: resolvedBankId,
         transactionDate: parseDate(transactionDate),
@@ -107,7 +127,9 @@ export default class CashbookController {
         glAccountId,
         customerId,
         vendorId,
-        vatCode: vatCode || '15%',
+        // VAT is charged on the invoice, not on the money that settles it: a customer or supplier receipt/payment carries none,
+        // and an entry against an account carries VAT only when a VAT code is given
+        vatCode: counterpartyType === 'CUSTOMER' || counterpartyType === 'SUPPLIER' ? 'EXEMPT' : (vatCode || 'EXEMPT'),
         projectCode,
         discount: discount ? parseFloat(discount) : undefined,
         createdById: userId
@@ -173,6 +195,11 @@ export default class CashbookController {
         return ResponseHelper.badRequest(res, 'vendorId required for supplier transactions');
       }
 
+      // money that has not moved yet is not in the cashbook: no entry dated after today (tenant time)
+      if (await isAfterToday(parseDate(transactionDate))) {
+        return ResponseHelper.badRequest(res, 'A cashbook entry cannot be dated after today.');
+      }
+
       const result = await CashbookService.createCashPayment({
         bankId: resolvedBankId,
         transactionDate: parseDate(transactionDate),
@@ -183,7 +210,9 @@ export default class CashbookController {
         glAccountId,
         customerId,
         vendorId,
-        vatCode: vatCode || '15%',
+        // VAT is charged on the invoice, not on the money that settles it: a customer or supplier receipt/payment carries none,
+        // and an entry against an account carries VAT only when a VAT code is given
+        vatCode: counterpartyType === 'CUSTOMER' || counterpartyType === 'SUPPLIER' ? 'EXEMPT' : (vatCode || 'EXEMPT'),
         projectCode,
         discount: discount ? parseFloat(discount) : undefined,
         createdById: userId
@@ -678,7 +707,9 @@ export default class CashbookController {
         where,
         include: {
           currency: true,
-          glAccount: true
+          glAccount: true,
+          // an account with entries keeps its currency and ledger account
+          _count: { select: { cashbookEntries: true } }
         },
         orderBy: { name: 'asc' }
       });
@@ -753,6 +784,7 @@ export default class CashbookController {
         isActive
       });
       
+      await auditBank(req, 'CREATE', bank.id, null, bank);
       return ResponseHelper.success(res, 'Bank account created successfully', bank);
     } catch (error: any) {
       console.error('Error in CashbookController.createBank:', error);
@@ -787,6 +819,7 @@ export default class CashbookController {
       }
       const { id } = req.params;
       const { name, accountNumber, currencyId, glAccountId, branchCode, swiftCode, isActive } = req.body;
+      const before = await prisma.bank.findUnique({ where: { id }, include: { currency: true, glAccount: true } });
 
       const bank = await CashbookService.updateBank(id, {
         name,
@@ -797,9 +830,11 @@ export default class CashbookController {
         swiftCode,
         isActive
       });
+      await auditBank(req, 'UPDATE', id, before, bank);
       return ResponseHelper.success(res, 'Bank account updated successfully', bank);
     } catch (error: any) {
       console.error('Error in CashbookController.updateBank:', error);
+      if (error.statusCode === 409) return ResponseHelper.error(res, error.message, undefined, 409);
       if (error.message?.includes('not found')) {
         return ResponseHelper.notFound(res, error.message);
       }
@@ -821,10 +856,13 @@ export default class CashbookController {
         return ResponseHelper.unauthorized(res, 'User not authenticated.');
       }
       const { id } = req.params;
+      const before = await prisma.bank.findUnique({ where: { id }, include: { currency: true, glAccount: true } });
       const bank = await CashbookService.softDeleteBank(id);
+      await auditBank(req, 'UPDATE', id, before, bank);
       return ResponseHelper.success(res, 'Bank account deactivated (soft delete) successfully', bank);
     } catch (error: any) {
       console.error('Error in CashbookController.deleteBank:', error);
+      if (error.statusCode === 409) return ResponseHelper.error(res, error.message, undefined, 409);
       if (error.message?.includes('not found')) {
         return ResponseHelper.notFound(res, error.message);
       }

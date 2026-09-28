@@ -95,7 +95,9 @@ export async function resolveStiFiscalIanaTimezone(): Promise<string> {
   }
   const env = process.env.FISCAL_TIMEZONE?.trim();
   if (env) return env;
-  return "UTC";
+  // The organisation keeps its books in Zimbabwe: with no tenant time zone configured, the fiscal day (and the 23:59
+  // accrual run, AccountingJobService) follows Harare time, not the server's UTC (SRD UAT 8.4).
+  return "Africa/Harare";
 }
 
 export class ShortTermInvestmentService {
@@ -683,6 +685,11 @@ export class ShortTermInvestmentService {
 
     const start = instrument.startDate.toISOString().slice(0, 10);
     const end = params.throughIso;
+    // interest is earned day by day: never for a day that has not happened yet (tenant time)
+    const fiscalToday = formatYyyyMmDdInTimeZone(new Date(), await resolveStiFiscalIanaTimezone());
+    if (compareIsoDate(end, fiscalToday) > 0) {
+      throw new Error(`Interest can only be accrued up to today (${fiscalToday}); ${end} has not happened yet.`);
+    }
 
     const [apyRates, lastAccrualFull] = await Promise.all([
       prisma.shortTermInvestmentApyRate.findMany({
@@ -933,7 +940,15 @@ export class ShortTermInvestmentService {
     return results;
   }
 
-  static async approveAccrualJournal(accrualId: string, userId: string) {
+  /**
+   * Post a draft accrual journal. The approver's full user (with role) is passed to the posting service, which decides
+   * authority (manage_ledger / CFO / admin) — passing only an id meant it never could, so no accrual was ever approvable.
+   * The accrual is a calculation, not a person's entry: whoever it is recorded under (the scheduled run's actor, or the
+   * person who ran a catch-up) may still approve it; the approval is the check (DECISIONS D10).
+   */
+  static async approveAccrualJournal(accrualId: string, actor: any) {
+    const user = typeof actor === "string" ? await prisma.user.findUnique({ where: { id: actor }, include: { role: true } }) : actor;
+    const userId = user?.id;
     const acc = await prisma.shortTermInvestmentAccrual.findUnique({
       where: { id: accrualId },
     });
@@ -948,7 +963,7 @@ export class ShortTermInvestmentService {
     if (acc.status !== "PENDING_POST") {
       throw new Error("Accrual is not pending post");
     }
-    await JournalEntryService.postJournalEntry(acc.journalEntryId, userId);
+    await JournalEntryService.postJournalEntry(acc.journalEntryId, userId, { user, allowCreatorPost: true });
     await prisma.shortTermInvestmentAccrual.update({
       where: { id: accrualId },
       data: { status: "POSTED" },
@@ -962,7 +977,7 @@ export class ShortTermInvestmentService {
    */
   static async approveAllPendingAccrualJournalsForInstrument(
     instrumentId: string,
-    userId: string
+    actor: any
   ): Promise<{
     instrumentId: string;
     pendingFound: number;
@@ -994,7 +1009,7 @@ export class ShortTermInvestmentService {
         continue;
       }
       try {
-        await ShortTermInvestmentService.approveAccrualJournal(row.id, userId);
+        await ShortTermInvestmentService.approveAccrualJournal(row.id, actor);
         approved += 1;
       } catch (e: any) {
         failures.push({
@@ -1056,7 +1071,7 @@ export class ShortTermInvestmentService {
     }
   }
 
-  static async voidInstrument(params: { instrumentId: string; actorId: string }) {
+  static async voidInstrument(params: { instrumentId: string; actorId: string; reason?: string | null }) {
     const inst = await prisma.shortTermInvestmentInstrument.findUnique({
       where: { id: params.instrumentId },
     });
@@ -1079,6 +1094,16 @@ export class ShortTermInvestmentService {
       }
     }
 
+    // A voided placement never happened: the cash it moved into the investment goes back to the bank (a draft placement
+    // journal is voided; a posted one is reversed by the void).
+    const placements = await prisma.journalEntry.findMany({
+      where: { referenceNumber: { startsWith: `STI-PLC-${inst.id.slice(0, 8)}-` }, status: { not: "VOID" } },
+      select: { id: true },
+    });
+    for (const pj of placements) {
+      await JournalEntryService.voidJournalEntry(pj.id, params.actorId);
+    }
+
     const updated = await prisma.shortTermInvestmentInstrument.update({
       where: { id: params.instrumentId },
       data: {
@@ -1094,7 +1119,7 @@ export class ShortTermInvestmentService {
       entityType: "ShortTermInvestmentInstrument",
       entityId: params.instrumentId,
       oldValues: inst,
-      newValues: updated,
+      newValues: { ...updated, voidReason: params.reason ?? null },
     });
 
     return updated;
@@ -1107,6 +1132,10 @@ export class ShortTermInvestmentService {
     actorId: string;
   }) {
     const settlementIso = params.settlementIso.slice(0, 10);
+    const todayIso = formatYyyyMmDdInTimeZone(new Date(), await resolveStiFiscalIanaTimezone());
+    if (compareIsoDate(settlementIso, todayIso) > 0) {
+      throw new Error(`An investment can only be settled on or before today (${todayIso}).`);
+    }
     const settlementDay = accrualDateFromIso(settlementIso);
 
     const instrument = await prisma.shortTermInvestmentInstrument.findUnique({
@@ -1236,6 +1265,12 @@ export class ShortTermInvestmentService {
               description: line.description,
             },
           });
+        }
+
+        // the cash received is a cashbook line on the settlement bank, so the bank account reconciles
+        if (instrument.settlementBankId) {
+          const { recordBankLeg } = await import("./CashbookJournalLinkService");
+          await recordBankLeg(tx, { bankId: instrument.settlementBankId, journalEntryId: je.id, journalStatus: je.status, type: "RECEIPT", amount: cash, transactionDate: settlementDay, description: `Investment settled: ${instrument.name}`, reference: ref, contraAccountId: instrument.principalGlAccountId, createdById: params.actorId });
         }
 
         await tx.shortTermInvestmentInstrument.update({
@@ -1615,6 +1650,22 @@ export class ShortTermInvestmentService {
     const asOfIsoStr = params.asOfIso.slice(0, 10);
     const monthStartIso = `${asOf.getUTCFullYear()}-${String(asOf.getUTCMonth() + 1).padStart(2, "0")}-01`;
 
+    // Portfolio figures are in the reporting (base) currency: a ZiG placement is translated at the as-of rate before it
+    // is added to a USD one. A currency with no rate on or before the as-of date is left out of the totals and alerted.
+    const base = await prisma.currency.findFirst({ where: { isDefault: true }, select: { id: true, code: true } });
+    const rateToBase = new Map<string, number | null>();
+    const missingRate = new Set<string>();
+    const toBase = async (amount: number, currencyId: string, currencyCode?: string): Promise<number | null> => {
+      if (!base || currencyId === base.id) return amount;
+      if (!rateToBase.has(currencyId)) {
+        const conv = await MultiCurrencyService.convertCurrency({ amount: 1, fromCurrencyId: currencyId, toCurrencyId: base.id, date: asOf }).catch(() => null);
+        rateToBase.set(currencyId, conv && Number.isFinite(conv.exchangeRate) && conv.exchangeRate > 0 ? conv.exchangeRate : null);
+      }
+      const r = rateToBase.get(currencyId);
+      if (r == null) { missingRate.add(currencyCode || currencyId); return null; }
+      return amount * r;
+    };
+
     const instrumentsOut: Array<{
       instrumentId: string;
       instrumentName: string;
@@ -1623,6 +1674,7 @@ export class ShortTermInvestmentService {
       principal: number;
       accruedInterest: number;
       carryingValue: number;
+      carryingValueReporting: number | null;
       maturityDate: string | null;
       projectedMaturityValueInstrumentCcy: number | null;
       apyAsOf: number | null;
@@ -1630,7 +1682,7 @@ export class ShortTermInvestmentService {
     }> = [];
 
     const alerts: Array<{
-      type: "PENDING_APPROVAL" | "CAPITAL_EROSION" | "RATE_CHANGE";
+      type: "PENDING_APPROVAL" | "PENDING_SETTLEMENT" | "CAPITAL_EROSION" | "RATE_CHANGE" | "FX_RATE_MISSING";
       instrumentId: string;
       instrumentName?: string;
       message: string;
@@ -1641,17 +1693,19 @@ export class ShortTermInvestmentService {
     const rateAlertWindowEnd = asOf.getTime() + 86400000 - 1;
 
     for (const inst of active) {
-      portfolioPrincipal = portfolioPrincipal.plus(inst.principal.toString());
       const last = await prisma.shortTermInvestmentAccrual.findFirst({
         where: { instrumentId: inst.id, accrualDate: { lte: asOf } },
         orderBy: { accrualDate: "desc" },
       });
       const acc = last ? new Decimal(last.runningAccruedBalance.toString()) : new Decimal(0);
-      portfolioAccrued = portfolioAccrued.plus(acc);
 
       const principalN = new Decimal(inst.principal.toString()).toNumber();
       const accN = acc.toNumber();
       const carryingN = principalN + accN;
+      const principalBase = await toBase(principalN, inst.currencyId, inst.currency.code);
+      const accruedBase = await toBase(accN, inst.currencyId, inst.currency.code);
+      if (principalBase != null) portfolioPrincipal = portfolioPrincipal.plus(principalBase);
+      if (accruedBase != null) portfolioAccrued = portfolioAccrued.plus(accruedBase);
 
       const startIso = inst.startDate.toISOString().slice(0, 10);
       const maturityIso = inst.maturityDate ? inst.maturityDate.toISOString().slice(0, 10) : null;
@@ -1672,7 +1726,8 @@ export class ShortTermInvestmentService {
         const daysToMaturity = Math.ceil(
           (accrualDateFromIso(maturityIso).getTime() - asOf.getTime()) / 86400000
         );
-        const bucketAmount = new Decimal(projectedMaturity ?? carryingN);
+        const bucketBase = await toBase(projectedMaturity ?? carryingN, inst.currencyId, inst.currency.code);
+        const bucketAmount = new Decimal(bucketBase ?? 0);
         if (daysToMaturity <= 30) maturityBuckets.d30 = maturityBuckets.d30.plus(bucketAmount);
         else if (daysToMaturity <= 60) maturityBuckets.d60 = maturityBuckets.d60.plus(bucketAmount);
         else if (daysToMaturity <= 90) maturityBuckets.d90 = maturityBuckets.d90.plus(bucketAmount);
@@ -1693,6 +1748,7 @@ export class ShortTermInvestmentService {
         principal: principalN,
         accruedInterest: accN,
         carryingValue: carryingN,
+        carryingValueReporting: principalBase != null && accruedBase != null ? principalBase + accruedBase : null,
         maturityDate: maturityIso,
         projectedMaturityValueInstrumentCcy: projectedMaturity,
         apyAsOf,
@@ -1709,7 +1765,8 @@ export class ShortTermInvestmentService {
         });
       }
 
-      for (const r of inst.apyRates) {
+      // the rate an investment was placed at is not a change; later entries are
+      for (const r of inst.apyRates.slice(1)) {
         const t = r.createdAt.getTime();
         if (t >= rateAlertWindowStart && t <= rateAlertWindowEnd) {
           alerts.push({
@@ -1725,18 +1782,35 @@ export class ShortTermInvestmentService {
 
     // Portfolio net yield: sum of accrual ticks for the month-to-date (or broker-scoped), not lifetime running balances.
     // This gives a true net appreciation/depreciation measure for the reporting window.
-    const netYieldMonthToDate = await prisma.shortTermInvestmentAccrual.aggregate({
+    const monthAccruals = await prisma.shortTermInvestmentAccrual.findMany({
       where: {
-        accrualDate: {
-          gte: accrualDateFromIso(monthStartIso),
-          lte: asOf,
+        accrualDate: { gte: accrualDateFromIso(monthStartIso), lte: asOf },
+        instrument: {
+          status: { not: "VOIDED" },
+          ...(params.broker != null && params.broker.trim() ? { broker: params.broker.trim() } : {}),
         },
-        ...(params.broker != null && params.broker.trim()
-          ? { instrument: { broker: params.broker.trim() } }
-          : {}),
       },
-      _sum: { amountInstrumentCcy: true },
+      select: {
+        accrualDate: true,
+        amountInstrumentCcy: true,
+        reportingAmountFunctional: true,
+        functionalCurrencyId: true,
+        instrument: { select: { currencyId: true, currency: { select: { code: true } } } },
+      },
     });
+    const amountByDay = new Map<string, number>();
+    let netYieldMonthToDateBase = 0;
+    for (const r of monthAccruals) {
+      const amt = r.amountInstrumentCcy.toNumber();
+      const inBase =
+        base && r.functionalCurrencyId === base.id && r.reportingAmountFunctional != null
+          ? r.reportingAmountFunctional.toNumber()
+          : await toBase(amt, r.instrument.currencyId, r.instrument.currency.code);
+      if (inBase == null) continue;
+      const iso = r.accrualDate.toISOString().slice(0, 10);
+      amountByDay.set(iso, (amountByDay.get(iso) ?? 0) + inBase);
+      netYieldMonthToDateBase += inBase;
+    }
 
     const pendingAccruals = await prisma.shortTermInvestmentAccrual.findMany({
       where: {
@@ -1756,26 +1830,6 @@ export class ShortTermInvestmentService {
         message: `Accrual ${p.accrualDate.toISOString().slice(0, 10)} awaits journal posting approval.`,
         triggeredAt: p.accrualDate.toISOString(),
       });
-    }
-
-    const yieldRows = await prisma.shortTermInvestmentAccrual.groupBy({
-      by: ["accrualDate"],
-      where: {
-        accrualDate: {
-          gte: accrualDateFromIso(monthStartIso),
-          lte: asOf,
-        },
-        ...(params.broker != null && params.broker.trim()
-          ? { instrument: { broker: params.broker.trim() } }
-          : {}),
-      },
-      _sum: { amountInstrumentCcy: true },
-    });
-
-    const amountByDay = new Map<string, number>();
-    for (const r of yieldRows) {
-      const iso = r.accrualDate.toISOString().slice(0, 10);
-      amountByDay.set(iso, r._sum.amountInstrumentCcy ? r._sum.amountInstrumentCcy.toNumber() : 0);
     }
 
     const dailyYieldInMonth: Array<{
@@ -1837,8 +1891,66 @@ export class ShortTermInvestmentService {
       });
     }
 
+    // a settlement journal still in draft: the cash has come back but the ledger does not show it yet
+    const draftSettlements = await prisma.shortTermInvestmentInstrument.findMany({
+      where: { status: "SETTLED", liquidationJournalEntryId: { not: null } },
+      select: { id: true, name: true, liquidationDate: true, liquidationJournalEntryId: true },
+    });
+    if (draftSettlements.length) {
+      const pendingJes = new Set(
+        (await prisma.journalEntry.findMany({
+          where: { id: { in: draftSettlements.map((d) => d.liquidationJournalEntryId as string) }, status: "PENDING" },
+          select: { id: true },
+        })).map((j) => j.id)
+      );
+      for (const d of draftSettlements) {
+        if (!pendingJes.has(d.liquidationJournalEntryId as string)) continue;
+        alerts.push({
+          type: "PENDING_SETTLEMENT",
+          instrumentId: d.id,
+          instrumentName: d.name,
+          message: `Settlement of ${d.liquidationDate ? d.liquidationDate.toISOString().slice(0, 10) : "—"} awaits journal posting approval.`,
+          triggeredAt: (d.liquidationDate || new Date()).toISOString(),
+        });
+      }
+    }
+
+    for (const code of missingRate) {
+      alerts.push({
+        type: "FX_RATE_MISSING",
+        instrumentId: "",
+        message: `No ${code} to ${base ? base.code : "base"} rate on or before ${asOfIsoStr}: ${code} investments are left out of the portfolio totals until a rate is entered.`,
+        triggeredAt: new Date().toISOString(),
+      });
+    }
+
+    // placements over the approval threshold wait for the CFO before any instrument exists
+    const pendingRequests = await prisma.approvalRequest.findMany({
+      where: { stageType: "INVESTMENT_BOOKING", status: "PENDING" },
+      orderBy: { requestDate: "desc" },
+      take: 50,
+      select: { id: true, entityData: true, requestDate: true, requestedBy: { select: { firstName: true, lastName: true, email: true } } },
+    }).catch(() => [] as any[]);
+    const pendingPlacements = pendingRequests.map((r: any) => {
+      const d = (r.entityData || {}) as any;
+      const who = r.requestedBy ? [r.requestedBy.firstName, r.requestedBy.lastName].filter(Boolean).join(" ") || r.requestedBy.email : null;
+      return {
+        approvalRequestId: r.id,
+        name: d.name ?? null,
+        broker: d.broker ?? null,
+        principal: d.principal != null ? Number(d.principal) : null,
+        currencyCode: d.currencyCode ?? null,
+        amountUsd: d.amountUsd != null ? Number(d.amountUsd) : null,
+        startDate: d.startDateIso ?? null,
+        requestedBy: who,
+        requestedAt: r.requestDate.toISOString(),
+      };
+    });
+
     return {
       asOf: params.asOfIso,
+      reportingCurrency: base ? base.code : null,
+      pendingPlacements,
       portfolio: {
         principalTotal: portfolioPrincipal.toNumber(),
         accruedInterestTotal: portfolioAccrued.toNumber(),
@@ -1848,9 +1960,7 @@ export class ShortTermInvestmentService {
         // Portfolio-level net interest accrued through `asOf` across the included instruments.
         // Positive = net interest income; Negative = net interest expense / capital erosion.
         accruedInterestTotal: portfolioAccrued.toNumber(),
-        monthToDate: netYieldMonthToDate._sum.amountInstrumentCcy
-          ? netYieldMonthToDate._sum.amountInstrumentCcy.toNumber()
-          : 0,
+        monthToDate: Math.round(netYieldMonthToDateBase * 1e6) / 1e6,
       },
       instruments: instrumentsOut,
       dailyYieldInMonth,
@@ -2143,6 +2253,9 @@ export class ShortTermInvestmentService {
           description: `Cash deployed to ${row.name}`,
         },
       });
+      // the cash paid out is a cashbook line on the settlement bank, so the bank account reconciles
+      const { recordBankLeg } = await import("./CashbookJournalLinkService");
+      await recordBankLeg(null, { bankId: settlementBank.id, journalEntryId: placementJE.id, journalStatus: placementJE.status, type: "PAYMENT", amount: row.principal, transactionDate: accrualDateFromIso(payload.startDateIso), description: `Investment placed: ${row.name}`, reference: placementRef, contraAccountId: row.principalGlAccountId, createdById: ctx.userId });
     }
 
     // Backfill from instrument `startDate` through fiscal "today" immediately so backdated
@@ -2194,6 +2307,23 @@ export class ShortTermInvestmentService {
       orderBy: { effectiveFrom: "desc" },
     });
 
+    // A rate effective on a day already accrued restates those days (SRD 2.5: the new rate from its effective date
+    // forward). Only days still in draft can be restated; posted interest is ledger history, so the change can then
+    // take effect from the day after the last posted day.
+    const effDay = accrualDateFromIso(params.effectiveFromIso);
+    const affected = await prisma.shortTermInvestmentAccrual.findMany({
+      where: { instrumentId: params.instrumentId, accrualDate: { gte: effDay } },
+      select: { id: true, accrualDate: true, status: true, journalEntryId: true, journalEntry: { select: { status: true } } },
+      orderBy: { accrualDate: "asc" },
+    });
+    const posted = affected.filter((a) => a.status !== "PENDING_POST" || (a.journalEntry && a.journalEntry.status !== "PENDING"));
+    if (posted.length) {
+      const lastPostedIso = posted[posted.length - 1].accrualDate.toISOString().slice(0, 10);
+      throw new Error(
+        `Interest from ${params.effectiveFromIso.slice(0, 10)} is already posted to the ledger (through ${lastPostedIso}). A new rate can take effect from ${addOneCalendarDayIso(lastPostedIso)} onwards.`
+      );
+    }
+
     const row = await prisma.shortTermInvestmentApyRate.create({
       data: {
         instrumentId: params.instrumentId,
@@ -2211,11 +2341,33 @@ export class ShortTermInvestmentService {
       oldValues: prev
         ? { id: prev.id, effectiveFrom: prev.effectiveFrom, apy: prev.apy.toString() }
         : null,
-      newValues: { id: row.id, effectiveFrom: row.effectiveFrom, apy: row.apy.toString() },
+      newValues: {
+        id: row.id,
+        effectiveFrom: row.effectiveFrom,
+        apy: row.apy.toString(),
+        ...(affected.length ? { restatedDays: affected.length } : {}),
+      },
       ipAddress: params.ipAddress ?? undefined,
       userAgent: params.userAgent ?? undefined,
     });
 
-    return row;
+    if (affected.length) {
+      const throughIso = affected[affected.length - 1].accrualDate.toISOString().slice(0, 10);
+      const draftJeIds = affected.map((a) => a.journalEntryId).filter((x): x is string => !!x);
+      await prisma.$transaction(async (tx) => {
+        await tx.shortTermInvestmentAccrual.deleteMany({ where: { id: { in: affected.map((a) => a.id) } } });
+        // withdrawn, not deleted: every journal keeps its audit number (no gaps in the sequence)
+        if (draftJeIds.length) await tx.journalEntry.updateMany({ where: { id: { in: draftJeIds }, status: "PENDING" }, data: { status: "VOID" } });
+      });
+      if (draftJeIds.length) {
+        const { default: AuditService } = await import("./AuditService");
+        for (const jid of draftJeIds) {
+          await AuditService.log({ userId: params.userId, action: "VOID", entityType: "JournalEntry", entityId: jid, newValues: { status: "VOID", discardedDraft: true, reason: `Interest restated for the new rate from ${String(row.effectiveFrom.toISOString()).slice(0, 10)}` } }).catch(() => null);
+        }
+      }
+      await this.catchUpAccruals({ instrumentId: params.instrumentId, throughIso, actorId: params.userId });
+    }
+
+    return affected.length ? { ...row, restatedDays: affected.length } : row;
   }
 }

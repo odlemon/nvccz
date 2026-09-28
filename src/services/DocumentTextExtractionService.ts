@@ -1,5 +1,6 @@
 //@ts-nocheck
 import axios from 'axios';
+import { assertSafeFetchUrl } from "../utils/safeFetchUrl";
 import path from 'path';
 import os from 'os';
 import fs from 'fs/promises';
@@ -102,7 +103,9 @@ export class DocumentTextExtractionService {
   private static async extractSingleDocument(
     document: ApplicationDocumentReference
   ): Promise<ExtractedDocumentContent> {
-    const isInvoice = document.type === 'VENDOR_INVOICE';
+    // Procurement documents (quotations, invoices, certificates, delivery notes ...) are read the same careful way: line breaks
+    // kept, the fallback readers allowed, and nothing readable is an error rather than a placeholder.
+    const isInvoice = document.type === 'VENDOR_INVOICE' || (document.type as string) === 'PROCUREMENT_DOCUMENT';
     const buffer = await this.downloadDocument(document.url, document.fileName);
     const { text: rawText, ocr } = await this.extractTextFromBuffer(buffer, document.fileName, isInvoice);
 
@@ -134,8 +137,23 @@ export class DocumentTextExtractionService {
     };
   }
 
+  /**
+   * The text of a document already in memory (an upload, or a stored attachment), read the careful way: line breaks kept, the
+   * fallback readers allowed, and nothing readable is an error. Used by the AI document review.
+   */
+  static async extractFromBuffer(buffer: Buffer, fileName: string): Promise<{ text: string; ocr: boolean }> {
+    const { text: rawText, ocr } = await this.extractTextFromBuffer(buffer, fileName, true);
+    const cleaned = rawText.replace(/[ \t\f\v]+/g, ' ').replace(/ *\n[\s]*/g, '\n').trim();
+    if (this.meaningfulChars(cleaned) === 0) {
+      throw new Error(ocr ? 'No readable text was found in this document, even with OCR' : 'No readable text was found in this document');
+    }
+    return { text: cleaned.length > 120000 ? `${cleaned.substring(0, 120000)}...` : cleaned, ocr };
+  }
+
   private static async downloadDocument(url: string, fileName: string): Promise<Buffer> {
     const fetchUrl = DocumentTextExtractionService.resolveDocumentUrlForFetch(url);
+    // A supplier can influence this URL: only the platform's own media hosts or public addresses are ever fetched.
+    await assertSafeFetchUrl(fetchUrl);
     const response = await axios.get(fetchUrl, {
       responseType: 'arraybuffer',
       validateStatus: () => true
@@ -184,23 +202,31 @@ export class DocumentTextExtractionService {
         try {
           text = await this.extractFromPdf(buffer);
         } catch (error: any) {
-          // pdf.js (via pdf-parse) can throw on large/complex content streams — e.g. its lexer's
-          // "Command token too long" limit — even though the PDF itself is perfectly valid. Rather
-          // than fail the whole extraction, treat a parse failure the same as a missing text layer
-          // and fall back to rendering the pages and reading them with OCR, when that fallback is
-          // available for this document. If OCR is not allowed here, or OCR itself then fails, the
-          // failure is real and must still surface — it is not swallowed.
-          if (!allowOcr) throw error;
-          logger.info('Invoice PDF failed to parse; reading it with OCR instead', { fileName, error: error.message });
+          // pdf.js (via pdf-parse) throws on some perfectly valid PDFs: its lexer's "Command token too long" limit on a large
+          // content stream, "bad XRef entry" on a damaged cross-reference table. That is a limit of this one reader, not a
+          // reason to fail the document. The file is handed (by path, never as command text or content) to poppler's
+          // pdftotext, which rebuilds a broken structure and has no such token limit; then, for documents where it is
+          // allowed, the pages are rendered and read with OCR. Only when every reader has failed does the failure surface.
+          logger.info('PDF failed to parse; trying the fallback readers', { fileName, error: error.message });
+          const viaPoppler = await this.pdftotext(buffer).catch((e: any) => {
+            logger.info('pdftotext fallback did not read the PDF', { fileName, error: e?.message });
+            return '';
+          });
+          if (this.meaningfulChars(viaPoppler) >= MIN_PDF_TEXT_CHARS) return { text: viaPoppler, ocr: false };
+          if (!allowOcr) throw new Error(`${error.message} (the fallback text reader could not read this PDF either)`);
           try {
             return { text: await this.ocrPdf(buffer), ocr: true };
           } catch (ocrError: any) {
-            throw new Error(`${error.message}; OCR fallback also failed: ${ocrError.message}`);
+            throw new Error(`${error.message}; the fallback readers also failed: ${ocrError.message}`);
           }
         }
-        if (allowOcr && this.meaningfulChars(text) < MIN_PDF_TEXT_CHARS) {
-          logger.info('Invoice PDF has no usable text layer; reading it with OCR', { fileName, textChars: this.meaningfulChars(text) });
-          return { text: await this.ocrPdf(buffer), ocr: true };
+        if (this.meaningfulChars(text) < MIN_PDF_TEXT_CHARS) {
+          const viaPoppler = await this.pdftotext(buffer).catch(() => '');
+          if (this.meaningfulChars(viaPoppler) >= MIN_PDF_TEXT_CHARS) return { text: viaPoppler, ocr: false };
+          if (allowOcr) {
+            logger.info('PDF has no usable text layer; reading it with OCR', { fileName, textChars: this.meaningfulChars(text) });
+            return { text: await this.ocrPdf(buffer), ocr: true };
+          }
         }
         return { text, ocr: false };
       }
@@ -214,6 +240,24 @@ export class DocumentTextExtractionService {
       default:
         return { text: '[Unsupported file type for automatic text extraction]', ocr: false };
     }
+  }
+
+  /**
+   * poppler's pdftotext, given the PDF as a file (a temp file whose path is the only argument; the content never goes through a
+   * shell or onto a command line). Returns '' when the tool is not installed.
+   */
+  private static async pdftotext(buffer: Buffer): Promise<string> {
+    return this.withTempDir(async (dir) => {
+      const pdfPath = path.join(dir, 'document.pdf');
+      await fs.writeFile(pdfPath, buffer);
+      try {
+        const { stdout } = await execFileAsync('pdftotext', ['-layout', '-enc', 'UTF-8', pdfPath, '-'], { timeout: 60000, maxBuffer: 50 * 1024 * 1024 });
+        return stdout || '';
+      } catch (error: any) {
+        if (error?.code === 'ENOENT') return '';
+        throw new Error(`pdftotext failed: ${String(error?.message || error).split(/\r?\n/)[0]}`);
+      }
+    });
   }
 
   private static async extractFromPdf(buffer: Buffer): Promise<string> {

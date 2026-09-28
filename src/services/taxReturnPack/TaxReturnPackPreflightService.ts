@@ -17,7 +17,8 @@ export class TaxReturnPackPreflightService {
     const unposted = await prisma.journalEntry.findMany({
       where: {
         transactionDate: { gte: start, lte: end },
-        status: { not: "POSTED" },
+        // drafts waiting to be posted; a voided journal is final and does not hold the return up
+        status: "PENDING",
       },
       select: { referenceNumber: true, status: true, transactionDate: true },
       take: 20,

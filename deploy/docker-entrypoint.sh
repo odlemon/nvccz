@@ -24,8 +24,11 @@ done
 #
 # Migrations are a deliberate deploy step, not a side effect of a restart:
 #   docker exec <api-container> npm run db:migrate:all
-# Running all 125 of them on every boot would also add many minutes of downtime
-# to what should be a fast restart.
+#   docker exec <api-container> npm run db:migrate:nts-remaining   # vendor/users NTS gaps
+# Arcus DEV selective --api runs db:migrate:nts-remaining after image build
+# (see nvccz-new/scripts/deploy-arcus-dev-selective.py). Running all 125
+# migrations on every boot would also add many minutes of downtime to what
+# should be a fast restart.
 echo "[arcus-api] skipping automatic schema sync (migrations are run explicitly)"
 if [ "${RUN_SEED:-1}" = "1" ]; then
   echo "[arcus-api] ensuring admin user"

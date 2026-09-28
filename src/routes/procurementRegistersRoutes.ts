@@ -7,6 +7,7 @@ import {
   ProcurementContracts,
   ProcurementDocuments,
   ProcurementPlans,
+  ProcurementPlanUse,
   RegisterError,
 } from "../services/ProcurementRegistersService";
 import { publicErrorMessage } from "../utils/publicErrorMessage";
@@ -38,14 +39,14 @@ import { publicErrorMessage } from "../utils/publicErrorMessage";
  */
 const router = express.Router();
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 10 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024, files: 10 } });
 
 const run = (fn: (req, res) => Promise<any>, status = 200) => async (req, res) => {
   try {
     const data = await fn(req, res);
     res.status(status).json({ success: true, data });
   } catch (err: any) {
-    const code = err instanceof RegisterError ? err.status : 500;
+    const code = err instanceof RegisterError || Number.isInteger(err?.status) ? err.status : 500;
     if (code >= 500) console.error("procurement registers:", err);
     res.status(code).json({ success: false, message: code >= 500 ? publicErrorMessage(err, "Request failed") : err?.message || "Request failed" });
   }
@@ -65,8 +66,33 @@ router.post(
   "/documents/:id/version",
   requireAnyPermission([P.documentsManage]),
   upload.single("file"),
-  run((req) => ProcurementDocuments.uploadVersion(req.params.id, req.file, uid(req))),
+  run((req) => ProcurementDocuments.uploadVersion(req.params.id, req.file, uid(req), req.body?.note)),
 );
+router.get("/documents/:id", requireAnyPermission([P.documentsView, P.documentsManage]), run((req) => ProcurementDocuments.get(req.params.id)));
+router.get(
+  "/documents/:id/preview",
+  requireAnyPermission([P.documentsView, P.documentsManage]),
+  run((req) => ProcurementDocuments.preview(req.params.id, { version: req.query.version ? Number(req.query.version) : undefined, userId: uid(req) })),
+);
+// The stored bytes: inline (preview) or as an attachment (download). Either way the access is written to the audit trail.
+router.get("/documents/:id/file", requireAnyPermission([P.documentsView, P.documentsManage]), async (req, res) => {
+  try {
+    const disposition = String(req.query.disposition) === "attachment" ? "attachment" : "inline";
+    const out = await ProcurementDocuments.file(req.params.id, { version: req.query.version ? Number(req.query.version) : undefined, disposition, userId: uid(req) });
+    res.setHeader("Content-Type", out.mime);
+    res.setHeader("Content-Length", String(out.buffer.length));
+    res.setHeader("Content-Disposition", `${disposition}; filename="${encodeURIComponent(out.filename)}"; filename*=UTF-8''${encodeURIComponent(out.filename)}`);
+    // The browser app is on another origin: without this it cannot read the file name and would save the download as "document".
+    res.setHeader("Access-Control-Expose-Headers", "Content-Disposition, Content-Length");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "private, no-store");
+    res.status(200).end(out.buffer);
+  } catch (err: any) {
+    const code = Number.isInteger(err?.status) ? err.status : 500;
+    if (code >= 500) console.error("procurement document file:", err);
+    res.status(code).json({ success: false, message: code >= 500 ? publicErrorMessage(err, "Request failed") : err?.message || "Request failed" });
+  }
+});
 router.patch("/documents/:id/status", requireAnyPermission([P.documentsManage]), run((req) => ProcurementDocuments.setStatus(req.params.id, req.body?.status, uid(req))));
 
 // ---------------------------------------------------------------- contracts
@@ -77,6 +103,9 @@ router.post("/contracts/:id/activate", requireAnyPermission([P.contractsManage])
 router.post("/contracts/:id/terminate", requireAnyPermission([P.contractsManage]), run((req) => ProcurementContracts.setStatus(req.params.id, "TERMINATED", uid(req))));
 
 // ---------------------------------------------------------------- plans
+// Plan lines a requisition may draw on (approved plans only) and the consumption of one line. Ahead of /plans/:id.
+router.get("/plans/available-lines", run((req) => ProcurementPlanUse.availableLines(req.query)));
+router.get("/plans/items/:itemId/consumption", run((req) => ProcurementPlanUse.lineConsumption(req.params.itemId)));
 router.get("/plans", requireAnyPermission([P.plansView, P.plansManage, P.plansApprove]), run((req) => ProcurementPlans.list(req.query)));
 router.post("/plans", requireAnyPermission([P.plansManage]), run((req) => ProcurementPlans.create(req.body ?? {}, uid(req)), 201));
 router.put("/plans/:id", requireAnyPermission([P.plansManage]), run((req) => ProcurementPlans.update(req.params.id, req.body ?? {}, uid(req))));

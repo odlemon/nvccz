@@ -260,7 +260,8 @@ export class CustomerController {
           email,
           phone,
           address,
-          paymentTerms
+          // stored as text; a form may send a number of days
+          paymentTerms: paymentTerms == null || paymentTerms === '' ? paymentTerms : String(paymentTerms)
         }
       });
 
@@ -376,7 +377,8 @@ export class CustomerController {
   static async updateCustomer(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const updateData = req.body;
+      const updateData = { ...(req.body || {}) };
+      if (updateData.paymentTerms != null && updateData.paymentTerms !== '') updateData.paymentTerms = String(updateData.paymentTerms);
 
       if (!id) {
         ResponseHelper.error(res, "Customer ID is required", undefined, 400);

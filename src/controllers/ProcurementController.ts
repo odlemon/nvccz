@@ -1,5 +1,8 @@
 // @ts-nocheck
 import { Request, Response } from "express";
+import { supplierVisibleStatus } from "../utils/supplierVisibility";
+import { VendorGateService } from "../services/VendorGateService";
+import { VendorPaymentFileService } from "../services/VendorPaymentFileService";
 import { ProcurementService } from "../services/ProcurementService";
 import {
   PurchaseInvoiceService,
@@ -11,6 +14,8 @@ import { hasUsableRfqItemLines } from "../utils/rfqItemInput";
 import { isModulePrivilegedUser, userHasEffectivePermission } from "../config/cfoModulePermissions";
 import { PROCUREMENT_PERMISSIONS } from "../config/procurementPermissions";
 import { publicErrorMessage } from "../utils/publicErrorMessage";
+
+import { PurchaseOrderControlService } from "../services/p2p/PurchaseOrderControlService";
 
 export class ProcurementController {
   /**
@@ -31,6 +36,18 @@ export class ProcurementController {
         fundId,
         useOfFundsDocumentUrl,
         drawdownRequestAmount,
+        branch,
+        businessUnit,
+        costCentre,
+        budgetCode,
+        deliveryLocation,
+        planItemId,
+        currencyId,
+        requiredDate,
+        procurementMethod,
+        riskLevel,
+        exceptionType,
+        suggestedVendorId,
       } = req.body;
 
       const requestedById = req.user?.id;
@@ -69,6 +86,18 @@ export class ProcurementController {
         fundId,
         useOfFundsDocumentUrl,
         drawdownRequestAmount,
+        branch,
+        businessUnit,
+        costCentre,
+        budgetCode,
+        deliveryLocation,
+        planItemId,
+        currencyId,
+        requiredDate,
+        procurementMethod,
+        riskLevel,
+        exceptionType,
+        suggestedVendorId,
         items
       });
 
@@ -543,7 +572,8 @@ export class ProcurementController {
       });
     } catch (error: any) {
       console.error("Error approving purchase requisition:", error);
-      res.status(400).json({
+      res.status((error as any)?.statusCode || 400).json({
+        code: (error as any)?.code,
         success: false,
         message: publicErrorMessage(error, "Failed to approve purchase requisition")
       });
@@ -635,6 +665,10 @@ export class ProcurementController {
         shippingAddress,
         paymentTerms,
         deliveryTerms,
+        costCentre,
+        budgetCode,
+        glCode,
+        purchaseConditions,
         items
       } = req.body;
 
@@ -683,6 +717,10 @@ export class ProcurementController {
         shippingAddress,
         paymentTerms,
         deliveryTerms,
+        costCentre,
+        budgetCode,
+        glCode,
+        purchaseConditions,
         createdById,
         items
       });
@@ -741,6 +779,7 @@ export class ProcurementController {
         reportingCurrencyId,
         priceWeight,
         technicalWeight,
+        procurementMethod,
       } = req.body;
 
       const requisitionId = requisitionIdRaw || purchaseRequisitionId;
@@ -796,11 +835,16 @@ export class ProcurementController {
         reportingCurrencyId: rfqCurrencyId,
         priceWeight,
         technicalWeight,
+        saveAsDraft: req.body?.saveAsDraft === true || String(req.body?.saveAsDraft) === "true",
+        procurementMethod:
+          procurementMethod != null && String(procurementMethod).trim() !== ""
+            ? String(procurementMethod).trim()
+            : String(req.body?.method || "").trim() || undefined,
       });
 
       res.status(201).json({
         success: true,
-        message: `RFQ sent to ${vendorIds.length} vendor(s) successfully`,
+        message: req.body?.saveAsDraft === true ? "RFQ saved as a draft" : `RFQ sent to ${vendorIds.length} vendor(s) successfully`,
         data: rfqResult
       });
     } catch (error: any) {
@@ -826,10 +870,42 @@ export class ProcurementController {
         offset: offset ? parseInt(offset as string) : undefined
       });
 
+      // §16: each event says what phase it is in and how many submissions it holds (a count, never their content), and what the
+      // signed-in person may do with it, so the screens never need to read sealed data to draw a register.
+      const { phaseOf, SourcingAccessService } = await import("../services/sourcing/SourcingAccessService");
+      // A committee member without the view grant sees only the events they sit on.
+      const { userHasEffectivePermission: canViewRfqs, isModulePrivilegedUser: isPrivileged } = await import("../config/cfoModulePermissions");
+      if (!isPrivileged((req as any).user) && !canViewRfqs((req as any).user, "procurement.rfq.view")) {
+        const mine = new Set((await prisma.rfqEvaluationMember.findMany({ where: { userId: (req as any).user?.id }, select: { rfqId: true } })).map((m) => m.rfqId));
+        result.rfqs = (result.rfqs as any[]).filter((r) => mine.has(r.id)) as any;
+      }
+      const ids = (result.rfqs as any[]).map((r) => r.id);
+      const counts = ids.length
+        ? await prisma.vendorQuotation.groupBy({ by: ["procurementRfqId"], where: { procurementRfqId: { in: ids }, status: { in: ["SUBMITTED", "UNDER_REVIEW", "ACCEPTED"] } }, _count: { id: true } })
+        : [];
+      const memberOf = new Set((await prisma.rfqEvaluationMember.findMany({ where: { userId: (req as any).user?.id, rfqId: { in: ids } }, select: { rfqId: true } })).map((m) => m.rfqId));
+      // The list rows do not carry the sealing fields the access rules read, so take them from the events themselves.
+      const full = ids.length ? await prisma.procurementRfq.findMany({ where: { id: { in: ids } } }) : [];
+      const decorated = [];
+      for (const listed of result.rfqs as any[]) {
+        const r = { ...listed, ...(full.find((f) => f.id === listed.id) ?? {}), id: listed.id };
+        const ctx = await SourcingAccessService.resolve((req as any).user, r);
+        decorated.push({
+          ...listed,
+          sourcing: {
+            phase: phaseOf(r),
+            sealed: phaseOf(r) !== "OPENED",
+            submissions: counts.find((c) => c.procurementRfqId === r.id)?._count.id ?? 0,
+            level: ctx.level,
+            member: memberOf.has(r.id),
+            recommendationStatus: r.recommendationStatus ?? null,
+          },
+        });
+      }
       res.status(200).json({
         success: true,
         message: "RFQs retrieved successfully",
-        data: result.rfqs,
+        data: decorated,
         count: result.count,
         limit: result.limit,
         offset: result.offset
@@ -957,7 +1033,7 @@ export class ProcurementController {
 
       res.status(200).json({
         success: true,
-        data: purchaseOrders
+        data: await PurchaseOrderControlService.withEffectiveApproval(purchaseOrders)
       });
     } catch (error: any) {
       console.error("Error getting purchase orders:", error);
@@ -1075,10 +1151,24 @@ export class ProcurementController {
           message: "PDF file required (multipart field name: document)",
         });
       }
-      const vendorKey = String(req.body?.vendorId || "public-vendor")
-        .trim()
-        .replace(/[^a-zA-Z0-9.\-_]/g, "_")
-        .slice(0, 64);
+      // No anonymous storage: the upload must carry the supplier's signed purchase-order link.
+      const portalRaw = String(req.body?.vendorPortalToken || req.body?.token || req.headers["x-vendor-portal-token"] || "").trim();
+      if (!portalRaw) {
+        return res.status(401).json({ success: false, message: "A vendor portal link (token) is required to upload an invoice document" });
+      }
+      const { verifyVendorPortalToken, VENDOR_PORTAL_KIND_PO_VENDOR_INVOICE } = await import("../utils/vendorPortalToken");
+      let portalPayload: any;
+      try {
+        portalPayload = verifyVendorPortalToken(portalRaw);
+      } catch (e: any) {
+        return res.status(401).json({ success: false, message: e?.message || "Invalid vendor portal link" });
+      }
+      if (portalPayload.k !== VENDOR_PORTAL_KIND_PO_VENDOR_INVOICE) {
+        return res.status(403).json({ success: false, message: "This link cannot be used to upload an invoice document" });
+      }
+      await VendorGateService.assertTransactable(portalPayload.v, "INVOICE");
+      // The storage folder comes from the verified token, never from a form field.
+      const vendorKey = String(portalPayload.v).replace(/[^a-zA-Z0-9.\-_]/g, "_").slice(0, 64);
       const { FirebaseStorageService } = await import("../services/FirebaseStorageService");
       const { filePath, downloadURL } = await FirebaseStorageService.uploadProcurementVendorInvoice(
         file.buffer,
@@ -1125,6 +1215,12 @@ export class ProcurementController {
         attachmentIds,
         readingIntakeId,
         reviewNote,
+        supplierInvoiceNumber,
+        grnId,
+        paymentTerms,
+        subtotal: statedSubtotal,
+        taxAmount: statedTax,
+        totalAmount: statedTotal,
         items
       } = req.body;
 
@@ -1188,6 +1284,12 @@ export class ProcurementController {
         createdById: createdById || undefined, // Pass undefined if null
         // A staff capture made from AI Invoice Capture names the reading it came from, so the document is not read twice.
         readingIntakeId: isStaff && typeof readingIntakeId === "string" && readingIntakeId.trim() ? readingIntakeId.trim() : undefined,
+        supplierInvoiceNumber,
+        grnId: isStaff && typeof grnId === "string" && grnId.trim() ? grnId.trim() : undefined,
+        paymentTerms: isStaff && typeof paymentTerms === "string" ? paymentTerms : undefined,
+        statedSubtotal: statedSubtotal == null || statedSubtotal === "" ? undefined : Number(statedSubtotal),
+        statedTax: statedTax == null || statedTax === "" ? undefined : Number(statedTax),
+        statedTotal: statedTotal == null || statedTotal === "" ? undefined : Number(statedTotal),
         items
       });
 
@@ -1197,15 +1299,33 @@ export class ProcurementController {
         await ProcurementInvoiceAlertService.flagForReview(invoice.id, createdById, reviewNote);
       }
 
+      // A supplier (portal token, no staff session) gets a receipt, never the internal record: the full row carries the
+      // internal user the capture is attributed to, the purchase order's internal status and more.
+      const staffSession = Boolean((req as any).user?.id);
       res.status(201).json({
         success: true,
         message: "Procurement invoice created successfully",
-        data: invoice
+        data: staffSession
+          ? invoice
+          : {
+              id: invoice.id,
+              invoiceNumber: invoice.invoiceNumber,
+              supplierInvoiceNumber: invoice.supplierInvoiceNumber,
+              status: "RECEIVED",
+              invoiceDate: invoice.invoiceDate,
+              dueDate: invoice.dueDate,
+              subtotal: invoice.subtotal,
+              taxAmount: invoice.taxAmount,
+              totalAmount: invoice.totalAmount,
+              currency: invoice.currency ? { code: invoice.currency.code } : null,
+              receivedDate: invoice.receivedDate,
+            },
       });
     } catch (error: any) {
       console.error("Error creating procurement invoice:", error);
-      res.status(400).json({
+      res.status((error as any)?.statusCode || 400).json({
         success: false,
+        code: (error as any)?.code,
         message: publicErrorMessage(error, "Failed to create procurement invoice")
       });
     }
@@ -1431,22 +1551,45 @@ export class ProcurementController {
       const [vendor, profile, submission] = await Promise.all([
         prisma.vendor.findUnique({
           where: { id: payload.v },
-          select: { name: true, email: true, contactPerson: true, phone: true, taxNumber: true, address: true },
+          select: { name: true, email: true, contactPerson: true, phone: true, taxNumber: true, address: true, paymentTerms: true, settlementCurrency: { select: { code: true } } },
         }),
         prisma.companyProfile.findFirst({ select: { legalName: true } }),
-        prisma.vendorQuotation.findFirst({
-          where: { procurementRfqId: rfq.id, vendorId: payload.v, status: { not: "DRAFT" } },
-          orderBy: { submittedAt: "desc" },
-          select: { quotationNumber: true, status: true, submittedAt: true },
-        }),
+        // The current submission: the newest one that has not been replaced (a replaced one is history, not the entry).
+        prisma.vendorQuotation
+          .findFirst({
+            where: { procurementRfqId: rfq.id, vendorId: payload.v, status: { notIn: ["DRAFT", "SUPERSEDED"] } },
+            orderBy: { submittedAt: "desc" },
+            select: { quotationNumber: true, status: true, submittedAt: true },
+          })
+          .then(
+            (live) =>
+              live ??
+              prisma.vendorQuotation.findFirst({
+                where: { procurementRfqId: rfq.id, vendorId: payload.v, status: "SUPERSEDED" },
+                orderBy: { submittedAt: "desc" },
+                select: { quotationNumber: true, status: true, submittedAt: true },
+              })
+          ),
       ]);
       if (!vendor) {
         return res.status(404).json({ success: false, message: "No vendor matches this link" });
       }
+      // A vendor that is no longer Approved and compliant sees nothing of the event, and is told only to contact procurement
+      // (never why: the reasons are internal).
+      const eligibility = await VendorGateService.evaluate(payload.v, "QUOTE");
+      if (!eligibility.ok) {
+        return res.status(403).json({
+          success: false,
+          code: "VENDOR_NOT_ELIGIBLE",
+          message: "This supplier account is not currently eligible to take part in this event. Please contact the procurement office.",
+        });
+      }
 
       // The lines as the RFQ was issued (its snapshot), else the requisition's. Prices are never sent: the vendor quotes them.
       const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
-      const snapshot = Array.isArray(rfq.itemsSnapshot) ? (rfq.itemsSnapshot as any[]) : [];
+      // The snapshot is stored as { items: [...] } (older rows as a bare array); an RFQ raised without a requisition has nothing else.
+      const snap: any = rfq.itemsSnapshot;
+      const snapshot: any[] = Array.isArray(snap) ? snap : Array.isArray(snap?.items) ? snap.items : [];
       const lines = (snapshot.length ? snapshot : ((rfq.requisition?.items as any[]) ?? [])).map((it: any) => ({
         itemName: String(it?.itemName ?? it?.name ?? "").trim(),
         description: it?.description ?? null,
@@ -1454,6 +1597,11 @@ export class ProcurementController {
         unit: it?.unit ?? null,
       }));
       const closed = rfq.closingAt ? rfq.closingAt.getTime() < Date.now() : false;
+      const vendorSettlementCode = (vendor as any).settlementCurrency?.code ?? null;
+      const vendorPaymentTerms = (vendor as any).paymentTerms ?? null;
+      // Never send the vendor's own settlement/terms fields inside the vendor block twice.
+      delete (vendor as any).settlementCurrency;
+      delete (vendor as any).paymentTerms;
 
       return res.json({
         success: true,
@@ -1465,14 +1613,27 @@ export class ProcurementController {
           status: rfq.status,
           open: String(rfq.status).toUpperCase() === "OPEN" && !closed,
           closingAt: rfq.closingAt,
+          // Two-envelope events ask the supplier to mark its technical documents.
+          envelopes: (rfq as any).evaluationMode === "TWO_ENVELOPE" ? "TWO" : "ONE",
           deliveryAddress: rfq.deliveryAddress,
           expectedDeliveryDate: rfq.expectedDeliveryDate,
           specialRequirements: rfq.specialRequirements,
           currencyCode: rfq.reportingCurrency?.code ?? null,
+          // The supplier's own defaults, from their vendor record (never another supplier's).
+          vendorDefaults: {
+            currencyCode: vendorSettlementCode,
+            paymentTerms: vendorPaymentTerms,
+          },
           items: lines.filter((l) => l.itemName),
           vendor,
           submission: submission
-            ? { quotationNumber: submission.quotationNumber, status: submission.status, submittedAt: submission.submittedAt }
+            ? {
+                quotationNumber: submission.quotationNumber,
+                // Supplier-visible wording only: internal review states are not disclosed.
+                status: supplierVisibleStatus(submission.status).code,
+                statusLabel: supplierVisibleStatus(submission.status).label,
+                submittedAt: submission.submittedAt,
+              }
             : null,
           tokenExpiresAt: new Date(payload.exp * 1000).toISOString(),
         },
@@ -1547,11 +1708,15 @@ export class ProcurementController {
       }
 
       const {
-        isTaxable
+        isTaxable,
+        matchOverrideReason
       } = req.body;
 
       const invoice = await ProcurementService.approveProcurementInvoice(id, approvedById, {
         isTaxable: isTaxable !== undefined ? Boolean(isTaxable) : undefined
+      }, {
+        matchOverrideReason: typeof matchOverrideReason === "string" ? matchOverrideReason : undefined,
+        actor: (req as any).user,
       });
 
       res.status(200).json({
@@ -1561,7 +1726,8 @@ export class ProcurementController {
       });
     } catch (error: any) {
       console.error("Error approving procurement invoice:", error);
-      res.status(400).json({
+      res.status((error as any)?.statusCode || 400).json({
+        code: (error as any)?.code,
         success: false,
         message: publicErrorMessage(error, "Failed to approve procurement invoice")
       });
@@ -1675,6 +1841,26 @@ export class ProcurementController {
    * Process payment for an approved procurement invoice
    * POST /api/procurement/invoices/:id/payment
    */
+  /**
+   * GET /procurement/invoices/payment-file[?ids=a,b][&format=json]: bank payment file for approved, unpaid invoices,
+   * built from each vendor's own banking details. Vendors the system would refuse to pay are left out and reported.
+   */
+  static async exportPaymentBankFile(req: Request, res: Response) {
+    try {
+      const ids = String(req.query.ids || "").split(",").map((s) => s.trim()).filter(Boolean);
+      const built = await VendorPaymentFileService.build({ invoiceIds: ids.length ? ids : undefined });
+      if (String(req.query.format || "").toLowerCase() === "json") {
+        return res.status(200).json({ success: true, data: { included: built.included, excluded: built.excluded } });
+      }
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="vendor-payment-file-${new Date().toISOString().slice(0, 10)}.csv"`);
+      res.setHeader("X-Excluded-Count", String(built.excluded.length));
+      res.status(200).send(built.csv);
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
   static async payProcurementInvoice(req: Request, res: Response) {
     try {
       const { id } = req.params;
@@ -1715,7 +1901,8 @@ export class ProcurementController {
         proofOfPaymentPath = filePath; // Store Firebase storage path (shorter than full URL)
       } catch (uploadError: any) {
         console.error("Error uploading proof of payment:", uploadError);
-        return res.status(400).json({
+        return res.status((uploadError as any)?.statusCode || 400).json({
+        code: (uploadError as any)?.code,
           success: false,
           message: `Failed to upload proof of payment: ${uploadError.message}`
         });
@@ -1779,7 +1966,8 @@ export class ProcurementController {
       });
     } catch (error: any) {
       console.error("Error processing procurement invoice payment:", error);
-      res.status(400).json({
+      res.status((error as any)?.statusCode || 400).json({
+        code: (error as any)?.code,
         success: false,
         message: publicErrorMessage(error, "Failed to process payment")
       });
@@ -1889,6 +2077,9 @@ export class ProcurementController {
         items,
         receivedDate,
         attachmentUrls,
+        deliveryNoteNumber,
+        locationName,
+        comments,
         latitude,
         longitude,
         geoCapturedAt,
@@ -1916,6 +2107,9 @@ export class ProcurementController {
         {
           receivedDate: receivedDate ? new Date(receivedDate) : undefined,
           attachmentUrls,
+          deliveryNoteNumber,
+          locationName,
+          comments,
           latitude: latitude != null ? Number(latitude) : undefined,
           longitude: longitude != null ? Number(longitude) : undefined,
           geoCapturedAt: geoCapturedAt ? new Date(geoCapturedAt) : undefined,
@@ -1929,7 +2123,8 @@ export class ProcurementController {
       });
     } catch (error: any) {
       console.error("Error creating goods received note:", error);
-      res.status(400).json({
+      res.status((error as any)?.statusCode || 400).json({
+        code: (error as any)?.code,
         success: false,
         message: publicErrorMessage(error, "Failed to create goods received note")
       });
@@ -2096,7 +2291,8 @@ export class ProcurementController {
       });
     } catch (error: any) {
       console.error("Error approving goods received note:", error);
-      res.status(400).json({
+      res.status((error as any)?.statusCode || 400).json({
+        code: (error as any)?.code,
         success: false,
         message: publicErrorMessage(error, "Failed to approve goods received note"),
       });
@@ -2348,6 +2544,113 @@ export class ProcurementController {
     });
   }
 
+  /** §16 formal bid opening */
+  static async openRfqBids(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
+      const data = await ProcurementRfqService.openBids({
+        procurementRfqId: req.params.id,
+        openedById: userId,
+        attendees: Array.isArray(req.body?.attendees) ? req.body.attendees : undefined,
+        notes: typeof req.body?.notes === "string" ? req.body.notes : undefined,
+      });
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
+
+  /** §17–18 evaluation criteria */
+  static async putRfqScoringConfig(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
+      const data = await ProcurementRfqService.setScoringConfig({
+        procurementRfqId: req.params.id,
+        criteria: Array.isArray(req.body?.criteria) ? req.body.criteria : [],
+        updatedById: userId,
+      });
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
+
+  /** §20 submit award recommendation */
+  static async submitRfqRecommendation(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const { winningQuotationId, rationale, packageNotes, attachments } = req.body || {};
+      if (!winningQuotationId || !rationale) {
+        return res.status(400).json({ success: false, message: "winningQuotationId and rationale are required" });
+      }
+      const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
+      const data = await ProcurementRfqService.submitAwardRecommendation({
+        procurementRfqId: req.params.id,
+        winningQuotationId,
+        rationale,
+        submittedById: userId,
+        packageNotes,
+        attachments,
+      });
+      res.status(201).json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
+
+  /** §20 approve/reject award recommendation */
+  static async decideRfqRecommendation(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const decision = String(req.body?.decision || "").toUpperCase();
+      if (decision !== "APPROVED" && decision !== "REJECTED") {
+        return res.status(400).json({ success: false, message: "decision must be APPROVED or REJECTED" });
+      }
+      const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
+      const data = await ProcurementRfqService.decideAwardRecommendation({
+        procurementRfqId: req.params.id,
+        decision: decision as "APPROVED" | "REJECTED",
+        decidedById: userId,
+        comments: typeof req.body?.comments === "string" ? req.body.comments : undefined,
+      });
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
+
+  /**
+   * §25 finance handoff transition. The state moves only along the permitted order (READY_FOR_FINANCE, SUBMITTED, ACCEPTED, PAID,
+   * CLOSED; SUBMITTED may be returned as REJECTED); each move records who and when.
+   */
+  static async patchInvoiceFinanceHandoff(req: Request, res: Response) {
+    try {
+      const actor = (req as any).user;
+      if (!actor?.id) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const { InvoiceControlService } = await import("../services/p2p/InvoiceControlService");
+      const to = req.body?.to ?? req.body?.status;
+      const data = await InvoiceControlService.transition(actor, req.params.id, String(to || ""), req.body?.comment ?? req.body?.reason);
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(e?.statusCode || e?.status || 400).json({ success: false, code: e?.code, message: publicErrorMessage(e, "Could not move the invoice to that state") });
+    }
+  }
+
+  static async getInvoiceFinanceHandoff(req: Request, res: Response) {
+    try {
+      const { InvoiceControlService } = await import("../services/p2p/InvoiceControlService");
+      res.json({ success: true, data: await InvoiceControlService.describe(req.params.id, (req as any).user) });
+    } catch (e: any) {
+      res.status(e?.statusCode || e?.status || 400).json({ success: false, message: publicErrorMessage(e, "Could not load the handoff") });
+    }
+  }
+
   static async patchRfqExtend(req: Request, res: Response) {
     try {
       const userId = req.user?.id;
@@ -2361,6 +2664,102 @@ export class ProcurementController {
         extendedById: userId,
       });
       res.json({ success: true, data });
+    } catch (e: any) {
+      res.status((e as any).statusCode || 400).json({ success: false, code: (e as any).code, message: e.message });
+    }
+  }
+
+  /** POST /procurement/rfqs/:id/reopen { newClosingAt, reason }: the only way to let suppliers change submissions after the deadline. */
+  /** Shared by the supplier clarification endpoints: verify the signed RFQ link, that this supplier is invited, and still eligible. */
+  private static async supplierRfqContext(raw: string) {
+    const { verifyVendorPortalToken, VENDOR_PORTAL_KIND_RFQ_SUBMIT } = await import("../utils/vendorPortalToken");
+    const payload: any = verifyVendorPortalToken(raw);
+    if (payload.k !== VENDOR_PORTAL_KIND_RFQ_SUBMIT) throw Object.assign(new Error("This link is not a request for quotation link"), { statusCode: 400 });
+    const rfq = await prisma.procurementRfq.findUnique({
+      where: { id: payload.r },
+      select: { id: true, rfqNumber: true, status: true, closingAt: true, createdById: true, invitations: { where: { vendorId: payload.v }, select: { id: true } } },
+    });
+    if (!rfq || !rfq.invitations.length) throw Object.assign(new Error("No request for quotation matches this link"), { statusCode: 404 });
+    const gate = await VendorGateService.evaluate(payload.v, "QUOTE");
+    if (!gate.ok) throw Object.assign(new Error("This supplier account is not currently eligible to take part in this event. Please contact the procurement office."), { statusCode: 403, code: "VENDOR_NOT_ELIGIBLE" });
+    return { payload, rfq };
+  }
+
+  static async getVendorPortalClarifications(req: Request, res: Response) {
+    try {
+      const { payload, rfq } = await ProcurementController.supplierRfqContext(String(req.query.token || req.query.vendorPortalToken || "").trim());
+      const rows = await prisma.rfqClarification.findMany({
+        where: {
+          procurementRfqId: rfq.id,
+          OR: [
+            { authorType: "STAFF", vendorId: null },
+            { authorType: "STAFF", vendorId: payload.v },
+            { authorType: "VENDOR", vendorId: payload.v },
+          ],
+        },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, authorType: true, body: true, attachmentUrl: true, createdAt: true },
+      });
+      // No author identities: procurement staff appear as "Procurement", and the supplier's own posts as "You".
+      res.json({
+        success: true,
+        data: rows.map((r) => ({ id: r.id, from: r.authorType === "VENDOR" ? "You" : "Procurement", body: r.body, attachmentUrl: r.attachmentUrl, createdAt: r.createdAt })),
+      });
+    } catch (e: any) {
+      res.status(e.statusCode || 400).json({ success: false, code: e.code, message: e.message });
+    }
+  }
+
+  static async postVendorPortalClarification(req: Request, res: Response) {
+    try {
+      const { payload, rfq } = await ProcurementController.supplierRfqContext(String(req.body?.token || req.body?.vendorPortalToken || "").trim());
+      const closed = String(rfq.status).toUpperCase() !== "OPEN" || (rfq.closingAt != null && new Date(rfq.closingAt).getTime() <= Date.now());
+      if (closed) return res.status(409).json({ success: false, code: "RFQ_LOCKED", message: "This event is closed to questions." });
+      const body = String(req.body?.body || req.body?.question || "").trim();
+      if (!body) return res.status(400).json({ success: false, message: "Write your question" });
+      if (body.length > 4000) return res.status(400).json({ success: false, message: "Your question is too long (max 4000 characters)" });
+      const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
+      const row = await ProcurementRfqService.addClarification({ procurementRfqId: rfq.id, authorType: "VENDOR", body, vendorId: payload.v });
+      await prisma.notification.create({
+        data: {
+          userId: rfq.createdById,
+          title: "Supplier clarification request",
+          message: `A supplier asked a question on ${rfq.rfqNumber}. Answer it from the RFQ's clarifications.`,
+          type: "RFQ_CLARIFICATION_QUESTION",
+          relatedEntity: "ProcurementRfq",
+          relatedEntityId: rfq.id,
+          data: { rfqId: rfq.id, clarificationId: row.id },
+        },
+      }).catch(() => undefined);
+      res.status(201).json({ success: true, data: { id: row.id, from: "You", body: row.body, createdAt: row.createdAt } });
+    } catch (e: any) {
+      res.status(e.statusCode || 400).json({ success: false, code: e.code, message: e.message });
+    }
+  }
+
+  static async postRfqReopen(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
+      const { newClosingAt, reason } = req.body || {};
+      if (!newClosingAt) return res.status(400).json({ success: false, message: "newClosingAt required" });
+      const data = await ProcurementRfqService.reopen({
+        procurementRfqId: req.params.id,
+        newClosingAt: new Date(newClosingAt),
+        reason,
+        reopenedById: userId,
+      });
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status((e as any).statusCode || 400).json({ success: false, code: (e as any).code, message: e.message });
+    }
+  }
+
+  static async getRfqReopenEvents(req: Request, res: Response) {
+    try {
+      const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
+      res.json({ success: true, data: await ProcurementRfqService.listReopenEvents(req.params.id) });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
     }
@@ -2387,6 +2786,7 @@ export class ProcurementController {
         body: clarificationBody,
         attachmentUrl,
         userId,
+        vendorId: typeof payload.vendorId === "string" && payload.vendorId.trim() ? payload.vendorId.trim() : undefined,
       });
       const msg =
         result.emailsSent > 0
@@ -2439,6 +2839,10 @@ export class ProcurementController {
     try {
       const { ProcurementPoPdfService } = await import("../services/ProcurementPoPdfService");
       const buf = await ProcurementPoPdfService.renderPurchaseOrderPdf(req.params.id);
+      try {
+        const { default: AuditService } = await import("../services/AuditService");
+        await AuditService.log({ userId: (req as any).user?.id, action: "PO_PDF_DOWNLOAD", entityType: "PurchaseOrder", entityId: req.params.id, newValues: { format: "pdf", sizeBytes: buf.length }, eventType: "FILE_DOWNLOAD" });
+      } catch (_e) { /* never block the document on its audit row */ }
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="po-${req.params.id}.pdf"`);
       res.send(buf);
@@ -2457,6 +2861,19 @@ export class ProcurementController {
       });
       if (!po) return res.status(404).json({ success: false, message: "Invalid token" });
       res.json({ success: true, data: po });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
+
+  /** Suite 04.6 — create an amendment PO linked via amendmentOfPoId. */
+  static async amendPurchaseOrder(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const { ProcurementService } = await import("../services/ProcurementService");
+      const data = await ProcurementService.amendPurchaseOrder(req.params.id, userId, req.body);
+      res.status(201).json({ success: true, data });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
     }

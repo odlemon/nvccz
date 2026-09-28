@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { PrismaClient, PurchaseInvoice, Vendor, Currency } from "@prisma/client";
+import { VendorGateService } from "./VendorGateService";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
 import { prismaJournalEntryRateSelect } from "../config/accountingSnapshotResponseSelect";
@@ -117,6 +118,7 @@ export class PurchaseInvoiceService {
     if (!vendor) {
       throw new Error("Vendor not found");
     }
+    await VendorGateService.assertTransactable(vendor, "INVOICE");
 
     const currency = await prisma.currency.findUnique({
       where: { id: currencyId }

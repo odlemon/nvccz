@@ -2,6 +2,9 @@
 import { PrismaClient } from '@prisma/client';
 import { attachAccountingSnapshotMiddleware } from './prismaAccountingSnapshotMiddleware';
 import { attachChartOfAccountsNaturalBalanceMiddleware } from './chartOfAccountsNaturalBalance';
+import { attachAuditImmutabilityMiddleware } from './auditImmutability';
+import { attachStatusGuardMiddleware } from './statusGuard';
+import { attachReconciledPeriodGuard } from './reconciledPeriodGuard';
 
 // Prevent hot reloading from creating new instances in development
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
@@ -26,8 +29,23 @@ function createPrismaClient(): PrismaClient {
     },
     log: ['error', 'warn'] // Enable logging for debugging
   });
+  // A connection the database refused to open (P1001 "Can't reach database server": seen under bursts of new
+  // connections on a local MySQL) means the query never ran, so it is tried again once, briefly later. First, so it
+  // wraps every other middleware.
+  client.$use(async (params, next) => {
+    try {
+      return await next(params);
+    } catch (e: any) {
+      if (e?.code !== 'P1001' && !/Can't reach database server/.test(String(e?.message || ''))) throw e;
+      await new Promise((r) => setTimeout(r, 400));
+      return next(params);
+    }
+  });
   attachChartOfAccountsNaturalBalanceMiddleware(client);
   attachAccountingSnapshotMiddleware(client);
+  attachAuditImmutabilityMiddleware(client);
+  attachStatusGuardMiddleware(client);
+  attachReconciledPeriodGuard(client);
   return client;
 }
 

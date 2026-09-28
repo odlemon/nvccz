@@ -4,6 +4,8 @@ import CashFlowController from "../controllers/CashFlowController";
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
 
+// Who may use these routes is decided by the Accounting access guard in front of every accounting router
+// (src/middleware/accountingAccessGuard.ts); the role-name lists that stood here refused the Finance Manager and auditors.
 const router = Router();
 
 /**
@@ -75,7 +77,7 @@ const router = Router();
  *       500:
  *         description: Internal server error
  */
-router.post("/generate", authenticate, authorize(["admin", "accountant"]), CashFlowController.generateCashFlowStatement);
+router.post("/generate", authenticate, CashFlowController.generateCashFlowStatement);
 
 /**
  * @swagger
@@ -134,7 +136,7 @@ router.post("/generate", authenticate, authorize(["admin", "accountant"]), CashF
  *       500:
  *         description: Internal server error
  */
-router.post("/detailed", authenticate, authorize(["admin", "accountant"]), CashFlowController.getDetailedCashFlowStatement);
+router.post("/detailed", authenticate, CashFlowController.getDetailedCashFlowStatement);
 
 /**
  * @swagger
@@ -193,7 +195,7 @@ router.post("/detailed", authenticate, authorize(["admin", "accountant"]), CashF
  *       500:
  *         description: Internal server error
  */
-router.post("/summary", authenticate, authorize(["admin", "accountant"]), CashFlowController.getCashFlowStatementSummary);
+router.post("/summary", authenticate, CashFlowController.getCashFlowStatementSummary);
 
 /**
  * @swagger
@@ -252,7 +254,7 @@ router.post("/summary", authenticate, authorize(["admin", "accountant"]), CashFl
  *       500:
  *         description: Internal server error
  */
-router.post("/comprehensive", authenticate, authorize(["admin", "accountant"]), CashFlowController.getComprehensiveDetailedCashFlowStatement);
+router.post("/comprehensive", authenticate, CashFlowController.getComprehensiveDetailedCashFlowStatement);
 
 /**
  * @swagger
@@ -298,7 +300,7 @@ router.post("/comprehensive", authenticate, authorize(["admin", "accountant"]), 
  *       500:
  *         description: Internal server error
  */
-router.post("/comparative", authenticate, authorize(["admin", "accountant"]), CashFlowController.getComparativeCashFlowStatement);
+router.post("/comparative", authenticate, CashFlowController.getComparativeCashFlowStatement);
 
 /**
  * @swagger
@@ -369,6 +371,6 @@ router.post("/comparative", authenticate, authorize(["admin", "accountant"]), Ca
  *       500:
  *         description: Internal server error
  */
-router.get("/", authenticate, authorize(["admin", "accountant"]), CashFlowController.getCashFlowStatementByQuery);
+router.get("/", authenticate, CashFlowController.getCashFlowStatementByQuery);
 
 export default router; 

@@ -2,6 +2,7 @@
 import { Request, Response, NextFunction } from "express";
 import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
+import AuditService from "../services/AuditService";
 
 export class RoleController {
   // Create a new role
@@ -40,6 +41,7 @@ export class RoleController {
         }
       });
 
+      await AuditService.log({ userId: (req as any).user?.id, action: "ROLE_CREATE", entityType: "Role", entityId: role.id, newValues: { name: role.name, description: role.description, permissions: role.permissions }, eventType: "PERMISSION_CHANGE" });
       res.status(201).json({
         success: true,
         message: "Role created successfully",
@@ -162,6 +164,15 @@ export class RoleController {
         }
       });
 
+      await AuditService.log({
+        userId: (req as any).user?.id,
+        action: "ROLE_PERMISSION_UPDATE",
+        entityType: "Role",
+        entityId: id,
+        oldValues: { name: existingRole.name, description: existingRole.description, permissions: existingRole.permissions, portfolioSettingsPermissions: existingRole.portfolioSettingsPermissions },
+        newValues: { name: updatedRole.name, description: updatedRole.description, permissions: updatedRole.permissions, portfolioSettingsPermissions: updatedRole.portfolioSettingsPermissions },
+        eventType: "PERMISSION_CHANGE",
+      });
       res.status(200).json({
         success: true,
         message: "Role updated successfully",
@@ -211,6 +222,7 @@ export class RoleController {
         where: { id }
       });
 
+      await AuditService.log({ userId: (req as any).user?.id, action: "ROLE_DELETE", entityType: "Role", entityId: id, oldValues: { name: existingRole.name, permissions: existingRole.permissions }, eventType: "PERMISSION_CHANGE" });
       res.status(200).json({
         success: true,
         message: "Role deleted successfully"

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { prisma } from "../../utils/database";
 import { hasAnySignal, isAdminViewer } from "../performanceScorecardSupport";
+import { userHasEffectivePermission } from "../../config/cfoModulePermissions";
 
 export class TaxReturnPackAccessService {
   static isTaxOfficer(user: any): boolean {
@@ -9,7 +10,9 @@ export class TaxReturnPackAccessService {
       code === "CFO" ||
       code === "FUND_MGR" ||
       code === "FUND_MANAGER" ||
-      hasAnySignal(user, ["tax", "tax officer", "tax_officer", "tax manager", "accountant"])
+      hasAnySignal(user, ["tax", "tax officer", "tax_officer", "tax manager", "accountant"]) ||
+      // an accounting preparer compiles returns (Compliance & Tax)
+      userHasEffectivePermission(user, "manage_accounting")
     );
   }
 
@@ -35,6 +38,7 @@ export class TaxReturnPackAccessService {
     if (isAdminViewer(user)) return;
     if (TaxReturnPackAccessService.isTaxOfficer(user)) return;
     if (TaxReturnPackAccessService.isChecker(user)) return;
+    if (["view_accounting", "manage_ledger", "view_financial_reports"].some((k) => userHasEffectivePermission(user, k))) return;
 
     if (fundId) {
       const fm = await prisma.fundManager.findFirst({

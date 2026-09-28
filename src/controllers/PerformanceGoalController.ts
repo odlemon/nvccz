@@ -2,6 +2,18 @@
 import { Request, Response } from "express";
 import { PerformanceGoalService } from "../services/PerformanceGoalService";
 import { parseDate } from "../utils/dateHelper";
+import { perfActor, goalVisible, departmentInScope, personInScope } from "../services/PerformanceScope";
+
+/** Where a goal may be put (create, or an edit that moves it): company goals need the organisation scope; a department
+ *  scope keeps goals in its own department and among its own people. Returns the refusal, or null. */
+async function placementRefusal(user: any, type: any, departmentName: any, assignedToId: any): Promise<string | null> {
+  const a = await perfActor(user);
+  if (a.org) return null;
+  if (String(type || "").toLowerCase() === "company") return "Only an organisation-wide role can set company goals.";
+  if (departmentName && !departmentInScope(a, departmentName)) return "You can only set goals for your own department.";
+  if (assignedToId && !(await personInScope(a, assignedToId))) return "You can only assign goals to people in your department.";
+  return null;
+}
 
 export class PerformanceGoalController {
   // Create a new performance goal
@@ -41,6 +53,9 @@ export class PerformanceGoalController {
         scorecardWeight
       } = req.body;
       const userId = req.user.id;
+
+      const refusal = await placementRefusal(req.user, type, departmentName, assignedToId);
+      if (refusal) return res.status(403).json({ success: false, message: refusal });
 
       if (!title || !type || !startDate || !endDate || !targetValue || !targetUnit) {
         return res.status(400).json({
@@ -120,7 +135,9 @@ export class PerformanceGoalController {
       if (pillarId) filters.pillarId = pillarId as string;
       if (search) filters.search = search as string;
 
-      const goals = await PerformanceGoalService.getAllPerformanceGoals(filters);
+      const a = await perfActor(req.user);
+      const all = await PerformanceGoalService.getAllPerformanceGoals(filters);
+      const goals = a.org ? all : (await Promise.all(all.map(async (g) => ((await goalVisible(a, g)) ? g : null)))).filter(Boolean);
 
       res.status(200).json({
         success: true,
@@ -139,7 +156,9 @@ export class PerformanceGoalController {
   static async getGoalsByKpiId(req: Request, res: Response) {
     try {
       const { kpiId } = req.params;
-      const goals = await PerformanceGoalService.getGoalsByKpiId(kpiId);
+      const a = await perfActor(req.user);
+      const all = await PerformanceGoalService.getGoalsByKpiId(kpiId);
+      const goals = a.org ? all : (await Promise.all(all.map(async (g) => ((await goalVisible(a, g)) ? g : null)))).filter(Boolean);
       return res.status(200).json({
         success: true,
         count: goals.length,
@@ -207,6 +226,11 @@ export class PerformanceGoalController {
         scorecardPillar
       } = req.body;
 
+      if (departmentName !== undefined || assignedToId !== undefined || type !== undefined) {
+        const refusal = await placementRefusal(req.user, type, departmentName, assignedToId);
+        if (refusal) return res.status(403).json({ success: false, message: refusal });
+      }
+
       const goal = await PerformanceGoalService.updatePerformanceGoal(id, {
         title,
         description,
@@ -235,7 +259,8 @@ export class PerformanceGoalController {
         contributionWeightPercent,
         stretchTargetValue,
         isReverseKpi,
-        scorecardPillar
+        scorecardPillar,
+        actorId: req.user?.id
       });
 
       res.status(200).json({
@@ -256,7 +281,7 @@ export class PerformanceGoalController {
     try {
       const { id } = req.params;
 
-      const result = await PerformanceGoalService.deletePerformanceGoal(id);
+      const result = await PerformanceGoalService.deletePerformanceGoal(id, req.user?.id);
 
       res.status(200).json({
         success: true,

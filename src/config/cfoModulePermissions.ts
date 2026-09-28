@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { hasAnySignal, isAdminViewer } from "../services/performanceScorecardSupport";
+import { procurementScopeAllows } from "./userMasterAccess";
 
 export type PermissionEntry = { name: string; value: boolean };
 
@@ -49,6 +50,8 @@ export function roleHasPermissionInJson(
 }
 
 export function userHasEffectivePermission(user: any, permissionName: string): boolean {
+  // User Master: a person's procurement function / access profile can only narrow what their role grants.
+  if (!procurementScopeAllows(user, permissionName)) return false;
   if (roleHasPermissionInJson(user, permissionName)) return true;
   if (isCfoUser(user) && CFO_PERMISSION_NAMES.has(permissionName)) return true;
   return false;

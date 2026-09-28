@@ -1,10 +1,30 @@
 // @ts-nocheck
+import { vendorPortalWriteLimiter } from "../middleware/vendorPortalRateLimit";
 import express from "express";
 import { VendorQuotationController } from "../controllers/VendorQuotationController";
 import { authenticate } from "../middleware/authenticate";
 
 import { requireAnyPermission, requireInternalStaffUser } from "../middleware/permissionAuth";
 import { PROCUREMENT_PERMISSIONS as PROC_PERMS } from "../config/procurementPermissions";
+/**
+ * Reading a quotation needs the quotations.view grant, or a seat on the evaluation committee of the quotation's event: a committee
+ * member is not procurement staff and has no procurement role. What they may then see is still decided by SourcingAccessService.
+ */
+async function quotationReadAccess(req: any, res: any, next: any) {
+  try {
+    const { userHasEffectivePermission, isModulePrivilegedUser } = await import("../config/cfoModulePermissions");
+    if (isModulePrivilegedUser(req.user) || userHasEffectivePermission(req.user, PROC_PERMS.quotationsView)) return next();
+    const { prisma } = await import("../utils/database");
+    let rfqId: string | null = null;
+    if (req.params.rfqNumber) rfqId = (await prisma.procurementRfq.findUnique({ where: { rfqNumber: req.params.rfqNumber }, select: { id: true } }))?.id ?? null;
+    else if (req.params.id) rfqId = (await prisma.vendorQuotation.findUnique({ where: { id: req.params.id }, select: { procurementRfqId: true } }))?.procurementRfqId ?? null;
+    if (rfqId && req.user?.id && (await prisma.rfqEvaluationMember.findUnique({ where: { rfqId_userId: { rfqId, userId: req.user.id } } }))) return next();
+  } catch {
+    /* fall through to the refusal */
+  }
+  return res.status(403).json({ success: false, message: "Insufficient permissions. Required one of: procurement.quotations.view" });
+}
+
 const router = express.Router();
 
 /**
@@ -172,7 +192,7 @@ const router = express.Router();
  *       400:
  *         description: Bad request (validation error)
  */
-router.post("/submit", VendorQuotationController.createVendorQuotation);
+router.post("/submit", vendorPortalWriteLimiter, VendorQuotationController.createVendorQuotation);
 
 // All routes below require authentication
 router.use(authenticate);
@@ -282,7 +302,7 @@ router.get("/", requireAnyPermission([PROC_PERMS.quotationsView]), VendorQuotati
  *                 count:
  *                   type: number
  */
-router.get("/rfq/:rfqNumber", requireAnyPermission([PROC_PERMS.quotationsView]), VendorQuotationController.getQuotationsByRFQ);
+router.get("/rfq/:rfqNumber", quotationReadAccess, VendorQuotationController.getQuotationsByRFQ);
 
 /**
  * @swagger
@@ -308,7 +328,7 @@ router.get("/rfq/:rfqNumber", requireAnyPermission([PROC_PERMS.quotationsView]),
  *       401:
  *         description: Unauthorized
  */
-router.get("/:id", requireAnyPermission([PROC_PERMS.quotationsView]), VendorQuotationController.getQuotationById);
+router.get("/:id", quotationReadAccess, VendorQuotationController.getQuotationById);
 
 /**
  * @swagger
