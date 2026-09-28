@@ -287,8 +287,6 @@ export class ProcurementService {
         branch,
         businessUnit,
         costCentre,
-        budgetCode,
-        deliveryLocation,
         planItemId,
         items
       } = params;
@@ -443,12 +441,6 @@ export class ProcurementService {
           ...(effBranch ? { branch: effBranch } : {}),
           ...(effBusinessUnit ? { businessUnit: effBusinessUnit } : {}),
           ...(effCostCentre ? { costCentre: effCostCentre } : {}),
-          ...(budgetCode != null && String(budgetCode).trim() !== ""
-            ? { budgetCode: String(budgetCode).trim() }
-            : {}),
-          ...(deliveryLocation != null && String(deliveryLocation).trim() !== ""
-            ? { deliveryLocation: String(deliveryLocation).trim() }
-            : {}),
           ...(planItemId != null && String(planItemId).trim() !== ""
             ? { planItemId: String(planItemId).trim() }
             : {}),
