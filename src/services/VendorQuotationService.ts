@@ -12,6 +12,7 @@ import {
   verifyVendorPortalToken,
   VENDOR_PORTAL_KIND_RFQ_SUBMIT,
 } from "../utils/vendorPortalToken";
+import { assertValidProcurementLineItems } from "../utils/procurementLineItemValidation";
 
 /**
  * Render a vendor quotation PDF (with letterhead + ACCEPTED/REJECTED watermark) for email attachment.
@@ -324,6 +325,13 @@ export class VendorQuotationService {
       const resolvedAddress =
         vendorRow.address?.trim() || trimIn(address) || undefined;
       // What the supplier states is what they offer; the vendor master is only the default when they state nothing.
+      // PROC-FINDING-017: unlike name/tax EIN/phone/address (stable vendor identity fields the
+      // server should trust over a resubmitted form value), payment terms are negotiated per
+      // quotation and SRD-required as something the vendor states on *this* submission. The old
+      // precedence here (vendor-master value first) meant every quotation silently recorded the
+      // vendor master's default (e.g. "Net 30") and discarded whatever the vendor actually typed
+      // on the RFQ response form - the vendor-typed value must win, with the master record only a
+      // fallback for vendors who leave the field blank via a legacy client.
       const resolvedPaymentTerms =
         trimIn(paymentTerms) || vendorRow.paymentTerms?.trim() || undefined;
 
@@ -947,6 +955,35 @@ export class VendorQuotationService {
           const actorUser = await prisma.user.findUnique({ where: { id: reviewedById }, include: { role: true } });
           const ctx = await SourcingAccessService.assertCanSeeSubmissions(actorUser, quotation.procurementRfqId, `reject quotation ${quotationId}`);
           if (ctx.level !== "FULL") throw Object.assign(new Error("Only the procurement team can reject a quotation."), { status: 403 });
+        }
+      }
+
+      // SRD §60 step 7 "Committee evaluates" before step 9 "Approver approves" (PROC-FINDING-014).
+      // Only enforced when there is an actual comparison to make -- a sole-source/single-bid RFQ has
+      // nothing to score against, and the SRD's own example journey frames scoring as a comparison
+      // step, not an award gate in its own right. A competitive RFQ (2+ open quotations) must have
+      // every one of them scored before any can be awarded, so a careless or rushed award can't skip
+      // the evaluation step the UI itself expects to have already happened.
+      if (action === "ACCEPT" && quotation.procurementRfqId) {
+        const competingQuotations = await prisma.vendorQuotation.findMany({
+          where: {
+            procurementRfqId: quotation.procurementRfqId,
+            status: { in: ["SUBMITTED", "UNDER_REVIEW"] },
+          },
+          select: { id: true, quotationNumber: true, companyName: true, vendorName: true, technicalScoreJson: true },
+        });
+        if (competingQuotations.length > 1) {
+          const hasScore = (q: (typeof competingQuotations)[number]) => {
+            const evalScore = (q.technicalScoreJson as any)?.evaluation?.score;
+            return typeof evalScore === "number" && Number.isFinite(evalScore);
+          };
+          const unscored = competingQuotations.filter((q) => !hasScore(q));
+          if (unscored.length > 0) {
+            const names = unscored.map((q) => q.companyName || q.vendorName || q.quotationNumber).join(", ");
+            throw new Error(
+              `All submitted quotations on this RFQ must be technically scored before one can be awarded. Missing evaluation for: ${names}.`
+            );
+          }
         }
       }
 

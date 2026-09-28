@@ -32,6 +32,30 @@ function byPeriodMap(cells: any[]) {
   return m;
 }
 
+// Precise headcount-item match. Loose substring matching on "FTE" previously
+// also caught cost/dollar drivers like "Average Cost per FTE" (code
+// FTE_COST), summing dollar values into headcount counts and producing
+// garbage totals (e.g. 14,674 "headcount").
+function isHeadcountItem(code: unknown, name: unknown): boolean {
+  const c = String(code || "").toUpperCase().trim();
+  const n = String(name || "").toUpperCase().trim();
+  const exact = new Set(["HEADCOUNT", "HC", "FTE", "FTE_COUNT", "HC_COUNT"]);
+  if (exact.has(c) || exact.has(n)) return true;
+  return /(^|[_\s])HEADCOUNT([_\s]|$)/.test(c) || /(^|[_\s])HEADCOUNT([_\s]|$)/.test(n);
+}
+
+// A line item is a rollup/total (not an independent input) if it has its own
+// formula, or is explicitly typed as calculated. Domain-pack totals must sum
+// only leaf items — summing a rollup's cells alongside its own constituent
+// leaf items' cells double-counts the total (e.g. Revenue KPI reading 2x the
+// real total because a "Revenue" rollup line item was summed together with
+// the Client Mandates / Average Monthly Fee / etc. items that already sum to it).
+function isRollupLineItem(li: any): boolean {
+  if (Array.isArray(li.formulas) && li.formulas.length > 0) return true;
+  const t = String(li.lineItemType || "").toUpperCase();
+  return t === "CALCULATED" || t === "CALC";
+}
+
 function parsePeriod(value: any, field: string): Date | null {
   if (!value) return null;
   const d = new Date(String(value));
@@ -62,6 +86,7 @@ async function loadScoped(modelId: string, category: string, query: any) {
   const lineItems = await prisma.planningLineItem.findMany({
     where: { modelId, category },
     orderBy: { sortOrder: "asc" },
+    include: { formulas: { select: { id: true }, take: 1 } },
   });
   const liIds = lineItems.map((l) => l.id);
   const cellWhere: any = { modelId, lineItemId: { in: liIds } };
@@ -86,6 +111,37 @@ async function loadScoped(modelId: string, category: string, query: any) {
     };
   }
   const actuals = await prisma.planningActualsSnapshot.findMany({ where: actualWhere });
+
+  // Real Budget figures come from the model's own approved/locked planning
+  // cycle version — not a proxy. Prefer LOCKED (final) over APPROVED
+  // (pending lock), most recently updated first.
+  const budgetVersionCycle =
+    (await prisma.modelPlanningCycle.findFirst({
+      where: { sourceModelId: modelId, status: "LOCKED" },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, status: true, sourceModelVersionId: true },
+    })) ||
+    (await prisma.modelPlanningCycle.findFirst({
+      where: { sourceModelId: modelId, status: "APPROVED" },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, status: true, sourceModelVersionId: true },
+    }));
+  const budgetCells =
+    budgetVersionCycle && liIds.length
+      ? await prisma.planningCell.findMany({
+          where: {
+            modelId,
+            lineItemId: { in: liIds },
+            versionId: budgetVersionCycle.sourceModelVersionId,
+            ...(scenarioId ? { scenarioId } : {}),
+            ...(entityId ? { entityId } : {}),
+            ...(periodFrom || periodTo
+              ? { periodDate: { ...(periodFrom ? { gte: periodFrom } : {}), ...(periodTo ? { lte: periodTo } : {}) } }
+              : {}),
+          },
+        })
+      : [];
+
   const depts = await prisma.department.findMany({ select: { id: true, name: true } });
   const deptName = Object.fromEntries(depts.map((d) => [d.id, d.name]));
   const linkedEntityIds = (
@@ -127,6 +183,8 @@ async function loadScoped(modelId: string, category: string, query: any) {
     lineItems,
     cells,
     actuals,
+    budgetCells,
+    budgetCycleStatus: budgetVersionCycle?.status || null,
     deptName,
     availableEntities,
     availablePeriods: allPeriods.map((p) => iso(p.periodDate)),
@@ -331,19 +389,15 @@ export class FpaDomainService {
 
   static async workforcePack(scoped: any, drivers: any[]) {
     const { cells, actuals, deptName, lineItems } = scoped;
-    const hcDrivers = drivers.filter((d) => /hc|headcount|fte/i.test(`${d.code} ${d.name}`));
+    const hcDrivers = drivers.filter((d) => isHeadcountItem(d.code, d.name));
     const hcByPeriod: Record<string, number> = {};
     for (const d of hcDrivers) {
       const k = iso(d.periodDate) || "total";
       hcByPeriod[k] = (hcByPeriod[k] || 0) + Number(d.value || 0);
     }
-    // Also treat WORKFORCE line items with HEADCOUNT/HC dataType or code
-    const hcLines = lineItems.filter(
-      (l) =>
-        /HC|HEADCOUNT|FTE/i.test(l.code) ||
-        String(l.dataType || "").toUpperCase() === "QUANTITY" ||
-        /headcount|fte/i.test(l.name)
-    );
+    // Also treat WORKFORCE line items whose code/name is precisely a
+    // headcount identifier (not a loose substring match — see isHeadcountItem).
+    const hcLines = lineItems.filter((l) => isHeadcountItem(l.code, l.name));
     for (const li of hcLines) {
       for (const c of cells.filter((x) => x.lineItemId === li.id)) {
         const k = iso(c.periodDate)!;
@@ -379,28 +433,42 @@ export class FpaDomainService {
       return { period, pct };
     });
 
-    const byDept: Record<string, { headcount: number; cost: number }> = {};
+    // Headcount is a point-in-time balance (a department doesn't have 446
+    // people just because ~37/month were added together across 12 months) -
+    // track per period per department and use the latest period only, same
+    // fix already applied to Closing Cash (FPA-003) and Scenario Comparison's
+    // Headcount (FPA-008 follow-up). Cost is a flow and stays summed.
+    const byDeptPeriod: Record<string, Record<string, { headcount: number; cost: number }>> = {};
     for (const c of cells) {
       if (!c.departmentId) continue;
-      if (!byDept[c.departmentId]) byDept[c.departmentId] = { headcount: 0, cost: 0 };
+      const period = iso(c.periodDate)!;
+      if (!byDeptPeriod[c.departmentId]) byDeptPeriod[c.departmentId] = {};
+      if (!byDeptPeriod[c.departmentId][period]) byDeptPeriod[c.departmentId][period] = { headcount: 0, cost: 0 };
       const v = Number(c.value || 0);
       const li = lineItems.find((l) => l.id === c.lineItemId);
-      if (li && (/HC|HEADCOUNT|FTE/i.test(li.code) || /headcount/i.test(li.name))) {
-        byDept[c.departmentId].headcount += v;
+      if (li && isHeadcountItem(li.code, li.name)) {
+        byDeptPeriod[c.departmentId][period].headcount += v;
       } else {
-        byDept[c.departmentId].cost += v;
+        byDeptPeriod[c.departmentId][period].cost += v;
       }
     }
-    const departments = Object.entries(byDept).map(([departmentId, v]) => ({
-      departmentId,
-      departmentName: deptName[departmentId] || null,
-      headcount: v.headcount || null,
-      budgetHeadcount: null,
-      hires: null,
-      attritionPct: null,
-      avgSalary: v.headcount > 0 && v.cost > 0 ? Number((v.cost / v.headcount).toFixed(0)) : avgSalary,
-      openRoles: null,
-    }));
+    const departments = Object.entries(byDeptPeriod).map(([departmentId, periodMap]) => {
+      const deptPeriods = Object.keys(periodMap).sort();
+      const latestPeriod = deptPeriods[deptPeriods.length - 1];
+      const latestHeadcount = latestPeriod ? periodMap[latestPeriod].headcount : 0;
+      const totalCost = deptPeriods.reduce((s, p) => s + periodMap[p].cost, 0);
+      return {
+        departmentId,
+        departmentName: deptName[departmentId] || null,
+        headcount: latestHeadcount || null,
+        budgetHeadcount: null,
+        hires: null,
+        attritionPct: null,
+        avgSalary:
+          latestHeadcount > 0 && totalCost > 0 ? Number((totalCost / latestHeadcount).toFixed(0)) : avgSalary,
+        openRoles: null,
+      };
+    });
 
     return {
       kpis: {
@@ -419,7 +487,14 @@ export class FpaDomainService {
   }
 
   static revenuePack(scoped: any) {
-    const { lineItems, cells, actuals, deptName } = scoped;
+    const { lineItems: allLineItems, cells: allCells, actuals, deptName } = scoped;
+    // Exclude rollup/total line items (e.g. a "Revenue" line item that is
+    // itself a formula summing the real streams) from the leaf-level totals
+    // and the streams table — otherwise the rollup's own cells get summed
+    // alongside the streams that already sum to it, doubling the total.
+    const rollupIds = new Set(allLineItems.filter(isRollupLineItem).map((l: any) => l.id));
+    const lineItems = allLineItems.filter((l: any) => !rollupIds.has(l.id));
+    const cells = allCells.filter((c: any) => !rollupIds.has(c.lineItemId));
     const periods = [...new Set(cells.map((c) => iso(c.periodDate)))].filter(Boolean).sort() as string[];
     const forecastByPeriod = byPeriodMap(cells);
     const actualByPeriod: Record<string, number> = {};
@@ -480,7 +555,7 @@ export class FpaDomainService {
   }
 
   static expensePack(scoped: any) {
-    const { lineItems, cells, actuals, deptName } = scoped;
+    const { lineItems, cells, actuals, budgetCells, deptName } = scoped;
     const periods = [...new Set(cells.map((c) => iso(c.periodDate)))].filter(Boolean).sort() as string[];
     const forecastByPeriod = byPeriodMap(cells);
     const actualByPeriod: Record<string, number> = {};
@@ -488,9 +563,14 @@ export class FpaDomainService {
       const k = iso(a.periodDate)!;
       actualByPeriod[k] = (actualByPeriod[k] || 0) + Number(a.amount || 0);
     }
+    const budgetByPeriod = byPeriodMap(budgetCells || []);
+    const hasRealBudget = Boolean((budgetCells || []).length);
     const opex = sumCells(cells);
     const actualTotal = Object.values(actualByPeriod).reduce((s, v) => s + v, 0);
-    const budget = actualTotal || opex;
+    // Budget = the model's own locked/approved planning cycle version, when
+    // one exists — not a stand-in. Falls back to the old actuals-or-forecast
+    // proxy only when no such cycle has ever been approved for this model.
+    const budget = hasRealBudget ? sumCells(budgetCells) : actualTotal || opex;
     const variancePct =
       budget > 0 ? Number((((opex - budget) / budget) * 100).toFixed(1)) : null;
 
@@ -509,30 +589,35 @@ export class FpaDomainService {
     const monthlyBurn = periods.map((period) => ({
       period,
       actual: actualByPeriod[period] ?? null,
-      budget: null,
+      budget: hasRealBudget ? budgetByPeriod[period] ?? null : null,
       forecast: forecastByPeriod[period] || 0,
     }));
 
-    const byDept: Record<string, { forecast: number; actual: number }> = {};
+    const byDept: Record<string, { forecast: number; actual: number; budget: number }> = {};
     for (const c of cells) {
       if (!c.departmentId) continue;
-      if (!byDept[c.departmentId]) byDept[c.departmentId] = { forecast: 0, actual: 0 };
+      if (!byDept[c.departmentId]) byDept[c.departmentId] = { forecast: 0, actual: 0, budget: 0 };
       byDept[c.departmentId].forecast += Number(c.value || 0);
     }
     for (const a of actuals) {
       if (!a.departmentId) continue;
-      if (!byDept[a.departmentId]) byDept[a.departmentId] = { forecast: 0, actual: 0 };
+      if (!byDept[a.departmentId]) byDept[a.departmentId] = { forecast: 0, actual: 0, budget: 0 };
       byDept[a.departmentId].actual += Number(a.amount || 0);
     }
+    if (hasRealBudget) {
+      for (const c of budgetCells) {
+        if (!c.departmentId) continue;
+        if (!byDept[c.departmentId]) byDept[c.departmentId] = { forecast: 0, actual: 0, budget: 0 };
+        byDept[c.departmentId].budget += Number(c.value || 0);
+      }
+    }
     const departments = Object.entries(byDept).map(([departmentId, v]) => {
-      const status =
-        v.forecast > (v.actual || budget / Object.keys(byDept).length) * 1.05
-          ? "OVER_BUDGET"
-          : "ON_TRACK";
+      const deptBudget = hasRealBudget ? v.budget : v.actual || budget / Object.keys(byDept).length;
+      const status = v.forecast > deptBudget * 1.05 ? "OVER_BUDGET" : "ON_TRACK";
       return {
         departmentId,
         departmentName: deptName[departmentId] || null,
-        budget: v.actual || null,
+        budget: hasRealBudget ? v.budget || null : v.actual || null,
         actual: v.actual || null,
         runRate: v.forecast || null,
         forecast: v.forecast,

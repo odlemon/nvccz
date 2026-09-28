@@ -299,6 +299,7 @@ export class ProcurementRfqService {
     });
     if (!rfq) throw new Error("RFQ not found");
 
+    if (!newClosingAt || Number.isNaN(newClosingAt.getTime())) throw new Error("New closing date is invalid.");
     // Extending is for an event that is still open. After the deadline the submissions are locked and only a formal,
     // reasoned, audited reopen (reopen()) can let suppliers change them.
     const st = String(rfq.status).toUpperCase();

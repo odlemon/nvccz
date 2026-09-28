@@ -2,10 +2,15 @@
 import express from "express";
 import multer from "multer";
 import { authenticate } from "../middleware/authenticate";
+import { requireInternalStaffUser } from "../middleware/permissionAuth";
 import { FpaController } from "../controllers/FpaController";
 
 const router = express.Router();
 router.use(authenticate);
+// External portal accounts (LP, investee) are refused the whole module rather
+// than route by route, so a new unguarded route cannot reopen the hole.
+// Mirrors fundraisingRoutes.ts's fix for the same class of gap.
+router.use(requireInternalStaffUser());
 
 const uploadAttachment = multer({
   storage: multer.memoryStorage(),

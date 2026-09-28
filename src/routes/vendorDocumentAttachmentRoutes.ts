@@ -33,6 +33,7 @@ router.post(
   VendorDocumentAttachmentController.portalUpload
 );
 router.get("/portal/:attachmentId/download", vendorPortalReadLimiter, VendorDocumentAttachmentController.portalDownload);
+router.delete("/portal/:attachmentId", VendorDocumentAttachmentController.portalRemove);
 
 router.post(
   "/quotations/:quotationId/attachments",

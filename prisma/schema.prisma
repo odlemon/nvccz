@@ -57,6 +57,11 @@ model User {
   createdById                           String?                         @map("created_by_id") @db.VarChar(191)
   updatedById                           String?                         @map("updated_by_id") @db.VarChar(191)
   deactivatedAt                         DateTime?                       @map("deactivated_at")
+  /// SRD User Master "Approval Limit": this person's own approval ceiling, independent of workflow routing.
+  /// Null means no personal ceiling override -- decisions defer entirely to the approval matrix/workflow step
+  /// (AMOUNT_THRESHOLD, department, role, named person), exactly as before this field existed. Enforced at
+  /// decision time in ProcurementRequisitionApprovalService.decide().
+  approvalLimit                         Decimal?                        @db.Decimal(15, 2) @map("approval_limit")
   role                                  Role                            @relation(fields: [roleId], references: [id])
   posts                                 Post[]
   replies                               Reply[]
@@ -222,6 +227,12 @@ model User {
   transactionsPosted                    CashbookEntry[]                 @relation("TransactionPostedBy")
   passwordResetTokens                   PasswordResetToken[]
   savedFilterFavorites                  SavedFilterFavorite[]
+  homePreference                        HomePreference?
+  homeWallpapers                        HomeWallpaper[]
+  serviceRequests                       ServiceRequest[]
+  appAccessRequests                     AppAccessRequest[]
+  profileDocuments                      ProfileDocument[]
+  calendarEntries                       CalendarEntry[]
   cashbookReconSessionsCreated          CashbookReconciliationSession[] @relation("CashbookReconSessionCreatedBy")
   cashbookReconSessionsFinished         CashbookReconciliationSession[] @relation("CashbookReconSessionFinishedBy")
   capitalCallsInitiated                 CapitalCall[]                   @relation("CapitalCallCreator")
@@ -279,6 +290,123 @@ model SavedFilterFavorite {
   @@map("saved_filter_favorites")
 }
 
+/// Home V3 hub personalisation, one row per employee. `coverTheme`/`coverWallpaper` back
+/// Daily Cover (design-refs/home-page/execution-plan.md Phase 2); `settings` is a JSON
+/// catch-all reserved for Phase 8 (the Settings modal: language, timezone, density,
+/// notification toggles) so that phase does not need its own migration.
+model HomePreference {
+  id             String   @id @default(cuid())
+  userId         String   @unique @map("user_id")
+  coverTheme     String   @default("Porcelain") @map("cover_theme") @db.VarChar(64)
+  coverWallpaper String   @default("auto") @map("cover_wallpaper") @db.VarChar(64)
+  /// Only meaningful when coverWallpaper = "auto": how often the background rotates, in
+  /// minutes. 1440 (default) matches the original "changes automatically each day" copy;
+  /// the UI also offers short intervals (3/5/15 min, 1 hr) for a Windows-lockscreen-style feel.
+  rotationIntervalMinutes Int      @default(1440) @map("rotation_interval_minutes")
+  settings       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("home_preferences")
+}
+
+/// A user's own uploaded Daily Cover background images (design-refs/home-page/execution-plan.md
+/// Phase 2b). One row per image — matches this schema's established child-table-per-file
+/// convention (Document, VendorDocumentAttachment) rather than a JSON array column. When
+/// coverWallpaper = "auto", rotation cycles through these if the user has any, else the built-in
+/// preset scenes.
+model HomeWallpaper {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  url       String   @db.VarChar(1024)
+  label     String?  @db.VarChar(120)
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sortOrder])
+  @@map("home_wallpapers")
+}
+
+/// Employee self-service requests (Home hub's Services page): leave, expense claims, IT,
+/// travel, facilities, training enrolment. No pre-existing self-service model covers this —
+/// LeaveBalance/Payslip (payroll) and Expense (accounting GL) are both real but neither is a
+/// personal request/ticket concept. `amount` only applies to expense-type requests.
+model ServiceRequest {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  type       String   @db.VarChar(32)
+  summary    String   @db.VarChar(255)
+  amount     Decimal? @db.Decimal(15, 2)
+  status     String   @default("pending") @db.VarChar(32)
+  nextAction String?  @map("next_action") @db.VarChar(255)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("service_requests")
+}
+
+/// Employee requests to access another Matanho module (Home hub's Apps page "Request access"
+/// flow). A lightweight request record only — approving one is a manual admin action elsewhere
+/// (module/role permissions are granted through the existing user-management flow); this just
+/// tracks that the request was made, mirroring ServiceRequest's shape.
+model AppAccessRequest {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  appId     String   @map("app_id") @db.VarChar(64)
+  reason    String?  @db.VarChar(500)
+  status    String   @default("pending") @db.VarChar(32)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("app_access_requests")
+}
+
+/// Employee's own profile documents (Home hub's My Profile "Add document" flow) —
+/// certifications, education records, etc. Stored via the same RemoteUploadService every other
+/// upload in this app uses; see HomeWallpaperController for the pattern this mirrors.
+model ProfileDocument {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  name      String   @db.VarChar(255)
+  category  String   @db.VarChar(64)
+  url       String   @db.VarChar(1024)
+  sizeBytes Int?     @map("size_bytes")
+  mimeType  String?  @map("mime_type") @db.VarChar(120)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("profile_documents")
+}
+
+/// Personal calendar entries (Home hub's Calendar page) — meetings, focus blocks, personal
+/// reminders. Deliberately separate from the real `Event` model: that one is a company-wide
+/// events/RSVP system whose `createEvent` notifies every user in the app, which is exactly
+/// wrong for "block an hour for focus time." Calendar reads real `Event` rows read-only
+/// alongside these for company-wide items; only entries created here are ever written by /home.
+model CalendarEntry {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  title       String   @db.VarChar(255)
+  description String?  @db.Text
+  startDate   DateTime @map("start_date")
+  endDate     DateTime @map("end_date")
+  location    String?  @db.VarChar(255)
+  entryType   String   @default("meeting") @map("entry_type") @db.VarChar(32)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startDate])
+  @@map("calendar_entries")
+}
+
 model Role {
   id                           String                     @id @default(cuid())
   name                         String                     @unique
@@ -297,6 +425,9 @@ model Role {
   @@map("roles")
 }
 
+/// Shared by the Home hub's News feed and Forums: `category` null = a News/company post,
+/// a real category = a Forum discussion filed under it. `isSolved` is Forums-only (a News
+/// post never sets it).
 model Post {
   id         String    @id @default(cuid())
   title      String
@@ -305,6 +436,8 @@ model Post {
   expiresAt  DateTime?
   isNotified Boolean   @default(false)
   isActive   Boolean   @default(true)
+  category   String?
+  isSolved   Boolean   @default(false)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   author     User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
@@ -2862,6 +2995,118 @@ model KPI {
   activityLogs          ActivityLog[]
 
   @@map("kpis")
+}
+
+/// Performance <-> FP&A integration (SRD-4 §22-25): explicit, admin-configured
+/// mapping from an FP&A line item to a KPI, used to snapshot financial targets
+/// into Performance when the source FP&A version locks. Plain scalar FK
+/// columns (no Prisma @relation) — referential integrity is enforced at the
+/// DB level by the migration script, not here, so this model can be added
+/// without touching KPI/PerformanceGoal/PlanningModel's own definitions.
+model PerformanceFpaTargetMapping {
+  id                   String    @id @default(cuid())
+  kpiId                String    @map("kpi_id")
+  modelId              String    @map("model_id")
+  lineItemId           String    @map("line_item_id")
+  targetSourceVersionId String?  @map("target_source_version_id")
+  /// FULL_YEAR_VALUE | LATEST_PERIOD | AVERAGE — see PerformanceFpaBridge.
+  targetMappingMethod  String    @default("FULL_YEAR_VALUE") @map("target_mapping_method") @db.VarChar(32)
+  isActive             Boolean   @default(true) @map("is_active")
+  createdById          String    @map("created_by_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@index([kpiId], map: "performance_fpa_target_mappings_kpi_idx")
+  @@index([modelId], map: "performance_fpa_target_mappings_model_idx")
+  @@map("performance_fpa_target_mappings")
+}
+
+/// Maps a KPI to an FP&A driver (line item) so a KPI threshold breach can
+/// raise a Forecast Review Trigger for that driver — Performance never
+/// writes to FP&A directly (guardrail #2/#6 in the digest).
+model PerformanceFpaDriverMapping {
+  id                 String    @id @default(cuid())
+  kpiId              String    @map("kpi_id")
+  modelId            String    @map("model_id")
+  lineItemId         String    @map("line_item_id")
+  /// Achievement % below this triggers a review (e.g. 70.00 = "below 70%").
+  thresholdPct       Decimal   @default(70.00) @db.Decimal(7, 4) @map("threshold_pct")
+  /// Consecutive breaching periods required before triggering (digest example: 2).
+  consecutivePeriods Int       @default(1) @map("consecutive_periods")
+  isActive           Boolean   @default(true) @map("is_active")
+  createdById        String    @map("created_by_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([kpiId], map: "performance_fpa_driver_mappings_kpi_idx")
+  @@map("performance_fpa_driver_mappings")
+}
+
+/// A KPI underperformance event that needs human FP&A review — created by
+/// PerformanceFpaBridge when a mapped KPI breaches its Driver Mapping
+/// threshold. Never auto-resolved and never itself changes an FP&A value
+/// (guardrail #12): a human reviewer records a decision here, and only a
+/// separate, explicit FP&A action (outside this table) would change the
+/// forecast.
+model PerformanceForecastReviewTrigger {
+  id                        String    @id @default(cuid())
+  kpiId                     String    @map("kpi_id")
+  performanceGoalId         String    @map("performance_goal_id")
+  kpiOwnerId                String?   @map("kpi_owner_id")
+  performancePeriod         String    @db.VarChar(20) @map("performance_period")
+  targetValue               Decimal?  @db.Decimal(18, 6) @map("target_value")
+  actualValue                Decimal?  @db.Decimal(18, 6) @map("actual_value")
+  achievementPct            Decimal?  @db.Decimal(7, 4) @map("achievement_pct")
+  /// OPEN | UNDER_REVIEW | NO_FORECAST_CHANGE | FORECAST_CHANGE_PROPOSED | FORECAST_UPDATED | CLOSED
+  status                    String    @default("OPEN") @db.VarChar(32)
+  driverMappingId           String?   @map("driver_mapping_id")
+  currentDriverValue        Decimal?  @db.Decimal(18, 6) @map("current_driver_value")
+  triggerReason             String?   @db.Text @map("trigger_reason")
+  triggerDate               DateTime  @default(now()) @map("trigger_date")
+  fpaReviewerId             String?   @map("fpa_reviewer_id")
+  reviewStatus              String?   @map("review_status") @db.VarChar(32)
+  reviewDecision            String?   @db.Text @map("review_decision")
+  resultingForecastVersionId String?  @map("resulting_forecast_version_id")
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+
+  @@index([kpiId], map: "performance_forecast_review_triggers_kpi_idx")
+  @@index([status], map: "performance_forecast_review_triggers_status_idx")
+  @@map("performance_forecast_review_triggers")
+}
+
+/// Immutable snapshot of a target value read from a locked FP&A version.
+/// Rows are never updated — appliedToGoal records whether this specific
+/// snapshot was allowed to raise the goal's live target (guardrail #3: an
+/// original target must never be overwritten by a later, LOWER forecast).
+model PerformanceFinancialTargetSnapshot {
+  id                String   @id @default(cuid())
+  targetMappingId   String   @map("target_mapping_id")
+  performanceGoalId String?  @map("performance_goal_id")
+  sourceVersionId   String   @map("source_version_id")
+  snapshotValue     Decimal  @db.Decimal(18, 6) @map("snapshot_value")
+  appliedToGoal     Boolean  @default(false) @map("applied_to_goal")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([targetMappingId], map: "performance_financial_target_snapshots_mapping_idx")
+  @@map("performance_financial_target_snapshots")
+}
+
+/// Informational forecast snapshot shown alongside (never instead of) the
+/// target and actual on a KPI — created when an FP&A version locks, for any
+/// KPI with an active Target Mapping to that model (guardrail: forecast must
+/// never be treated as a performance target automatically).
+model PerformanceForecastSnapshot {
+  id                String   @id @default(cuid())
+  kpiId             String   @map("kpi_id")
+  performanceGoalId String?  @map("performance_goal_id")
+  modelId           String   @map("model_id")
+  sourceVersionId   String   @map("source_version_id")
+  forecastValue     Decimal  @db.Decimal(18, 6) @map("forecast_value")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([kpiId], map: "performance_forecast_snapshots_kpi_idx")
+  @@map("performance_forecast_snapshots")
 }
 
 /// Balanced Scorecard pillar configuration (DB-backed, editable labels/descriptions).

@@ -47,6 +47,10 @@ import newsletterRoutes from "./routes/newsletterRoutes"
 import newsletterSubscriptionRoutes from "./routes/newsletterSubscriptionRoutes"
 import eventRoutes from "./routes/eventRoutes"
 import homepageRoutes from "./routes/homepageRoutes"
+import serviceRequestRoutes from "./routes/serviceRequestRoutes"
+import appAccessRequestRoutes from "./routes/appAccessRequestRoutes"
+import calendarEntryRoutes from "./routes/calendarEntryRoutes"
+import assistantRoutes from "./routes/assistantRoutes"
 import currencyRoutes from "./routes/currencyRoutes"
 import vendorRoutes from "./routes/vendorRoutes"
 import vendorPublicRegistrationRoutes from "./routes/vendorPublicRegistrationRoutes"
@@ -101,6 +105,7 @@ import targetTrackingRoutes from "./routes/targetTrackingRoutes"
 import auditRoutes from "./routes/auditRoutes"
 import systemAuditLogRoutes from "./routes/systemAuditLogRoutes"
 import performanceGoalRoutes from "./routes/performanceGoalRoutes"
+import performanceFpaIntegrationRoutes from "./routes/performanceFpaIntegrationRoutes"
 import performanceETLRoutes from "./routes/performanceETLRoutes"
 import performanceWorkflowRoutes from "./routes/performanceWorkflowRoutes"
 import performanceDashboardRoutes from "./routes/performanceDashboardRoutes"
@@ -142,6 +147,7 @@ import dealExecutionPackRoutes from "./routes/dealExecutionPackRoutes"
 import taxReturnPackRoutes from "./routes/taxReturnPackRoutes"
 import exchangeRateDisplayRoutes from "./routes/exchangeRateDisplayRoutes"
 import exchangeRateDisplayCronRoutes from "./routes/exchangeRateDisplayCronRoutes"
+import { startStreetRateAutoRefresh, stopStreetRateAutoRefresh } from "./services/exchangeRateDisplay/StreetRateAutoRefreshScheduler"
 import procurementRoutes from "./routes/procurementRoutes"
 import procurementSuite06Routes from "./routes/procurementSuite06Routes"
 import vendorDocumentAttachmentRoutes from "./routes/vendorDocumentAttachmentRoutes"
@@ -652,6 +658,10 @@ app.use("/api/newsletters", newsletterRoutes)
 app.use("/api/newsletter", newsletterSubscriptionRoutes)
 app.use("/api/events", eventRoutes)
 app.use("/api/homepage", homepageRoutes)
+app.use("/api/service-requests", serviceRequestRoutes)
+app.use("/api/app-access-requests", appAccessRequestRoutes)
+app.use("/api/calendar-entries", calendarEntryRoutes)
+app.use("/api/assistant", assistantRoutes)
 
 // Public vendor self-registration (no JWT)
 app.use("/api/public", vendorPublicRegistrationRoutes)
@@ -780,6 +790,7 @@ app.use("/api/system-audit-log", systemAuditLogRoutes)
 
 // Performance Management routes
 app.use("/api/performance/goals", performanceGoalRoutes)
+app.use("/api/performance/fpa-integration", performanceFpaIntegrationRoutes)
 app.use("/api/performance/etl", performanceETLRoutes)
 app.use("/api/performance/dashboard", performanceDashboardRoutes)
 app.use("/api/performance/workflow", performanceWorkflowRoutes)
@@ -961,6 +972,11 @@ const startServer = async (): Promise<void> => {
     // Accounting: interest accrual, depreciation, recurring journals, the daily rate, reminders (AccountingJobService)
     startAccountingJobScheduler()
 
+    // FINDING-SR-002 fix: street/official USD-ZWG rates previously only refreshed when a staff
+    // member manually clicked "Force Ingest Run" on /street-rates/config — see
+    // src/services/exchangeRateDisplay/StreetRateAutoRefreshScheduler.ts for the cadence rationale.
+    startStreetRateAutoRefresh()
+
     httpServer.listen(port, '0.0.0.0', () => {
       logger.info(`🚀 Server running on port ${port}`, {
         environment: envConfig.get("NODE_ENV"),
@@ -979,6 +995,7 @@ const gracefulShutdown = async (signal: string): Promise<void> => {
   logger.info(`Received ${signal}. Shutting down gracefully...`)
 
   try {
+    stopStreetRateAutoRefresh()
     await prisma.$disconnect()
     logger.info("Server shut down successfully")
     process.exit(0)

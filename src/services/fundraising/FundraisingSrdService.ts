@@ -538,11 +538,17 @@ export class FundraisingSrdService {
       where.confidentiality = { notIn: INTERNAL_CONFIDENTIALITY };
     }
 
-    return prisma.fundraisingCommunication.findMany({
+    const rows = await prisma.fundraisingCommunication.findMany({
       where,
       orderBy: { occurredAt: "desc" },
       take: 200,
     });
+    const ownerIds = [...new Set(rows.map((r) => r.ownerId).filter(Boolean))];
+    const owners = ownerIds.length
+      ? await prisma.user.findMany({ where: { id: { in: ownerIds as string[] } }, select: { id: true, firstName: true, lastName: true } })
+      : [];
+    const ownerById = new Map(owners.map((u) => [u.id, u]));
+    return rows.map((r) => ({ ...r, owner: r.ownerId ? ownerById.get(r.ownerId) ?? null : null }));
   }
 
   static async createCommunication(userId: string, body: any, req?: any) {
@@ -591,7 +597,12 @@ export class FundraisingSrdService {
   static async getCommunication(communicationId: string) {
     const row = await prisma.fundraisingCommunication.findUnique({ where: { id: communicationId } });
     if (!row) throw FundraisingIrError.notFound("Communication not found", "COMMUNICATION_NOT_FOUND");
-    return row;
+    if (!row.ownerId) return { ...row, owner: null };
+    const owner = await prisma.user.findUnique({
+      where: { id: row.ownerId },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    return { ...row, owner };
   }
 
   // ── Tasks ─────────────────────────────────────────────────────
@@ -630,18 +641,35 @@ export class FundraisingSrdService {
       take: 100,
     });
 
+    const ownerIds = [
+      ...new Set(
+        filteredTasks
+          .map((t) => (t.taskMetadata as Record<string, unknown> | null)?.ownerId)
+          .filter((id): id is string => typeof id === "string" && id.length > 0)
+      ),
+    ];
+    const owners = ownerIds.length
+      ? await prisma.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, firstName: true, lastName: true } })
+      : [];
+    const ownerById = new Map(owners.map((u) => [u.id, `${u.firstName || ""} ${u.lastName || ""}`.trim() || null]));
+
     return {
-      performanceTasks: filteredTasks.map((t) => ({
-        id: t.id,
-        source: "Task",
-        title: t.title,
-        description: t.description,
-        stage: t.stage,
-        status: t.status,
-        date: t.date,
-        priority: t.priority,
-        taskMetadata: t.taskMetadata,
-      })),
+      performanceTasks: filteredTasks.map((t) => {
+        const meta = (t.taskMetadata || {}) as Record<string, unknown>;
+        const ownerId = typeof meta.ownerId === "string" ? meta.ownerId : null;
+        return {
+          id: t.id,
+          source: "Task",
+          title: t.title,
+          description: t.description,
+          stage: t.stage,
+          status: t.status,
+          date: t.date,
+          priority: t.priority,
+          taskMetadata: t.taskMetadata,
+          ownerName: ownerId ? ownerById.get(ownerId) ?? null : null,
+        };
+      }),
       internalTaskCommunications: fallbackTasks,
     };
   }
@@ -655,6 +683,7 @@ export class FundraisingSrdService {
       campaignId: body.campaignId ?? null,
       opportunityId: body.opportunityId ?? null,
       investorId: body.investorId ?? null,
+      ownerId: body.ownerId ?? null,
     };
 
     try {
@@ -2477,11 +2506,17 @@ export class FundraisingSrdService {
   static async listPlacementAgents(filters: { status?: string }) {
     const where: any = {};
     if (filters.status) where.status = filters.status;
-    return prisma.fundraisingPlacementAgent.findMany({
+    const rows = await prisma.fundraisingPlacementAgent.findMany({
       where,
       include: { _count: { select: { assignments: true } } },
       orderBy: { legalName: "asc" },
     });
+    const ownerIds = [...new Set(rows.map((r) => r.createdById).filter(Boolean))];
+    const owners = ownerIds.length
+      ? await prisma.user.findMany({ where: { id: { in: ownerIds as string[] } }, select: { id: true, firstName: true, lastName: true } })
+      : [];
+    const ownerById = new Map(owners.map((u) => [u.id, u]));
+    return rows.map((r) => ({ ...r, owner: ownerById.get(r.createdById) ?? null }));
   }
 
   static async createPlacementAgent(userId: string, body: any, req?: any) {
@@ -2533,8 +2568,12 @@ export class FundraisingSrdService {
     });
     if (!row) throw FundraisingIrError.notFound("Placement agent not found", "PLACEMENT_AGENT_NOT_FOUND");
     const commission = await computeAgentCommissionTotals(agentId, row);
+    const owner = row.createdById
+      ? await prisma.user.findUnique({ where: { id: row.createdById }, select: { id: true, firstName: true, lastName: true } })
+      : null;
     return {
       ...row,
+      owner,
       commissionStatus: commission.commissionStatus,
       accruedCommission: commission.accruedCommission,
       paidCommission: commission.paidCommission,

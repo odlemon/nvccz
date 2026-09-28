@@ -6,13 +6,18 @@ import { prisma } from "../../utils/database";
 import { FpaAuditService } from "./FpaAuditService";
 import { FpaAccessService } from "./FpaAccessService";
 import { FpaModelPlanningError, FpaModelPlanningCycleService } from "./FpaModelPlanningCycleService";
+import { PerformanceFpaBridge } from "../PerformanceFpaBridge";
 
 function assertFpa(user: any) {
   FpaAccessService.assertCanApprove(user);
 }
 
+// CFO Approval is a distinct, narrower tier than FP&A review-accept - an
+// FP&A/Finance Manager can accept a submission into review, but only the
+// CFO (or equivalent) gives final sign-off. See FpaAccessService's
+// FINAL_APPROVE_CODES for why this was split out.
 function assertCfo(user: any) {
-  FpaAccessService.assertCanApprove(user);
+  FpaAccessService.assertCanFinalApprove(user);
 }
 
 function assertLock(user: any) {
@@ -380,6 +385,13 @@ export class FpaModelPlanningWorkflowService {
       reason: body?.reason || null,
       ip,
     });
+    // This path locks cycle.sourceModelVersionId directly (its own
+    // transaction above) rather than going through FpaVersionService.lock(),
+    // so the Performance <-> FP&A bridge (directions 1/3, SRD-4 §22) must be
+    // fired here too — otherwise locking a budget cycle through the actual
+    // UAT approval flow (submit -> review -> CFO approve -> lock) never
+    // snapshots targets/forecasts into Performance at all.
+    await PerformanceFpaBridge.onVersionLocked(cycle.sourceModelId, cycle.sourceModelVersionId);
 
     const full = await FpaModelPlanningCycleService.get(cycleId);
     return {

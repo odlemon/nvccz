@@ -36,18 +36,18 @@ const placement = registerPlacement("alert");
 // `/summary` must be declared before `/:id` or Express matches it as an id.
 router.get("/summary", read, PerformanceAlertController.getSummary);
 
-const rrun = (fn) => async (req: any, res: any) => {
+const rrun = (fn: (req: any) => Promise<any>) => async (req: any, res: any) => {
   try {
     res.json({ success: true, data: await fn(req) });
   } catch (e: any) {
     res.status(e instanceof RuleError ? e.statusCode : e?.statusCode || 500).json({ success: false, message: e?.message || "Error" });
   }
 };
-router.get("/rules", read, rrun((req) => PerformanceAlertRuleService.list(req.user.id)));
-router.post("/rules", write, rrun((req) => PerformanceAlertRuleService.create(req.body || {}, req.user)));
-router.put("/rules/:id", write, rrun((req) => PerformanceAlertRuleService.update(req.params.id, req.body || {}, req.user)));
-router.delete("/rules/:id", write, rrun((req) => PerformanceAlertRuleService.remove(req.params.id, req.user)));
-router.post("/evaluate", write, rrun((req) => PerformanceAlertRuleService.evaluate(req.user.id)));
+router.get("/rules", read, rrun((req: any) => PerformanceAlertRuleService.list(req.user.id)));
+router.post("/rules", write, rrun((req: any) => PerformanceAlertRuleService.create(req.body || {}, req.user)));
+router.put("/rules/:id", write, rrun((req: any) => PerformanceAlertRuleService.update(req.params.id, req.body || {}, req.user)));
+router.delete("/rules/:id", write, rrun((req: any) => PerformanceAlertRuleService.remove(req.params.id, req.user)));
+router.post("/evaluate", write, rrun((req: any) => PerformanceAlertRuleService.evaluate(req.user.id)));
 router.get("/audit", read, orgOnly("The audit trail is for organisation-wide roles."), rrun(async (req) => {
   // Performance records only; module administrators also see the role, user and department changes made from Access.
   const asked = req.query.entityType ? String(req.query.entityType) : "";
@@ -67,7 +67,7 @@ router.get("/audit", read, orgOnly("The audit trail is for organisation-wide rol
   ]);
   return { rows: rows.map((r: any) => ({ id: r.id, action: r.action, entityType: r.entityType, entityId: r.entityId, at: r.createdAt, user: r.user ? [r.user.firstName, r.user.lastName].filter(Boolean).join(" ") || r.user.email : null })), total, page, limit };
 }));
-router.get("/:id/events", read, row, rrun((req) => PerformanceAlertRuleService.events(req.params.id)));
+router.get("/:id/events", read, row, rrun((req: any) => PerformanceAlertRuleService.events(req.params.id)));
 
 router.get("/", read, PerformanceAlertController.listAlerts);
 router.post("/", write, placement, PerformanceAlertController.createAlert);

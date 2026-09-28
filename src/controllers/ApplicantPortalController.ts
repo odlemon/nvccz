@@ -1107,9 +1107,15 @@ export class ApplicantPortalController {
         portfolioCompany.id
       );
 
+      // reporting_period is usually a date ("2026-04-01") but some requests are logged
+      // against a quarter label instead ("2026-Q2", from e2e/seed fixtures) — neither
+      // is invalid data, `new Date(...)` just can't parse the latter. Fall back to the
+      // raw label so it still displays, rather than blanking a legitimate period.
       const periodIsoList: string[] = [];
       for (const r of rows) {
-        periodIsoList.push(new Date(r.reportingPeriod).toISOString().split("T")[0]);
+        const raw = r.reportingPeriod;
+        const d = new Date(raw);
+        periodIsoList.push(Number.isNaN(d.getTime()) ? String(raw ?? "") : d.toISOString().split("T")[0]);
       }
 
       let submittedSet = new Set<string>();

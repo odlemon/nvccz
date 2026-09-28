@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
+import { filterUsersByNotificationPreference } from "./NotificationPreferenceService";
 
 export interface CreateReviewCycleRequest {
   title: string;
@@ -510,9 +511,18 @@ export class PerformanceReviewCycleService {
         });
 
         if (entries.length > 0) {
-          await prisma.notification.createMany({
-            data: entries
-          });
+          const notifiableIds = new Set(
+            await filterUsersByNotificationPreference(
+              entries.map((e: any) => e.userId),
+              "performanceReminders"
+            )
+          );
+          const filteredEntries = entries.filter((e: any) => notifiableIds.has(e.userId));
+          if (filteredEntries.length > 0) {
+            await prisma.notification.createMany({
+              data: filteredEntries
+            });
+          }
         }
       }
 

@@ -277,6 +277,7 @@ export class UserService {
       ...u,
       fullName: fullNameOf(u),
       approvalLimitAmount: u.approvalLimitAmount != null ? Number(u.approvalLimitAmount) : null,
+      approvalLimit: u.approvalLimit != null ? Number(u.approvalLimit) : null,
       sodRestrictions: parseSodRestrictions(u.sodRestrictions),
     };
     if (opts.resolveNames) {
@@ -802,6 +803,7 @@ This is an automated message. Please do not reply to this email.
           status: true,
           votingPower: true,
           ...USER_MASTER_SELECT,
+          approvalLimit: true,
           role: {
             select: {
               id: true,
@@ -843,6 +845,7 @@ This is an automated message. Please do not reply to this email.
           status: true,
           votingPower: true,
           ...USER_MASTER_SELECT,
+          approvalLimit: true,
           role: {
             select: {
               id: true,
@@ -881,7 +884,7 @@ This is an automated message. Please do not reply to this email.
       departmentRole?: string;
       roleId?: string;
       status?: string;
-    } & UserMasterInput,
+    } & UserMasterInput & { approvalLimit?: number | string | null },
     auditContext?: {
       actorUserId: string;
       ipAddress?: string | null;
@@ -935,6 +938,22 @@ This is an automated message. Please do not reply to this email.
           );
         }
         userData.status = normalizedStatus;
+      }
+
+      // Validate approvalLimit if provided (SRD User Master "Approval Limit"). `undefined` means the caller
+      // didn't send the field -- left untouched. An explicit `null` clears a previously-set personal ceiling,
+      // reverting the user to "no override, defer to workflow routing" -- so it must not be rejected here.
+      let normalizedApprovalLimit: number | null | undefined = undefined;
+      if (userData.approvalLimit !== undefined) {
+        if (userData.approvalLimit === null || userData.approvalLimit === "") {
+          normalizedApprovalLimit = null;
+        } else {
+          const n = Number(userData.approvalLimit);
+          if (!Number.isFinite(n) || n < 0) {
+            throw new Error("Invalid approvalLimit. Must be a non-negative number, or null to clear it.");
+          }
+          normalizedApprovalLimit = n;
+        }
       }
 
       // Validate roleId if provided
@@ -999,6 +1018,7 @@ This is an automated message. Please do not reply to this email.
       if (userData.roleCode) updateData.roleCode = userData.roleCode;
       if (userData.departmentRole) updateData.departmentRole = userData.departmentRole;
       if (userData.status) updateData.status = userData.status;
+      if (normalizedApprovalLimit !== undefined) updateData.approvalLimit = normalizedApprovalLimit;
       if (userData.roleId) {
         // Caller passed roleId explicitly -- honour it as-is, same as before.
         updateData.roleId = userData.roleId;
@@ -1115,6 +1135,22 @@ This is an automated message. Please do not reply to this email.
         });
       }
 
+      const oldApprovalLimit = existingUser.approvalLimit != null ? Number(existingUser.approvalLimit) : null;
+      const newApprovalLimit = user.approvalLimit != null ? Number(user.approvalLimit) : null;
+      const approvalLimitChanged = normalizedApprovalLimit !== undefined && oldApprovalLimit !== newApprovalLimit;
+      if (auditContext?.actorUserId && approvalLimitChanged) {
+        await AuditService.log({
+          userId: auditContext.actorUserId,
+          action: "USER_APPROVAL_LIMIT_UPDATE",
+          entityType: "User",
+          entityId: id,
+          oldValues: { targetUserId: id, oldApprovalLimit },
+          newValues: { targetUserId: id, newApprovalLimit },
+          ipAddress: auditContext.ipAddress ?? null,
+          userAgent: auditContext.userAgent ?? null
+        });
+      }
+
       // Return only the fields we want, with role as optional
       return {
         id: user.id,
@@ -1125,6 +1161,7 @@ This is an automated message. Please do not reply to this email.
         departmentRole: user.departmentRole,
         roleCode: user.roleCode,
         status: user.status,
+        approvalLimit: newApprovalLimit,
         votingPower: user.votingPower ? Number(user.votingPower) : null,
         ...(await this.shapeUser(
           Object.fromEntries(Object.keys(USER_MASTER_SELECT).map((k) => [k, user[k]])),

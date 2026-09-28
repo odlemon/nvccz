@@ -6,6 +6,7 @@ import { isModulePrivilegedUser } from "../config/cfoModulePermissions";
 import { eventWithValidAuthorWhere } from "../utils/eventQuerySupport";
 import { EventService } from "../services/EventService";
 import { GoogleCalendarService } from "../services/GoogleCalendarService";
+import { filterUsersByNotificationPreference } from "../services/NotificationPreferenceService";
 import { Decimal } from "@prisma/client/runtime/library";
 import { parseDate } from "../utils/dateHelper";
 import * as XLSX from "xlsx";
@@ -48,20 +49,26 @@ export const eventController = {
       // Create event using EventService
       const event = await EventService.createEvent(eventData);
 
-      // Create notifications for all users
+      // Create notifications for all users who haven't turned off calendar alerts
       const allUsers = await prisma.user.findMany({
         where: { id: { not: req.user.id } }
       });
+      const notifiableIds = await filterUsersByNotificationPreference(
+        allUsers.map(u => u.id),
+        "calendarAlerts"
+      );
 
-      const notifications = allUsers.map(user => ({
+      const notifications = notifiableIds.map(userId => ({
         title: `New Event: ${eventData.title}`,
         message: `A new event has been created by ${req.user.firstName} ${req.user.lastName}`,
         type: 'event',
-        userId: user.id,
+        userId,
         data: { eventId: event.id, authorId: req.user.id }
       }));
 
-      await prisma.notification.createMany({ data: notifications });
+      if (notifications.length > 0) {
+        await prisma.notification.createMany({ data: notifications });
+      }
 
       res.status(201).json({
         success: true,

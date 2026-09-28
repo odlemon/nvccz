@@ -11,6 +11,7 @@ import {
   saveNewsletterRecipientConfig,
 } from "../utils/newsletterInternalRecipients";
 import { EmailNotificationService } from "../services/EmailNotificationService";
+import { filterUsersByNotificationPreference } from "../services/NotificationPreferenceService";
 
 const NEWSLETTER_UPLOAD_TYPE = "newsletters";
 
@@ -103,11 +104,18 @@ export const newsletterController = {
       const resolved = await resolveNewsletterRecipients(authorId);
       const recipientUsers = resolved.userRecipients;
 
-      const notifications = recipientUsers.map((user) => ({
+      // In-app bell notification only, gated by the News digest Settings toggle — the actual
+      // email send below (EmailNotificationService) is a separate channel with its own
+      // recipient/unsubscribe handling and is unaffected by this toggle.
+      const notifiableIds = await filterUsersByNotificationPreference(
+        recipientUsers.map((user) => user.id),
+        "newsDigest"
+      );
+      const notifications = notifiableIds.map((userId) => ({
         title: `New Newsletter: ${title}`,
         message: `A new newsletter has been published by ${req.user.firstName} ${req.user.lastName}`,
         type: "newsletter",
-        userId: user.id,
+        userId,
         data: { newsletterId: newsletter.id, authorId },
       }));
 

@@ -53,6 +53,13 @@ export class VendorSelfRegistrationService {
     const email = String(body.email || "").trim();
     if (!name) throw new Error("name is required");
     if (!email) throw new Error("email is required");
+    // SRD §41 "Data Validation" requires server-side email format validation even where frontend validation
+    // exists; this public, unauthenticated endpoint is the higher-priority surface since it is self-service.
+    // Same pattern as UserService.updateUser.
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      throw new Error("Invalid email format");
+    }
     const banks = body.banks;
     if (!Array.isArray(banks) || banks.length === 0) {
       throw new Error("banks is required and must contain at least one bank account");
