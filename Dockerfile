@@ -6,7 +6,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl python3
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-RUN npx prisma generate && npx tsc
+# The compile of this codebase needs more than node's default heap; a build arg lets a shared host with little
+# free memory choose the ceiling (swap absorbs the rest).
+ARG NODE_HEAP_MB=4096
+RUN NODE_OPTIONS=--max-old-space-size=${NODE_HEAP_MB} npx prisma generate && NODE_OPTIONS=--max-old-space-size=${NODE_HEAP_MB} npx tsc
 
 FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
