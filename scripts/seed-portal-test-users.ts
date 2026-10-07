@@ -12,7 +12,7 @@ import { assertDevDatabase } from "./lib/assert-dev-database";
 
 const prisma = new PrismaClient() as any;
 
-const PASSWORD = "PortalTest!2026";
+const PASSWORD = process.env.PORTAL_TEST_PASSWORD || "PortalTest!2026";
 
 const LP_EMAIL = "lp.test@arcus.co.zw";
 const INVESTEE_EMAIL = "investee.test@arcus.co.zw";
