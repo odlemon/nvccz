@@ -1,7 +1,7 @@
 // @ts-nocheck
 import express from "express";
 import { authenticate } from "../middleware/authenticate";
-import { requireInternalStaffUser, requirePermission } from "../middleware/permissionAuth";
+import { requireInternalStaffUser, requireInternalStaffUserOrSelf, requirePermission } from "../middleware/permissionAuth";
 import { UserController } from "../controllers/UserController";
 import { SavedFilterFavoriteController } from "../controllers/SavedFilterFavoriteController";
 
@@ -271,7 +271,7 @@ router.delete("/me/saved-filter-favorites/:presetId", SavedFilterFavoriteControl
  *       401:
  *         description: Unauthorized
  */
-router.get("/:id", requireInternalStaffUser(), UserController.getUserById);
+router.get("/:id", requireInternalStaffUserOrSelf(), UserController.getUserById);
 
 /**
  * @swagger

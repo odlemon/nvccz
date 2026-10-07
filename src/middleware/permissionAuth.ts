@@ -33,6 +33,18 @@ export function requireInternalStaffUser() {
   };
 }
 
+/** Staff, or any signed-in account reading its own record (`req.params[param]` is its own user id). */
+export function requireInternalStaffUserOrSelf(param = "id") {
+  const staffOnly = requireInternalStaffUser();
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
+    if (req.user && req.params[param] && req.params[param] === req.user.id) {
+      next();
+      return;
+    }
+    staffOnly(req, res, next);
+  };
+}
+
 export function requirePermission(permissionName: string) {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
