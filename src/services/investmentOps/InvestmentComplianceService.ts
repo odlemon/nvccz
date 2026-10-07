@@ -122,7 +122,7 @@ export class InvestmentComplianceService {
     const rules = await this.listRules(ctx.fundId);
     const snap = await prisma.listedEquityValuationSnapshot.findFirst({
       where: { fundId: ctx.fundId },
-      orderBy: { asOf: "desc" },
+      orderBy: [{ asOf: "desc" }, { createdAt: "desc" }],
     });
     const nav = snap ? Number(snap.navBaseCurrency) : 0;
     const weightPct = nav > 0 ? (ctx.orderValue / nav) * 100 : 100;
@@ -311,7 +311,7 @@ export class InvestmentComplianceService {
       this.listRules(order.fundId),
       db.listedEquityValuationSnapshot.findFirst({
         where: { fundId: order.fundId },
-        orderBy: { asOf: "desc" },
+        orderBy: [{ asOf: "desc" }, { createdAt: "desc" }],
         select: { id: true, navBaseCurrency: true },
       }),
     ]);
@@ -805,7 +805,7 @@ export class InvestmentComplianceService {
     const rules = await this.listRules(order.fundId);
     const snap = await prisma.listedEquityValuationSnapshot.findFirst({
       where: { fundId: order.fundId },
-      orderBy: { asOf: "desc" },
+      orderBy: [{ asOf: "desc" }, { createdAt: "desc" }],
     });
     const nav = snap ? Number(snap.navBaseCurrency) : 0;
     const orderValue =

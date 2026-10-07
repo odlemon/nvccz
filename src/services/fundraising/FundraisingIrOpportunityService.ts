@@ -83,10 +83,26 @@ export class FundraisingIrOpportunityService {
         investor: { select: { id: true, legalName: true, investorType: true, status: true } },
         currentStage: true,
         campaign: { select: { id: true, name: true, campaignType: true, status: true } },
+        // Same real "time in current stage" signal analyticsStageAgeing() already computes
+        // correctly from OpportunityStageHistory — this list endpoint previously sent neither
+        // daysInStage nor ageDays at all, so the frontend fell back to an approximation
+        // (days-since-updatedAt) that disagreed with the Forecasts & Analytics screen's
+        // stage-ageing table for the same opportunity (see design-refs/fundraising/
+        // TEST_FINDINGS.md FINDING-FR-001 follow-up). Sending the real value here makes both
+        // screens agree instead of shipping two different approximations of the same fact.
+        stageHistory: { orderBy: { changedAt: "desc" }, take: 1, select: { changedAt: true } },
       },
       orderBy: { updatedAt: "desc" },
     });
-    return withOwnerNames(opportunities);
+    const now = Date.now();
+    const withDaysInStage = opportunities.map((o: any) => {
+      const enteredAt = o.stageHistory?.[0]?.changedAt || o.updatedAt;
+      return {
+        ...o,
+        daysInStage: Math.max(0, Math.floor((now - new Date(enteredAt).getTime()) / 86400000)),
+      };
+    });
+    return withOwnerNames(withDaysInStage);
   }
 
   static async get(id: string) {

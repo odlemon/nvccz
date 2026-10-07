@@ -49,7 +49,7 @@ export class InvestmentSimulationService {
 
     const snap = await prisma.listedEquityValuationSnapshot.findFirst({
       where: { fundId },
-      orderBy: { asOf: "desc" },
+      orderBy: [{ asOf: "desc" }, { createdAt: "desc" }],
     });
     if (!snap) {
       throw new InvestmentOpsError(

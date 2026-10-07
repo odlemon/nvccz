@@ -96,7 +96,7 @@ export class ReportBuilderContextLoader {
         allHoldings.push(...h.map((row: any) => ({ ...row, fundId: f.id, fundName: f.name })));
         const snap = await prisma.listedEquityValuationSnapshot.findFirst({
           where: { fundId: f.id },
-          orderBy: { asOf: "desc" },
+          orderBy: [{ asOf: "desc" }, { createdAt: "desc" }],
         });
         firmNav += snap ? num(snap.navBaseCurrency) : 0;
       } catch {
