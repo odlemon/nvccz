@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import bcrypt from "bcrypt";
+import { randomInt } from "crypto";
 import { emailTransport, getFromAddress } from "../config/email.config";
 import AuditService from "./AuditService";
 import {
@@ -462,12 +463,72 @@ export class UserService {
    * Generate a secure password
    */
   static generatePassword(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+    // No '&' or '<': the password is interpolated into the credentials email HTML unescaped.
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%*';
     let password = '';
     for (let i = 0; i < 12; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length));
+      password += chars.charAt(randomInt(chars.length));
     }
     return password;
+  }
+
+  /**
+   * Issue a fresh temporary password to an existing staff user and email it with the login link.
+   * The user must choose their own password at next sign-in, and any open sessions are ended.
+   */
+  static async resendCredentials(
+    userId: string,
+    auditContext?: { actorUserId?: string | null; ipAddress?: string | null; userAgent?: string | null }
+  ) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: { select: { name: true } } },
+    });
+    if (!user) throw new Error("User not found");
+
+    const roleCode = String(user.roleCode || "").toUpperCase();
+    if (roleCode === "APPLICANT" || roleCode === "LIMITED_PARTNER") {
+      throw new Error("Investee and LP accounts sign in through their own portals; use the portal invite instead");
+    }
+    if (String(user.status || "").toUpperCase() === "DEACTIVATED") {
+      throw new Error("User is deactivated; reactivate the account before resending credentials");
+    }
+
+    const password = this.generatePassword();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: await bcrypt.hash(password, 10),
+        mustChangePassword: true,
+        tokenVersion: { increment: 1 },
+        updatedById: auditContext?.actorUserId ?? null,
+      },
+    });
+
+    await AuditService.log({
+      userId: auditContext?.actorUserId ?? null,
+      action: "USER_CREDENTIALS_RESENT",
+      entityType: "User",
+      entityId: user.id,
+      newValues: { email: user.email },
+      ipAddress: auditContext?.ipAddress ?? null,
+      userAgent: auditContext?.userAgent ?? null,
+    }).catch(() => undefined);
+
+    try {
+      await this.sendCredentialsEmail(
+        user.email,
+        String(user.firstName || "").trim(),
+        String(user.lastName || "").trim(),
+        password,
+        user.userDepartment || "General",
+        user.role?.name || user.roleCode || "Staff"
+      );
+    } catch (error: any) {
+      throw new Error(`Password was reset but the email to ${user.email} failed: ${error?.message || error}`);
+    }
+
+    return { email: user.email, message: `Credentials sent to ${user.email}` };
   }
 
   /**
@@ -731,6 +792,7 @@ This is an automated message. Please do not reply to this email.
           lastName: userData.lastName,
           email: normalizedEmail,
           password: hashedPassword,
+          mustChangePassword: true,
           userDepartment: userData.department,
           departmentRole: userData.departmentRole,
           roleCode: userData.roleCode,

@@ -211,6 +211,10 @@ const port = envConfig.get("PORT")
 // Disable automatic ETag generation so successful JSON responses aren't converted to 304s
 app.set("etag", false)
 
+// Deployed behind exactly one reverse proxy (Traefik on prod, nginx on dev). Without this, req.ip is the
+// proxy's address, so express-rate-limit buckets every client together and audit logs record the proxy.
+app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS ?? 1))
+
 // Public media must run before Helmet/compression so no middleware adds CORP/COOP and PNGs are not gzip-broken.
 app.use("/api/public-media", publicMediaRoutes)
 

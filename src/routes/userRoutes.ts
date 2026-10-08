@@ -491,6 +491,23 @@ router.put("/:id", requireInternalStaffUser(), requirePermission("manage_users")
 
 /**
  * @swagger
+ * /users/{id}/resend-credentials:
+ *   post:
+ *     summary: Re-invite a staff user
+ *     description: Issues a new temporary password (must be changed at next sign-in), ends open sessions, and emails the login link and credentials.
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200: { description: Credentials emailed }
+ *       400: { description: Investee/LP account or deactivated user }
+ *       404: { description: User not found }
+ *       502: { description: Password reset but the email failed }
+ */
+router.post("/:id/resend-credentials", requireInternalStaffUser(), requirePermission("manage_users"), UserController.resendCredentials);
+
+/**
+ * @swagger
  * /users/{id}:
  *   delete:
  *     summary: Delete user

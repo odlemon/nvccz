@@ -34,6 +34,20 @@ function reportTypeAcceptsManualDataJson(rt: string): boolean {
   );
 }
 
+/** Applicants without an application or portfolio company yet are a normal state, not a server error. */
+const NOT_YET_LINKED_ERRORS = new Set([
+  "No portfolio company found for this user",
+  "No application found for this user",
+]);
+
+function handleApplicantError(error: any, res: Response, next: NextFunction) {
+  const message = String(error?.message || "");
+  if (NOT_YET_LINKED_ERRORS.has(message)) {
+    return ResponseHelper.error(res, message, undefined, 404);
+  }
+  return next(error);
+}
+
 function stripUploadedFilenameBase(file: Express.Multer.File): string {
   const n = String(file?.originalname || "").trim();
   if (!n) return "Document";
@@ -314,7 +328,7 @@ export class ApplicantPortalController {
       
       return ResponseHelper.success(res, "Application retrieved successfully", application);
     } catch (error) {
-      next(error);
+      handleApplicantError(error, res, next);
     }
   }
 
@@ -342,7 +356,7 @@ export class ApplicantPortalController {
       
       return ResponseHelper.success(res, "Company retrieved successfully", company);
     } catch (error) {
-      next(error);
+      handleApplicantError(error, res, next);
     }
   }
 
@@ -367,7 +381,7 @@ export class ApplicantPortalController {
 
       return ResponseHelper.success(res, "Company updated successfully", updatedCompany);
     } catch (error: any) {
-      next(error);
+      handleApplicantError(error, res, next);
     }
   }
 
@@ -1269,7 +1283,7 @@ export class ApplicantPortalController {
       
       return ResponseHelper.success(res, "Investment details retrieved successfully", investmentDetails);
     } catch (error) {
-      next(error);
+      handleApplicantError(error, res, next);
     }
   }
 
@@ -1297,7 +1311,7 @@ export class ApplicantPortalController {
       
       return ResponseHelper.success(res, "Portfolio valuations retrieved successfully", valuations);
     } catch (error) {
-      next(error);
+      handleApplicantError(error, res, next);
     }
   }
 
@@ -1325,7 +1339,7 @@ export class ApplicantPortalController {
       
       return ResponseHelper.success(res, "Performance reports retrieved successfully", reports);
     } catch (error) {
-      next(error);
+      handleApplicantError(error, res, next);
     }
   }
 

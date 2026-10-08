@@ -300,6 +300,23 @@ export class UserController {
   }
 
   /**
+   * Reset a staff user's password to a new temporary one and email it with the login link
+   */
+  static async resendCredentials(req: Request, res: Response) {
+    try {
+      const result = await UserService.resendCredentials(req.params.id, auditCtx(req));
+      res.status(200).json({ success: true, message: result.message, data: { email: result.email } });
+    } catch (error: any) {
+      console.error("Error resending credentials:", error);
+      const message = error?.message || "Failed to resend credentials";
+      res.status(message === "User not found" ? 404 : message.startsWith("Password was reset") ? 502 : 400).json({
+        success: false,
+        message,
+      });
+    }
+  }
+
+  /**
    * Delete user
    */
   static async deleteUser(req: Request, res: Response) {
