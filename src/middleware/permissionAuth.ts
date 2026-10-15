@@ -45,6 +45,22 @@ export function requireInternalStaffUserOrSelf(param = "id") {
   };
 }
 
+/** Identity and access administration is restricted to the CEO and platform admins. */
+export function requireCeoOrAdmin() {
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
+      return;
+    }
+    const roleCode = String(req.user.roleCode || "").trim().toUpperCase();
+    if (!["CEO", "ADMIN", "ADMINISTRATOR", "SYSADMIN"].includes(roleCode)) {
+      res.status(403).json({ success: false, message: "Only the CEO or an administrator may view or manage user access." });
+      return;
+    }
+    next();
+  };
+}
+
 export function requirePermission(permissionName: string) {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {

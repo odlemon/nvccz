@@ -3,7 +3,7 @@ import app from '../../src/app';
 
 // Test configuration
 export const TEST_CONFIG = {
-  baseUrl: 'http://localhost:3000',
+  baseUrl: process.env.TEST_API_URL || 'http://localhost:3010',
   adminCredentials: {
     email: 'admin@nvccz.co.zw',
     password: 'admin123'

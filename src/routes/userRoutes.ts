@@ -1,7 +1,7 @@
 // @ts-nocheck
 import express from "express";
 import { authenticate } from "../middleware/authenticate";
-import { requireInternalStaffUser, requireInternalStaffUserOrSelf, requirePermission } from "../middleware/permissionAuth";
+import { requireCeoOrAdmin, requireInternalStaffUser, requireInternalStaffUserOrSelf, requirePermission } from "../middleware/permissionAuth";
 import { UserController } from "../controllers/UserController";
 import { SavedFilterFavoriteController } from "../controllers/SavedFilterFavoriteController";
 
@@ -73,7 +73,7 @@ router.use(authenticate);
 // Directory listing: internal audience, but every staff role legitimately needs
 // it (assignment pickers, reviewer selection), so this is a staff check rather
 // than a specific permission.
-router.get("/", requireInternalStaffUser(), UserController.getAllUsers);
+router.get("/", requireCeoOrAdmin(), UserController.getAllUsers);
 
 /**
  * @swagger
@@ -131,10 +131,10 @@ router.get("/", requireInternalStaffUser(), UserController.getAllUsers);
  *       401:
  *         description: Unauthorized
  */
-router.get("/by-department", UserController.getUsersByDepartmentAndRole);
+router.get("/by-department", requireCeoOrAdmin(), UserController.getUsersByDepartmentAndRole);
 
 // Option lists for the User Master form (statuses, procurement functions, access profiles, SoD restrictions).
-router.get("/master-options", requireInternalStaffUser(), UserController.getMasterOptions);
+router.get("/master-options", requireCeoOrAdmin(), UserController.getMasterOptions);
 
 /**
  * @swagger

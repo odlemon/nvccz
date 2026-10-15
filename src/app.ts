@@ -45,6 +45,7 @@ import auditLogRoutes from "./routes/auditLogRoutes"
 import postRoutes from "./routes/postRoutes"
 import newsletterRoutes from "./routes/newsletterRoutes"
 import newsletterSubscriptionRoutes from "./routes/newsletterSubscriptionRoutes"
+import newsFeedRoutes from "./routes/newsFeedRoutes"
 import eventRoutes from "./routes/eventRoutes"
 import homepageRoutes from "./routes/homepageRoutes"
 import serviceRequestRoutes from "./routes/serviceRequestRoutes"
@@ -660,6 +661,7 @@ app.use("/api/audit-logs", auditLogRoutes)
 app.use("/api/posts", postRoutes)
 app.use("/api/newsletters", newsletterRoutes)
 app.use("/api/newsletter", newsletterSubscriptionRoutes)
+app.use("/api/news-feed", newsFeedRoutes)
 app.use("/api/events", eventRoutes)
 app.use("/api/homepage", homepageRoutes)
 app.use("/api/service-requests", serviceRequestRoutes)
@@ -1012,7 +1014,10 @@ const gracefulShutdown = async (signal: string): Promise<void> => {
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"))
 process.on("SIGINT", () => gracefulShutdown("SIGINT"))
 
-// Start the server
-startServer()
+// Importing the Express app in tests should not bind a real network port. Integration
+// suites use Supertest directly, while the dev/start scripts run with NODE_ENV!=test.
+if (process.env.NODE_ENV !== "test") {
+  startServer()
+}
 
 export default app

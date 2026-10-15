@@ -12,7 +12,7 @@ import { ProcurementAuditController } from "../controllers/ProcurementAuditContr
 import { ProcurementInsightsController as Insights } from "../controllers/ProcurementInsightsController";
 import procurementRegistersRoutes from "./procurementRegistersRoutes";
 import { authenticate } from "../middleware/authenticate";
-import { requireAnyPermission, requireInternalStaffUser } from "../middleware/permissionAuth";
+import { requireAnyPermission, requireCeoOrAdmin, requireInternalStaffUser } from "../middleware/permissionAuth";
 import { PROCUREMENT_PERMISSIONS as PROC_PERMS } from "../config/procurementPermissions";
 import multer from "multer";
 
@@ -266,7 +266,7 @@ router.get("/me/access", ProcurementAccessController.getMyAccess);
 router.get("/invoices/payment-file", requireAnyPermission([PROC_PERMS.invoicesPay]), ProcurementController.exportPaymentBankFile);
 
 const { ProcurementNtsRemainingController } = require("../controllers/ProcurementNtsRemainingController");
-router.get("/settings", requireAnyPermission([PROC_PERMS.auditView, PROC_PERMS.rfqView]), ProcurementNtsRemainingController.getSettings);
+router.get("/settings", requireCeoOrAdmin(), ProcurementNtsRemainingController.getSettings);
 router.put("/settings", requireAnyPermission([PROC_PERMS.auditView]), ProcurementNtsRemainingController.putSettings);
 router.post(
   "/compliance-reminders/run",

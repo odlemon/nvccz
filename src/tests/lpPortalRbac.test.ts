@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { describe, it, expect } from "@jest/globals";
-import { LpPortalAccessService } from "../src/services/lpPortal/LpPortalAccessService";
+import { LpPortalAccessService } from "../services/lpPortal/LpPortalAccessService";
 
 describe("LpPortalAccessService.fundAllowed", () => {
   it("allows all funds when fundScope is null", () => {

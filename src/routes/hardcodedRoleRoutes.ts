@@ -2,12 +2,14 @@
 import express from "express";
 import { HardcodedRoleController } from "../controllers/HardcodedRoleController";
 import { authenticate } from "../middleware/authenticate";
+import { requireCeoOrAdmin } from "../middleware/permissionAuth";
 
 const router = express.Router();
 const controller = new HardcodedRoleController();
 
 // All routes require authentication
 router.use(authenticate);
+router.use(requireCeoOrAdmin());
 
 /**
  * @swagger

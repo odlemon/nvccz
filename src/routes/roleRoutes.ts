@@ -3,6 +3,7 @@ import express from "express";
 import { roleController } from "../controllers/RoleController";
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/authenticate";
+import { requireCeoOrAdmin } from "../middleware/permissionAuth";
 
 const router = express.Router();
 
@@ -65,7 +66,7 @@ router.use(authenticate);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post("/", authorize(["admin"]), roleController.createRole);
+router.post("/", requireCeoOrAdmin(), roleController.createRole);
 
 /*
  * @swagger - DISABLED
@@ -113,7 +114,7 @@ router.post("/", authorize(["admin"]), roleController.createRole);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get("/", authorize(["admin"]), roleController.getAllRoles);
+router.get("/", requireCeoOrAdmin(), roleController.getAllRoles);
 
 /*
  * @swagger - DISABLED
@@ -193,7 +194,7 @@ router.get("/", authorize(["admin"]), roleController.getAllRoles);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get("/:id", authorize(["admin"]), roleController.getRoleById);
+router.get("/:id", requireCeoOrAdmin(), roleController.getRoleById);
 
 /*
  * @swagger - DISABLED
@@ -265,7 +266,7 @@ router.get("/:id", authorize(["admin"]), roleController.getRoleById);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.put("/:id", authorize(["admin"]), roleController.updateRole);
+router.put("/:id", requireCeoOrAdmin(), roleController.updateRole);
 
 /*
  * @swagger - DISABLED
@@ -323,7 +324,7 @@ router.put("/:id", authorize(["admin"]), roleController.updateRole);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.delete("/:id", authorize(["admin"]), roleController.deleteRole);
+router.delete("/:id", requireCeoOrAdmin(), roleController.deleteRole);
 
 /*
  * @swagger - DISABLED
@@ -385,6 +386,6 @@ router.delete("/:id", authorize(["admin"]), roleController.deleteRole);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get("/:id/permissions", authorize(["admin"]), roleController.getRolePermissions);
+router.get("/:id/permissions", requireCeoOrAdmin(), roleController.getRolePermissions);
 
 export default router; 

@@ -24,6 +24,7 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
     "seed:admin": "ts-node prisma/seed.ts",
+    "seed:uat:role-personas": "ts-node scripts/seed-uat-role-personas.ts",
     "sync:roles": "ts-node --transpile-only scripts/sync-hardcoded-roles.ts",
     "seed:expense-categories": "ts-node scripts/seed-expense-categories.ts",
     "fix:cashbook-null-createdby": "ts-node scripts/fix-cashbook-null-createdby.ts",
