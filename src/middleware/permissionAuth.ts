@@ -33,6 +33,31 @@ export function requireInternalStaffUser() {
   };
 }
 
+/**
+ * FP&A is not a generic internal-staff module. Keep this role allowlist aligned
+ * with the frontend FP&A policy; Investment Analysts are intentionally excluded
+ * by the restricted ERP access policy. This check is route-wide so newly added
+ * endpoints inherit the module boundary.
+ */
+export function requireFpaModuleAccess() {
+  const allowedRoleCodes = new Set([
+    "CEO", "CFO", "FIN_MGR", "FIN_OFF", "ACCOUNTANT", "FIN_ASST",
+    "OPS_MGR", "HR_MGR", "SALES_MGR", "MKT_MGR", "BOARD_CHAIR",
+    "BOARD_MEMBER", "LIMITED_PARTNER", "ADMIN", "ADMINISTRATOR", "SYSADMIN", "IT_MGR",
+  ]);
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
+      return;
+    }
+    if (!allowedRoleCodes.has(String(req.user.roleCode || "").trim().toUpperCase())) {
+      res.status(403).json({ success: false, message: "This account is not authorized for FP&A." });
+      return;
+    }
+    next();
+  };
+}
+
 /** Staff, or any signed-in account reading its own record (`req.params[param]` is its own user id). */
 export function requireInternalStaffUserOrSelf(param = "id") {
   const staffOnly = requireInternalStaffUser();

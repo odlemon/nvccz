@@ -2,7 +2,7 @@
 import express from "express";
 import multer from "multer";
 import { authenticate } from "../middleware/authenticate";
-import { requireInternalStaffUser } from "../middleware/permissionAuth";
+import { requireFpaModuleAccess, requireInternalStaffUser } from "../middleware/permissionAuth";
 import { FpaController } from "../controllers/FpaController";
 
 const router = express.Router();
@@ -11,6 +11,9 @@ router.use(authenticate);
 // than route by route, so a new unguarded route cannot reopen the hole.
 // Mirrors fundraisingRoutes.ts's fix for the same class of gap.
 router.use(requireInternalStaffUser());
+// Internal identity alone is insufficient: only roles granted FP&A in the
+// module policy may reach any of its read or mutation routes.
+router.use(requireFpaModuleAccess());
 
 const uploadAttachment = multer({
   storage: multer.memoryStorage(),
