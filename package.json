@@ -6,6 +6,7 @@
   "scripts": {
     "build": "npm run prisma:generate && tsc",
     "start": "node dist/app.js",
+    "news:ingest": "node dist/scripts/newsIngest.js",
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write 'src/**/*.ts'",

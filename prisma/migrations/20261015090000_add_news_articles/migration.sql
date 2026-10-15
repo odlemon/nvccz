@@ -1,0 +1,20 @@
+CREATE TABLE `news_articles` (
+  `id` CHAR(64) NOT NULL,
+  `article_id` VARCHAR(191) NOT NULL,
+  `source_id` VARCHAR(80) NOT NULL,
+  `source_name` VARCHAR(191) NOT NULL,
+  `source_url` TEXT NOT NULL,
+  `title` VARCHAR(512) NOT NULL,
+  `link` TEXT NOT NULL,
+  `description` TEXT NULL,
+  `creator` TEXT NULL,
+  `image_url` TEXT NOT NULL,
+  `pub_date` DATETIME(3) NOT NULL,
+  `language` VARCHAR(12) NOT NULL DEFAULT 'en',
+  `ingested_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at` DATETIME(3) NOT NULL,
+  UNIQUE INDEX `news_articles_article_id_key` (`article_id`),
+  INDEX `news_articles_pub_date_id_idx` (`pub_date`, `id`),
+  INDEX `news_articles_source_pub_date_idx` (`source_id`, `pub_date`),
+  PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
