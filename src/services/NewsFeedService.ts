@@ -108,8 +108,8 @@ export async function isAccessibleCoverImage(value: string): Promise<boolean> {
     if (current.protocol !== "https:" || current.username || current.password
       || current.hostname === "localhost" || current.hostname.endsWith(".localhost") || current.hostname.endsWith(".local")) return false;
     try {
-      const resolved = await lookup(current.hostname);
-      if (!isPublicAddress(resolved.address)) return false;
+      const resolved = await lookup(current.hostname, { all: true, verbatim: true });
+      if (!resolved.length || resolved.some(({ address }) => !isPublicAddress(address))) return false;
       const response = await axios.head(current.toString(), {
         timeout: 5000, maxRedirects: 0, validateStatus: () => true,
         headers: { "User-Agent": "Matanho-News/1.0" },
@@ -138,6 +138,44 @@ export async function isAccessibleCoverImage(value: string): Promise<boolean> {
     }
   }
   return false;
+}
+
+async function scrapeArticleCover(articleLink: string): Promise<string | null> {
+  let current: URL;
+  try { current = new URL(articleLink); } catch { return null; }
+  for (let redirects = 0; redirects <= 3; redirects += 1) {
+    if (current.protocol !== "https:" || current.username || current.password) return null;
+    try {
+      const resolved = await lookup(current.hostname, { all: true, verbatim: true });
+      if (!resolved.length || resolved.some(({ address }) => !isPublicAddress(address))) return null;
+      const response = await axios.get<string>(current.toString(), {
+        timeout: 5000, maxRedirects: 0, maxContentLength: 1024 * 1024,
+        responseType: "text", validateStatus: () => true,
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; Matanho-News/1.0)", Accept: "text/html" },
+      });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.location;
+        if (!location || redirects === 3) return null;
+        current = new URL(location, current);
+        continue;
+      }
+      if (response.status < 200 || response.status >= 300
+        || !String(response.headers["content-type"] ?? "").toLowerCase().includes("text/html")) return null;
+      const metas = [...response.data.matchAll(/<meta\b[^>]*>/gi)].map(([tag]) => tag);
+      for (const meta of metas) {
+        const key = (attr(meta, "meta", "property") || attr(meta, "meta", "name")).toLowerCase();
+        if (key !== "og:image" && key !== "og:image:url" && key !== "twitter:image" && key !== "twitter:image:src") continue;
+        const value = attr(meta, "meta", "content");
+        if (!value) continue;
+        try {
+          const candidate = new URL(value, current).toString();
+          if (await isAccessibleCoverImage(candidate)) return candidate;
+        } catch { /* try the next metadata image */ }
+      }
+      return null;
+    } catch { return null; }
+  }
+  return null;
 }
 
 export function readImageDimensions(buffer: Buffer): { width: number; height: number } | null {
@@ -185,8 +223,9 @@ export async function parseFeedXml(
   xml: string,
   source: FeedSource,
   imageValidator: (url: string) => Promise<boolean> = isAccessibleCoverImage,
+  pageCoverScraper: (url: string) => Promise<string | null> = scrapeArticleCover,
 ): Promise<{ articles: ParsedArticle[]; excluded: number }> {
-  const entries = [...xml.matchAll(/<(?:item|entry)(?:\s[^>]*)?>([\s\S]*?)<\/(?:item|entry)>/gi)].slice(0, 15);
+  const entries = [...xml.matchAll(/<(?:item|entry)(?:\s[^>]*)?>([\s\S]*?)<\/(?:item|entry)>/gi)].slice(0, 8);
   let excluded = 0;
   const parsed = await Promise.all(entries.map(async (match): Promise<ParsedArticle | null> => {
     const item = match[1];
@@ -194,8 +233,13 @@ export async function parseFeedXml(
     const link = canonicalLink(rawTag(item, "link") || item.match(/<link\b[^>]*href=["']([^"']+)["']/i)?.[1] || rawTag(item, "guid"));
     const pubRaw = plainText(rawTag(item, "pubDate") || rawTag(item, "published") || rawTag(item, "updated"));
     const pubDate = new Date(pubRaw);
-    const imageUrl = imageCandidate(item);
-    if (!title || !link || !Number.isFinite(pubDate.getTime()) || !imageUrl || !(await imageValidator(imageUrl))) {
+    const feedImage = imageCandidate(item);
+    let imageUrl = feedImage && await imageValidator(feedImage) ? feedImage : null;
+    if (!imageUrl && link) {
+      const scrapedImage = await pageCoverScraper(link);
+      if (scrapedImage && await imageValidator(scrapedImage)) imageUrl = scrapedImage;
+    }
+    if (!title || !link || !Number.isFinite(pubDate.getTime()) || !imageUrl) {
       excluded += 1;
       return null;
     }

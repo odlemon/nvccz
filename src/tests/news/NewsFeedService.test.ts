@@ -30,9 +30,16 @@ describe("news feed parsing", () => {
 
   it("excludes records without an accessible publisher image", async () => {
     const xml = `<rss><item><title>Missing image</title><link>https://publisher.example/story</link><pubDate>Wed, 14 Oct 2026 10:00:00 GMT</pubDate></item></rss>`;
-    const result = await parseFeedXml(xml, source, validCover);
+    const result = await parseFeedXml(xml, source, validCover, async () => null);
     expect(result.articles).toHaveLength(0);
     expect(result.excluded).toBe(1);
+  });
+
+  it("uses the publisher page's verified Open Graph cover when the feed has none", async () => {
+    const xml = `<rss><item><title>Publisher cover</title><link>https://publisher.example/story</link><pubDate>Wed, 14 Oct 2026 10:00:00 GMT</pubDate></item></rss>`;
+    const { articles, excluded } = await parseFeedXml(xml, source, validCover, async () => "https://images.publisher.example/cover.jpg");
+    expect(excluded).toBe(0);
+    expect(articles[0].imageUrl).toBe("https://images.publisher.example/cover.jpg");
   });
 
   it("rejects non-HTTPS and loopback image locations before requesting them", async () => {
